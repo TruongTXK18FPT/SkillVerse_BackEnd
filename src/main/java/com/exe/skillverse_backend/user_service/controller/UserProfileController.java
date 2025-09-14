@@ -7,6 +7,13 @@ import com.exe.skillverse_backend.user_service.dto.request.UpdateSkillRequest;
 import com.exe.skillverse_backend.user_service.dto.response.UserProfileResponse;
 import com.exe.skillverse_backend.user_service.dto.response.UserSkillResponse;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,6 +27,8 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/user/profile")
 @RequiredArgsConstructor
+@Tag(name = "User Profile", description = "User profile and skills management endpoints")
+@SecurityRequirement(name = "Bearer Authentication")
 public class UserProfileController {
 
     private final UserProfileService userProfileService;
@@ -27,6 +36,12 @@ public class UserProfileController {
     // Profile Management
 
     @PostMapping
+    @Operation(summary = "Create user profile", description = "Creates a new user profile with the provided information")
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Profile created successfully", content = @Content(schema = @Schema(implementation = UserProfileResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request data", content = @Content),
+            @ApiResponse(responseCode = "409", description = "Profile already exists for this user", content = @Content)
+    })
     public ResponseEntity<UserProfileResponse> createProfile(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody CreateProfileRequest request) {

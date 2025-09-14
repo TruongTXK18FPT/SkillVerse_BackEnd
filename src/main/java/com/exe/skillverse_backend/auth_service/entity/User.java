@@ -26,8 +26,23 @@ public class User {
     private String password;
 
     @Builder.Default
-    @Column(name = "is_active", nullable = false)
-    private boolean isActive = true;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
+    private UserStatus status = UserStatus.UNVERIFIED;
+
+    @Builder.Default
+    @Column(name = "is_email_verified", nullable = false)
+    private boolean isEmailVerified = false;
+
+    @Column(name = "verification_otp")
+    private String verificationOtp;
+
+    @Column(name = "otp_expiry_time")
+    private LocalDateTime otpExpiryTime;
+
+    @Column(name = "otp_attempts", nullable = false)
+    @Builder.Default
+    private Integer otpAttempts = 0;
 
     @Builder.Default
     @Column(name = "created_at", nullable = false)

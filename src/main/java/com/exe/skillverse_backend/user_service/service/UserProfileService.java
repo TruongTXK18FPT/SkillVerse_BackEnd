@@ -44,16 +44,23 @@ public class UserProfileService {
             }
 
             // Create profile
+            // Handle foreign key fields - convert 0 to null to avoid constraint violations
+            Long validAvatarMediaId = (request.getAvatarMediaId() != null && request.getAvatarMediaId() > 0)
+                    ? request.getAvatarMediaId()
+                    : null;
+            Long validCompanyId = (request.getCompanyId() != null && request.getCompanyId() > 0)
+                    ? request.getCompanyId()
+                    : null;
+
             UserProfile profile = UserProfile.builder()
                     .userId(userId)
-                    .user(user)
                     .fullName(request.getFullName())
-                    .avatarMediaId(request.getAvatarMediaId())
+                    .avatarMediaId(validAvatarMediaId)
                     .bio(request.getBio())
                     .phone(request.getPhone())
                     .address(request.getAddress())
                     .region(request.getRegion())
-                    .companyId(request.getCompanyId())
+                    .companyId(validCompanyId)
                     .socialLinks(request.getSocialLinks())
                     .build();
 
@@ -88,7 +95,6 @@ public class UserProfileService {
             // Create default profile with minimal information
             UserProfile profile = UserProfile.builder()
                     .userId(userId)
-                    .user(user)
                     .fullName(null) // Will be set later by user
                     .avatarMediaId(null)
                     .bio(null)
@@ -148,9 +154,11 @@ public class UserProfileService {
 
             profile = userProfileRepository.save(profile);
 
-            // Log action
+            // Log action - get user for email
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
             auditService.logAction(userId, "UPDATE", "USER_PROFILE", userId.toString(),
-                    "User profile updated for user: " + profile.getUser().getEmail());
+                    "User profile updated for user: " + user.getEmail());
 
             return mapToProfileResponse(profile);
 
@@ -201,9 +209,11 @@ public class UserProfileService {
             // Delete profile
             userProfileRepository.delete(profile);
 
-            // Log action
+            // Log action - get user for email
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
             auditService.logAction(userId, "DELETE", "USER_PROFILE", userId.toString(),
-                    "User profile deleted for user: " + profile.getUser().getEmail());
+                    "User profile deleted for user: " + user.getEmail());
 
         } catch (Exception e) {
             auditService.logAction(userId, "DELETE_PROFILE_FAILED", "USER_PROFILE", userId.toString(),
@@ -318,9 +328,13 @@ public class UserProfileService {
     // Helper methods
 
     private UserProfileResponse mapToProfileResponse(UserProfile profile) {
+        // Get user information separately since the relationship is read-only
+        User user = userRepository.findById(profile.getUserId())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
         return UserProfileResponse.builder()
                 .userId(profile.getUserId())
-                .email(profile.getUser().getEmail())
+                .email(user.getEmail())
                 .fullName(profile.getFullName())
                 .avatarMediaId(profile.getAvatarMediaId())
                 .avatarMediaUrl(profile.getAvatarMedia() != null ? profile.getAvatarMedia().getUrl() : null)
@@ -362,16 +376,19 @@ public class UserProfileService {
             }
 
             // Create complete profile with all provided information
+            // Handle foreign key fields - convert 0 to null to avoid constraint violations
+            Long validAvatarMediaId = (avatarMediaId != null && avatarMediaId > 0) ? avatarMediaId : null;
+            Long validCompanyId = (companyId != null && companyId > 0) ? companyId : null;
+
             UserProfile profile = UserProfile.builder()
                     .userId(userId)
-                    .user(user)
                     .fullName(fullName)
-                    .avatarMediaId(avatarMediaId)
+                    .avatarMediaId(validAvatarMediaId)
                     .bio(bio)
                     .phone(phone)
                     .address(address)
                     .region(region)
-                    .companyId(companyId)
+                    .companyId(validCompanyId)
                     .socialLinks(socialLinks)
                     .build();
 

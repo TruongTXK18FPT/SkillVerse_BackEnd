@@ -23,8 +23,7 @@ public class UserProfile {
     private Long userId;
 
     @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id")
-    @MapsId
+    @JoinColumn(name = "user_id", insertable = false, updatable = false)
     private User user;
 
     @Column(name = "full_name")
