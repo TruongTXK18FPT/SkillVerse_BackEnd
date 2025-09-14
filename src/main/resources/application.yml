@@ -1,0 +1,16 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/SkillVerseDB
+    username: postgres
+    password: 12345
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
+
+jwt:
+  secret: myVerySecureSecretKeyForJWTTokensInSkillverse123456
+  access-token-expiration: 3600 # 1 hour in seconds
+  refresh-token-expiration: 86400 # 24 hours in seconds
