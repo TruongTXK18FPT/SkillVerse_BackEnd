@@ -348,9 +348,9 @@ public class UserProfileService {
     }
 
     @Transactional
-    public UserProfileResponse createCompleteProfile(Long userId, String fullName, String phone, String address, 
-                                                   String region, String bio, Long avatarMediaId, Long companyId, 
-                                                   String socialLinks) {
+    public UserProfileResponse createCompleteProfile(Long userId, String fullName, String phone, String address,
+            String region, String bio, Long avatarMediaId, Long companyId,
+            String socialLinks) {
         try {
             // Check if user exists
             User user = userRepository.findById(userId)

@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Size;
 
 @Data
 public class RegisterRequest {
-    
+
     // Authentication fields
     @Email(message = "Please provide a valid email address")
     @NotBlank(message = "Email is required")
@@ -38,7 +38,7 @@ public class RegisterRequest {
     // Optional fields
     private Long avatarMediaId;
     private Long companyId;
-    
+
     @Size(max = 1000, message = "Social links must not exceed 1000 characters")
     private String socialLinks; // JSON string for social media links
 }

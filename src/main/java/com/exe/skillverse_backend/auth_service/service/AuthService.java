@@ -70,23 +70,23 @@ public class AuthService {
             // Create complete user profile with registration data
             try {
                 userProfileService.createCompleteProfile(
-                    user.getId(),
-                    request.getFullName(),
-                    request.getPhone(),
-                    request.getAddress(),
-                    request.getRegion(),
-                    request.getBio(),
-                    request.getAvatarMediaId(),
-                    request.getCompanyId(),
-                    request.getSocialLinks()
-                );
+                        user.getId(),
+                        request.getFullName(),
+                        request.getPhone(),
+                        request.getAddress(),
+                        request.getRegion(),
+                        request.getBio(),
+                        request.getAvatarMediaId(),
+                        request.getCompanyId(),
+                        request.getSocialLinks());
                 auditService.logAction(user.getId(), "CREATE", "USER_PROFILE", user.getId().toString(),
                         "Complete user profile created during registration for user: " + request.getEmail());
             } catch (Exception profileException) {
                 log.error("Failed to create profile for user {}: {}", user.getId(), profileException.getMessage());
                 // If profile creation fails, rollback user creation too
                 userRepository.delete(user);
-                throw new RuntimeException("Registration failed: Unable to create user profile - " + profileException.getMessage());
+                throw new RuntimeException(
+                        "Registration failed: Unable to create user profile - " + profileException.getMessage());
             }
 
             // Generate tokens
