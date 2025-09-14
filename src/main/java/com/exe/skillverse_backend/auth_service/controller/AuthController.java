@@ -3,12 +3,9 @@ package com.exe.skillverse_backend.auth_service.controller;
 import com.exe.skillverse_backend.auth_service.dto.request.CompleteProfileRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.LoginRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.RefreshTokenRequest;
-import com.exe.skillverse_backend.auth_service.dto.request.RegisterRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.ResendOtpRequest;
-import com.exe.skillverse_backend.auth_service.dto.request.SimpleRegisterRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.VerifyEmailRequest;
 import com.exe.skillverse_backend.auth_service.dto.response.AuthResponse;
-import com.exe.skillverse_backend.auth_service.dto.response.EmailVerifiedResponse;
 import com.exe.skillverse_backend.auth_service.dto.response.RegistrationResponse;
 import com.exe.skillverse_backend.auth_service.service.AuthService;
 import com.exe.skillverse_backend.auth_service.service.EmailVerificationService;
@@ -34,21 +31,6 @@ public class AuthController {
 
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
-
-    @PostMapping("/register")
-    @Operation(summary = "Simple registration - email and password only", description = "Creates user account with email and password, sends OTP for verification")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "User registered successfully, verification email sent", content = @Content(schema = @Schema(implementation = RegistrationResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Invalid request data or user already exists", content = @Content)
-    })
-    public ResponseEntity<RegistrationResponse> register(@Valid @RequestBody SimpleRegisterRequest request) {
-        try {
-            RegistrationResponse response = authService.simpleRegister(request);
-            return ResponseEntity.ok(response);
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
 
     @PostMapping("/verify-email")
     @Operation(summary = "Verify email and activate account", description = "Verifies email with OTP and activates account for login")
