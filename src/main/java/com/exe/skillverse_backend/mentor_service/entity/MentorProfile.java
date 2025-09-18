@@ -26,33 +26,34 @@ public class MentorProfile {
     @MapsId
     private User user;
 
-    @Column(name = "expertise_areas", columnDefinition = "TEXT")
-    private String expertiseAreas; // JSON array of expertise areas
+    // Basic Information (from form)
+    @Column(name = "full_name", nullable = false)
+    private String fullName;
 
-    @Column(name = "certifications", columnDefinition = "TEXT")
-    private String certifications; // JSON array of certifications
+    @Column(name = "email", nullable = false)
+    private String email;
 
-    @Column(name = "years_of_experience")
+    @Column(name = "linkedin_profile")
+    private String linkedinProfile; // Optional
+
+    // Expertise & Experience (from form)
+    @Column(name = "main_expertise_areas", columnDefinition = "TEXT", nullable = false)
+    private String mainExpertiseAreas; // Main specialization field from dropdown
+
+    @Column(name = "years_of_experience", nullable = false)
     private Integer yearsOfExperience;
 
-    @Column(name = "hourly_rate")
-    private Double hourlyRate;
+    @Column(name = "personal_profile", columnDefinition = "TEXT", nullable = false)
+    private String personalProfile; // Personal achievements and experience description
 
-    @Column(name = "availability", columnDefinition = "TEXT")
-    private String availability; // JSON for availability schedule
+    // Documents (from form)
+    @Column(name = "cv_portfolio_url")
+    private String cvPortfolioUrl; // File upload for CV/Portfolio
 
-    @Column(name = "bio", columnDefinition = "TEXT")
-    private String bio;
+    @Column(name = "certificates_url")
+    private String certificatesUrl; // File upload for certificates
 
-    @Column(name = "languages_spoken")
-    private String languagesSpoken; // JSON array
-
-    @Column(name = "linkedin_url")
-    private String linkedinUrl;
-
-    @Column(name = "portfolio_url")
-    private String portfolioUrl;
-
+    // Application Status & Admin Fields
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "application_status", nullable = false)
@@ -71,6 +72,40 @@ public class MentorProfile {
     @Column(name = "rejection_reason")
     private String rejectionReason;
 
+    // Legacy fields (keep for backward compatibility but deprecate)
+    @Deprecated
+    @Column(name = "expertise_areas", columnDefinition = "TEXT")
+    private String expertiseAreas; // JSON array of expertise areas
+
+    @Deprecated
+    @Column(name = "certifications", columnDefinition = "TEXT")
+    private String certifications; // JSON array of certifications
+
+    @Deprecated
+    @Column(name = "hourly_rate")
+    private Double hourlyRate;
+
+    @Deprecated
+    @Column(name = "availability", columnDefinition = "TEXT")
+    private String availability; // JSON for availability schedule
+
+    @Deprecated
+    @Column(name = "bio", columnDefinition = "TEXT")
+    private String bio;
+
+    @Deprecated
+    @Column(name = "languages_spoken")
+    private String languagesSpoken; // JSON array
+
+    @Deprecated
+    @Column(name = "linkedin_url")
+    private String linkedinUrl;
+
+    @Deprecated
+    @Column(name = "portfolio_url")
+    private String portfolioUrl;
+
+    // Timestamps
     @Builder.Default
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

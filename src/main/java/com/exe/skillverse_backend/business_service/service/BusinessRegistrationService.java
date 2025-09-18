@@ -9,8 +9,8 @@ import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRe
 import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.shared.service.AuditService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
-import com.exe.skillverse_backend.user_service.dto.request.CreateProfileRequest;
-import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.exe.skillverse_backend.shared.util.SecureAuditUtil;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -26,7 +26,6 @@ public class BusinessRegistrationService
 
     private final UserCreationService userCreationService;
     private final RecruiterProfileRepository recruiterProfileRepository;
-    private final UserProfileService userProfileService;
     private final AuditService auditService;
 
     @Override
@@ -41,15 +40,18 @@ public class BusinessRegistrationService
                     request.getPassword(),
                     request.getFullName());
 
-            // 2. Create UserProfile in user_service
-            createUserProfile(user.getId(), request);
+            // 2. Create RecruiterProfile in business_service
+            createRecruiterProfile(user, request);
 
-            // 3. Create RecruiterProfile in business_service
-            createRecruiterProfile(user.getId(), request);
+            // 3. Generate OTP for email verification (only after successful profile
+            // creation)
+            userCreationService.generateOtpForUser(request.getEmail());
+            log.info("Generated OTP for recruiter user: {}", request.getEmail());
 
             // 4. Log successful registration
+            String auditDetails = SecureAuditUtil.createRegistrationAuditDetails(request.getEmail(), "RECRUITER");
             auditService.logAction(user.getId(), "RECRUITER_REGISTRATION", "RECRUITER", user.getId().toString(),
-                    "Recruiter registered successfully: " + request.getEmail() + " - awaiting admin approval");
+                    auditDetails);
 
             return BusinessRegistrationResponse.builder()
                     .success(true)
@@ -74,39 +76,21 @@ public class BusinessRegistrationService
     }
 
     /**
-     * Create UserProfile for the recruiter using CreateProfileRequest
-     */
-    private void createUserProfile(Long userId, BusinessRegistrationRequest request) {
-        CreateProfileRequest profileRequest = new CreateProfileRequest();
-        profileRequest.setFullName(request.getFullName());
-        profileRequest.setBio(request.getBio());
-        profileRequest.setPhone(request.getPhone());
-        profileRequest.setAddress(request.getAddress());
-        profileRequest.setRegion(request.getRegion());
-
-        userProfileService.createProfile(userId, profileRequest);
-    }
-
-    /**
      * Create RecruiterProfile with application pending status
      */
-    private void createRecruiterProfile(Long userId, BusinessRegistrationRequest request) {
+    private void createRecruiterProfile(User user, BusinessRegistrationRequest request) {
         RecruiterProfile recruiterProfile = RecruiterProfile.builder()
-                .userId(userId)
+                .user(user) // Set the User entity reference for @MapsId (userId will be auto-derived)
                 .companyName(request.getCompanyName())
-                .companyDescription(request.getCompanyDescription())
                 .companyWebsite(request.getCompanyWebsite())
-                .industry(request.getIndustry())
-                .companySize(request.getCompanySize())
-                .jobTitle(request.getJobTitle())
-                .workEmail(request.getEmail()) // Store work email same as registration email
-                .phoneNumber(request.getPhone())
-                .companyAddress(request.getAddress())
+                .companyAddress(request.getCompanyAddress())
+                .taxCodeOrBusinessRegistrationNumber(request.getTaxCodeOrBusinessRegistrationNumber())
+                .companyDocumentsUrl(request.getCompanyDocumentsUrl())
                 .applicationStatus(ApplicationStatus.PENDING)
                 .applicationDate(LocalDateTime.now())
                 .build();
 
         recruiterProfileRepository.save(recruiterProfile);
-        log.info("Created recruiter profile for user: {}", userId);
+        log.info("Created recruiter profile for user: {} with company: {}", user.getId(), request.getCompanyName());
     }
 }

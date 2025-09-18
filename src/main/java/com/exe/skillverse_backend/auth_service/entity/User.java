@@ -41,13 +41,8 @@ public class User {
 
     @Builder.Default
     @Enumerated(EnumType.STRING)
-    @Column(name = "account_status", nullable = false)
-    private AccountStatus accountStatus = AccountStatus.PENDING;
-
-    @Builder.Default
-    @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
-    private UserStatus status = UserStatus.UNVERIFIED;
+    private UserStatus status = UserStatus.INACTIVE;
 
     @Builder.Default
     @Column(name = "is_email_verified", nullable = false)

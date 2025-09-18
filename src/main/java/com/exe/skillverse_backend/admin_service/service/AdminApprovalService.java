@@ -1,6 +1,11 @@
 package com.exe.skillverse_backend.admin_service.service;
 
+import com.exe.skillverse_backend.admin_service.dto.request.ApplicationActionRequest;
 import com.exe.skillverse_backend.admin_service.dto.response.AdminApprovalResponse;
+import com.exe.skillverse_backend.admin_service.dto.response.ApplicationStatusStatsDto;
+import com.exe.skillverse_backend.admin_service.dto.response.ApplicationsResponse;
+import com.exe.skillverse_backend.admin_service.dto.response.MentorApplicationDto;
+import com.exe.skillverse_backend.admin_service.dto.response.RecruiterApplicationDto;
 import com.exe.skillverse_backend.auth_service.entity.*;
 import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
@@ -13,13 +18,12 @@ import com.exe.skillverse_backend.shared.service.AuditService;
 import com.exe.skillverse_backend.shared.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -27,221 +31,440 @@ import java.util.List;
 @Transactional
 public class AdminApprovalService {
 
-    private final UserRepository userRepository;
-    private final MentorProfileRepository mentorProfileRepository;
-    private final RecruiterProfileRepository recruiterProfileRepository;
-    private final RoleRepository roleRepository;
-    private final EmailService emailService;
-    private final AuditService auditService;
+        private final UserRepository userRepository;
+        private final MentorProfileRepository mentorProfileRepository;
+        private final RecruiterProfileRepository recruiterProfileRepository;
+        private final RoleRepository roleRepository;
+        private final EmailService emailService;
+        private final AuditService auditService;
 
-    public List<MentorProfile> getPendingMentorApplications() {
-        return mentorProfileRepository.findByApplicationStatus(ApplicationStatus.PENDING);
-    }
+        public AdminApprovalResponse approveMentor(Long userId, Long adminId) {
+                // Find user and mentor profile
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found"));
 
-    public List<RecruiterProfile> getPendingRecruiterApplications() {
-        return recruiterProfileRepository.findByApplicationStatus(ApplicationStatus.PENDING);
-    }
+                if (user.getPrimaryRole() != PrimaryRole.MENTOR) {
+                        throw new RuntimeException("User is not registered as a mentor");
+                }
 
-    public AdminApprovalResponse approveMentor(Long userId) {
-        // Get current admin user ID for audit
-        Long adminId = getCurrentAdminId();
+                // Check if user has verified their email
+                if (!user.isEmailVerified()) {
+                        throw new RuntimeException("User must verify their email before approval can be processed");
+                }
 
-        // Find user and mentor profile
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                // Check if user status is INACTIVE (correct status for pending
+                // mentor/recruiter)
+                if (user.getStatus() != UserStatus.INACTIVE) {
+                        throw new RuntimeException(
+                                        "User account must be in INACTIVE status (email verified but pending approval)");
+                }
 
-        if (user.getPrimaryRole() != PrimaryRole.MENTOR) {
-            throw new RuntimeException("User is not registered as a mentor");
+                MentorProfile mentorProfile = mentorProfileRepository.findByUserId(userId)
+                                .orElseThrow(() -> new RuntimeException("Mentor profile not found"));
+
+                if (mentorProfile.getApplicationStatus() != ApplicationStatus.PENDING) {
+                        throw new RuntimeException("Mentor application is not in pending status");
+                }
+
+                // Approve the application
+                mentorProfile.setApplicationStatus(ApplicationStatus.APPROVED);
+                mentorProfile.setApprovalDate(LocalDateTime.now());
+                mentorProfile.setApprovedBy(adminId);
+                mentorProfileRepository.save(mentorProfile);
+
+                // Activate user account - change from INACTIVE to ACTIVE
+                user.setStatus(UserStatus.ACTIVE);
+
+                // Assign MENTOR role
+                Role mentorRole = roleRepository.findByName("MENTOR")
+                                .orElseThrow(() -> new RuntimeException("MENTOR role not found"));
+                user.getRoles().add(mentorRole);
+
+                userRepository.save(user);
+
+                // Send approval email
+                emailService.sendApprovalEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(),
+                                "MENTOR");
+
+                // Log the approval
+                auditService.logAction(adminId, "MENTOR_APPROVED", "USER", userId.toString(),
+                                "Mentor application approved for user: " + user.getEmail());
+
+                return AdminApprovalResponse.builder()
+                                .success(true)
+                                .message("Mentor application approved successfully")
+                                .userEmail(user.getEmail())
+                                .userId(userId)
+                                .role("MENTOR")
+                                .action("APPROVED")
+                                .build();
         }
 
-        MentorProfile mentorProfile = mentorProfileRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Mentor profile not found"));
+        public AdminApprovalResponse approveRecruiter(Long userId, Long adminId) {
+                // Find user and recruiter profile
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found"));
 
-        if (mentorProfile.getApplicationStatus() != ApplicationStatus.PENDING) {
-            throw new RuntimeException("Mentor application is not in pending status");
+                if (user.getPrimaryRole() != PrimaryRole.RECRUITER) {
+                        throw new RuntimeException("User is not registered as a recruiter");
+                }
+
+                // Check if user has verified their email
+                if (!user.isEmailVerified()) {
+                        throw new RuntimeException("User must verify their email before approval can be processed");
+                }
+
+                // Check if user status is INACTIVE (correct status for pending
+                // mentor/recruiter)
+                if (user.getStatus() != UserStatus.INACTIVE) {
+                        throw new RuntimeException(
+                                        "User account must be in INACTIVE status (email verified but pending approval)");
+                }
+
+                RecruiterProfile recruiterProfile = recruiterProfileRepository.findByUserId(userId)
+                                .orElseThrow(() -> new RuntimeException("Recruiter profile not found"));
+
+                if (recruiterProfile.getApplicationStatus() != ApplicationStatus.PENDING) {
+                        throw new RuntimeException("Recruiter application is not in pending status");
+                }
+
+                // Approve the application
+                recruiterProfile.setApplicationStatus(ApplicationStatus.APPROVED);
+                recruiterProfile.setApprovalDate(LocalDateTime.now());
+                recruiterProfile.setApprovedBy(adminId);
+                recruiterProfileRepository.save(recruiterProfile);
+
+                // Activate user account - change from INACTIVE to ACTIVE
+                user.setStatus(UserStatus.ACTIVE);
+
+                // Assign RECRUITER role
+                Role recruiterRole = roleRepository.findByName("RECRUITER")
+                                .orElseThrow(() -> new RuntimeException("RECRUITER role not found"));
+                user.getRoles().add(recruiterRole);
+
+                userRepository.save(user);
+
+                // Send approval email
+                emailService.sendApprovalEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(),
+                                "RECRUITER");
+
+                // Log the approval
+                auditService.logAction(adminId, "RECRUITER_APPROVED", "USER", userId.toString(),
+                                "Recruiter application approved for user: " + user.getEmail());
+
+                return AdminApprovalResponse.builder()
+                                .success(true)
+                                .message("Recruiter application approved successfully")
+                                .userEmail(user.getEmail())
+                                .userId(userId)
+                                .role("RECRUITER")
+                                .action("APPROVED")
+                                .build();
         }
 
-        // Approve the application
-        mentorProfile.setApplicationStatus(ApplicationStatus.APPROVED);
-        mentorProfile.setApprovalDate(LocalDateTime.now());
-        mentorProfile.setApprovedBy(adminId);
-        mentorProfileRepository.save(mentorProfile);
+        public AdminApprovalResponse rejectMentor(Long userId, String rejectionReason, Long adminId) {
+                // Find user and mentor profile
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // Activate user account
-        user.setAccountStatus(AccountStatus.ACTIVE);
+                // Check if user has verified their email
+                if (!user.isEmailVerified()) {
+                        throw new RuntimeException("User must verify their email before rejection can be processed");
+                }
 
-        // Assign MENTOR role
-        Role mentorRole = roleRepository.findByName("MENTOR")
-                .orElseThrow(() -> new RuntimeException("MENTOR role not found"));
-        user.getRoles().add(mentorRole);
+                // Check if user status is active (email verified)
+                if (user.getStatus() != UserStatus.ACTIVE) {
+                        throw new RuntimeException("User account must be active (email verified) before rejection");
+                }
 
-        userRepository.save(user);
+                MentorProfile mentorProfile = mentorProfileRepository.findByUserId(userId)
+                                .orElseThrow(() -> new RuntimeException("Mentor profile not found"));
 
-        // Send approval email
-        emailService.sendApprovalEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(), "MENTOR");
+                if (mentorProfile.getApplicationStatus() != ApplicationStatus.PENDING) {
+                        throw new RuntimeException("Mentor application is not in pending status");
+                }
 
-        // Log the approval
-        auditService.logAction(adminId, "MENTOR_APPROVED", "USER", userId.toString(),
-                "Mentor application approved for user: " + user.getEmail());
+                // Reject the application
+                mentorProfile.setApplicationStatus(ApplicationStatus.REJECTED);
+                mentorProfile.setRejectionReason(rejectionReason);
+                mentorProfile.setApprovedBy(adminId); // Admin who rejected
+                mentorProfileRepository.save(mentorProfile);
 
-        return AdminApprovalResponse.builder()
-                .success(true)
-                .message("Mentor application approved successfully")
-                .userEmail(user.getEmail())
-                .userId(userId)
-                .role("MENTOR")
-                .action("APPROVED")
-                .build();
-    }
+                // Keep user account status as INACTIVE (rejected applications remain inactive)
+                user.setStatus(UserStatus.INACTIVE);
+                userRepository.save(user);
 
-    public AdminApprovalResponse approveRecruiter(Long userId) {
-        // Get current admin user ID for audit
-        Long adminId = getCurrentAdminId();
+                // Send rejection email
+                emailService.sendRejectionEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(),
+                                "MENTOR",
+                                rejectionReason);
 
-        // Find user and recruiter profile
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                // Log the rejection
+                auditService.logAction(adminId, "MENTOR_REJECTED", "USER", userId.toString(),
+                                "Mentor application rejected for user: " + user.getEmail() + ", reason: "
+                                                + rejectionReason);
 
-        if (user.getPrimaryRole() != PrimaryRole.RECRUITER) {
-            throw new RuntimeException("User is not registered as a recruiter");
+                return AdminApprovalResponse.builder()
+                                .success(true)
+                                .message("Mentor application rejected")
+                                .userEmail(user.getEmail())
+                                .userId(userId)
+                                .role("MENTOR")
+                                .action("REJECTED")
+                                .reason(rejectionReason)
+                                .build();
         }
 
-        RecruiterProfile recruiterProfile = recruiterProfileRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Recruiter profile not found"));
+        public AdminApprovalResponse rejectRecruiter(Long userId, String rejectionReason, Long adminId) {
+                // Find user and recruiter profile
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found"));
 
-        if (recruiterProfile.getApplicationStatus() != ApplicationStatus.PENDING) {
-            throw new RuntimeException("Recruiter application is not in pending status");
+                // Check if user has verified their email
+                if (!user.isEmailVerified()) {
+                        throw new RuntimeException("User must verify their email before rejection can be processed");
+                }
+
+                // Check if user status is active (email verified)
+                if (user.getStatus() != UserStatus.ACTIVE) {
+                        throw new RuntimeException("User account must be active (email verified) before rejection");
+                }
+
+                RecruiterProfile recruiterProfile = recruiterProfileRepository.findByUserId(userId)
+                                .orElseThrow(() -> new RuntimeException("Recruiter profile not found"));
+
+                if (recruiterProfile.getApplicationStatus() != ApplicationStatus.PENDING) {
+                        throw new RuntimeException("Recruiter application is not in pending status");
+                }
+
+                // Reject the application
+                recruiterProfile.setApplicationStatus(ApplicationStatus.REJECTED);
+                recruiterProfile.setRejectionReason(rejectionReason);
+                recruiterProfile.setApprovedBy(adminId); // Admin who rejected
+                recruiterProfileRepository.save(recruiterProfile);
+
+                // Keep user account status as INACTIVE (rejected applications remain inactive)
+                user.setStatus(UserStatus.INACTIVE);
+                userRepository.save(user);
+
+                // Send rejection email
+                emailService.sendRejectionEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(),
+                                "RECRUITER",
+                                rejectionReason);
+
+                // Log the rejection
+                auditService.logAction(adminId, "RECRUITER_REJECTED", "USER", userId.toString(),
+                                "Recruiter application rejected for user: " + user.getEmail() + ", reason: "
+                                                + rejectionReason);
+
+                return AdminApprovalResponse.builder()
+                                .success(true)
+                                .message("Recruiter application rejected")
+                                .userEmail(user.getEmail())
+                                .userId(userId)
+                                .role("RECRUITER")
+                                .action("REJECTED")
+                                .reason(rejectionReason)
+                                .build();
         }
 
-        // Approve the application
-        recruiterProfile.setApplicationStatus(ApplicationStatus.APPROVED);
-        recruiterProfile.setApprovalDate(LocalDateTime.now());
-        recruiterProfile.setApprovedBy(adminId);
-        recruiterProfileRepository.save(recruiterProfile);
+        // process application
+        public AdminApprovalResponse processApplication(ApplicationActionRequest request, Long adminId) {
+                log.info("Processing {} action for {} application, userId: {}, adminId: {}",
+                                request.getAction(), request.getApplicationType(), request.getUserId(), adminId);
 
-        // Activate user account
-        user.setAccountStatus(AccountStatus.ACTIVE);
+                // Validate rejection reason if action is REJECT
+                if ("REJECT".equalsIgnoreCase(request.getAction()) &&
+                                (request.getRejectionReason() == null
+                                                || request.getRejectionReason().trim().isEmpty())) {
+                        throw new IllegalArgumentException("Rejection reason is required for REJECT action");
+                }
 
-        // Assign RECRUITER role
-        Role recruiterRole = roleRepository.findByName("RECRUITER")
-                .orElseThrow(() -> new RuntimeException("RECRUITER role not found"));
-        user.getRoles().add(recruiterRole);
+                // Route to appropriate method based on application type and action
+                if ("MENTOR".equalsIgnoreCase(request.getApplicationType())) {
+                        if ("APPROVE".equalsIgnoreCase(request.getAction())) {
+                                return approveMentor(request.getUserId(), adminId);
+                        } else if ("REJECT".equalsIgnoreCase(request.getAction())) {
+                                return rejectMentor(request.getUserId(), request.getRejectionReason(), adminId);
+                        }
+                } else if ("RECRUITER".equalsIgnoreCase(request.getApplicationType())) {
+                        if ("APPROVE".equalsIgnoreCase(request.getAction())) {
+                                return approveRecruiter(request.getUserId(), adminId);
+                        } else if ("REJECT".equalsIgnoreCase(request.getAction())) {
+                                return rejectRecruiter(request.getUserId(), request.getRejectionReason(), adminId);
+                        }
+                }
 
-        userRepository.save(user);
-
-        // Send approval email
-        emailService.sendApprovalEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(), "RECRUITER");
-
-        // Log the approval
-        auditService.logAction(adminId, "RECRUITER_APPROVED", "USER", userId.toString(),
-                "Recruiter application approved for user: " + user.getEmail());
-
-        return AdminApprovalResponse.builder()
-                .success(true)
-                .message("Recruiter application approved successfully")
-                .userEmail(user.getEmail())
-                .userId(userId)
-                .role("RECRUITER")
-                .action("APPROVED")
-                .build();
-    }
-
-    public AdminApprovalResponse rejectMentor(Long userId, String rejectionReason) {
-        // Get current admin user ID for audit
-        Long adminId = getCurrentAdminId();
-
-        // Find user and mentor profile
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        MentorProfile mentorProfile = mentorProfileRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Mentor profile not found"));
-
-        if (mentorProfile.getApplicationStatus() != ApplicationStatus.PENDING) {
-            throw new RuntimeException("Mentor application is not in pending status");
+                throw new IllegalArgumentException("Invalid application type or action: " +
+                                request.getApplicationType() + " - " + request.getAction());
         }
 
-        // Reject the application
-        mentorProfile.setApplicationStatus(ApplicationStatus.REJECTED);
-        mentorProfile.setRejectionReason(rejectionReason);
-        mentorProfile.setApprovedBy(adminId); // Admin who rejected
-        mentorProfileRepository.save(mentorProfile);
+        // get application with status filter with pending, approved, rejected, all
+        public ApplicationsResponse getApplications(String status) {
+                log.info("Fetching applications with status filter: {}", status);
 
-        // Set user account status to rejected
-        user.setAccountStatus(AccountStatus.REJECTED);
-        userRepository.save(user);
+                ApplicationStatus filterStatus = null;
+                if (status != null && !status.equalsIgnoreCase("ALL")) {
+                        try {
+                                filterStatus = ApplicationStatus.valueOf(status.toUpperCase());
+                        } catch (IllegalArgumentException e) {
+                                throw new IllegalArgumentException("Invalid status: " + status
+                                                + ". Valid values: PENDING, APPROVED, REJECTED, ALL");
+                        }
+                }
 
-        // Send rejection email
-        emailService.sendRejectionEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(), "MENTOR",
-                rejectionReason);
+                // Get mentor applications
+                List<MentorProfile> mentorProfiles;
+                if (filterStatus != null) {
+                        mentorProfiles = mentorProfileRepository.findByApplicationStatus(filterStatus);
+                } else {
+                        mentorProfiles = mentorProfileRepository.findAll();
+                }
 
-        // Log the rejection
-        auditService.logAction(adminId, "MENTOR_REJECTED", "USER", userId.toString(),
-                "Mentor application rejected for user: " + user.getEmail() + ", reason: " + rejectionReason);
+                List<MentorApplicationDto> mentorDtos = mentorProfiles.stream()
+                                .map(this::convertToMentorDto)
+                                .collect(Collectors.toList());
 
-        return AdminApprovalResponse.builder()
-                .success(true)
-                .message("Mentor application rejected")
-                .userEmail(user.getEmail())
-                .userId(userId)
-                .role("MENTOR")
-                .action("REJECTED")
-                .reason(rejectionReason)
-                .build();
-    }
+                // Get recruiter applications
+                List<RecruiterProfile> recruiterProfiles;
+                if (filterStatus != null) {
+                        recruiterProfiles = recruiterProfileRepository.findByApplicationStatus(filterStatus);
+                } else {
+                        recruiterProfiles = recruiterProfileRepository.findAll();
+                }
 
-    public AdminApprovalResponse rejectRecruiter(Long userId, String rejectionReason) {
-        // Get current admin user ID for audit
-        Long adminId = getCurrentAdminId();
+                List<RecruiterApplicationDto> recruiterDtos = recruiterProfiles.stream()
+                                .map(this::convertToRecruiterDto)
+                                .collect(Collectors.toList());
 
-        // Find user and recruiter profile
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                // Calculate statistics
+                ApplicationStatusStatsDto stats = calculateStatusStats();
 
-        RecruiterProfile recruiterProfile = recruiterProfileRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("Recruiter profile not found"));
+                int totalReturned = mentorDtos.size() + recruiterDtos.size();
+                String appliedFilter = status != null ? status.toUpperCase() : "ALL";
 
-        if (recruiterProfile.getApplicationStatus() != ApplicationStatus.PENDING) {
-            throw new RuntimeException("Recruiter application is not in pending status");
+                log.info("Found {} mentor applications and {} recruiter applications with filter: {}",
+                                mentorDtos.size(), recruiterDtos.size(), appliedFilter);
+
+                return ApplicationsResponse.builder()
+                                .mentorApplications(mentorDtos)
+                                .recruiterApplications(recruiterDtos)
+                                .totalApplications(totalReturned)
+                                .filterStatus(appliedFilter)
+                                .statusStats(stats)
+                                .build();
         }
 
-        // Reject the application
-        recruiterProfile.setApplicationStatus(ApplicationStatus.REJECTED);
-        recruiterProfile.setRejectionReason(rejectionReason);
-        recruiterProfile.setApprovedBy(adminId); // Admin who rejected
-        recruiterProfileRepository.save(recruiterProfile);
+        /**
+         * Calculate application statistics by status
+         */
+        private ApplicationStatusStatsDto calculateStatusStats() {
+                // Get all applications and count by status
+                List<MentorProfile> allMentors = mentorProfileRepository.findAll();
+                List<RecruiterProfile> allRecruiters = recruiterProfileRepository.findAll();
 
-        // Set user account status to rejected
-        user.setAccountStatus(AccountStatus.REJECTED);
-        userRepository.save(user);
+                // Count by status for mentors
+                long mentorPending = allMentors.stream()
+                                .filter(m -> m.getApplicationStatus() == ApplicationStatus.PENDING).count();
+                long mentorApproved = allMentors.stream()
+                                .filter(m -> m.getApplicationStatus() == ApplicationStatus.APPROVED).count();
+                long mentorRejected = allMentors.stream()
+                                .filter(m -> m.getApplicationStatus() == ApplicationStatus.REJECTED).count();
 
-        // Send rejection email
-        emailService.sendRejectionEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(), "RECRUITER",
-                rejectionReason);
+                // Count by status for recruiters
+                long recruiterPending = allRecruiters.stream()
+                                .filter(r -> r.getApplicationStatus() == ApplicationStatus.PENDING).count();
+                long recruiterApproved = allRecruiters.stream()
+                                .filter(r -> r.getApplicationStatus() == ApplicationStatus.APPROVED).count();
+                long recruiterRejected = allRecruiters.stream()
+                                .filter(r -> r.getApplicationStatus() == ApplicationStatus.REJECTED).count();
 
-        // Log the rejection
-        auditService.logAction(adminId, "RECRUITER_REJECTED", "USER", userId.toString(),
-                "Recruiter application rejected for user: " + user.getEmail() + ", reason: " + rejectionReason);
+                int totalPending = (int) (mentorPending + recruiterPending);
+                int totalApproved = (int) (mentorApproved + recruiterApproved);
+                int totalRejected = (int) (mentorRejected + recruiterRejected);
+                int total = totalPending + totalApproved + totalRejected;
 
-        return AdminApprovalResponse.builder()
-                .success(true)
-                .message("Recruiter application rejected")
-                .userEmail(user.getEmail())
-                .userId(userId)
-                .role("RECRUITER")
-                .action("REJECTED")
-                .reason(rejectionReason)
-                .build();
-    }
-
-    private Long getCurrentAdminId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.getPrincipal() instanceof String) {
-            String email = (String) authentication.getPrincipal();
-            User admin = userRepository.findByEmail(email)
-                    .orElseThrow(() -> new RuntimeException("Admin user not found"));
-            return admin.getId();
+                return ApplicationStatusStatsDto.builder()
+                                .pending(totalPending)
+                                .approved(totalApproved)
+                                .rejected(totalRejected)
+                                .total(total)
+                                .build();
         }
-        throw new RuntimeException("No authenticated admin found");
-    }
+
+        /**
+         * Convert MentorProfile to DTO for admin review
+         */
+        private MentorApplicationDto convertToMentorDto(MentorProfile mentor) {
+                // Simple email masking for admin view
+                String maskedEmail = mentor.getEmail() != null ? mentor.getEmail().replaceAll("(?<=.{2}).(?=.*@)", "*")
+                                : "N/A";
+
+                // Get user information for email verification status
+                User user = mentor.getUser();
+                Boolean isEmailVerified = user != null ? user.isEmailVerified() : false;
+                String userStatus = user != null ? user.getStatus().name() : "UNKNOWN";
+
+                return MentorApplicationDto.builder()
+                                .userId(mentor.getUserId())
+                                .fullName(mentor.getFullName())
+                                .email(maskedEmail) // Simple masked email
+                                .mainExpertiseArea(mentor.getMainExpertiseAreas())
+                                .yearsOfExperience(mentor.getYearsOfExperience())
+                                .personalProfile(mentor.getPersonalProfile() != null
+                                                && mentor.getPersonalProfile().length() > 100
+                                                                ? mentor.getPersonalProfile().substring(0, 100) + "..."
+                                                                : mentor.getPersonalProfile())
+                                .linkedinProfile(mentor.getLinkedinProfile())
+                                .cvPortfolioUrl(mentor.getCvPortfolioUrl())
+                                .certificatesUrl(mentor.getCertificatesUrl())
+                                .applicationStatus(mentor.getApplicationStatus())
+                                .isEmailVerified(isEmailVerified)
+                                .userStatus(userStatus)
+                                .applicationDate(mentor.getApplicationDate())
+                                .approvalDate(mentor.getApprovalDate())
+                                .rejectionReason(mentor.getRejectionReason())
+                                .build();
+        }
+
+        /**
+         * Convert RecruiterProfile to DTO for admin review
+         */
+        private RecruiterApplicationDto convertToRecruiterDto(RecruiterProfile recruiter) {
+                // Get user information
+                User user = recruiter.getUser();
+                Boolean isEmailVerified = user != null ? user.isEmailVerified() : false;
+                String userStatus = user != null ? user.getStatus().name() : "UNKNOWN";
+                String fullName = user != null ? (user.getFirstName() + " " + user.getLastName()) : "N/A";
+
+                // Use company email from user (now single email approach)
+                String companyEmail = user != null ? user.getEmail() : "N/A";
+                String maskedEmail = companyEmail != null && !companyEmail.equals("N/A")
+                                ? companyEmail.replaceAll("(?<=.{2}).(?=.*@)", "*")
+                                : "N/A";
+
+                return RecruiterApplicationDto.builder()
+                                .userId(recruiter.getUserId())
+                                .fullName(fullName)
+                                .email(maskedEmail)
+                                .companyName(recruiter.getCompanyName() != null ? recruiter.getCompanyName() : "N/A")
+                                .companyWebsite(recruiter.getCompanyWebsite() != null ? recruiter.getCompanyWebsite()
+                                                : "N/A")
+                                .companyAddress(recruiter.getCompanyAddress() != null ? recruiter.getCompanyAddress()
+                                                : "N/A")
+                                .taxCodeOrBusinessRegistrationNumber(
+                                                recruiter.getTaxCodeOrBusinessRegistrationNumber() != null
+                                                                ? recruiter.getTaxCodeOrBusinessRegistrationNumber()
+                                                                : "N/A")
+                                .companyDocumentsUrl(recruiter.getCompanyDocumentsUrl() != null
+                                                ? recruiter.getCompanyDocumentsUrl()
+                                                : "N/A")
+                                .applicationStatus(recruiter.getApplicationStatus())
+                                .isEmailVerified(isEmailVerified)
+                                .userStatus(userStatus)
+                                .applicationDate(recruiter.getApplicationDate())
+                                .approvalDate(recruiter.getApprovalDate())
+                                .rejectionReason(recruiter.getRejectionReason())
+                                .build();
+        }
 }

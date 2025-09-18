@@ -34,7 +34,7 @@ public class UserCreationService {
      */
     @Transactional
     public User createUserForMentor(String email, String password, String fullName) {
-        return createUser(email, password, fullName, PrimaryRole.MENTOR, "MENTOR");
+        return createUser(email, password, fullName, PrimaryRole.MENTOR, "MENTOR", false);
     }
 
     /**
@@ -42,7 +42,7 @@ public class UserCreationService {
      */
     @Transactional
     public User createUserForRecruiter(String email, String password, String fullName) {
-        return createUser(email, password, fullName, PrimaryRole.RECRUITER, "RECRUITER");
+        return createUser(email, password, fullName, PrimaryRole.RECRUITER, "RECRUITER", false);
     }
 
     /**
@@ -70,7 +70,8 @@ public class UserCreationService {
     /**
      * Private method to create user with specific role
      */
-    private User createUser(String email, String password, String fullName, PrimaryRole primaryRole, String roleName) {
+    private User createUser(String email, String password, String fullName, PrimaryRole primaryRole, String roleName,
+            boolean generateOtp) {
         log.info("Creating user for {}: {}", primaryRole, email);
 
         // Check if user already exists
@@ -92,7 +93,7 @@ public class UserCreationService {
                 .firstName(extractFirstName(fullName))
                 .lastName(extractLastName(fullName))
                 .primaryRole(primaryRole)
-                .status(UserStatus.UNVERIFIED)
+                .status(UserStatus.INACTIVE)
                 .isEmailVerified(false)
                 .build();
 
@@ -102,15 +103,25 @@ public class UserCreationService {
         user = userRepository.save(user);
         log.info("Created user with ID: {} for role: {}", user.getId(), primaryRole);
 
-        // Generate OTP for email verification
-        emailVerificationService.generateOtpForUser(email);
-        log.info("Generated OTP for user: {}", email);
+        // Generate OTP for email verification only if requested
+        if (generateOtp) {
+            emailVerificationService.generateOtpForUser(email);
+            log.info("Generated OTP for user: {}", email);
+        }
 
         // Log action
         auditService.logAction(user.getId(), primaryRole + "_USER_CREATED", "USER", user.getId().toString(),
                 "User created for " + primaryRole + " registration: " + email);
 
         return user;
+    }
+
+    /**
+     * Private method to create user with specific role (with OTP generation by
+     * default)
+     */
+    private User createUser(String email, String password, String fullName, PrimaryRole primaryRole, String roleName) {
+        return createUser(email, password, fullName, primaryRole, roleName, true);
     }
 
     /**

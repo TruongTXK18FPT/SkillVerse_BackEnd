@@ -30,32 +30,17 @@ public class RecruiterProfile {
     @Column(name = "company_name", nullable = false)
     private String companyName;
 
-    @Column(name = "company_size")
-    private String companySize; // e.g., "1-10", "11-50", "51-200", etc.
-
-    @Column(name = "industry")
-    private String industry;
-
-    @Column(name = "job_title", nullable = false)
-    private String jobTitle;
-
-    @Column(name = "company_website")
+    @Column(name = "company_website", nullable = false)
     private String companyWebsite;
 
-    @Column(name = "company_description", columnDefinition = "TEXT")
-    private String companyDescription;
-
-    @Column(name = "work_email")
-    private String workEmail;
-
-    @Column(name = "phone_number")
-    private String phoneNumber;
-
-    @Column(name = "company_address", columnDefinition = "TEXT")
+    @Column(name = "company_address", nullable = false, columnDefinition = "TEXT")
     private String companyAddress;
 
-    @Column(name = "verification_document_url")
-    private String verificationDocumentUrl; // Business card, employment letter, etc.
+    @Column(name = "tax_code_or_business_registration_number", nullable = false)
+    private String taxCodeOrBusinessRegistrationNumber;
+
+    @Column(name = "company_documents_url", nullable = false)
+    private String companyDocumentsUrl; // URL to uploaded company documents
 
     @Builder.Default
     @Enumerated(EnumType.STRING)

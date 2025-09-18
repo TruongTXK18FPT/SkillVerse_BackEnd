@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.auth_service.service;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.shared.service.EmailService;
 import lombok.RequiredArgsConstructor;
@@ -52,7 +53,8 @@ public class EmailVerificationService {
     }
 
     /**
-     * Verify OTP and activate user account
+     * Verify OTP for email verification (does not activate account)
+     * Account activation is handled by the calling service based on user role
      */
     @Transactional
     public boolean verifyOtp(String email, String providedOtp) {
@@ -100,14 +102,18 @@ public class EmailVerificationService {
                     "Invalid OTP. Attempts remaining: " + (MAX_OTP_ATTEMPTS - user.getOtpAttempts()));
         }
 
-        // OTP is valid - verify user
+        // OTP is valid - verify user email only (status handled by calling service
+        // based on role)
         user.setEmailVerified(true);
+        // Note: User status activation is handled by the calling service based on role
+        // Regular users can be activated immediately, but mentors/recruiters need admin
+        // approval
         user.setVerificationOtp(null);
         user.setOtpExpiryTime(null);
         user.setOtpAttempts(0);
         userRepository.save(user);
 
-        log.info("Email successfully verified for user: {}", email);
+        log.info("Email successfully verified for: {}", email);
         return true;
     }
 

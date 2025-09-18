@@ -17,33 +17,23 @@ public class BusinessRegistrationRequest extends BaseRegistrationRequest {
     @Schema(description = "Company or organization name", example = "Tech Solutions Inc.")
     private String companyName;
 
-    @NotBlank(message = "Company description is required")
-    @Size(max = 1000, message = "Company description must not exceed 1000 characters")
-    @Schema(description = "Brief description of the company", example = "Leading software development company specializing in innovative solutions")
-    private String companyDescription;
-
-    @Size(max = 100, message = "Company website must not exceed 100 characters")
-    @Schema(description = "Company website URL", example = "https://techsolutions.com")
+    @NotBlank(message = "Company website is required")
+    @Size(max = 200, message = "Company website must not exceed 200 characters")
+    @Schema(description = "Company website URL", example = "https://www.techsolutions.com")
     private String companyWebsite;
 
-    @Size(max = 100, message = "Industry must not exceed 100 characters")
-    @Schema(description = "Industry sector", example = "Technology, Software Development")
-    private String industry;
+    @NotBlank(message = "Company address is required")
+    @Size(max = 500, message = "Company address must not exceed 500 characters")
+    @Schema(description = "Complete company address", example = "123 Business District, Ho Chi Minh City, Vietnam")
+    private String companyAddress;
 
-    @Size(max = 50, message = "Company size must not exceed 50 characters")
-    @Schema(description = "Company size range", example = "50-200 employees")
-    private String companySize;
+    @NotBlank(message = "Tax code or business registration number is required")
+    @Size(max = 50, message = "Tax code must not exceed 50 characters")
+    @Schema(description = "Tax code or business registration number", example = "0123456789")
+    private String taxCodeOrBusinessRegistrationNumber;
 
-    @NotBlank(message = "Job title is required")
-    @Size(max = 100, message = "Job title must not exceed 100 characters")
-    @Schema(description = "Recruiter's job title", example = "Senior HR Manager")
-    private String jobTitle;
-
-    @Size(max = 100, message = "LinkedIn URL must not exceed 100 characters")
-    @Schema(description = "Professional LinkedIn profile URL", example = "https://linkedin.com/in/recruiter")
-    private String linkedinUrl;
-
-    @Size(max = 1000, message = "Hiring goals must not exceed 1000 characters")
-    @Schema(description = "What type of talent the recruiter is looking to hire", example = "Seeking experienced software engineers and project managers for expanding team")
-    private String hiringGoals;
+    @NotBlank(message = "Company documents URL is required")
+    @Size(max = 500, message = "Company documents URL must not exceed 500 characters")
+    @Schema(description = "URL to uploaded company documents (business license, tax certificate, etc.)", example = "https://storage.example.com/company-docs/license.pdf")
+    private String companyDocumentsUrl;
 }

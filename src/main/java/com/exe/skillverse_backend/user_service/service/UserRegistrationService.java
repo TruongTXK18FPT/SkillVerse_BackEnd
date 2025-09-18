@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.service.UserCreationService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
 import com.exe.skillverse_backend.shared.service.AuditService;
+import com.exe.skillverse_backend.shared.util.SecureAuditUtil;
 import com.exe.skillverse_backend.user_service.dto.request.UserRegistrationRequest;
 import com.exe.skillverse_backend.user_service.dto.response.UserRegistrationResponse;
 import com.exe.skillverse_backend.user_service.entity.UserProfile;
@@ -30,6 +31,13 @@ public class UserRegistrationService implements RegistrationService<UserRegistra
             throw new RuntimeException("Email already registered");
         }
 
+        // Password validation is handled by @PasswordMatches annotation on
+        // BaseRegistrationRequest
+        // But let's add an explicit check as well for extra safety
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            throw new RuntimeException("Password and confirmation password do not match");
+        }
+
         // Create User via auth service
         User user = userCreationService.createUserForUser(request.getEmail(), request.getPassword(),
                 request.getFullName());
@@ -37,9 +45,12 @@ public class UserRegistrationService implements RegistrationService<UserRegistra
         // Create user profile
         UserProfile profile = createUserProfile(user.getId(), request);
 
-        // Audit log
+        // Secure audit log - NO PII/sensitive data
+        String secureAuditDetails = SecureAuditUtil.createRegistrationAuditDetails(
+                request.getEmail(),
+                "USER");
         auditService.logAction(user.getId(), "USER_REGISTRATION", "USER", user.getId().toString(),
-                "User registration initiated for: " + request.getEmail());
+                secureAuditDetails);
 
         return UserRegistrationResponse.builder()
                 .success(true)

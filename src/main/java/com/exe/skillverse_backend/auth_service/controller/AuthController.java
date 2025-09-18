@@ -47,21 +47,6 @@ public class AuthController {
         }
     }
 
-    @PostMapping("/complete-profile")
-    @Operation(summary = "Complete profile and get tokens", description = "Completes user profile after email verification and returns JWT tokens")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Profile completed and login successful", content = @Content(schema = @Schema(implementation = AuthResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Profile completion failed", content = @Content)
-    })
-    public ResponseEntity<AuthResponse> completeProfile(@Valid @RequestBody CompleteProfileRequest request) {
-        try {
-            AuthResponse response = authService.completeProfileAndLogin(request);
-            return ResponseEntity.ok(response);
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
     @PostMapping("/resend-otp")
     @Operation(summary = "Resend OTP", description = "Resends OTP for email verification")
     @ApiResponses({
@@ -81,17 +66,15 @@ public class AuthController {
     @Operation(summary = "User login", description = "Authenticates user credentials and returns JWT tokens")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Login successful", content = @Content(schema = @Schema(implementation = AuthResponse.class))),
-            @ApiResponse(responseCode = "401", description = "Invalid credentials", content = @Content)
+            @ApiResponse(responseCode = "401", description = "Invalid credentials", content = @Content),
+            @ApiResponse(responseCode = "403", description = "Account pending approval", content = @Content)
     })
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        try {
-            AuthResponse response = authService.login(request);
-            return ResponseEntity.ok(response);
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
-        }
+        AuthResponse response = authService.login(request);
+        return ResponseEntity.ok(response);
     }
 
+    // refresh token khi user muon refresh token
     @PostMapping("/refresh")
     @Operation(summary = "Refresh access token", description = "Generates a new access token using a valid refresh token")
     @ApiResponses({
@@ -125,6 +108,7 @@ public class AuthController {
         }
     }
 
+    // verify token for testing
     @GetMapping("/verify")
     @Operation(summary = "Verify token", description = "Verifies if the provided token is valid and not expired")
     @SecurityRequirement(name = "Bearer Authentication")
@@ -139,25 +123,6 @@ public class AuthController {
             return ResponseEntity.ok(isValid);
         } catch (Exception e) {
             return ResponseEntity.ok(false);
-        }
-    }
-
-    @PostMapping("/upgrade-role/{userId}/{roleName}")
-    @Operation(summary = "Upgrade user role", description = "Upgrades user role (e.g., USER to MENTOR) and returns new tokens")
-    @SecurityRequirement(name = "Bearer Authentication")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Role upgraded successfully", content = @Content(schema = @Schema(implementation = AuthResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Role upgrade failed", content = @Content),
-            @ApiResponse(responseCode = "401", description = "Unauthorized", content = @Content)
-    })
-    public ResponseEntity<AuthResponse> upgradeRole(
-            @Parameter(description = "User ID", required = true) @PathVariable Long userId,
-            @Parameter(description = "New role name (e.g., MENTOR, RECRUITER)", required = true) @PathVariable String roleName) {
-        try {
-            AuthResponse response = authService.upgradeUserRole(userId, roleName);
-            return ResponseEntity.ok(response);
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
         }
     }
 }

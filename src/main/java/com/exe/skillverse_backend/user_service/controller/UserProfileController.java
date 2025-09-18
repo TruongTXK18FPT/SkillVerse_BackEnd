@@ -33,27 +33,6 @@ public class UserProfileController {
 
     private final UserProfileService userProfileService;
 
-    // Profile Management
-
-    @PostMapping
-    @Operation(summary = "Create user profile", description = "Creates a new user profile with the provided information")
-    @ApiResponses({
-            @ApiResponse(responseCode = "201", description = "Profile created successfully", content = @Content(schema = @Schema(implementation = UserProfileResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Invalid request data", content = @Content),
-            @ApiResponse(responseCode = "409", description = "Profile already exists for this user", content = @Content)
-    })
-    public ResponseEntity<UserProfileResponse> createProfile(
-            @AuthenticationPrincipal Jwt jwt,
-            @Valid @RequestBody CreateProfileRequest request) {
-        try {
-            Long userId = Long.parseLong(jwt.getSubject());
-            UserProfileResponse response = userProfileService.createProfile(userId, request);
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
     @PutMapping
     public ResponseEntity<UserProfileResponse> updateProfile(
             @AuthenticationPrincipal Jwt jwt,
@@ -110,19 +89,7 @@ public class UserProfileController {
         return ResponseEntity.ok(profiles);
     }
 
-    @DeleteMapping
-    public ResponseEntity<Void> deleteProfile(@AuthenticationPrincipal Jwt jwt) {
-        try {
-            Long userId = Long.parseLong(jwt.getSubject());
-            userProfileService.deleteProfile(userId);
-            return ResponseEntity.noContent().build();
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().build();
-        }
-    }
-
     // Skills Management
-
     @PostMapping("/skills")
     public ResponseEntity<UserSkillResponse> addSkill(
             @AuthenticationPrincipal Jwt jwt,

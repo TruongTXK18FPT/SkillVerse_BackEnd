@@ -32,95 +32,6 @@ public class UserProfileService {
     private final AuditService auditService;
 
     @Transactional
-    public UserProfileResponse createProfile(Long userId, CreateProfileRequest request) {
-        try {
-            // Check if user exists
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
-
-            // Check if profile already exists
-            if (userProfileRepository.existsByUserId(userId)) {
-                throw new RuntimeException("User profile already exists");
-            }
-
-            // Create profile
-            // Handle foreign key fields - convert 0 to null to avoid constraint violations
-            Long validAvatarMediaId = (request.getAvatarMediaId() != null && request.getAvatarMediaId() > 0)
-                    ? request.getAvatarMediaId()
-                    : null;
-            Long validCompanyId = (request.getCompanyId() != null && request.getCompanyId() > 0)
-                    ? request.getCompanyId()
-                    : null;
-
-            UserProfile profile = UserProfile.builder()
-                    .userId(userId)
-                    .fullName(request.getFullName())
-                    .avatarMediaId(validAvatarMediaId)
-                    .bio(request.getBio())
-                    .phone(request.getPhone())
-                    .address(request.getAddress())
-                    .region(request.getRegion())
-                    .companyId(validCompanyId)
-                    .socialLinks(request.getSocialLinks())
-                    .build();
-
-            profile = userProfileRepository.save(profile);
-
-            // Log action
-            auditService.logAction(userId, "CREATE", "USER_PROFILE", userId.toString(),
-                    "User profile created for user: " + user.getEmail());
-
-            return mapToProfileResponse(profile);
-
-        } catch (Exception e) {
-            auditService.logAction(userId, "CREATE_PROFILE_FAILED", "USER_PROFILE", userId.toString(),
-                    "Failed to create profile: " + e.getMessage());
-            throw e;
-        }
-    }
-
-    @Transactional
-    public UserProfileResponse createDefaultProfile(Long userId) {
-        try {
-            // Check if user exists
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
-
-            // Check if profile already exists
-            if (userProfileRepository.existsByUserId(userId)) {
-                // Return existing profile instead of throwing error
-                return getProfile(userId);
-            }
-
-            // Create default profile with minimal information
-            UserProfile profile = UserProfile.builder()
-                    .userId(userId)
-                    .fullName(null) // Will be set later by user
-                    .avatarMediaId(null)
-                    .bio(null)
-                    .phone(null)
-                    .address(null)
-                    .region(null)
-                    .companyId(null)
-                    .socialLinks(null)
-                    .build();
-
-            profile = userProfileRepository.save(profile);
-
-            // Log action
-            auditService.logAction(userId, "CREATE", "USER_PROFILE", userId.toString(),
-                    "Default user profile created for user: " + user.getEmail());
-
-            return mapToProfileResponse(profile);
-
-        } catch (Exception e) {
-            auditService.logAction(userId, "CREATE_DEFAULT_PROFILE_FAILED", "USER_PROFILE", userId.toString(),
-                    "Failed to create default profile: " + e.getMessage());
-            throw e;
-        }
-    }
-
-    @Transactional
     public UserProfileResponse updateProfile(Long userId, UpdateProfileRequest request) {
         try {
             UserProfile profile = userProfileRepository.findByUserId(userId)
@@ -196,32 +107,6 @@ public class UserProfileService {
                 .map(this::mapToProfileResponse)
                 .collect(Collectors.toList());
     }
-
-    @Transactional
-    public void deleteProfile(Long userId) {
-        try {
-            UserProfile profile = userProfileRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("User profile not found"));
-
-            // Delete all user skills first
-            userSkillRepository.deleteByIdUserId(userId);
-
-            // Delete profile
-            userProfileRepository.delete(profile);
-
-            // Log action - get user for email
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
-            auditService.logAction(userId, "DELETE", "USER_PROFILE", userId.toString(),
-                    "User profile deleted for user: " + user.getEmail());
-
-        } catch (Exception e) {
-            auditService.logAction(userId, "DELETE_PROFILE_FAILED", "USER_PROFILE", userId.toString(),
-                    "Failed to delete profile: " + e.getMessage());
-            throw e;
-        }
-    }
-
     // Skills Management
 
     @Transactional
@@ -376,7 +261,6 @@ public class UserProfileService {
             }
 
             // Create complete profile with all provided information
-            // Handle foreign key fields - convert 0 to null to avoid constraint violations
             Long validAvatarMediaId = (avatarMediaId != null && avatarMediaId > 0) ? avatarMediaId : null;
             Long validCompanyId = (companyId != null && companyId > 0) ? companyId : null;
 

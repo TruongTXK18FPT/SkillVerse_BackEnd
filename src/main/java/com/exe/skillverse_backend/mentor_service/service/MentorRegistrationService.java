@@ -9,8 +9,8 @@ import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.shared.service.AuditService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
-import com.exe.skillverse_backend.user_service.dto.request.CreateProfileRequest;
-import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.exe.skillverse_backend.shared.util.SecureAuditUtil;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -26,7 +26,6 @@ public class MentorRegistrationService
 
     private final UserCreationService userCreationService;
     private final MentorProfileRepository mentorProfileRepository;
-    private final UserProfileService userProfileService;
     private final AuditService auditService;
 
     @Override
@@ -41,15 +40,18 @@ public class MentorRegistrationService
                     request.getPassword(),
                     request.getFullName());
 
-            // 2. Create UserProfile in user_service
-            createUserProfile(user.getId(), request);
+            // 2. Create MentorProfile in mentor_service
+            createMentorProfile(user, request);
 
-            // 3. Create MentorProfile in mentor_service
-            createMentorProfile(user.getId(), request);
+            // 3. Generate OTP for email verification (only after successful profile
+            // creation)
+            userCreationService.generateOtpForUser(request.getEmail());
+            log.info("Generated OTP for mentor user: {}", request.getEmail());
 
             // 4. Log successful registration
+            String auditDetails = SecureAuditUtil.createRegistrationAuditDetails(request.getEmail(), "MENTOR");
             auditService.logAction(user.getId(), "MENTOR_REGISTRATION", "MENTOR", user.getId().toString(),
-                    "Mentor registered successfully: " + request.getEmail() + " - awaiting admin approval");
+                    auditDetails);
 
             return MentorRegistrationResponse.builder()
                     .success(true)
@@ -73,56 +75,26 @@ public class MentorRegistrationService
     }
 
     /**
-     * Create UserProfile for the mentor using CreateProfileRequest
+     * Create MentorProfile with new form fields and application pending status
      */
-    private void createUserProfile(Long userId, MentorRegistrationRequest request) {
-        CreateProfileRequest profileRequest = new CreateProfileRequest();
-        profileRequest.setFullName(request.getFullName());
-        profileRequest.setBio(request.getBio());
-        profileRequest.setPhone(request.getPhone());
-        profileRequest.setAddress(request.getAddress());
-        profileRequest.setRegion(request.getRegion());
-
-        userProfileService.createProfile(userId, profileRequest);
-    }
-
-    /**
-     * Create MentorProfile with application pending status
-     */
-    private void createMentorProfile(Long userId, MentorRegistrationRequest request) {
+    private void createMentorProfile(User user, MentorRegistrationRequest request) {
         MentorProfile mentorProfile = MentorProfile.builder()
-                .userId(userId)
-                .expertiseAreas(request.getExpertise()) // Changed from expertise to expertiseAreas
-                .bio(request.getMotivation()) // Store motivation in bio field
-                .yearsOfExperience(extractYearsFromExperience(request.getTeachingExperience()))
-                .hourlyRate(request.getHourlyRate())
-                .linkedinUrl(request.getLinkedinUrl())
-                .portfolioUrl(request.getGithubUrl()) // Store github in portfolio field
+                .user(user) // Set the User entity reference for @MapsId (userId will be auto-derived)
+                // New form fields
+                .fullName(request.getFullName())
+                .email(request.getEmail())
+                .linkedinProfile(request.getLinkedinProfile())
+                .mainExpertiseAreas(request.getMainExpertiseArea())
+                .yearsOfExperience(request.getYearsOfExperience())
+                .personalProfile(request.getPersonalProfile())
+                .cvPortfolioUrl(request.getCvPortfolioUrl())
+                .certificatesUrl(request.getCertificatesUrl())
+                // Application status
                 .applicationStatus(ApplicationStatus.PENDING)
                 .applicationDate(LocalDateTime.now())
                 .build();
 
         mentorProfileRepository.save(mentorProfile);
-        log.info("Created mentor profile for user: {}", userId);
-    }
-
-    /**
-     * Extract years of experience from teaching experience text
-     */
-    private Integer extractYearsFromExperience(String teachingExperience) {
-        if (teachingExperience == null)
-            return null;
-
-        // Try to extract number from the text (simple regex approach)
-        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("(\\d+)\\s*year");
-        java.util.regex.Matcher matcher = pattern.matcher(teachingExperience.toLowerCase());
-        if (matcher.find()) {
-            try {
-                return Integer.parseInt(matcher.group(1));
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        return null;
+        log.info("Created mentor profile for user: {} with full name: {}", user.getId(), request.getFullName());
     }
 }

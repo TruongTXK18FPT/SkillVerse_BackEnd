@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.shared.service;
 
+import com.exe.skillverse_backend.admin_service.dto.response.AuditLogDto;
 import com.exe.skillverse_backend.shared.entity.AuditLog;
 import com.exe.skillverse_backend.shared.repository.AuditLogRepository;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -93,6 +95,74 @@ public class AuditService {
      */
     public List<AuditLog> getRecentAuditLogs() {
         return auditLogRepository.findTop100ByOrderByTimestampDesc();
+    }
+
+    /**
+     * Get recent audit logs as DTOs (last 100 records) - for API responses
+     */
+    public List<AuditLogDto> getRecentAuditLogsDto() {
+        List<AuditLog> auditLogs = auditLogRepository.findTop100ByOrderByTimestampDesc();
+        return auditLogs.stream()
+                .map(this::convertToDto)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Get user audit logs as DTOs
+     */
+    public List<AuditLogDto> getUserAuditLogsDto(Long userId) {
+        List<AuditLog> auditLogs = auditLogRepository.findByUserIdOrderByTimestampDesc(userId);
+        return auditLogs.stream()
+                .map(this::convertToDto)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Get object audit logs as DTOs
+     */
+    public List<AuditLogDto> getObjectAuditLogsDto(String objectType, Long objectId) {
+        List<AuditLog> auditLogs = auditLogRepository.findByObjectTypeAndObjectIdOrderByTimestampDesc(objectType, objectId);
+        return auditLogs.stream()
+                .map(this::convertToDto)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Get audit logs by action as DTOs
+     */
+    public List<AuditLogDto> getAuditLogsByActionDto(String action) {
+        List<AuditLog> auditLogs = auditLogRepository.findByActionOrderByTimestampDesc(action);
+        return auditLogs.stream()
+                .map(this::convertToDto)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Get audit logs by date range as DTOs
+     */
+    public List<AuditLogDto> getAuditLogsByDateRangeDto(LocalDateTime startDate, LocalDateTime endDate) {
+        List<AuditLog> auditLogs = auditLogRepository.findByTimestampBetween(startDate, endDate);
+        return auditLogs.stream()
+                .map(this::convertToDto)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Convert AuditLog entity to DTO
+     */
+    private AuditLogDto convertToDto(AuditLog auditLog) {
+        return AuditLogDto.builder()
+                .id(auditLog.getId())
+                .userId(auditLog.getUserId())
+                .userEmail(auditLog.getUser() != null ? auditLog.getUser().getEmail() : null)
+                .userFullName(auditLog.getUser() != null ? 
+                    (auditLog.getUser().getFirstName() + " " + auditLog.getUser().getLastName()).trim() : null)
+                .action(auditLog.getAction())
+                .objectType(auditLog.getObjectType())
+                .objectId(auditLog.getObjectId())
+                .details(auditLog.getDetails())
+                .timestamp(auditLog.getTimestamp())
+                .build();
     }
 
     /**
