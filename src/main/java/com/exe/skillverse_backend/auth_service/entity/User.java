@@ -6,6 +6,16 @@ import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
 
+import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
+import com.exe.skillverse_backend.course_service.entity.CodingSubmission;
+import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
+import com.exe.skillverse_backend.course_service.entity.LessonProgress;
+import com.exe.skillverse_backend.course_service.entity.CoursePurchase;
+import com.exe.skillverse_backend.course_service.entity.Certificate;
+
+import com.exe.skillverse_backend.shared.entity.Media;
+
 @Getter
 @Setter
 @Builder
@@ -15,6 +25,7 @@ import java.util.Set;
 @Table(name = "users")
 @Data
 public class User {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -65,14 +76,74 @@ public class User {
     @Builder.Default
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt = LocalDateTime.now();
-
     @Builder.Default
     @ManyToMany(fetch = FetchType.EAGER)
-    @JoinTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"), inverseJoinColumns = @JoinColumn(name = "role_id"))
+    @JoinTable(
+        name = "user_roles",
+        joinColumns = @JoinColumn(name = "user_id"),
+        inverseJoinColumns = @JoinColumn(name = "role_id")
+    )
     private Set<Role> roles = new HashSet<>();
+
+    /* ----------------- Course Service relations ----------------- */
+
+    // 1) Courses do user là tác giả/giảng viên chính
+    @Builder.Default
+    @OneToMany(mappedBy = "author", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @ToString.Exclude @EqualsAndHashCode.Exclude
+    private Set<Course> courses = new HashSet<>();
+
+    // 2) Media do user upload (đã có sẵn trong shared.Media)
+    @Builder.Default
+    @OneToMany(mappedBy = "uploadedByUser", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @ToString.Exclude @EqualsAndHashCode.Exclude
+    private Set<Media> mediaUploads = new HashSet<>();
+
+    // 3) Assignment submissions do user nộp
+    @Builder.Default
+    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @ToString.Exclude @EqualsAndHashCode.Exclude
+    private Set<AssignmentSubmission> assignmentSubmissions = new HashSet<>();
+
+    // 3b) Các bài assignment mà user là người chấm (grader)
+    @Builder.Default
+    @OneToMany(mappedBy = "gradedBy", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @ToString.Exclude @EqualsAndHashCode.Exclude
+    private Set<AssignmentSubmission> assignmentGradings = new HashSet<>();
+
+    // 4) Coding submissions do user nộp (CODELAB)
+    @Builder.Default
+    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @ToString.Exclude @EqualsAndHashCode.Exclude
+    private Set<CodingSubmission> codingSubmissions = new HashSet<>();
+
+    // 5) Enrollment: user ghi danh và học các khóa
+    @Builder.Default
+    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @ToString.Exclude @EqualsAndHashCode.Exclude
+    private Set<CourseEnrollment> enrollments = new HashSet<>();
+
+    // 6) Lesson progress: tiến độ học từng bài
+    @Builder.Default
+    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @ToString.Exclude @EqualsAndHashCode.Exclude
+    private Set<LessonProgress> lessonProgresses = new HashSet<>();
+
+    // 7) Course purchases: giao dịch mua khóa
+    @Builder.Default
+    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @ToString.Exclude @EqualsAndHashCode.Exclude
+    private Set<CoursePurchase> coursePurchases = new HashSet<>();
+
+    // 8) Certificates: chứng chỉ đã cấp cho user
+    @Builder.Default
+    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
+    @ToString.Exclude @EqualsAndHashCode.Exclude
+    private Set<Certificate> certificates = new HashSet<>();
 
     @PreUpdate
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
     }
 }
+
