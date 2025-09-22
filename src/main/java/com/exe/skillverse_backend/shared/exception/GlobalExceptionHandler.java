@@ -1,75 +1,83 @@
 package com.exe.skillverse_backend.shared.exception;
-
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authorization.AuthorizationDeniedException;
-import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.validation.BindException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
-@ControllerAdvice
-@Slf4j
+@RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<Map<String, Object>> handleAuthenticationException(AuthenticationException ex) {
-        log.warn("Authentication error: {}", ex.getMessage());
+  /* ApiException do mình chủ động ném */
+  @ExceptionHandler(ApiException.class)
+  public ResponseEntity<ErrorResponse> handleApiException(ApiException ex, HttpServletRequest req) {
+    var ec = ex.getErrorCode();
+    var body = ErrorResponse.builder()
+        .code(ec.code)
+        .message(ex.getMessage())
+        .status(ec.status.value())
+        .timestamp(Instant.now())
+        .path(req.getRequestURI())
+        .details(asMap(ex.getDetails()))
+        .build();
+    return ResponseEntity.status(ec.status).body(body);
+  }
 
-        Map<String, Object> errorResponse = new HashMap<>();
-        errorResponse.put("timestamp", LocalDateTime.now());
-        errorResponse.put("status", ex.getHttpStatus());
-        errorResponse.put("error", ex.getErrorCode());
-        errorResponse.put("message", ex.getMessage());
-        errorResponse.put("path", "/api/auth");
+  /* Validate @Valid trên @RequestBody – MethodArgumentNotValidException */
+  @ExceptionHandler(MethodArgumentNotValidException.class)
+  public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex, HttpServletRequest req) {
+    Map<String, Object> fieldErrors = new HashMap<>();
+    ex.getBindingResult().getFieldErrors().forEach(fe ->
+        fieldErrors.put(fe.getField(), fe.getDefaultMessage()));
+    var body = ErrorResponse.builder()
+        .code(ErrorCode.VALIDATION_FAILED.code)
+        .message("Validation failed")
+        .status(ErrorCode.VALIDATION_FAILED.status.value())
+        .timestamp(Instant.now())
+        .path(req.getRequestURI())
+        .details(fieldErrors)
+        .build();
+    return ResponseEntity.status(ErrorCode.VALIDATION_FAILED.status).body(body);
+  }
 
-        return ResponseEntity.status(ex.getHttpStatus()).body(errorResponse);
-    }
+  /* Validate @Valid trên @ModelAttribute/@PathVariable – BindException */
+  @ExceptionHandler(BindException.class)
+  public ResponseEntity<ErrorResponse> handleBind(BindException ex, HttpServletRequest req) {
+    Map<String, Object> fieldErrors = new HashMap<>();
+    ex.getBindingResult().getFieldErrors().forEach(fe ->
+        fieldErrors.put(fe.getField(), fe.getDefaultMessage()));
+    var body = ErrorResponse.builder()
+        .code(ErrorCode.VALIDATION_FAILED.code)
+        .message("Validation failed")
+        .status(ErrorCode.VALIDATION_FAILED.status.value())
+        .timestamp(Instant.now())
+        .path(req.getRequestURI())
+        .details(fieldErrors)
+        .build();
+    return ResponseEntity.status(ErrorCode.VALIDATION_FAILED.status).body(body);
+  }
 
-    @ExceptionHandler(AccountPendingApprovalException.class)
-    public ResponseEntity<Map<String, Object>> handleAccountPendingApprovalException(
-            AccountPendingApprovalException ex) {
-        log.info("Account pending approval: {}", ex.getMessage());
+  /* Fallback – lỗi không bắt được */
+  @ExceptionHandler(Exception.class)
+  public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest req) {
+    var body = ErrorResponse.builder()
+        .code(ErrorCode.INTERNAL_ERROR.code)
+        .message(ex.getMessage() != null ? ex.getMessage() : "Unexpected error")
+        .status(ErrorCode.INTERNAL_ERROR.status.value())
+        .timestamp(Instant.now())
+        .path(req.getRequestURI())
+        .build();
+    return ResponseEntity.status(ErrorCode.INTERNAL_ERROR.status).body(body);
+  }
 
-        Map<String, Object> errorResponse = new HashMap<>();
-        errorResponse.put("timestamp", LocalDateTime.now());
-        errorResponse.put("status", ex.getHttpStatus());
-        errorResponse.put("error", ex.getErrorCode());
-        errorResponse.put("message", ex.getMessage());
-        errorResponse.put("path", "/api/auth");
-        errorResponse.put("requiresApproval", true);
-
-        return ResponseEntity.status(ex.getHttpStatus()).body(errorResponse);
-    }
-
-    @ExceptionHandler(AuthorizationDeniedException.class)
-    public ResponseEntity<Map<String, Object>> handleAuthorizationDeniedException(AuthorizationDeniedException ex) {
-        log.warn("Access denied: {}", ex.getMessage());
-
-        Map<String, Object> errorResponse = new HashMap<>();
-        errorResponse.put("timestamp", LocalDateTime.now());
-        errorResponse.put("status", 403);
-        errorResponse.put("error", "ACCESS_DENIED");
-        errorResponse.put("message", "You are not allowed to access this resource. Insufficient permissions.");
-        errorResponse.put("path", "/api");
-
-        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorResponse);
-    }
-
-    @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<Map<String, Object>> handleRuntimeException(RuntimeException ex) {
-        log.error("Unexpected error: {}", ex.getMessage(), ex);
-
-        Map<String, Object> errorResponse = new HashMap<>();
-        errorResponse.put("timestamp", LocalDateTime.now());
-        errorResponse.put("status", 500);
-        errorResponse.put("error", "INTERNAL_SERVER_ERROR");
-        errorResponse.put("message", "An unexpected error occurred");
-        errorResponse.put("path", "/api");
-
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
-    }
+  private Map<String, Object> asMap(Object details) {
+    if (details == null) return null;
+    if (details instanceof Map<?, ?> m) return (Map<String, Object>) m;
+    return Map.of("info", details);
+  }
 }

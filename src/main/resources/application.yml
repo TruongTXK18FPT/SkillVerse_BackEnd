@@ -3,6 +3,7 @@ spring:
     url: jdbc:postgresql://localhost:5432/SkillVerseDB
     username: postgres
     password: 12345
+
   jpa:
     hibernate:
       ddl-auto: update
@@ -10,12 +11,11 @@ spring:
     properties:
       hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
 
-  # Email Configuration
   mail:
     host: smtp.gmail.com
     port: 587
     username: skillverseexe@gmail.com
-    password: fgbx gygh iglz dcou # Replace with Gmail App Password
+    password: fgbx gygh iglz dcou # Gmail App Password
     properties:
       mail:
         smtp:
@@ -26,15 +26,31 @@ spring:
           timeout: 3000
           writetimeout: 5000
 
+  jackson:
+    # Thời gian, ngày tháng
+    date-format: yyyy-MM-dd'T'HH:mm:ss.SSS'Z'
+    time-zone: Asia/Ho_Chi_Minh
+
+    # Cách hiển thị
+    serialization:
+      indent-output: true            # format JSON đẹp dễ đọc
+      write-dates-as-timestamps: false # in ISO-8601 thay vì epoch
+
+    deserialization:
+      fail-on-unknown-properties: false # bỏ qua field lạ trong JSON input
+
+    mapper:
+      accept-case-insensitive-enums: true # cho phép enum không phân biệt hoa/thường
+
 jwt:
   secret: "1TjXchw5FloESb63Kc+DFhTARvpWL4jUGCwfGWxuG5SIf/1y/LgJxHnMqaF6A/ij"
-  access-token-expiration: 3600 # 1 hour in seconds
+  access-token-expiration: 3600   # 1 hour in seconds
   refresh-token-expiration: 86400 # 24 hours in seconds
 
-# Email Configuration
 email:
   from: skillverseexe@gmail.com
   from-name: SkillVerse
+
 springdoc:
   api-docs:
     enabled: true
