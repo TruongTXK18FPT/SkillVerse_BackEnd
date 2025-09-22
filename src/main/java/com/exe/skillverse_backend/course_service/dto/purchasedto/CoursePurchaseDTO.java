@@ -17,7 +17,7 @@ public class CoursePurchaseDTO {
     private String status;
     private BigDecimal price;
     private String currency;
-    private String paymentId;
+    // private String paymentId;
     private Instant purchasedAt;
     private String couponCode;
 }
