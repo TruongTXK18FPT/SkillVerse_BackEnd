@@ -1,0 +1,273 @@
+package com.exe.skillverse_backend.course_service.service.impl;
+
+import com.exe.skillverse_backend.course_service.dto.quizdto.*;
+import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.Quiz;
+import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
+import com.exe.skillverse_backend.course_service.entity.QuizOption;
+import com.exe.skillverse_backend.course_service.mapper.QuizMapper;
+import com.exe.skillverse_backend.course_service.mapper.QuizQuestionMapper;
+import com.exe.skillverse_backend.course_service.mapper.QuizOptionMapper;
+import com.exe.skillverse_backend.course_service.repository.LessonRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizQuestionRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizOptionRepository;
+import com.exe.skillverse_backend.course_service.service.QuizService;
+import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
+import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+import java.time.Instant;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class QuizServiceImpl implements QuizService {
+
+    private final QuizRepository quizRepository;
+    private final QuizQuestionRepository questionRepository;
+    private final QuizOptionRepository optionRepository;
+    private final LessonRepository lessonRepository;
+    private final QuizMapper quizMapper;
+    private final QuizQuestionMapper questionMapper;
+    private final QuizOptionMapper optionMapper;
+    private final Clock clock;
+
+    @Override
+    @Transactional
+    public QuizDetailDTO createQuiz(Long lessonId, QuizCreateDTO dto, Long actorId) {
+        log.info("Creating quiz '{}' for lesson {} by actor {}", dto.getTitle(), lessonId, actorId);
+        
+        Lesson lesson = getLessonOrThrow(lessonId);
+        ensureAuthorOrAdmin(actorId, lesson.getCourse().getAuthor().getId());
+        
+        validateCreateQuizRequest(dto);
+        
+        Quiz quiz = quizMapper.toEntity(dto, lesson);
+        quiz.setCreatedAt(now());
+        
+        Quiz saved = quizRepository.save(quiz);
+        log.info("Quiz {} created for lesson {} by actor {}", saved.getId(), lessonId, actorId);
+        
+        return quizMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public QuizDetailDTO updateQuiz(Long quizId, QuizUpdateDTO dto, Long actorId) {
+        log.info("Updating quiz {} by actor {}", quizId, actorId);
+        
+        Quiz quiz = getQuizOrThrow(quizId);
+        ensureAuthorOrAdmin(actorId, quiz.getLesson().getCourse().getAuthor().getId());
+        
+        validateUpdateQuizRequest(dto);
+        
+        quizMapper.updateEntity(quiz, dto);
+        
+        Quiz saved = quizRepository.save(quiz);
+        log.info("Quiz {} updated by actor {}", quizId, actorId);
+        
+        return quizMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public void deleteQuiz(Long quizId, Long actorId) {
+        log.info("Deleting quiz {} by actor {}", quizId, actorId);
+        
+        Quiz quiz = getQuizOrThrow(quizId);
+        ensureAuthorOrAdmin(actorId, quiz.getLesson().getCourse().getAuthor().getId());
+        
+        // Cascade delete will handle questions and options
+        quizRepository.delete(quiz);
+        log.info("Quiz {} deleted by actor {}", quizId, actorId);
+    }
+
+    @Override
+    @Transactional
+    public QuizQuestionDetailDTO addQuestion(Long quizId, QuizQuestionCreateDTO dto, Long actorId) {
+        log.info("Adding question to quiz {} by actor {}", quizId, actorId);
+        
+        Quiz quiz = getQuizOrThrow(quizId);
+        ensureAuthorOrAdmin(actorId, quiz.getLesson().getCourse().getAuthor().getId());
+        
+        validateCreateQuestionRequest(dto);
+        
+        // Auto-generate orderIndex if not provided
+        Integer orderIndex = dto.getOrderIndex();
+        if (orderIndex == null) {
+            orderIndex = (int) (questionRepository.countByQuizId(quizId) + 1);
+        }
+        
+        QuizQuestion question = questionMapper.toEntity(dto, quiz);
+        question.setOrderIndex(orderIndex);
+        
+        QuizQuestion saved = questionRepository.save(question);
+        log.info("Question {} added to quiz {} by actor {}", saved.getId(), quizId, actorId);
+        
+        return questionMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public QuizQuestionDetailDTO updateQuestion(Long questionId, QuizQuestionUpdateDTO dto, Long actorId) {
+        log.info("Updating question {} by actor {}", questionId, actorId);
+        
+        QuizQuestion question = getQuestionOrThrow(questionId);
+        ensureAuthorOrAdmin(actorId, question.getQuiz().getLesson().getCourse().getAuthor().getId());
+        
+        validateUpdateQuestionRequest(dto);
+        
+        questionMapper.updateEntity(question, dto);
+        
+        QuizQuestion saved = questionRepository.save(question);
+        log.info("Question {} updated by actor {}", questionId, actorId);
+        
+        return questionMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public void deleteQuestion(Long questionId, Long actorId) {
+        log.info("Deleting question {} by actor {}", questionId, actorId);
+        
+        QuizQuestion question = getQuestionOrThrow(questionId);
+        ensureAuthorOrAdmin(actorId, question.getQuiz().getLesson().getCourse().getAuthor().getId());
+        
+        // Cascade delete will handle options
+        questionRepository.delete(question);
+        log.info("Question {} deleted by actor {}", questionId, actorId);
+    }
+
+    @Override
+    @Transactional
+    public QuizOptionDetailDTO addOption(Long questionId, QuizOptionCreateDTO dto, Long actorId) {
+        log.info("Adding option to question {} by actor {}", questionId, actorId);
+        
+        QuizQuestion question = getQuestionOrThrow(questionId);
+        ensureAuthorOrAdmin(actorId, question.getQuiz().getLesson().getCourse().getAuthor().getId());
+        
+        validateCreateOptionRequest(dto);
+        
+        // QuizOption doesn't have orderIndex, so we don't set it
+        QuizOption option = optionMapper.toEntity(dto, question);
+        
+        QuizOption saved = optionRepository.save(option);
+        log.info("Option {} added to question {} by actor {}", saved.getId(), questionId, actorId);
+        
+        return optionMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public QuizOptionDetailDTO updateOption(Long optionId, QuizOptionUpdateDTO dto, Long actorId) {
+        log.info("Updating option {} by actor {}", optionId, actorId);
+        
+        QuizOption option = getOptionOrThrow(optionId);
+        ensureAuthorOrAdmin(actorId, option.getQuestion().getQuiz().getLesson().getCourse().getAuthor().getId());
+        
+        validateUpdateOptionRequest(dto);
+        
+        optionMapper.updateEntity(option, dto);
+        
+        QuizOption saved = optionRepository.save(option);
+        log.info("Option {} updated by actor {}", optionId, actorId);
+        
+        return optionMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public void deleteOption(Long optionId, Long actorId) {
+        log.info("Deleting option {} by actor {}", optionId, actorId);
+        
+        QuizOption option = getOptionOrThrow(optionId);
+        ensureAuthorOrAdmin(actorId, option.getQuestion().getQuiz().getLesson().getCourse().getAuthor().getId());
+        
+        optionRepository.delete(option);
+        log.info("Option {} deleted by actor {}", optionId, actorId);
+    }
+
+    // ===== Helper Methods =====
+    
+    private Lesson getLessonOrThrow(Long lessonId) {
+        return lessonRepository.findById(lessonId)
+                .orElseThrow(() -> new NotFoundException("LESSON_NOT_FOUND"));
+    }
+    
+    private Quiz getQuizOrThrow(Long quizId) {
+        return quizRepository.findById(quizId)
+                .orElseThrow(() -> new NotFoundException("QUIZ_NOT_FOUND"));
+    }
+    
+    private QuizQuestion getQuestionOrThrow(Long questionId) {
+        return questionRepository.findById(questionId)
+                .orElseThrow(() -> new NotFoundException("QUESTION_NOT_FOUND"));
+    }
+    
+    private QuizOption getOptionOrThrow(Long optionId) {
+        return optionRepository.findById(optionId)
+                .orElseThrow(() -> new NotFoundException("OPTION_NOT_FOUND"));
+    }
+
+    private void ensureAuthorOrAdmin(Long actorId, Long authorId) {
+        // TODO: call Auth/Role service to check if actor is ADMIN
+        if (!actorId.equals(authorId)) {
+            // TODO: implement proper role checking via AuthService
+            throw new AccessDeniedException("FORBIDDEN");
+        }
+    }
+
+    private void validateCreateQuizRequest(QuizCreateDTO dto) {
+        if (dto.getTitle() == null || dto.getTitle().isBlank()) {
+            throw new IllegalArgumentException("Quiz title is required");
+        }
+        // TODO: add more validation (time limits, question requirements, etc.)
+    }
+
+    private void validateUpdateQuizRequest(QuizUpdateDTO dto) {
+        if (dto.getTitle() != null && dto.getTitle().isBlank()) {
+            throw new IllegalArgumentException("Quiz title cannot be blank");
+        }
+        // TODO: add more validation
+    }
+
+    private void validateCreateQuestionRequest(QuizQuestionCreateDTO dto) {
+        if (dto.getQuestionText() == null || dto.getQuestionText().isBlank()) {
+            throw new IllegalArgumentException("Question text is required");
+        }
+        if (dto.getQuestionType() == null) {
+            throw new IllegalArgumentException("Question type is required");
+        }
+        // TODO: add more validation (score validation, type-specific rules, etc.)
+    }
+
+    private void validateUpdateQuestionRequest(QuizQuestionUpdateDTO dto) {
+        if (dto.getQuestionText() != null && dto.getQuestionText().isBlank()) {
+            throw new IllegalArgumentException("Question text cannot be blank");
+        }
+        // TODO: add more validation
+    }
+
+    private void validateCreateOptionRequest(QuizOptionCreateDTO dto) {
+        if (dto.getOptionText() == null || dto.getOptionText().isBlank()) {
+            throw new IllegalArgumentException("Option text is required");
+        }
+        // TODO: add more validation (ensure at least one correct option, etc.)
+    }
+
+    private void validateUpdateOptionRequest(QuizOptionUpdateDTO dto) {
+        if (dto.getOptionText() != null && dto.getOptionText().isBlank()) {
+            throw new IllegalArgumentException("Option text cannot be blank");
+        }
+        // TODO: add more validation
+    }
+
+    private Instant now() {
+        return Instant.now(clock);
+    }
+}
