@@ -29,12 +29,6 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
     Page<Course> findByTitleContainingIgnoreCase(String q, Pageable pageable);
 
     /**
-     * Check if course with given slug exists
-     */
-    @Transactional(readOnly = true)
-    boolean existsBySlug(String slug);
-
-    /**
      * Search courses by tags
      */
     @Transactional(readOnly = true)

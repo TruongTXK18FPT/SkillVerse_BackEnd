@@ -11,7 +11,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-@Mapper(config = CustomMapperConfig.class)
+@Mapper(componentModel = "spring", config = CustomMapperConfig.class)
 public interface UserMapper {
 
     @Mappings({

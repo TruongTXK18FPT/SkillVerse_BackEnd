@@ -6,7 +6,7 @@ import com.exe.skillverse_backend.course_service.entity.*;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import org.mapstruct.*;
 
-@Mapper(config = CustomMapperConfig.class, uses = {LessonMapper.class})
+//@Mapper(componentModel = "spring", config = CustomMapperConfig.class)
 public interface LessonProgressMapper {
 
     @Mapping(target = "lessonId", source = "lesson.id")

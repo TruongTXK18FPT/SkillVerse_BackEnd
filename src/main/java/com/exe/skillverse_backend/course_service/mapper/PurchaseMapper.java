@@ -7,7 +7,7 @@ import com.exe.skillverse_backend.course_service.entity.*;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import org.mapstruct.*;
 
-@Mapper(config = CustomMapperConfig.class, uses = {UserMapper.class, CourseMapper.class})
+//@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {UserMapper.class})
 public interface PurchaseMapper {
 
     @Mapping(target = "id", source = "id")

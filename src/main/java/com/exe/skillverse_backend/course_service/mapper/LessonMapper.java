@@ -8,7 +8,7 @@ import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
 import org.mapstruct.*;
 
-@Mapper(config = CustomMapperConfig.class, uses = {MediaMapper.class})
+@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {MediaMapper.class})
 public interface LessonMapper {
 
     @Mapping(target = "id", source = "id")
@@ -19,13 +19,13 @@ public interface LessonMapper {
     LessonBriefDTO toBriefDto(Lesson lesson);
 
     @Mapping(target = "id", ignore = true)
-    @Mapping(target = "title", source = "title")
-    @Mapping(target = "type", source = "type")
-    @Mapping(target = "orderIndex", source = "orderIndex")
-    @Mapping(target = "contentText", source = "contentText")
-    @Mapping(target = "videoUrl", source = "videoUrl")
+    @Mapping(target = "title", source = "createDto.title")
+    @Mapping(target = "type", source = "createDto.type")
+    @Mapping(target = "orderIndex", source = "createDto.orderIndex")
+    @Mapping(target = "contentText", source = "createDto.contentText")
+    @Mapping(target = "videoUrl", source = "createDto.videoUrl")
     @Mapping(target = "videoMedia", source = "videoMedia")
-    @Mapping(target = "durationSec", source = "durationSec")
+    @Mapping(target = "durationSec", source = "createDto.durationSec")
     @Mapping(target = "course", source = "course")
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
@@ -36,13 +36,13 @@ public interface LessonMapper {
 
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     @Mapping(target = "id", ignore = true)
-    @Mapping(target = "title", source = "title")
-    @Mapping(target = "type", source = "type")
-    @Mapping(target = "orderIndex", source = "orderIndex")
-    @Mapping(target = "contentText", source = "contentText")
-    @Mapping(target = "videoUrl", source = "videoUrl")
+    @Mapping(target = "title", source = "updateDto.title")
+    @Mapping(target = "type", source = "updateDto.type")
+    @Mapping(target = "orderIndex", source = "updateDto.orderIndex")
+    @Mapping(target = "contentText", source = "updateDto.contentText")
+    @Mapping(target = "videoUrl", source = "updateDto.videoUrl")
     @Mapping(target = "videoMedia", source = "videoMedia")
-    @Mapping(target = "durationSec", source = "durationSec")
+    @Mapping(target = "durationSec", source = "updateDto.durationSec")
     @Mapping(target = "course", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
@@ -59,8 +59,6 @@ public interface LessonMapper {
     @Mapping(target = "fileSize", ignore = true)
     @Mapping(target = "uploadedBy", ignore = true)
     @Mapping(target = "uploadedAt", ignore = true)
-    @Mapping(target = "createdAt", ignore = true)
-    @Mapping(target = "updatedAt", ignore = true)
     Media mapIdToMedia(Long videoMediaId);
 
     @Named("mapMediaIdToEntity")

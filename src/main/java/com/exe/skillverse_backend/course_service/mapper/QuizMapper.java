@@ -5,7 +5,7 @@ import com.exe.skillverse_backend.course_service.entity.*;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import org.mapstruct.*;
 
-@Mapper(config = CustomMapperConfig.class, uses = {QuizQuestionMapper.class})
+@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {QuizQuestionMapper.class})
 public interface QuizMapper {
 
     @Mapping(target = "id", source = "id")
@@ -15,9 +15,9 @@ public interface QuizMapper {
     QuizDetailDTO toDetailDto(Quiz quiz);
 
     @Mapping(target = "id", ignore = true)
-    @Mapping(target = "title", source = "title")
-    @Mapping(target = "description", source = "description")
-    @Mapping(target = "passScore", source = "passScore")
+    @Mapping(target = "title", source = "createDto.title")
+    @Mapping(target = "description", source = "createDto.description")
+    @Mapping(target = "passScore", source = "createDto.passScore")
     @Mapping(target = "lesson", source = "lesson")
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)

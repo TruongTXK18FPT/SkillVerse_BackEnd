@@ -7,12 +7,12 @@ import com.exe.skillverse_backend.course_service.entity.*;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import org.mapstruct.*;
 
-@Mapper(config = CustomMapperConfig.class, uses = {UserMapper.class})
+@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {UserMapper.class})
 public interface CodingSubmissionMapper {
 
     @Mapping(target = "id", source = "id")
-    @Mapping(target = "user", source = "user")
-    @Mapping(target = "submittedCode", source = "submittedCode")
+    @Mapping(target = "userId", source = "user.id")
+    @Mapping(target = "userName", expression = "java((submission.getUser().getFirstName() + \" \" + submission.getUser().getLastName()).trim())")
     @Mapping(target = "status", source = "status")
     @Mapping(target = "score", source = "score")
     @Mapping(target = "feedback", source = "feedback")
@@ -22,7 +22,7 @@ public interface CodingSubmissionMapper {
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "exercise", source = "exercise")
     @Mapping(target = "user", source = "user")
-    @Mapping(target = "submittedCode", source = "submittedCode")
+    @Mapping(target = "submittedCode", source = "createDto.code")
     @Mapping(target = "status", constant = "QUEUED")
     @Mapping(target = "score", ignore = true)
     @Mapping(target = "feedback", ignore = true)

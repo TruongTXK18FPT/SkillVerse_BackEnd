@@ -8,7 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
-@AllArgsConstructor
+@AllArgsConstructor 
 public class CodingSubmissionDetailDTO {
     //Long id, Long userId, String userName, String status, BigDecimal score, String feedback, Instant submittedAt
     private Long id;

@@ -6,7 +6,7 @@ import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.entity.Media;
 import org.mapstruct.*;
 
-@Mapper(config = CustomMapperConfig.class)
+@Mapper(componentModel = "spring", config = CustomMapperConfig.class)
 public interface MediaMapper {
 
     // Entity -> DTO

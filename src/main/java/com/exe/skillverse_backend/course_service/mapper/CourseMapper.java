@@ -9,7 +9,7 @@ import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
 import org.mapstruct.*;
 
-@Mapper(config = CustomMapperConfig.class, uses = {UserMapper.class, MediaMapper.class, LessonMapper.class})
+@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {UserMapper.class, MediaMapper.class, LessonMapper.class})
 public interface CourseMapper {
 
     @Mapping(target = "id", source = "id")
@@ -32,9 +32,9 @@ public interface CourseMapper {
     CourseSummaryDTO toSummaryDto(Course course);
 
     @Mapping(target = "id", ignore = true)
-    @Mapping(target = "title", source = "title")
-    @Mapping(target = "description", source = "description")
-    @Mapping(target = "level", source = "level")
+    @Mapping(target = "title", source = "createDto.title")
+    @Mapping(target = "description", source = "createDto.description")
+    @Mapping(target = "level", source = "createDto.level")
     @Mapping(target = "status", constant = "PUBLIC")
     @Mapping(target = "author", source = "author")
     @Mapping(target = "thumbnail", source = "thumbnail")
@@ -48,10 +48,10 @@ public interface CourseMapper {
     Course toEntity(CourseCreateDTO createDto, User author, Media thumbnail);
 
     @Mapping(target = "id", ignore = true)
-    @Mapping(target = "title", source = "title")
-    @Mapping(target = "description", source = "description")
-    @Mapping(target = "level", source = "level")
-    @Mapping(target = "status", source = "status")
+    @Mapping(target = "title", source = "updateDto.title")
+    @Mapping(target = "description", source = "updateDto.description")
+    @Mapping(target = "level", source = "updateDto.level")
+    @Mapping(target = "status", source = "updateDto.status")
     @Mapping(target = "author", ignore = true)
     @Mapping(target = "thumbnail", source = "thumbnail")
     @Mapping(target = "createdAt", ignore = true)
@@ -71,8 +71,6 @@ public interface CourseMapper {
     @Mapping(target = "fileSize", ignore = true)
     @Mapping(target = "uploadedBy", ignore = true)
     @Mapping(target = "uploadedAt", ignore = true)
-    @Mapping(target = "createdAt", ignore = true)
-    @Mapping(target = "updatedAt", ignore = true)
     Media mapIdToMedia(Long thumbnailMediaId);
 
     @Named("mapMediaIdToEntity")
