@@ -33,7 +33,6 @@ public class UserRegistrationService implements RegistrationService<UserRegistra
 
         // Password validation is handled by @PasswordMatches annotation on
         // BaseRegistrationRequest
-        // But let's add an explicit check as well for extra safety
         if (!request.getPassword().equals(request.getConfirmPassword())) {
             throw new RuntimeException("Password and confirmation password do not match");
         }

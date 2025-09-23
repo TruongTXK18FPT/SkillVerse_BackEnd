@@ -172,6 +172,7 @@ public class EmailService {
 
                 What's next:
                 • You can now login to your account
+                • Explore our features
                 • Complete your profile setup
                 • Start %s
                 • Connect with our community
