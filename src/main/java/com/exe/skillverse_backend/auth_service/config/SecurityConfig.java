@@ -73,6 +73,7 @@ public class SecurityConfig {
 
                                 // Health check endpoint
                                 .requestMatchers(HttpMethod.GET, "/health").permitAll()
+                                .requestMatchers(HttpMethod.GET, "/api/health").permitAll()
 
                                 // Error handling endpoint
                                 .requestMatchers("/error").permitAll()

@@ -1,0 +1,47 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://db:5432/skillverse_db
+    username: skillverse_user
+    password: secret_password
+    driver-class-name: org.postgresql.Driver
+    
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        '[format_sql]': true
+        '[jdbc.lob.non_contextual_creation]': true
+        
+  data:
+    redis:
+      host: redis
+      port: 6379
+      password: secret_password
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+        
+server:
+  port: 8080
+  
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+      
+logging:
+  level:
+    com.exe.skillverse_backend: INFO
+    org.springframework.security: DEBUG
+    org.hibernate.SQL: ERROR
+    org.hibernate.type.descriptor.sql.BasicBinder: ERROR
