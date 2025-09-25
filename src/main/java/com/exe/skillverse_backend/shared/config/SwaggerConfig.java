@@ -31,7 +31,7 @@ public class SwaggerConfig {
                         .contact(new Contact()
                                 .name("Skillverse Team")
                                 .email("support@skillverse.com")
-                                .url("https://skillverse.com"))
+                                .url("https://skillverse.vn"))
                         .license(new License()
                                 .name("MIT License")
                                 .url("https://opensource.org/licenses/MIT")))
@@ -40,7 +40,7 @@ public class SwaggerConfig {
                                 .url("http://localhost:" + serverPort)
                                 .description("Local Development Server"),
                         new Server()
-                                .url("https://api.skillverse.com")
+                                .url("https://api.skillverse.vn")
                                 .description("Production Server")))
                 .addSecurityItem(new SecurityRequirement().addList("Bearer Authentication"))
                 .components(new Components()
