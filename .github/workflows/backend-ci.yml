@@ -113,12 +113,28 @@ jobs:
     - name: 🚀 Start Application for API Docs
       run: |
         # Start app in background
+        echo "🚀 Starting application..."
         java -jar target/*.jar --spring.profiles.active=test &
         APP_PID=$!
         echo $APP_PID > app.pid
         
-        # Wait for startup
-        sleep 30
+        # Wait for startup with progress
+        echo "⏳ Waiting for application startup..."
+        for i in {1..60}; do
+          if curl -f http://localhost:8080/actuator/health >/dev/null 2>&1; then
+            echo "✅ Application is ready!"
+            break
+          fi
+          echo "Waiting... ($i/60)"
+          sleep 1
+        done
+        
+        # Test health endpoint
+        curl -f http://localhost:8080/actuator/health || {
+          echo "❌ Health check failed"
+          ps aux | grep java
+          exit 1
+        }
         
         # Download OpenAPI spec
         curl -f http://localhost:8080/v3/api-docs > api-docs.json || echo "Failed to get API docs"
@@ -179,10 +195,27 @@ jobs:
           -e SPRING_PROFILES_ACTIVE=test \
           skillverse-backend:${{ github.sha }}
           
-        sleep 30
+        echo "⏳ Waiting for application to start..."
+        sleep 10
         
-        # Health checks
-        curl -f http://localhost:8080/api/health || exit 1
+        # Check container status
+        docker ps -a --filter name=test-backend
+        
+        # Check application logs
+        echo "📋 Application logs:"
+        docker logs test-backend --tail 50
+        
+        # Wait more and check if port is listening
+        sleep 20
+        netstat -tlnp | grep :8080 || echo "Port 8080 not listening"
+        
+        # Try health check with verbose output
+        echo "🏥 Testing health endpoint..."
+        curl -v -f http://localhost:8080/actuator/health || {
+          echo "❌ Health check failed, showing more logs:"
+          docker logs test-backend --tail 100
+          exit 1
+        }
         
         # Cleanup
         docker stop test-backend || true
