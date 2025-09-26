@@ -1,0 +1,67 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb
+    username: sa
+    password: password
+    driver-class-name: org.h2.Driver
+    
+  h2:
+    console:
+      enabled: true
+      
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: false
+        
+  mail:
+    host: localhost
+    port: 2525
+    username: test
+    password: test
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+            
+server:
+  port: 8080
+  
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      
+jwt:
+  secret: "test-secret-key-for-junit-tests-only-1234567890123456"
+  access-token-expiration: 300   # 5 minutes for tests
+  refresh-token-expiration: 600  # 10 minutes for tests
+
+email:
+  from: test@skillverse.com
+  from-name: SkillVerse Test
+
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    
+logging:
+  level:
+    com.exe.skillverse_backend: DEBUG
+    org.springframework.security: INFO
+    org.hibernate: ERROR
+    org.springframework.web: DEBUG

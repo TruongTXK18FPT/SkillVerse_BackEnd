@@ -1,0 +1,230 @@
+name: ☕ Backend CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  JAVA_VERSION: "17"
+
+jobs:
+  # Job 1: Code Quality & Testing
+  quality-check:
+    name: 🔍 Code Quality & Testing
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: ☕ Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: ${{ env.JAVA_VERSION }}
+        cache: 'maven'
+        
+    - name: 🔐 Make mvnw executable
+      run: chmod +x mvnw
+      
+    - name: 📦 Compile & Package
+      run: |
+        ./mvnw clean compile -q
+        ./mvnw package -DskipTests -q
+        
+    - name: 🧪 Run Unit Tests
+      run: |
+        ./mvnw test
+        
+    - name: 📊 Test Coverage Report
+      run: |
+        ./mvnw jacoco:report
+      continue-on-error: true
+      
+    - name: 📈 Upload Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ github.sha }}
+        path: |
+          ./target/surefire-reports/
+          ./target/site/jacoco/
+        retention-days: 7
+        
+    - name: 📦 Upload JAR Artifact
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: backend-jar-${{ github.sha }}
+        path: ./target/*.jar
+        retention-days: 7
+
+  # Job 2: Security & Dependency Check
+  security-scan:
+    name: 🔒 Security & Dependency Scan
+    runs-on: ubuntu-latest
+    needs: quality-check
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: ☕ Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: ${{ env.JAVA_VERSION }}
+        cache: 'maven'
+        
+    - name: 🔐 Make mvnw executable
+      run: chmod +x mvnw
+      
+    - name: 🔍 OWASP Dependency Check
+      run: |
+        ./mvnw org.owasp:dependency-check-maven:check
+      continue-on-error: true
+
+  # Job 3: API Documentation & Swagger
+  api-docs:
+    name: 📚 API Documentation
+    runs-on: ubuntu-latest
+    needs: quality-check
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: ☕ Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: ${{ env.JAVA_VERSION }}
+        cache: 'maven'
+        
+    - name: 🔐 Make mvnw executable
+      run: chmod +x mvnw
+      
+    - name: 🏗️ Build Application
+      run: |
+        ./mvnw clean package -DskipTests -q
+        
+    - name: 🚀 Start Application for API Docs
+      run: |
+        # Start app in background
+        java -jar target/*.jar --spring.profiles.active=test &
+        APP_PID=$!
+        echo $APP_PID > app.pid
+        
+        # Wait for startup
+        sleep 30
+        
+        # Download OpenAPI spec
+        curl -f http://localhost:8080/v3/api-docs > api-docs.json || echo "Failed to get API docs"
+        curl -f http://localhost:8080/v3/api-docs.yaml > api-docs.yaml || echo "Failed to get API docs YAML"
+        
+        # Stop application
+        kill $APP_PID || true
+      continue-on-error: true
+      
+    - name: 📊 Upload API Documentation
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: api-docs-${{ github.sha }}
+        path: |
+          ./api-docs.json
+          ./api-docs.yaml
+        retention-days: 30
+
+  # Job 4: Docker Build (on main branch)
+  docker-build:
+    name: 🐳 Docker Build
+    runs-on: ubuntu-latest
+    needs: [quality-check, security-scan]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: 📥 Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: ☕ Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: ${{ env.JAVA_VERSION }}
+        cache: 'maven'
+        
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: 🔐 Make mvnw executable
+      run: chmod +x mvnw
+      
+    - name: 🏗️ Build JAR
+      run: |
+        ./mvnw clean package -DskipTests -q
+        
+    - name: 🐳 Build Docker Image
+      run: |
+        docker build -t skillverse-backend:${{ github.sha }} .
+        docker tag skillverse-backend:${{ github.sha }} skillverse-backend:latest
+        
+    - name: 🧪 Test Docker Image
+      run: |
+        # Start backend container
+        docker run -d --name test-backend \
+          -p 8080:8080 \
+          -e SPRING_PROFILES_ACTIVE=test \
+          skillverse-backend:${{ github.sha }}
+          
+        sleep 30
+        
+        # Health checks
+        curl -f http://localhost:8080/api/health || exit 1
+        
+        # Cleanup
+        docker stop test-backend || true
+        docker rm test-backend || true
+
+  # Job 5: Deployment Status
+  deployment-status:
+    name: 📊 Deployment Status
+    runs-on: ubuntu-latest
+    needs: [quality-check, security-scan, api-docs, docker-build]
+    if: always()
+    
+    steps:
+    - name: 📊 Report Status
+      run: |
+        echo "## ☕ Backend CI/CD Results" >> $GITHUB_STEP_SUMMARY
+        echo "- **Quality Check**: ${{ needs.quality-check.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Security Scan**: ${{ needs.security-scan.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **API Docs**: ${{ needs.api-docs.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Docker Build**: ${{ needs.docker-build.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        
+    - name: 💬 Comment on PR
+      if: github.event_name == 'pull_request' && (failure() || success())
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const status = '${{ needs.quality-check.result }}' === 'success' && 
+                        '${{ needs.security-scan.result }}' === 'success' ? '✅' : '❌';
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `${status} **Backend CI/CD Results**
+            
+            - Quality Check: ${{ needs.quality-check.result }}
+            - Security Scan: ${{ needs.security-scan.result }}
+            - API Documentation: ${{ needs.api-docs.result }}
+            - Docker Build: ${{ needs.docker-build.result }}
+            - Commit: \`${{ github.sha }}\`
+            
+            ${status === '❌' ? '⚠️ Please fix the issues before merging.' : '🎉 All checks passed! Ready to merge.'}`
+          })
