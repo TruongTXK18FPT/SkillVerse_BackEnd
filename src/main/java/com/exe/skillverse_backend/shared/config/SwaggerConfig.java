@@ -40,7 +40,7 @@ public OpenAPI customOpenAPI() {
                             .url("http://localhost:" + serverPort)
                             .description("Local Development Server"),
                     new Server()
-                            .url("https://skillverse.vn/api")
+                            .url("http://221.132.33.141:8080")
                             .description("Production Server")))
             .addSecurityItem(new SecurityRequirement().addList("Bearer Authentication"))
             .components(new Components()
