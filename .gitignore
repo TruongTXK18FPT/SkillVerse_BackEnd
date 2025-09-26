@@ -31,3 +31,17 @@ build/
 
 ### VS Code ###
 .vscode/
+!.vscode/mcp.json
+
+### Serena MCP ###
+# Serena project configuration and memory files
+.serena/
+*.serena
+serena-*.log
+serena-memory/
+serena-cache/
+serena-temp/
+
+# MCP server related files
+mcp-server/
+.mcp/
