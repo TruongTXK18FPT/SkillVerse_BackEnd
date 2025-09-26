@@ -21,33 +21,33 @@ public class SwaggerConfig {
     private String serverPort;
 
     @Bean
-    public OpenAPI customOpenAPI() {
-        return new OpenAPI()
-                .info(new Info()
-                        .title("Skillverse Backend API")
-                        .description(
-                                "A comprehensive backend API for the Skillverse platform - a skill-sharing and learning platform")
-                        .version("1.0.0")
-                        .contact(new Contact()
-                                .name("Skillverse Team")
-                                .email("support@skillverse.com")
-                                .url("https://skillverse.vn"))
-                        .license(new License()
-                                .name("MIT License")
-                                .url("https://opensource.org/licenses/MIT")))
-                .servers(List.of(
-                        new Server()
-                                .url("http://localhost:" + serverPort)
-                                .description("Local Development Server"),
-                        new Server()
-                                .url("https://api.skillverse.vn")
-                                .description("Production Server")))
-                .addSecurityItem(new SecurityRequirement().addList("Bearer Authentication"))
-                .components(new Components()
-                        .addSecuritySchemes("Bearer Authentication", new SecurityScheme()
-                                .type(SecurityScheme.Type.HTTP)
-                                .scheme("bearer")
-                                .bearerFormat("JWT")
-                                .description("Enter JWT token obtained from login endpoint")));
-    }
+public OpenAPI customOpenAPI() {
+    return new OpenAPI()
+            .info(new Info()
+                    .title("Skillverse Backend API")
+                    .description(
+                            "A comprehensive backend API for the Skillverse platform - a skill-sharing and learning platform")
+                    .version("1.0.0")
+                    .contact(new Contact()
+                            .name("Skillverse Team")
+                            .email("support@skillverse.com")
+                            .url("https://skillverse.vn"))
+                    .license(new License()
+                            .name("MIT License")
+                            .url("https://opensource.org/licenses/MIT")))
+            .servers(List.of(
+                    new Server()
+                            .url("http://localhost:" + serverPort)
+                            .description("Local Development Server"),
+                    new Server()
+                            .url("https://skillverse.vn/api")
+                            .description("Production Server")))
+            .addSecurityItem(new SecurityRequirement().addList("Bearer Authentication"))
+            .components(new Components()
+                    .addSecuritySchemes("Bearer Authentication", new SecurityScheme()
+                            .type(SecurityScheme.Type.HTTP)
+                            .scheme("bearer")
+                            .bearerFormat("JWT")
+                            .description("Enter JWT token obtained from login endpoint")));
+}
 }
