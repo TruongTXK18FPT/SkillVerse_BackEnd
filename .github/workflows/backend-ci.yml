@@ -153,13 +153,8 @@ jobs:
         # Start app in background with production PostgreSQL
         echo "🚀 Starting application with production PostgreSQL..."
         java -jar target/*.jar \
-          --spring.profiles.active=test \
-          --spring.datasource.url=jdbc:postgresql://221.132.33.141:5432/skillverse_db \
-          --spring.datasource.username=skillverse_user \
-          --spring.datasource.password="${DB_PASSWORD}" \
-          --spring.datasource.driver-class-name=org.postgresql.Driver \
-          --spring.jpa.hibernate.ddl-auto=validate \
-          --spring.jpa.show-sql=false &
+          --spring.profiles.active=ci \
+          --server.port=8080 &
         APP_PID=$!
         echo $APP_PID > app.pid
         

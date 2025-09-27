@@ -1,0 +1,54 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://221.132.33.141:5432/skillverse_db
+    username: skillverse_user
+    password: ${DB_PASSWORD:12345}
+    driver-class-name: org.postgresql.Driver
+    
+  jpa:
+    hibernate:
+      ddl-auto: none  # Don't modify existing schema
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        
+  mail:
+    host: localhost
+    port: 2525
+    username: test
+    password: test
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
+            
+server:
+  port: 8080
+  
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      
+jwt:
+  secret: "test-secret-key-for-junit-tests-only-1234567890123456"
+  access-token-expiration: 300   # 5 minutes for tests
+  refresh-token-expiration: 600  # 10 minutes for tests
+
+email:
+  templates:
+    base-url: "http://localhost:8080"
+    
+logging:
+  level:
+    com.exe.skillverse_backend: INFO
+    org.hibernate.SQL: ERROR
+    org.hibernate.type.descriptor.sql: ERROR
