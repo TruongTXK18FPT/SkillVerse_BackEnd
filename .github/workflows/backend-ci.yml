@@ -118,6 +118,15 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y postgresql-client
         
+        # Debug: Check if secret is available
+        if [ -z "${{ secrets.DB_PASSWORD }}" ]; then
+          echo "❌ DB_PASSWORD secret is empty or not available"
+          echo "This could be a permission issue with repository secrets"
+          exit 1
+        else
+          echo "✅ DB_PASSWORD secret is available"
+        fi
+        
         # Test connection to production PostgreSQL
         echo "🗄️ Testing PostgreSQL connection..."
         PGPASSWORD=${{ secrets.DB_PASSWORD }} psql \
