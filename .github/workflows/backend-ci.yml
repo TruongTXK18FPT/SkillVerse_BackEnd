@@ -122,8 +122,8 @@ jobs:
         echo "🗄️ Testing PostgreSQL connection..."
         PGPASSWORD=${{ secrets.DB_PASSWORD }} psql \
           -h 221.132.33.141 \
-          -U postgres \
-          -d SkillVerseDB \
+          -U skillverse_user \
+          -d skillverse_db \
           -c "SELECT version();" || {
             echo "❌ Failed to connect to PostgreSQL"
             exit 1
@@ -141,8 +141,8 @@ jobs:
         echo "🚀 Starting application with production PostgreSQL..."
         java -jar target/*.jar \
           --spring.profiles.active=test \
-          --spring.datasource.url=jdbc:postgresql://221.132.33.141:5432/SkillVerseDB \
-          --spring.datasource.username=postgres \
+          --spring.datasource.url=jdbc:postgresql://221.132.33.141:5432/skillverse_db \
+          --spring.datasource.username=skillverse_user \
           --spring.datasource.password=${{ secrets.DB_PASSWORD }} \
           --spring.datasource.driver-class-name=org.postgresql.Driver \
           --spring.jpa.hibernate.ddl-auto=validate \
@@ -224,8 +224,8 @@ jobs:
         docker run -d --name test-backend \
           -p 8080:8080 \
           -e SPRING_PROFILES_ACTIVE=test \
-          -e SPRING_DATASOURCE_URL=jdbc:postgresql://221.132.33.141:5432/SkillVerseDB \
-          -e SPRING_DATASOURCE_USERNAME=postgres \
+          -e SPRING_DATASOURCE_URL=jdbc:postgresql://221.132.33.141:5432/skillverse_db \
+          -e SPRING_DATASOURCE_USERNAME=skillverse_user \
           -e SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }} \
           -e SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver \
           -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
