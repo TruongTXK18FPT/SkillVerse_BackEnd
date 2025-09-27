@@ -15,16 +15,23 @@ spring:
         format_sql: false
         
   mail:
-    host: localhost
-    port: 2525
-    username: test
-    password: test
+    host: 127.0.0.1
+    port: 25
+    username: ""
+    password: ""
     properties:
       mail:
         smtp:
           auth: false
           starttls:
             enable: false
+          ssl:
+            enable: false
+          connectiontimeout: 1000
+          timeout: 1000
+          writetimeout: 1000
+    test-connection: false
+    default-encoding: UTF-8
             
 server:
   port: 8080
