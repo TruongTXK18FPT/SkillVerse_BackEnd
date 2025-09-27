@@ -36,7 +36,13 @@ jobs:
         
     - name: 🧪 Run Unit Tests
       run: |
-        ./mvnw test
+        # Run tests with H2 for unit tests (faster)
+        ./mvnw test \
+          -Dspring.datasource.url=jdbc:h2:mem:testdb \
+          -Dspring.datasource.username=sa \
+          -Dspring.datasource.password=password \
+          -Dspring.datasource.driver-class-name=org.h2.Driver \
+          -Dspring.jpa.hibernate.ddl-auto=create-drop
         
     - name: 📊 Test Coverage Report
       run: |
@@ -106,15 +112,41 @@ jobs:
     - name: 🔐 Make mvnw executable
       run: chmod +x mvnw
       
+    - name: 🗄️ Test PostgreSQL Connection
+      run: |
+        # Install PostgreSQL client
+        sudo apt-get update
+        sudo apt-get install -y postgresql-client
+        
+        # Test connection to production PostgreSQL
+        echo "🗄️ Testing PostgreSQL connection..."
+        PGPASSWORD=${{ secrets.DB_PASSWORD }} psql \
+          -h 221.132.33.141 \
+          -U postgres \
+          -d SkillVerseDB \
+          -c "SELECT version();" || {
+            echo "❌ Failed to connect to PostgreSQL"
+            exit 1
+          }
+        echo "✅ PostgreSQL connection successful!"
+      continue-on-error: false
+      
     - name: 🏗️ Build Application
       run: |
         ./mvnw clean package -DskipTests -q
         
     - name: 🚀 Start Application for API Docs
       run: |
-        # Start app in background
-        echo "🚀 Starting application..."
-        java -jar target/*.jar --spring.profiles.active=test &
+        # Start app in background with production PostgreSQL
+        echo "🚀 Starting application with production PostgreSQL..."
+        java -jar target/*.jar \
+          --spring.profiles.active=test \
+          --spring.datasource.url=jdbc:postgresql://221.132.33.141:5432/SkillVerseDB \
+          --spring.datasource.username=postgres \
+          --spring.datasource.password=${{ secrets.DB_PASSWORD }} \
+          --spring.datasource.driver-class-name=org.postgresql.Driver \
+          --spring.jpa.hibernate.ddl-auto=validate \
+          --spring.jpa.show-sql=false &
         APP_PID=$!
         echo $APP_PID > app.pid
         
@@ -142,7 +174,6 @@ jobs:
         
         # Stop application
         kill $APP_PID || true
-      continue-on-error: true
       
     - name: 📊 Upload API Documentation
       uses: actions/upload-artifact@v4
@@ -189,10 +220,16 @@ jobs:
         
     - name: 🧪 Test Docker Image
       run: |
-        # Start backend container
+        # Start backend container with production PostgreSQL connection
         docker run -d --name test-backend \
           -p 8080:8080 \
           -e SPRING_PROFILES_ACTIVE=test \
+          -e SPRING_DATASOURCE_URL=jdbc:postgresql://221.132.33.141:5432/SkillVerseDB \
+          -e SPRING_DATASOURCE_USERNAME=postgres \
+          -e SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }} \
+          -e SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver \
+          -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
+          -e SPRING_JPA_SHOW_SQL=false \
           skillverse-backend:${{ github.sha }}
           
         echo "⏳ Waiting for application to start..."
