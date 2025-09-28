@@ -33,6 +33,13 @@ build/
 .vscode/
 !.vscode/mcp.json
 
+### Environment Variables ###
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
 ### Serena MCP ###
 # Serena project configuration and memory files
 .serena/

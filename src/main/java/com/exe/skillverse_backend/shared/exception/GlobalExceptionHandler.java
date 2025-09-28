@@ -61,6 +61,32 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ErrorCode.VALIDATION_FAILED.status).body(body);
     }
 
+    /* Authentication exceptions - Handle login/auth related errors */
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex, HttpServletRequest req) {
+        var body = ErrorResponse.builder()
+                .code(ErrorCode.UNAUTHORIZED.code)
+                .message(ex.getMessage())
+                .status(ErrorCode.UNAUTHORIZED.status.value())
+                .timestamp(Instant.now())
+                .path(req.getRequestURI())
+                .build();
+        return ResponseEntity.status(ErrorCode.UNAUTHORIZED.status).body(body);
+    }
+
+    /* Account pending approval - Handle mentor/recruiter approval cases */
+    @ExceptionHandler(AccountPendingApprovalException.class)
+    public ResponseEntity<ErrorResponse> handleAccountPendingApproval(AccountPendingApprovalException ex, HttpServletRequest req) {
+        var body = ErrorResponse.builder()
+                .code(ErrorCode.FORBIDDEN.code)
+                .message(ex.getMessage())
+                .status(ErrorCode.FORBIDDEN.status.value())
+                .timestamp(Instant.now())
+                .path(req.getRequestURI())
+                .build();
+        return ResponseEntity.status(ErrorCode.FORBIDDEN.status).body(body);
+    }
+
     /* Fallback – lỗi không bắt được */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest req) {

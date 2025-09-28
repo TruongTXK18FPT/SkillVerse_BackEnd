@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/SkillVerseDB
-    username: postgres
-    password: 12345
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/SkillVerseDB}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:12345}
 
   jpa:
     hibernate:
@@ -12,10 +12,10 @@ spring:
       hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
 
   mail:
-    host: smtp.gmail.com
-    port: 587
-    username: skillverseexe@gmail.com
-    password: fgbx gygh iglz dcou # Gmail App Password
+    host: ${SPRING_MAIL_HOST:smtp.gmail.com}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:skillverseexe@gmail.com}
+    password: ${SPRING_MAIL_PASSWORD:fgbx gygh iglz dcou} # Gmail App Password
     properties:
       mail:
         smtp:
@@ -28,8 +28,8 @@ spring:
 
   jackson:
     # Thời gian, ngày tháng
-    date-format: yyyy-MM-dd'T'HH:mm:ss.SSS'Z'
-    time-zone: Asia/Ho_Chi_Minh
+    date-format: ${SPRING_JACKSON_DATE_FORMAT:yyyy-MM-dd'T'HH:mm:ss.SSS'Z'}
+    time-zone: ${SPRING_JACKSON_TIME_ZONE:Asia/Ho_Chi_Minh}
 
     # Cách hiển thị
     serialization:
@@ -43,18 +43,31 @@ spring:
       accept-case-insensitive-enums: true # cho phép enum không phân biệt hoa/thường
 
 jwt:
-  secret: "1TjXchw5FloESb63Kc+DFhTARvpWL4jUGCwfGWxuG5SIf/1y/LgJxHnMqaF6A/ij"
-  access-token-expiration: 3600   # 1 hour in seconds
-  refresh-token-expiration: 86400 # 24 hours in seconds
+  secret: ${JWT_SECRET:1TjXchw5FloESb63Kc+DFhTARvpWL4jUGCwfGWxuG5SIf/1y/LgJxHnMqaF6A/ij}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:3600}   # 1 hour in seconds
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:86400} # 24 hours in seconds
 
 email:
-  from: skillverseexe@gmail.com
-  from-name: SkillVerse
+  from: ${EMAIL_FROM:skillverseexe@gmail.com}
+  from-name: ${EMAIL_FROM_NAME:SkillVerse}
+
+cors:
+  allowed:
+    origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+    methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS,PATCH}
+    headers: ${CORS_ALLOWED_HEADERS:*}
+  allow:
+    credentials: ${CORS_ALLOW_CREDENTIALS:true}
+  max:
+    age: ${CORS_MAX_AGE:3600}
 
 springdoc:
   api-docs:
-    enabled: true
-    path: /v3/api-docs
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}
+    path: ${SPRINGDOC_API_DOCS_PATH:/v3/api-docs}
   swagger-ui:
-    enabled: true
-    path: /swagger-ui.html
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:true}
+    path: ${SPRINGDOC_SWAGGER_UI_PATH:/swagger-ui.html}
+
+server:
+  port: ${SERVER_PORT:8080}

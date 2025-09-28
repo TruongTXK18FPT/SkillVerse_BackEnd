@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfigurationSource;
 
 @Configuration
 @EnableWebSecurity
@@ -57,6 +58,7 @@ public class SecurityConfig {
 
         private final CustomJwtDecoder customJwtDecoder;
         private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
+        private final CorsConfigurationSource corsConfigurationSource;
 
         @Bean
         public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
@@ -91,6 +93,7 @@ public class SecurityConfig {
                                 .authenticationEntryPoint(jwtAuthenticationEntryPoint));
 
                 httpSecurity.csrf(AbstractHttpConfigurer::disable);
+                httpSecurity.cors(cors -> cors.configurationSource(corsConfigurationSource));
                 httpSecurity.sessionManagement(
                                 session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
 
