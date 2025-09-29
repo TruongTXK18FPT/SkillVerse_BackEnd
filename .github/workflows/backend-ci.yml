@@ -263,6 +263,7 @@ jobs:
       run: |
         docker build -t skillverse-backend:${{ github.sha }} .
         docker tag skillverse-backend:${{ github.sha }} skillverse-backend:latest
+        docker tag skillverse-backend:${{ github.sha }} skillverse-backend:v1
         
     - name: 🧪 Test Docker Image
       run: |
@@ -349,15 +350,15 @@ jobs:
           git reset --hard origin/main
           
           # Stop and remove old backend container
-          docker-compose stop skillverse-backend 2>/dev/null || true
-          docker-compose rm -f skillverse-backend 2>/dev/null || true
+          docker-compose stop backend 2>/dev/null || true
+          docker-compose rm -f backend 2>/dev/null || true
           
           # Remove old backend images
-          docker images | grep skillverse-backend | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+          docker images | grep backend | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
           
           # Build and start new backend container
-          docker-compose build --no-cache skillverse-backend
-          docker-compose up -d skillverse-backend
+          docker-compose build --no-cache backend
+          docker-compose up -d backend
           
           # Wait for backend to be ready
           echo "⏳ Waiting for backend to start..."
@@ -366,7 +367,7 @@ jobs:
           # Check backend health
           curl -f http://localhost:8080/actuator/health || {
             echo "❌ Backend health check failed, showing logs:"
-            docker-compose logs skillverse-backend --tail 50
+            docker-compose logs backend --tail 50
             exit 1
           }
           
