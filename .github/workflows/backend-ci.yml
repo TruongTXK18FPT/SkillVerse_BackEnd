@@ -169,10 +169,10 @@ jobs:
       env:
         DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       run: |
-        # Start app in background with production PostgreSQL
-        echo "🚀 Starting application with production PostgreSQL..."
+        # Start app in background with docker profile and production PostgreSQL
+        echo "🚀 Starting application with docker profile..."
         java -jar target/*.jar \
-          --spring.profiles.active=ci \
+          --spring.profiles.active=docker \
           --server.port=8080 &
         APP_PID=$!
         echo $APP_PID > app.pid
@@ -269,10 +269,11 @@ jobs:
         # Start backend container with all environment variables
         docker run -d --name test-backend \
           -p 8080:8080 \
-          -e SPRING_PROFILES_ACTIVE=ci \
+          -e SPRING_PROFILES_ACTIVE=docker \
           -e SPRING_DATASOURCE_URL=jdbc:postgresql://221.132.33.141:5432/skillverse_db \
           -e SPRING_DATASOURCE_USERNAME=skillverse_user \
           -e SPRING_DATASOURCE_PASSWORD="${DB_PASSWORD}" \
+          -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
           -e JWT_SECRET="${JWT_SECRET}" \
           -e JWT_ACCESS_TOKEN_EXPIRATION="${JWT_ACCESS_TOKEN_EXPIRATION}" \
           -e JWT_REFRESH_TOKEN_EXPIRATION="${JWT_REFRESH_TOKEN_EXPIRATION}" \
