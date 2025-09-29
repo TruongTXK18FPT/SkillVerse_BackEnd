@@ -14,8 +14,24 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: false
         
+  mail:
+    host: ${SPRING_MAIL_HOST:smtp.gmail.com}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:skillverseexe@gmail.com}
+    password: ${SPRING_MAIL_PASSWORD:fgbx gygh iglz dcou}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            
+  jackson:
+    time-zone: ${SPRING_JACKSON_TIME_ZONE:Asia/Ho_Chi_Minh}
+    date-format: ${SPRING_JACKSON_DATE_FORMAT:yyyy-MM-dd'T'HH:mm:ss.SSS'Z'}
+    
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
   
 management:
   endpoints:
@@ -27,13 +43,22 @@ management:
       show-details: always
       
 jwt:
-  secret: "test-secret-key-for-junit-tests-only-1234567890123456"
-  access-token-expiration: 300   # 5 minutes for tests
-  refresh-token-expiration: 600  # 10 minutes for tests
+  secret: ${JWT_SECRET:test-secret-key-for-junit-tests-only-1234567890123456}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:300}   # from env or default 5 minutes
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:600}  # from env or default 10 minutes
 
 email:
+  from: ${EMAIL_FROM:skillverseexe@gmail.com}
+  from-name: ${EMAIL_FROM_NAME:SkillVerse}
   templates:
     base-url: "http://localhost:8080"
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000}
+  allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS,PATCH}
+  allowed-headers: ${CORS_ALLOWED_HEADERS:*}
+  allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
+  max-age: ${CORS_MAX_AGE:3600}
     
 logging:
   level:
