@@ -1,24 +1,23 @@
 package com.exe.skillverse_backend.shared.config;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Set;
 
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import com.exe.skillverse_backend.auth_service.entity.Role;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
-import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
-import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
-import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.auth_service.entity.UserStatus;
+import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
+import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,13 +30,13 @@ public class DataInitializer implements CommandLineRunner {
     private final RoleRepository roleRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final MentorProfileRepository mentorProfileRepository;
-    private final RecruiterProfileRepository recruiterProfileRepository;
+    private final PremiumPlanRepository premiumPlanRepository;
 
     @Override
     public void run(String... args) throws Exception {
         initializeRoles();
         initializeUsers();
+        initializePremiumPlans();
         // initializeProfiles(); // Temporarily disabled - profiles can be created via
         // API
     }
@@ -122,6 +121,77 @@ public class DataInitializer implements CommandLineRunner {
         }
     }
 
+    private void initializePremiumPlans() {
+        try {
+            // Create PREMIUM_BASIC plan
+            createPremiumPlanIfNotExists(
+                    "premium_basic",
+                    "Premium Basic",
+                    "Access to premium courses and basic mentorship features",
+                    1, // 1 month duration
+                    new BigDecimal("3000"), // 79,000 VND
+                    PremiumPlan.PlanType.PREMIUM_BASIC,
+                    new BigDecimal("10"), // 10% student discount
+                    "[\"Access to premium courses\", \"Basic chat with mentors\", \"Course completion certificates\", \"Priority support\"]");
+
+            // Create PREMIUM_PLUS plan
+            createPremiumPlanIfNotExists(
+                    "premium_plus",
+                    "Premium Plus",
+                    "Full access to all premium features including 1-on-1 mentorship",
+                    3, // 3 months duration
+                    new BigDecimal("4000"), // 249,000 VND
+                    PremiumPlan.PlanType.PREMIUM_PLUS,
+                    new BigDecimal("15"), // 15% student discount
+                    "[\"All Premium Basic features\", \"Unlimited 1-on-1 mentorship\", \"Career guidance sessions\", \"Resume review\", \"Job placement assistance\", \"Exclusive workshops\"]");
+
+            // Create STUDENT plan
+            createPremiumPlanIfNotExists(
+                    "student",
+                    "Student Pack",
+                    "Special discounted plan for students with essential premium features",
+                    1, // 1 month duration
+                    new BigDecimal("2000"), // 20,000 VND (already discounted base price)
+                    PremiumPlan.PlanType.STUDENT_PACK,
+                    new BigDecimal("0"), // No additional discount (already base discounted price)
+                    "[\"Access to premium courses\", \"Student community access\", \"Basic mentorship\", \"Course certificates\", \"Study materials download\"]");
+
+            log.info("🎉 All premium plans initialized successfully");
+
+        } catch (Exception e) {
+            log.error("❌ Error initializing premium plans: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to initialize premium plans", e);
+        }
+    }
+
+    private void createPremiumPlanIfNotExists(String name, String displayName, String description,
+            Integer durationMonths, BigDecimal price,
+            PremiumPlan.PlanType planType, BigDecimal studentDiscountPercent,
+            String features) {
+        if (!premiumPlanRepository.findByName(name).isPresent()) {
+            PremiumPlan plan = PremiumPlan.builder()
+                    .name(name)
+                    .displayName(displayName)
+                    .description(description)
+                    .durationMonths(durationMonths)
+                    .price(price)
+                    .currency("VND")
+                    .planType(planType)
+                    .studentDiscountPercent(studentDiscountPercent)
+                    .features(features)
+                    .isActive(true)
+                    .maxSubscribers(null) // Unlimited subscribers
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
+
+            premiumPlanRepository.save(plan);
+            log.info("✅ Created premium plan: {} ({})", displayName, planType);
+        } else {
+            log.info("✅ Premium plan already exists: {} ({})", displayName, planType);
+        }
+    }
+
     private void createUserIfNotExists(String email, String password, Set<Role> roles, String description,
             PrimaryRole primaryRole, UserStatus userStatus) {
         if (!userRepository.existsByEmail(email)) {
@@ -143,57 +213,4 @@ public class DataInitializer implements CommandLineRunner {
         }
     }
 
-    @Transactional
-    private void initializeProfiles() {
-        try {
-            // Create mentor profile for test mentor user (APPROVED status so they can login
-            // immediately)
-            User mentorUser = userRepository.findByEmail("exementor@gmail.com").orElse(null);
-            if (mentorUser != null && !mentorProfileRepository.existsByUserId(mentorUser.getId())) {
-                MentorProfile mentorProfile = MentorProfile.builder()
-                        .user(mentorUser)
-                        .fullName("Test Mentor")
-                        .email("exementor@gmail.com")
-                        .linkedinProfile("https://linkedin.com/in/test-mentor")
-                        .mainExpertiseAreas("Java, Spring Boot, Microservices")
-                        .yearsOfExperience(5)
-                        .personalProfile("Experienced software developer with 5+ years in backend development")
-                        .cvPortfolioUrl("https://portfolio.test-mentor.com")
-                        .certificatesUrl("https://certificates.test-mentor.com")
-                        .applicationStatus(ApplicationStatus.APPROVED) // APPROVED so they can login
-                        .applicationDate(LocalDateTime.now())
-                        .approvalDate(LocalDateTime.now()) // Set approval date
-                        .build();
-
-                mentorProfileRepository.save(mentorProfile);
-                log.info("✅ Created APPROVED MentorProfile for test mentor user");
-            }
-
-            // Create recruiter profile for test recruiter user (APPROVED status so they can
-            // login immediately)
-            User recruiterUser = userRepository.findByEmail("exerecruiter@gmail.com").orElse(null);
-            if (recruiterUser != null && !recruiterProfileRepository.existsByUserId(recruiterUser.getId())) {
-                RecruiterProfile recruiterProfile = RecruiterProfile.builder()
-                        .user(recruiterUser)
-                        .companyName("Test Company Inc")
-                        .companyWebsite("https://www.testcompany.com")
-                        .companyAddress("123 Tech Street, District 1, Ho Chi Minh City, Vietnam")
-                        .taxCodeOrBusinessRegistrationNumber("0123456789")
-                        .companyDocumentsUrl("https://storage.testcompany.com/business-license.pdf")
-                        .applicationStatus(ApplicationStatus.APPROVED) // APPROVED so they can login
-                        .applicationDate(LocalDateTime.now())
-                        .approvalDate(LocalDateTime.now()) // Set approval date
-                        .build();
-
-                recruiterProfileRepository.save(recruiterProfile);
-                log.info("✅ Created APPROVED RecruiterProfile for test recruiter user");
-            }
-
-            log.info("🎉 All test profiles initialized successfully");
-
-        } catch (Exception e) {
-            log.error("❌ Error initializing profiles: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to initialize profiles", e);
-        }
-    }
 }
