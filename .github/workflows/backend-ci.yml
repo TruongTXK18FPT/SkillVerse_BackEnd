@@ -350,8 +350,8 @@ jobs:
           git reset --hard origin/main
           
           # Stop and remove old backend container only
-          docker-compose stop backend 2>/dev/null || true
-          docker-compose rm -f backend 2>/dev/null || true
+          docker compose stop backend 2>/dev/null || true
+          docker compose rm -f backend 2>/dev/null || true
           
           # Remove old backend images
           docker images | grep backend | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
@@ -360,7 +360,7 @@ jobs:
           docker build -t skillverse-backend:v1 .
           
           # Start ONLY backend (without recreating db/redis)
-          docker-compose --compatibility up -d --no-recreate backend
+          docker compose --compatibility up -d --no-recreate backend
           
           # Wait for backend to be ready
           echo "⏳ Waiting for backend to start..."
@@ -369,7 +369,7 @@ jobs:
           # Check backend health
           curl -f http://localhost:8080/actuator/health || {
             echo "❌ Backend health check failed, showing logs:"
-            docker-compose logs --tail=50 backend
+            docker compose logs --tail=50 backend
             exit 1
           }
           
