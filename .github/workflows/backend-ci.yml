@@ -356,9 +356,9 @@ jobs:
           # Remove old backend images
           docker images | grep backend | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
           
-          # Build and start new backend container
-          docker-compose build --no-cache backend
-          docker-compose up -d backend
+          # Build and start new backend container (force local build, no pull)
+          DOCKER_BUILDKIT=1 docker-compose build --no-cache backend
+          docker-compose up -d --force-recreate backend
           
           # Wait for backend to be ready
           echo "⏳ Waiting for backend to start..."
