@@ -364,7 +364,7 @@ jobs:
           
           # Wait for backend to be ready
           echo "⏳ Waiting for backend to start..."
-          sleep 15
+          sleep 60
           
           # Check backend health
           curl -f http://localhost:8080/actuator/health || {
