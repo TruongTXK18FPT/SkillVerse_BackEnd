@@ -92,7 +92,6 @@ public class AuthController {
 
     @PostMapping("/logout")
     @Operation(summary = "Logout user", description = "Invalidates the current access token")
-    @SecurityRequirement(name = "Bearer Authentication")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Logout successful", content = @Content),
             @ApiResponse(responseCode = "400", description = "Invalid token", content = @Content)

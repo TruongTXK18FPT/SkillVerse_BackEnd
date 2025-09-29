@@ -33,7 +33,7 @@ spring:
 
     # Cách hiển thị
     serialization:
-      indent-output: true            # format JSON đẹp dễ đọc
+      indent-output: true # format JSON đẹp dễ đọc
       write-dates-as-timestamps: false # in ISO-8601 thay vì epoch
 
     deserialization:
@@ -44,7 +44,7 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET:1TjXchw5FloESb63Kc+DFhTARvpWL4jUGCwfGWxuG5SIf/1y/LgJxHnMqaF6A/ij}
-  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:3600}   # 1 hour in seconds
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:3600} # 1 hour in seconds
   refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:86400} # 24 hours in seconds
 
 email:
@@ -60,6 +60,35 @@ cors:
     credentials: ${CORS_ALLOW_CREDENTIALS:true}
   max:
     age: ${CORS_MAX_AGE:3600}
+
+# Payment Gateway Configuration
+payment:
+  payos:
+    client-id: ${PAYOS_CLIENT_ID:dd239d22-5ff6-4113-bc74-8c71f55147fd}
+    api-key: ${PAYOS_API_KEY:9f1a0f8b-fbae-495a-b2f6-52e72ac155ca}
+    checksum-key: ${PAYOS_CHECKSUM_KEY:e53324608b59a5614972388adfc79b36b12c2ae5e141470a0d51b82ca6bebc92}
+    base-url: ${PAYOS_BASE_URL:https://api-merchant.payos.vn}
+    webhook-url: ${PAYOS_WEBHOOK_URL:http://localhost:8080/api/v1/payments/callback/payos}
+
+# Premium Subscription Configuration
+premium:
+  plans:
+    # Auto-create premium plans on startup (for development)
+    auto-create: ${PREMIUM_AUTO_CREATE_PLANS:true}
+
+  subscription:
+    # Default subscription settings
+    default-currency: VND
+    reminder-days-before-expiry: 7
+    grace-period-days: 3
+
+    # Student discount settings
+    student-email-domains:
+      - .edu
+      - .edu.vn
+      - .ac.uk
+      - university.
+      - student.
 
 springdoc:
   api-docs:

@@ -109,6 +109,9 @@ public class SecurityConfig {
                 JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
                 jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(jwtGrantedAuthoritiesConverter);
 
+                // Set principal claim name to use the User ID for lookup
+                jwtAuthenticationConverter.setPrincipalClaimName("userId");
+
                 return jwtAuthenticationConverter;
         }
 
