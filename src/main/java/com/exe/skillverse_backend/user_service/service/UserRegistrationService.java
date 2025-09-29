@@ -55,6 +55,8 @@ public class UserRegistrationService implements RegistrationService<UserRegistra
                 .success(true)
                 .email(request.getEmail())
                 .userId(user.getId())
+                .requiresVerification(true)  // User registration always requires email verification
+                .otpExpiryMinutes(10)  // OTP expires in 10 minutes
                 .message("User registration successful! Please verify your email with the OTP code.")
                 .nextStep("Check your email and verify with the OTP code to activate your account")
                 .build();
