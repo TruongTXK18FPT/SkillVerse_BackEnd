@@ -13,7 +13,7 @@ import java.util.List;
 @Configuration
 public class CorsConfig {
 
-    @Value("${cors.allowed.origins:http://localhost:5173,http://localhost:3000,https://skillverse.vn,https://www.skillverse.vn}")
+    @Value("${cors.allowed.origins:http://localhost:5173,http://localhost:3000,http://localhost:52514,https://skillverse.vn,https://www.skillverse.vn}")
     private String allowedOrigins;
 
     @Value("${cors.allowed.methods:GET,POST,PUT,DELETE,OPTIONS,PATCH}")
@@ -31,15 +31,15 @@ public class CorsConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        
+
         // Parse allowed origins from environment variable
         List<String> origins = Arrays.asList(allowedOrigins.split(","));
         configuration.setAllowedOriginPatterns(origins);
-        
+
         // Parse allowed methods from environment variable
         List<String> methods = Arrays.asList(allowedMethods.split(","));
         configuration.setAllowedMethods(methods);
-        
+
         // Parse allowed headers from environment variable
         if ("*".equals(allowedHeaders)) {
             configuration.addAllowedHeader("*");
@@ -47,25 +47,24 @@ public class CorsConfig {
             List<String> headers = Arrays.asList(allowedHeaders.split(","));
             configuration.setAllowedHeaders(headers);
         }
-        
+
         // Set credentials and max age
         configuration.setAllowCredentials(allowCredentials);
         configuration.setMaxAge(maxAge);
-        
+
         // Expose common headers that frontend might need
         configuration.setExposedHeaders(Arrays.asList(
-            "Authorization",
-            "Content-Type",
-            "X-Requested-With",
-            "accept",
-            "Origin",
-            "Access-Control-Request-Method",
-            "Access-Control-Request-Headers"
-        ));
+                "Authorization",
+                "Content-Type",
+                "X-Requested-With",
+                "accept",
+                "Origin",
+                "Access-Control-Request-Method",
+                "Access-Control-Request-Headers"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
-        
+
         return source;
     }
 }
