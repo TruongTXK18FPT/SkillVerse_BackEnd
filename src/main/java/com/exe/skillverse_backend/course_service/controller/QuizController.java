@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -27,6 +28,7 @@ public class QuizController {
 
     // ========== Quiz Management ==========
     @PostMapping
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Create a new quiz for a lesson")
     public ResponseEntity<QuizDetailDTO> createQuiz(
             @Parameter(description = "Lesson ID") @RequestParam @NotNull Long lessonId,
@@ -39,6 +41,7 @@ public class QuizController {
     }
 
     @PutMapping("/{quizId}")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Update an existing quiz")
     public ResponseEntity<QuizDetailDTO> updateQuiz(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,

@@ -6,6 +6,7 @@ import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -87,6 +88,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ErrorCode.FORBIDDEN.status).body(body);
     }
 
+    /* File upload size exceeded - Handle MaxUploadSizeExceededException */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException ex, HttpServletRequest req) {
+        var body = ErrorResponse.builder()
+                .code(ErrorCode.BAD_REQUEST.code)
+                .message("File size exceeds the maximum allowed limit of 500MB")
+                .status(ErrorCode.BAD_REQUEST.status.value())
+                .timestamp(Instant.now())
+                .path(req.getRequestURI())
+                .build();
+        return ResponseEntity.status(ErrorCode.BAD_REQUEST.status).body(body);
+    }
+
     /* Fallback – lỗi không bắt được */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest req) {
@@ -100,9 +114,10 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ErrorCode.INTERNAL_ERROR.status).body(body);
     }
 
+    @SuppressWarnings("unchecked")
     private Map<String, Object> asMap(Object details) {
         if (details == null)
-            return null;
+            return new HashMap<>();
         if (details instanceof Map<?, ?> m)
             return (Map<String, Object>) m;
         return Map.of("info", details);

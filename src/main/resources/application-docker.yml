@@ -16,6 +16,14 @@ spring:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         '[format_sql]': true
         '[jdbc.lob.non_contextual_creation]': true
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 500MB
+      max-request-size: 500MB
+      file-size-threshold: 2KB
+      location: ${java.io.tmpdir}
         
   mail:
     host: ${SPRING_MAIL_HOST:smtp.gmail.com}

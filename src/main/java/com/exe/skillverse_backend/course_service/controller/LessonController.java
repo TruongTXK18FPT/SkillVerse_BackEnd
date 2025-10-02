@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.prepost.PreAuthorize;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -29,6 +30,7 @@ public class LessonController {
     private final LessonService lessonService;
 
     @PostMapping
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Add a new lesson to a course")
     public ResponseEntity<LessonBriefDTO> addLesson(
             @Parameter(description = "Course ID") @RequestParam @NotNull Long courseId,
@@ -41,6 +43,7 @@ public class LessonController {
     }
 
     @PutMapping("/{lessonId}")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Update an existing lesson")
     public ResponseEntity<LessonBriefDTO> updateLesson(
             @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId,

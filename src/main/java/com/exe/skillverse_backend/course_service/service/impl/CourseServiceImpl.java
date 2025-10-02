@@ -27,6 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -48,8 +51,7 @@ public class CourseServiceImpl implements CourseService {
         log.info("Creating course with title '{}' by author {}", dto.getTitle(), authorId);
         
         validateCreateCourseRequest(dto);
-        
-        // TODO: Load User entity from authorId via AuthService/UserRepository
+
         User author = User.builder().id(authorId).build(); // Placeholder for now
         
         // Load thumbnail media if provided
@@ -163,6 +165,89 @@ public class CourseServiceImpl implements CourseService {
                 .build();
     }
 
+    @Override
+    @Transactional
+    public CourseDetailDTO submitCourseForApproval(Long courseId, Long actorId) {
+        log.info("Submitting course {} for approval by actor {}", courseId, actorId);
+        
+        Course course = getCourseOrThrow(courseId);
+        ensureAuthorOrAdmin(actorId, course.getAuthor().getId());
+        
+        // Only DRAFT courses can be submitted for approval
+        if (course.getStatus() != CourseStatus.DRAFT) {
+            throw new ConflictException("COURSE_CANNOT_BE_SUBMITTED_IN_STATUS_" + course.getStatus());
+        }
+        
+        course.setStatus(CourseStatus.PENDING);
+        course.setUpdatedAt(now());
+        
+        Course saved = courseRepository.save(course);
+        log.info("Course {} submitted for approval by actor {}", courseId, actorId);
+        
+        return courseMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public CourseDetailDTO approveCourse(Long courseId, Long adminId) {
+        log.info("Admin {} approving course {}", adminId, courseId);
+        
+        Course course = getCourseOrThrow(courseId);
+        
+        // Only PENDING courses can be approved
+        if (course.getStatus() != CourseStatus.PENDING) {
+            throw new ConflictException("COURSE_CANNOT_BE_APPROVED_IN_STATUS_" + course.getStatus());
+        }
+        
+        course.setStatus(CourseStatus.PUBLIC);
+        course.setUpdatedAt(now());
+        
+        Course saved = courseRepository.save(course);
+        log.info("Course {} approved by admin {}", courseId, adminId);
+        
+        // TODO: Publish event for course approval notification
+        
+        return courseMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public CourseDetailDTO rejectCourse(Long courseId, Long adminId, String reason) {
+        log.info("Admin {} rejecting course {} with reason: {}", adminId, courseId, reason);
+        
+        Course course = getCourseOrThrow(courseId);
+        
+        // Only PENDING courses can be rejected
+        if (course.getStatus() != CourseStatus.PENDING) {
+            throw new ConflictException("COURSE_CANNOT_BE_REJECTED_IN_STATUS_" + course.getStatus());
+        }
+        
+        course.setStatus(CourseStatus.DRAFT);
+        course.setUpdatedAt(now());
+        
+        Course saved = courseRepository.save(course);
+        log.info("Course {} rejected by admin {} with reason: {}", courseId, adminId, reason);
+        
+        // TODO: Publish event for course rejection notification with reason
+        
+        return courseMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<CourseSummaryDTO> listCoursesByStatus(CourseStatus status, Pageable pageable) {
+        log.debug("Listing courses with status '{}', page {}", status, pageable.getPageNumber());
+        
+        Page<Course> page = courseRepository.findByStatus(status, pageable);
+        
+        return PageResponse.<CourseSummaryDTO>builder()
+                .items(page.map(courseMapper::toSummaryDto).getContent())
+                .page(page.getNumber())
+                .size(page.getSize())
+                .total(page.getTotalElements())
+                .build();
+    }
+
     // ===== Helper Methods =====
     
     private Course getCourseOrThrow(Long id) {
@@ -194,5 +279,29 @@ public class CourseServiceImpl implements CourseService {
 
     private Instant now() {
         return Instant.now(clock);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long getTotalCourseCount() {
+        return courseRepository.count();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.List<java.util.Map<String, Object>> getAllCoursesForDebug() {
+        List<Course> courses = courseRepository.findAll();
+        return courses.stream()
+                .map(course -> {
+                    Map<String, Object> courseInfo = new HashMap<>();
+                    courseInfo.put("id", course.getId());
+                    courseInfo.put("title", course.getTitle());
+                    courseInfo.put("status", course.getStatus());
+                    courseInfo.put("level", course.getLevel());
+                    courseInfo.put("authorId", course.getAuthor().getId());
+                    courseInfo.put("lessonCount", course.getLessons().size());
+                    return courseInfo;
+                })
+                .toList();
     }
 }

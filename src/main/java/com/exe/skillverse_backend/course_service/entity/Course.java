@@ -40,7 +40,7 @@ public class Course {
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 20)
   @Builder.Default
-  private CourseStatus status = CourseStatus.PUBLIC;
+  private CourseStatus status = CourseStatus.DRAFT;
 
   /* ====== Quan hệ User (tác giả) ====== */
   @ManyToOne(fetch = FetchType.LAZY, optional = false)

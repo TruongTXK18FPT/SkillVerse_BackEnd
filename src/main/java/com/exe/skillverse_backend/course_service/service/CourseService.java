@@ -19,4 +19,17 @@ public interface CourseService {
     CourseDetailDTO getCourse(Long id);
     
     PageResponse<CourseSummaryDTO> listCourses(String q, CourseStatus status, Pageable p);
+    
+    // Course approval workflow methods
+    CourseDetailDTO submitCourseForApproval(Long courseId, Long actorId);
+    
+    CourseDetailDTO approveCourse(Long courseId, Long adminId);
+    
+    CourseDetailDTO rejectCourse(Long courseId, Long adminId, String reason);
+    
+    PageResponse<CourseSummaryDTO> listCoursesByStatus(CourseStatus status, Pageable pageable);
+    
+    long getTotalCourseCount();
+    
+    java.util.List<java.util.Map<String, Object>> getAllCoursesForDebug();
 }
