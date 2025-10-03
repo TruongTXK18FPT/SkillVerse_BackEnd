@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.auth_service.controller;
 
-import com.exe.skillverse_backend.auth_service.dto.request.CompleteProfileRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.LoginRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.RefreshTokenRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.ResendOtpRequest;
