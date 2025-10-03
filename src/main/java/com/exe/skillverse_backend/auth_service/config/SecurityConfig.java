@@ -41,7 +41,9 @@ public class SecurityConfig {
                         // Mentor service registration
                         "/api/mentors/register",
                         // Business service registration
-                        "/api/business/register"
+                        "/api/business/register",
+                        // PayOS webhook (must be public for PayOS to call)
+                        "/api/v1/payments/callback/payos"
         };
 
         private static final String[] SWAGGER_ENDPOINTS = {

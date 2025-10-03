@@ -19,8 +19,6 @@ import java.time.LocalDateTime;
         @Index(columnList = "plan_id"),
         @Index(columnList = "start_date, end_date"),
         @Index(columnList = "is_active")
-}, uniqueConstraints = {
-        @UniqueConstraint(name = "uk_user_active_subscription", columnNames = { "user_id", "is_active" })
 })
 @Getter
 @Setter
