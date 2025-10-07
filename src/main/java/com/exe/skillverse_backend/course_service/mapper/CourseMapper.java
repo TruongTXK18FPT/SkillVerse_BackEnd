@@ -60,11 +60,11 @@ public interface CourseMapper {
     default Integer getModuleCount(Course course) {
         if (course == null) return 0;
         try {
-            if (course.getModules() == null) return 0;
-            return course.getModules().size();
+            // For now, return 0 to avoid lazy initialization issues
+            // TODO: Implement proper module counting via repository query in service layer
+            return 0;
         } catch (Exception e) {
-            // Handle lazy initialization exception - return 0 for now
-            // TODO: Implement proper module counting via repository query
+            // Fallback to 0 if counting fails
             return 0;
         }
     }

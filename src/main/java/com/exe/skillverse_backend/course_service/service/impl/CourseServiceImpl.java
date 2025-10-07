@@ -11,6 +11,7 @@ import com.exe.skillverse_backend.course_service.mapper.CourseMapper;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
+import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.service.CourseService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import com.exe.skillverse_backend.shared.entity.Media;
@@ -39,6 +40,7 @@ public class CourseServiceImpl implements CourseService {
     private final CourseRepository courseRepository;
     private final CourseEnrollmentRepository enrollmentRepository;
     private final CoursePurchaseRepository purchaseRepository;
+    private final ModuleRepository moduleRepository;
     private final MediaRepository mediaRepository;
     private final CourseMapper courseMapper;
     private final Clock clock;
@@ -186,8 +188,18 @@ public class CourseServiceImpl implements CourseService {
         // Use query with eager loading to avoid LazyInitializationException
         Page<Course> page = courseRepository.findByAuthorIdWithAuthor(authorId, pageable);
         
+        // Map courses and set module counts
+        List<CourseSummaryDTO> courseSummaries = page.getContent().stream()
+                .map(course -> {
+                    CourseSummaryDTO summary = courseMapper.toSummaryDto(course);
+                    // Set module count using repository to avoid lazy initialization
+                    summary.setModuleCount((int) moduleRepository.countByCourseId(course.getId()));
+                    return summary;
+                })
+                .toList();
+        
         return PageResponse.<CourseSummaryDTO>builder()
-                .items(page.map(courseMapper::toSummaryDto).getContent())
+                .items(courseSummaries)
                 .page(page.getNumber())
                 .size(page.getSize())
                 .total(page.getTotalElements())
@@ -270,8 +282,18 @@ public class CourseServiceImpl implements CourseService {
         // Use query with eager loading to avoid LazyInitializationException
         Page<Course> page = courseRepository.findByStatusWithAuthor(status, pageable);
         
+        // Map courses and set module counts
+        List<CourseSummaryDTO> courseSummaries = page.getContent().stream()
+                .map(course -> {
+                    CourseSummaryDTO summary = courseMapper.toSummaryDto(course);
+                    // Set module count using repository to avoid lazy initialization
+                    summary.setModuleCount((int) moduleRepository.countByCourseId(course.getId()));
+                    return summary;
+                })
+                .toList();
+        
         return PageResponse.<CourseSummaryDTO>builder()
-                .items(page.map(courseMapper::toSummaryDto).getContent())
+                .items(courseSummaries)
                 .page(page.getNumber())
                 .size(page.getSize())
                 .total(page.getTotalElements())
