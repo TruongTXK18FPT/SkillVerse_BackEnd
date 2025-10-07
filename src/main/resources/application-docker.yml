@@ -8,8 +8,8 @@ spring:
     
   jpa:
     hibernate:
-      # Use 'none' for CI/CD to avoid schema conflicts, 'update' for production
-      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:none}
+      # Use 'update' to auto-update schema, 'validate' for strict validation
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
     show-sql: false
     properties:
       hibernate:
