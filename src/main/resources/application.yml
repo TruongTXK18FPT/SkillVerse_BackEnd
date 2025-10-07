@@ -50,6 +50,44 @@ spring:
     mapper:
       accept-case-insensitive-enums: true # cho phép enum không phân biệt hoa/thường
 
+  # Spring AI Configuration
+  # Using Mistral AI for chatbot and Gemini (via OpenAI-compatible API) for roadmap
+  # Simple API key authentication - no Google Cloud setup needed!
+  ai:
+    mistralai:
+      api-key: ${MISTRAL_API_KEY:bmme3URCCoCQUg3JNdO56ARhSkzfOnKZ}
+      chat:
+        enabled: ${MISTRAL_ENABLED:true}
+        options:
+          model: ${MISTRAL_API_MODEL:mistral-large-latest}
+          temperature: ${MISTRAL_API_TEMPERATURE:0.7}
+          max-tokens: ${MISTRAL_API_MAX_TOKENS:30000}
+
+    # OpenAI configuration - using Gemini's OpenAI-compatible endpoint
+    openai:
+      api-key: ${GEMINI_API_KEY:AIzaSyA3IZ1rLOOox7_QsB8UvxzecNHL0xax0J4}
+      base-url: ${GEMINI_OPENAI_BASE_URL:https://generativelanguage.googleapis.com/v1beta/openai/}
+      chat:
+        enabled: ${GEMINI_ENABLED:true}
+        options:
+          model: ${GEMINI_MODEL:gemini-2.5-flash-preview-09-2025}
+          temperature: ${GEMINI_TEMPERATURE:0.7}
+          max-tokens: ${GEMINI_MAX_TOKENS:30000}
+
+    # Retry Configuration
+    retry:
+      max-attempts: 3
+      on-client-errors: false
+
+# Application Configuration
+application:
+  # Direct Gemini API Configuration (for roadmap generation)
+  # Get your API key from: https://makersuite.google.com/app/apikey
+  gemini:
+    api-key: ${GEMINI_API_KEY:AIzaSyA3IZ1rLOOox7_QsB8UvxzecNHL0xax0J4}
+    api-url: ${GEMINI_API_URL:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent}
+    model: ${GEMINI_MODEL:gemini-2.5-flash-preview-09-2025}
+
 jwt:
   secret: ${JWT_SECRET:1TjXchw5FloESb63Kc+DFhTARvpWL4jUGCwfGWxuG5SIf/1y/LgJxHnMqaF6A/ij}
   access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:3600} # 1 hour in seconds
@@ -68,6 +106,38 @@ cors:
     credentials: ${CORS_ALLOW_CREDENTIALS:true}
   max:
     age: ${CORS_MAX_AGE:3600}
+
+gemini:
+  api:
+    key: ${GEMINI_API_KEY:AIzaSyA3IZ1rLOOox7_QsB8UvxzecNHL0xax0J4}
+    base-url: ${GEMINI_API_BASE_URL:https://generativelanguage.googleapis.com/v1beta/models/}
+    # Primary model - fallbacks configured in service layer
+    model: ${GEMINI_API_MODEL:gemini-2.5-flash-preview-09-2025}
+    fallback-models: ${GEMINI_FALLBACK_MODELS:gemini-2.0-flash,gemini-1.5-flash}
+    timeout: ${GEMINI_API_TIMEOUT:30000}
+    max-tokens: ${GEMINI_API_MAX_TOKENS:30000}
+    temperature: ${GEMINI_API_TEMPERATURE:0.7}
+
+# Mistral AI Configuration (for latest career trends and information)
+mistral:
+  api:
+    key: ${MISTRAL_API_KEY:bmme3URCCoCQUg3JNdO56ARhSkzfOnKZ}
+    base-url: ${MISTRAL_API_BASE_URL:https://api.mistral.ai/v1/chat/completions}
+    model: ${MISTRAL_API_MODEL:mistral-large-latest}
+    timeout: ${MISTRAL_API_TIMEOUT:30000}
+    max-tokens: ${MISTRAL_API_MAX_TOKENS:30000}
+    temperature: ${MISTRAL_API_TEMPERATURE:0.7}
+    enabled: ${MISTRAL_ENABLED:true}
+
+# AI Provider Selection
+ai:
+  provider:
+    # Primary provider for roadmap generation: gemini or mistral
+    roadmap: ${AI_PROVIDER_ROADMAP:gemini}
+    # Primary provider for chatbot (career trends, latest info): gemini or mistral
+    chatbot: ${AI_PROVIDER_CHATBOT:mistral}
+    # Enable automatic fallback if primary provider fails
+    enable-fallback: ${AI_ENABLE_FALLBACK:true}
 
 # Payment Gateway Configuration
 payment:
