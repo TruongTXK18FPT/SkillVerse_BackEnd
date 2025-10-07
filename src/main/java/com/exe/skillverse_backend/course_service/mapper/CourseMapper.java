@@ -9,7 +9,7 @@ import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
 import org.mapstruct.*;
 
-@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {UserMapper.class, MediaMapper.class})
+@Mapper(config = CustomMapperConfig.class, uses = {UserMapper.class, MediaMapper.class})
 public interface CourseMapper {
 
     @Mapping(target = "id", source = "id")

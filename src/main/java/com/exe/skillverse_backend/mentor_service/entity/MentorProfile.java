@@ -53,6 +53,16 @@ public class MentorProfile {
     @Column(name = "certificates_url")
     private String certificatesUrl; // File upload for certificates
 
+    // Additional profile fields for frontend compatibility
+    @Column(name = "avatar_url")
+    private String avatarUrl; // Avatar image URL
+
+    @Column(name = "github_profile")
+    private String githubProfile; // GitHub profile URL
+
+    @Column(name = "website_url")
+    private String websiteUrl; // Personal website URL
+
     // Application Status & Admin Fields
     @Builder.Default
     @Enumerated(EnumType.STRING)
