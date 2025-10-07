@@ -2,102 +2,102 @@ name: ☕ Backend CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 env:
-  JAVA_VERSION: "17"
+  JAVA_VERSION: "21"
 
 jobs:
   # Job 1: Code Quality & Testing
   quality-check:
     name: 🔍 Code Quality & Testing
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-      
-    - name: ☕ Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: ${{ env.JAVA_VERSION }}
-        cache: 'maven'
-        
-    - name: 🔐 Make mvnw executable
-      run: chmod +x mvnw
-      
-    - name: 📦 Compile & Package
-      run: |
-        ./mvnw clean compile -q
-        ./mvnw package -DskipTests -q
-        
-    - name: 🧪 Run Unit Tests
-      run: |
-        # Run tests with H2 for unit tests (faster)
-        ./mvnw test \
-          -Dspring.datasource.url=jdbc:h2:mem:testdb \
-          -Dspring.datasource.username=sa \
-          -Dspring.datasource.password=password \
-          -Dspring.datasource.driver-class-name=org.h2.Driver \
-          -Dspring.jpa.hibernate.ddl-auto=create-drop
-        
-    - name: 📊 Test Coverage Report
-      run: |
-        ./mvnw jacoco:report
-      continue-on-error: true
-      
-    - name: 📈 Upload Test Results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: test-results-${{ github.sha }}
-        path: |
-          ./target/surefire-reports/
-          ./target/site/jacoco/
-        retention-days: 7
-        
-    - name: 📦 Upload JAR Artifact
-      uses: actions/upload-artifact@v4
-      if: success()
-      with:
-        name: backend-jar-${{ github.sha }}
-        path: ./target/*.jar
-        retention-days: 7
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: "maven"
+
+      - name: 🔐 Make mvnw executable
+        run: chmod +x mvnw
+
+      - name: 📦 Compile & Package
+        run: |
+          ./mvnw clean compile -q
+          ./mvnw package -DskipTests -q
+
+      - name: 🧪 Run Unit Tests
+        run: |
+          # Run tests with H2 for unit tests (faster)
+          ./mvnw test \
+            -Dspring.datasource.url=jdbc:h2:mem:testdb \
+            -Dspring.datasource.username=sa \
+            -Dspring.datasource.password=password \
+            -Dspring.datasource.driver-class-name=org.h2.Driver \
+            -Dspring.jpa.hibernate.ddl-auto=create-drop
+
+      - name: 📊 Test Coverage Report
+        run: |
+          ./mvnw jacoco:report
+        continue-on-error: true
+
+      - name: 📈 Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ github.sha }}
+          path: |
+            ./target/surefire-reports/
+            ./target/site/jacoco/
+          retention-days: 7
+
+      - name: 📦 Upload JAR Artifact
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: backend-jar-${{ github.sha }}
+          path: ./target/*.jar
+          retention-days: 7
 
   # Job 2: Security & Dependency Check
   security-scan:
     name: 🔒 Security & Dependency Scan
     runs-on: ubuntu-latest
     needs: quality-check
-    
+
     steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-      
-    - name: ☕ Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: ${{ env.JAVA_VERSION }}
-        cache: 'maven'
-        
-    - name: 🔐 Make mvnw executable
-      run: chmod +x mvnw
-      
-    - name: 🔍 OWASP Dependency Check
-      run: |
-        ./mvnw org.owasp:dependency-check-maven:check
-      continue-on-error: true
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: "maven"
+
+      - name: 🔐 Make mvnw executable
+        run: chmod +x mvnw
+
+      - name: 🔍 OWASP Dependency Check
+        run: |
+          ./mvnw org.owasp:dependency-check-maven:check
+        continue-on-error: true
 
   # Job 3: API Documentation & Swagger
   api-docs:
     name: 📚 API Documentation
     runs-on: ubuntu-latest
     needs: quality-check
-    
+
     env:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
@@ -116,101 +116,101 @@ jobs:
       CORS_MAX_AGE: ${{ secrets.CORS_MAX_AGE }}
       SPRING_JACKSON_TIME_ZONE: ${{ secrets.SPRING_JACKSON_TIME_ZONE }}
       SPRING_JACKSON_DATE_FORMAT: ${{ secrets.SPRING_JACKSON_DATE_FORMAT }}
-    
+
     steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-      
-    - name: ☕ Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: ${{ env.JAVA_VERSION }}
-        cache: 'maven'
-        
-    - name: 🔐 Make mvnw executable
-      run: chmod +x mvnw
-      
-    - name: 🗄️ Test PostgreSQL Connection
-      env:
-        PGPASSWORD: ${{ secrets.DB_PASSWORD }}
-      run: |
-        # Install PostgreSQL client
-        sudo apt-get update
-        sudo apt-get install -y postgresql-client
-        
-        # Debug: Check if secret is available
-        if [ -z "${{ secrets.DB_PASSWORD }}" ]; then
-          echo "❌ DB_PASSWORD secret is empty or not available"
-          echo "This could be a permission issue with repository secrets"
-          exit 1
-        else
-          echo "✅ DB_PASSWORD secret is available"
-        fi
-        
-        # Test connection to production PostgreSQL
-        echo "🗄️ Testing PostgreSQL connection..."
-        psql \
-          -h 221.132.33.141 \
-          -U skillverse_user \
-          -d skillverse_db \
-          -c "SELECT version();" || {
-            echo "❌ Failed to connect to PostgreSQL"
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: "maven"
+
+      - name: 🔐 Make mvnw executable
+        run: chmod +x mvnw
+
+      - name: 🗄️ Test PostgreSQL Connection
+        env:
+          PGPASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          # Install PostgreSQL client
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+          # Debug: Check if secret is available
+          if [ -z "${{ secrets.DB_PASSWORD }}" ]; then
+            echo "❌ DB_PASSWORD secret is empty or not available"
+            echo "This could be a permission issue with repository secrets"
+            exit 1
+          else
+            echo "✅ DB_PASSWORD secret is available"
+          fi
+
+          # Test connection to production PostgreSQL
+          echo "🗄️ Testing PostgreSQL connection..."
+          psql \
+            -h 221.132.33.141 \
+            -U skillverse_user \
+            -d skillverse_db \
+            -c "SELECT version();" || {
+              echo "❌ Failed to connect to PostgreSQL"
+              exit 1
+            }
+          echo "✅ PostgreSQL connection successful!"
+        continue-on-error: false
+
+      - name: 🏗️ Build Application
+        run: |
+          ./mvnw clean package -DskipTests -q
+
+      - name: 🚀 Start Application for API Docs
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          # Start app in background with docker profile and production PostgreSQL
+          echo "🚀 Starting application with docker profile..."
+          java -jar target/*.jar \
+            --spring.profiles.active=docker \
+            --server.port=8080 &
+          APP_PID=$!
+          echo $APP_PID > app.pid
+
+          # Wait for startup with progress
+          echo "⏳ Waiting for application startup..."
+          for i in {1..60}; do
+            if curl -f http://localhost:8080/actuator/health >/dev/null 2>&1; then
+              echo "✅ Application is ready!"
+              break
+            fi
+            echo "Waiting... ($i/60)"
+            sleep 1
+          done
+
+          # Test health endpoint
+          curl -f http://localhost:8080/actuator/health || {
+            echo "❌ Health check failed"
+            ps aux | grep java
             exit 1
           }
-        echo "✅ PostgreSQL connection successful!"
-      continue-on-error: false
-      
-    - name: 🏗️ Build Application
-      run: |
-        ./mvnw clean package -DskipTests -q
-        
-    - name: 🚀 Start Application for API Docs
-      env:
-        DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      run: |
-        # Start app in background with docker profile and production PostgreSQL
-        echo "🚀 Starting application with docker profile..."
-        java -jar target/*.jar \
-          --spring.profiles.active=docker \
-          --server.port=8080 &
-        APP_PID=$!
-        echo $APP_PID > app.pid
-        
-        # Wait for startup with progress
-        echo "⏳ Waiting for application startup..."
-        for i in {1..60}; do
-          if curl -f http://localhost:8080/actuator/health >/dev/null 2>&1; then
-            echo "✅ Application is ready!"
-            break
-          fi
-          echo "Waiting... ($i/60)"
-          sleep 1
-        done
-        
-        # Test health endpoint
-        curl -f http://localhost:8080/actuator/health || {
-          echo "❌ Health check failed"
-          ps aux | grep java
-          exit 1
-        }
-        
-        # Download OpenAPI spec
-        curl -f http://localhost:8080/v3/api-docs > api-docs.json || echo "Failed to get API docs"
-        curl -f http://localhost:8080/v3/api-docs.yaml > api-docs.yaml || echo "Failed to get API docs YAML"
-        
-        # Stop application
-        kill $APP_PID || true
-      
-    - name: 📊 Upload API Documentation
-      uses: actions/upload-artifact@v4
-      if: success()
-      with:
-        name: api-docs-${{ github.sha }}
-        path: |
-          ./api-docs.json
-          ./api-docs.yaml
-        retention-days: 30
+
+          # Download OpenAPI spec
+          curl -f http://localhost:8080/v3/api-docs > api-docs.json || echo "Failed to get API docs"
+          curl -f http://localhost:8080/v3/api-docs.yaml > api-docs.yaml || echo "Failed to get API docs YAML"
+
+          # Stop application
+          kill $APP_PID || true
+
+      - name: 📊 Upload API Documentation
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: api-docs-${{ github.sha }}
+          path: |
+            ./api-docs.json
+            ./api-docs.yaml
+          retention-days: 30
 
   # Job 4: Docker Build (on main branch)
   docker-build:
@@ -218,7 +218,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [quality-check, security-scan]
     if: github.ref == 'refs/heads/main'
-    
+
     env:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
@@ -237,87 +237,87 @@ jobs:
       CORS_MAX_AGE: ${{ secrets.CORS_MAX_AGE }}
       SPRING_JACKSON_TIME_ZONE: ${{ secrets.SPRING_JACKSON_TIME_ZONE }}
       SPRING_JACKSON_DATE_FORMAT: ${{ secrets.SPRING_JACKSON_DATE_FORMAT }}
-    
+
     steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-      
-    - name: ☕ Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: 'temurin'
-        java-version: ${{ env.JAVA_VERSION }}
-        cache: 'maven'
-        
-    - name: 🐳 Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      
-    - name: 🔐 Make mvnw executable
-      run: chmod +x mvnw
-      
-    - name: 🏗️ Build JAR
-      run: |
-        ./mvnw clean package -DskipTests -q
-        
-    - name: 🐳 Build Docker Image
-      run: |
-        docker build -t skillverse-backend:${{ github.sha }} .
-        docker tag skillverse-backend:${{ github.sha }} skillverse-backend:latest
-        docker tag skillverse-backend:${{ github.sha }} skillverse-backend:v1
-        
-    - name: 🧪 Test Docker Image
-      run: |
-        # Start backend container with all environment variables
-        docker run -d --name test-backend \
-          -p 8080:8080 \
-          -e SPRING_PROFILES_ACTIVE=docker \
-          -e SPRING_DATASOURCE_URL=jdbc:postgresql://221.132.33.141:5432/skillverse_db \
-          -e SPRING_DATASOURCE_USERNAME=skillverse_user \
-          -e SPRING_DATASOURCE_PASSWORD="${DB_PASSWORD}" \
-          -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
-          -e JWT_SECRET="${JWT_SECRET}" \
-          -e JWT_ACCESS_TOKEN_EXPIRATION="${JWT_ACCESS_TOKEN_EXPIRATION}" \
-          -e JWT_REFRESH_TOKEN_EXPIRATION="${JWT_REFRESH_TOKEN_EXPIRATION}" \
-          -e SPRING_MAIL_HOST="${SPRING_MAIL_HOST}" \
-          -e SPRING_MAIL_PORT="${SPRING_MAIL_PORT}" \
-          -e SPRING_MAIL_USERNAME="${SPRING_MAIL_USERNAME}" \
-          -e SPRING_MAIL_PASSWORD="${SPRING_MAIL_PASSWORD}" \
-          -e EMAIL_FROM="${EMAIL_FROM}" \
-          -e EMAIL_FROM_NAME="${EMAIL_FROM_NAME}" \
-          -e CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS}" \
-          -e CORS_ALLOWED_METHODS="${CORS_ALLOWED_METHODS}" \
-          -e CORS_ALLOWED_HEADERS="${CORS_ALLOWED_HEADERS}" \
-          -e CORS_ALLOW_CREDENTIALS="${CORS_ALLOW_CREDENTIALS}" \
-          -e CORS_MAX_AGE="${CORS_MAX_AGE}" \
-          -e SPRING_JACKSON_TIME_ZONE="${SPRING_JACKSON_TIME_ZONE}" \
-          -e SPRING_JACKSON_DATE_FORMAT="${SPRING_JACKSON_DATE_FORMAT}" \
-          skillverse-backend:${{ github.sha }}
-          
-        echo "⏳ Waiting for application to start..."
-        sleep 10
-        
-        # Check container status
-        docker ps -a --filter name=test-backend
-        
-        # Check application logs
-        echo "📋 Application logs:"
-        docker logs test-backend --tail 50
-        
-        # Wait more and check if port is listening
-        sleep 20
-        netstat -tlnp | grep :8080 || echo "Port 8080 not listening"
-        
-        # Try health check with verbose output
-        echo "🏥 Testing health endpoint..."
-        curl -v -f http://localhost:8080/actuator/health || {
-          echo "❌ Health check failed, showing more logs:"
-          docker logs test-backend --tail 100
-          exit 1
-        }
-        
-        # Cleanup
-        docker stop test-backend || true
-        docker rm test-backend || true
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: "maven"
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Make mvnw executable
+        run: chmod +x mvnw
+
+      - name: 🏗️ Build JAR
+        run: |
+          ./mvnw clean package -DskipTests -q
+
+      - name: 🐳 Build Docker Image
+        run: |
+          docker build -t skillverse-backend:${{ github.sha }} .
+          docker tag skillverse-backend:${{ github.sha }} skillverse-backend:latest
+          docker tag skillverse-backend:${{ github.sha }} skillverse-backend:v1
+
+      - name: 🧪 Test Docker Image
+        run: |
+          # Start backend container with all environment variables
+          docker run -d --name test-backend \
+            -p 8080:8080 \
+            -e SPRING_PROFILES_ACTIVE=docker \
+            -e SPRING_DATASOURCE_URL=jdbc:postgresql://221.132.33.141:5432/skillverse_db \
+            -e SPRING_DATASOURCE_USERNAME=skillverse_user \
+            -e SPRING_DATASOURCE_PASSWORD="${DB_PASSWORD}" \
+            -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
+            -e JWT_SECRET="${JWT_SECRET}" \
+            -e JWT_ACCESS_TOKEN_EXPIRATION="${JWT_ACCESS_TOKEN_EXPIRATION}" \
+            -e JWT_REFRESH_TOKEN_EXPIRATION="${JWT_REFRESH_TOKEN_EXPIRATION}" \
+            -e SPRING_MAIL_HOST="${SPRING_MAIL_HOST}" \
+            -e SPRING_MAIL_PORT="${SPRING_MAIL_PORT}" \
+            -e SPRING_MAIL_USERNAME="${SPRING_MAIL_USERNAME}" \
+            -e SPRING_MAIL_PASSWORD="${SPRING_MAIL_PASSWORD}" \
+            -e EMAIL_FROM="${EMAIL_FROM}" \
+            -e EMAIL_FROM_NAME="${EMAIL_FROM_NAME}" \
+            -e CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS}" \
+            -e CORS_ALLOWED_METHODS="${CORS_ALLOWED_METHODS}" \
+            -e CORS_ALLOWED_HEADERS="${CORS_ALLOWED_HEADERS}" \
+            -e CORS_ALLOW_CREDENTIALS="${CORS_ALLOW_CREDENTIALS}" \
+            -e CORS_MAX_AGE="${CORS_MAX_AGE}" \
+            -e SPRING_JACKSON_TIME_ZONE="${SPRING_JACKSON_TIME_ZONE}" \
+            -e SPRING_JACKSON_DATE_FORMAT="${SPRING_JACKSON_DATE_FORMAT}" \
+            skillverse-backend:${{ github.sha }}
+            
+          echo "⏳ Waiting for application to start..."
+          sleep 10
+
+          # Check container status
+          docker ps -a --filter name=test-backend
+
+          # Check application logs
+          echo "📋 Application logs:"
+          docker logs test-backend --tail 50
+
+          # Wait more and check if port is listening
+          sleep 20
+          netstat -tlnp | grep :8080 || echo "Port 8080 not listening"
+
+          # Try health check with verbose output
+          echo "🏥 Testing health endpoint..."
+          curl -v -f http://localhost:8080/actuator/health || {
+            echo "❌ Health check failed, showing more logs:"
+            docker logs test-backend --tail 100
+            exit 1
+          }
+
+          # Cleanup
+          docker stop test-backend || true
+          docker rm test-backend || true
 
   # Job 5: Deploy to VPS
   deploy:
@@ -325,59 +325,59 @@ jobs:
     runs-on: ubuntu-latest
     needs: [quality-check, security-scan, api-docs, docker-build]
     if: github.ref == 'refs/heads/main' && success()
-    
+
     steps:
-    - name: 📥 Checkout Code
-      uses: actions/checkout@v4
-      
-    - name: 🔑 Setup SSH Key
-      uses: webfactory/ssh-agent@v0.8.0
-      with:
-        ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
-        
-    - name: 🔧 Deploy to VPS
-      run: |
-        VPS_HOST="${{ secrets.VPS_HOST }}"
-        VPS_USER="${{ secrets.VPS_USER }}"
-        VPS_PROJECT_PATH="${{ secrets.VPS_PROJECT_PATH }}"
-        
-        ssh -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST << 'ENDSSH'
-          echo "🚀 Starting backend deployment..."
-          cd ${{ secrets.VPS_PROJECT_PATH }}
-          
-          # Pull latest code
-          git fetch origin main
-          git reset --hard origin/main
-          
-          # Stop and remove old backend container only
-          docker compose stop backend 2>/dev/null || true
-          docker compose rm -f backend 2>/dev/null || true
-          
-          # Remove old backend images
-          docker images | grep backend | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
-          
-          # Build new backend image
-          docker build -t skillverse-backend:v1 .
-          
-          # Start ONLY backend (without recreating db/redis)
-          docker compose --compatibility up -d --no-recreate backend
-          
-          # Wait for backend to be ready
-          echo "⏳ Waiting for backend to start..."
-          sleep 60
-          
-          # Check backend health
-          curl -f http://localhost:8080/actuator/health || {
-            echo "❌ Backend health check failed, showing logs:"
-            docker compose logs --tail=50 backend
-            exit 1
-          }
-          
-          echo "✅ Backend deployed successfully!"
-          
-          # Clean up unused images and containers
-          docker system prune -f
-        ENDSSH
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 🔑 Setup SSH Key
+        uses: webfactory/ssh-agent@v0.8.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+
+      - name: 🔧 Deploy to VPS
+        run: |
+          VPS_HOST="${{ secrets.VPS_HOST }}"
+          VPS_USER="${{ secrets.VPS_USER }}"
+          VPS_PROJECT_PATH="${{ secrets.VPS_PROJECT_PATH }}"
+
+          ssh -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST << 'ENDSSH'
+            echo "🚀 Starting backend deployment..."
+            cd ${{ secrets.VPS_PROJECT_PATH }}
+            
+            # Pull latest code
+            git fetch origin main
+            git reset --hard origin/main
+            
+            # Stop and remove old backend container only
+            docker compose stop backend 2>/dev/null || true
+            docker compose rm -f backend 2>/dev/null || true
+            
+            # Remove old backend images
+            docker images | grep backend | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+            
+            # Build new backend image
+            docker build -t skillverse-backend:v1 .
+            
+            # Start ONLY backend (without recreating db/redis)
+            docker compose --compatibility up -d --no-recreate backend
+            
+            # Wait for backend to be ready
+            echo "⏳ Waiting for backend to start..."
+            sleep 60
+            
+            # Check backend health
+            curl -f http://localhost:8080/actuator/health || {
+              echo "❌ Backend health check failed, showing logs:"
+              docker compose logs --tail=50 backend
+              exit 1
+            }
+            
+            echo "✅ Backend deployed successfully!"
+            
+            # Clean up unused images and containers
+            docker system prune -f
+          ENDSSH
 
   # Job 6: Deployment Status
   deployment-status:
@@ -385,39 +385,39 @@ jobs:
     runs-on: ubuntu-latest
     needs: [quality-check, security-scan, api-docs, docker-build, deploy]
     if: always()
-    
+
     steps:
-    - name: 📊 Report Status
-      run: |
-        echo "## ☕ Backend CI/CD Results" >> $GITHUB_STEP_SUMMARY
-        echo "- **Quality Check**: ${{ needs.quality-check.result }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Security Scan**: ${{ needs.security-scan.result }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **API Docs**: ${{ needs.api-docs.result }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Docker Build**: ${{ needs.docker-build.result }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Deployment**: ${{ needs.deploy.result }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-        
-    - name: 💬 Comment on PR
-      if: github.event_name == 'pull_request' && (failure() || success())
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const status = '${{ needs.quality-check.result }}' === 'success' && 
-                        '${{ needs.security-scan.result }}' === 'success' ? '✅' : '❌';
-          
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: `${status} **Backend CI/CD Results**
-            
-            - Quality Check: ${{ needs.quality-check.result }}
-            - Security Scan: ${{ needs.security-scan.result }}
-            - API Documentation: ${{ needs.api-docs.result }}
-            - Docker Build: ${{ needs.docker-build.result }}
-            - Deployment: ${{ needs.deploy.result }}
-            - Commit: \`${{ github.sha }}\`
-            
-            ${status === '❌' ? '⚠️ Please fix the issues before merging.' : '🎉 All checks passed! Ready to merge.'}`
-          })
+      - name: 📊 Report Status
+        run: |
+          echo "## ☕ Backend CI/CD Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **Quality Check**: ${{ needs.quality-check.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Security Scan**: ${{ needs.security-scan.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **API Docs**: ${{ needs.api-docs.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Build**: ${{ needs.docker-build.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployment**: ${{ needs.deploy.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: 💬 Comment on PR
+        if: github.event_name == 'pull_request' && (failure() || success())
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ needs.quality-check.result }}' === 'success' && 
+                          '${{ needs.security-scan.result }}' === 'success' ? '✅' : '❌';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `${status} **Backend CI/CD Results**
+              
+              - Quality Check: ${{ needs.quality-check.result }}
+              - Security Scan: ${{ needs.security-scan.result }}
+              - API Documentation: ${{ needs.api-docs.result }}
+              - Docker Build: ${{ needs.docker-build.result }}
+              - Deployment: ${{ needs.deploy.result }}
+              - Commit: \`${{ github.sha }}\`
+              
+              ${status === '❌' ? '⚠️ Please fix the issues before merging.' : '🎉 All checks passed! Ready to merge.'}`
+            })
