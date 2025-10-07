@@ -9,7 +9,7 @@ import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
 import org.mapstruct.*;
 
-@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {UserMapper.class, MediaMapper.class, LessonMapper.class})
+@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {UserMapper.class, MediaMapper.class})
 public interface CourseMapper {
 
     @Mapping(target = "id", source = "id")
@@ -19,28 +19,68 @@ public interface CourseMapper {
     @Mapping(target = "status", source = "status")
     @Mapping(target = "author", source = "author")
     @Mapping(target = "thumbnail", source = "thumbnail")
-    @Mapping(target = "lessons", source = "lessons")
+    @Mapping(target = "modules", source = "modules")
+    @Mapping(target = "price", source = "price")
+    @Mapping(target = "currency", source = "currency")
     CourseDetailDTO toDetailDto(Course course);
 
     @Mapping(target = "id", source = "id")
     @Mapping(target = "title", source = "title")
     @Mapping(target = "level", source = "level")
     @Mapping(target = "status", source = "status")
-    @Mapping(target = "authorName", expression = "java((course.getAuthor().getFirstName() + \" \" + course.getAuthor().getLastName()).trim())")
+    @Mapping(target = "author", source = "author")
+    @Mapping(target = "authorName", expression = "java(getAuthorFullName(course))")
     @Mapping(target = "thumbnailMediaId", source = "thumbnail.id")
-    @Mapping(target = "enrollmentCount", expression = "java(course.getEnrollments() != null ? course.getEnrollments().size() : 0)")
+    @Mapping(target = "thumbnailUrl", source = "thumbnail.url")
+    @Mapping(target = "enrollmentCount", expression = "java(getEnrollmentCount(course))")
+    @Mapping(target = "moduleCount", expression = "java(getModuleCount(course))")
+    @Mapping(target = "price", source = "price")
+    @Mapping(target = "currency", source = "currency")
     CourseSummaryDTO toSummaryDto(Course course);
+    
+    // Helper methods for safe null handling
+    default String getAuthorFullName(Course course) {
+        if (course == null || course.getAuthor() == null) return "Unknown";
+        String firstName = course.getAuthor().getFirstName() != null ? course.getAuthor().getFirstName() : "";
+        String lastName = course.getAuthor().getLastName() != null ? course.getAuthor().getLastName() : "";
+        String fullName = (firstName + " " + lastName).trim();
+        return fullName.isEmpty() ? "Unknown" : fullName;
+    }
+    
+    default Integer getEnrollmentCount(Course course) {
+        if (course == null) return 0;
+        try {
+            return course.getEnrollments() != null ? course.getEnrollments().size() : 0;
+        } catch (Exception e) {
+            // Handle lazy initialization exception
+            return 0;
+        }
+    }
+    
+    default Integer getModuleCount(Course course) {
+        if (course == null) return 0;
+        try {
+            if (course.getModules() == null) return 0;
+            return course.getModules().size();
+        } catch (Exception e) {
+            // Handle lazy initialization exception - return 0 for now
+            // TODO: Implement proper module counting via repository query
+            return 0;
+        }
+    }
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "title", source = "createDto.title")
     @Mapping(target = "description", source = "createDto.description")
     @Mapping(target = "level", source = "createDto.level")
-    @Mapping(target = "status", constant = "PUBLIC")
+    @Mapping(target = "status", constant = "DRAFT")
     @Mapping(target = "author", source = "author")
     @Mapping(target = "thumbnail", source = "thumbnail")
+    @Mapping(target = "price", source = "createDto.price")
+    @Mapping(target = "currency", source = "createDto.currency")
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
-    @Mapping(target = "lessons", ignore = true)
+    @Mapping(target = "modules", ignore = true)
     @Mapping(target = "enrollments", ignore = true)
     @Mapping(target = "purchases", ignore = true)
     @Mapping(target = "certificates", ignore = true)
@@ -51,12 +91,14 @@ public interface CourseMapper {
     @Mapping(target = "title", source = "updateDto.title")
     @Mapping(target = "description", source = "updateDto.description")
     @Mapping(target = "level", source = "updateDto.level")
-    @Mapping(target = "status", source = "updateDto.status")
+    @Mapping(target = "status", ignore = true) // Don't update status through this endpoint
     @Mapping(target = "author", ignore = true)
     @Mapping(target = "thumbnail", source = "thumbnail")
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
-    @Mapping(target = "lessons", ignore = true)
+    @Mapping(target = "price", source = "updateDto.price")
+    @Mapping(target = "currency", source = "updateDto.currency")
+    @Mapping(target = "modules", ignore = true)
     @Mapping(target = "enrollments", ignore = true)
     @Mapping(target = "purchases", ignore = true)
     @Mapping(target = "certificates", ignore = true)

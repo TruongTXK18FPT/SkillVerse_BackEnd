@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.course_service.controller;
 
 import com.exe.skillverse_backend.course_service.dto.quizdto.*;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
 import com.exe.skillverse_backend.course_service.service.QuizService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -15,6 +16,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/quizzes")
@@ -29,14 +31,14 @@ public class QuizController {
     // ========== Quiz Management ==========
     @PostMapping
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
-    @Operation(summary = "Create a new quiz for a lesson")
+    @Operation(summary = "Create a new quiz for a module")
     public ResponseEntity<QuizDetailDTO> createQuiz(
-            @Parameter(description = "Lesson ID") @RequestParam @NotNull Long lessonId,
+            @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
             @Parameter(description = "Quiz creation data") @Valid @RequestBody QuizCreateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
         
-        log.info("Creating quiz for lesson {} by user {}", lessonId, actorId);
-        QuizDetailDTO created = quizService.createQuiz(lessonId, dto, actorId);
+        log.info("Creating quiz for module {} by user {}", moduleId, actorId);
+        QuizDetailDTO created = quizService.createQuiz(moduleId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -134,5 +136,27 @@ public class QuizController {
         log.info("Deleting option {} by user {}", optionId, actorId);
         quizService.deleteOption(optionId, actorId);
         return ResponseEntity.noContent().build();
+    }
+
+    // ========== Quiz Query Operations ==========
+    
+    @GetMapping("/{quizId}")
+    @Operation(summary = "Get quiz details by ID")
+    public ResponseEntity<QuizDetailDTO> getQuiz(
+            @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId) {
+        
+        log.info("Getting quiz details for {}", quizId);
+        QuizDetailDTO quiz = quizService.getQuiz(quizId);
+        return ResponseEntity.ok(quiz);
+    }
+
+    @GetMapping("/modules/{moduleId}/quizzes")
+    @Operation(summary = "List quizzes by module")
+    public ResponseEntity<List<QuizSummaryDTO>> listQuizzesByModule(
+            @Parameter(description = "Module ID") @PathVariable @NotNull Long moduleId) {
+        
+        log.info("Listing quizzes for module {}", moduleId);
+        List<QuizSummaryDTO> quizzes = quizService.listQuizzesByModule(moduleId);
+        return ResponseEntity.ok(quizzes);
     }
 }

@@ -5,15 +5,15 @@ import java.math.BigDecimal;
 import java.util.List;
 
 @Entity
-@Table(name = "coding_exercises", uniqueConstraints = @UniqueConstraint(columnNames = "lesson_id"))
+@Table(name = "coding_exercises", uniqueConstraints = @UniqueConstraint(columnNames = "module_id"))
 @Data @NoArgsConstructor @AllArgsConstructor @Builder
 public class CodingExercise {
   @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
   @OneToOne(fetch = FetchType.LAZY, optional = false)
-  @JoinColumn(name = "lesson_id", nullable = false, unique = true)
-  private Lesson lesson;
+  @JoinColumn(name = "module_id", nullable = false, unique = true)
+  private Module module;
 
   @Column(nullable = false, length = 200)
   private String title;

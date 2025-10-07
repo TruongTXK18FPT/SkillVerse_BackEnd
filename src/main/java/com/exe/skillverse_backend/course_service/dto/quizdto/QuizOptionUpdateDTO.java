@@ -8,6 +8,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class QuizOptionUpdateDTO {
     private String optionText;
-    private boolean isCorrect;
+    private boolean correct;
     private String feedback;
 }

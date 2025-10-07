@@ -20,6 +20,8 @@ public interface CourseService {
     
     PageResponse<CourseSummaryDTO> listCourses(String q, CourseStatus status, Pageable p);
     
+    PageResponse<CourseSummaryDTO> listCoursesByAuthor(Long authorId, Pageable pageable);
+    
     // Course approval workflow methods
     CourseDetailDTO submitCourseForApproval(Long courseId, Long actorId);
     

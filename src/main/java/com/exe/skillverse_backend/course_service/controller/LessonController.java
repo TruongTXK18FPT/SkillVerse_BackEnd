@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.course_service.controller;
 
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
+import com.exe.skillverse_backend.course_service.dto.lessondto.LessonDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonUpdateDTO;
 import com.exe.skillverse_backend.course_service.service.LessonService;
@@ -31,14 +32,14 @@ public class LessonController {
 
     @PostMapping
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
-    @Operation(summary = "Add a new lesson to a course")
+    @Operation(summary = "Add a new lesson to a module")
     public ResponseEntity<LessonBriefDTO> addLesson(
-            @Parameter(description = "Course ID") @RequestParam @NotNull Long courseId,
+            @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
             @Parameter(description = "Lesson creation data") @Valid @RequestBody LessonCreateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
         
-        log.info("Adding lesson to course {} by user {}", courseId, actorId);
-        LessonBriefDTO created = lessonService.addLesson(courseId, dto, actorId);
+        log.info("Adding lesson to module {} by user {}", moduleId, actorId);
+        LessonBriefDTO created = lessonService.addLesson(moduleId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -66,12 +67,20 @@ public class LessonController {
         return ResponseEntity.noContent().build();
     }
 
-    @GetMapping("/course/{courseId}")
-    @Operation(summary = "List lessons by course")
-    public ResponseEntity<List<LessonBriefDTO>> listLessonsByCourse(
-            @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId) {
+    @GetMapping("/modules/{moduleId}/lessons")
+    @Operation(summary = "List lessons by module")
+    public ResponseEntity<List<LessonBriefDTO>> listLessonsByModule(
+            @Parameter(description = "Module ID") @PathVariable @NotNull Long moduleId) {
         
-        List<LessonBriefDTO> lessons = lessonService.listLessonsByCourse(courseId);
+        List<LessonBriefDTO> lessons = lessonService.listLessonsByModule(moduleId);
         return ResponseEntity.ok(lessons);
+    }
+
+    @GetMapping("/{lessonId}")
+    @Operation(summary = "Get lesson detail by ID")
+    public ResponseEntity<LessonDetailDTO> getLessonById(
+            @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId) {
+        LessonDetailDTO lesson = lessonService.getLesson(lessonId);
+        return ResponseEntity.ok(lesson);
     }
 }

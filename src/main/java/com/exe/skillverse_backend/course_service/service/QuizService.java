@@ -1,10 +1,12 @@
 package com.exe.skillverse_backend.course_service.service;
 
 import com.exe.skillverse_backend.course_service.dto.quizdto.*;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
+import java.util.List;
 
 public interface QuizService {
     
-    QuizDetailDTO createQuiz(Long lessonId, QuizCreateDTO dto, Long actorId);
+    QuizDetailDTO createQuiz(Long moduleId, QuizCreateDTO dto, Long actorId);
     
     QuizDetailDTO updateQuiz(Long quizId, QuizUpdateDTO dto, Long actorId);
     
@@ -21,4 +23,10 @@ public interface QuizService {
     QuizOptionDetailDTO updateOption(Long optionId, QuizOptionUpdateDTO dto, Long actorId);
     
     void deleteOption(Long optionId, Long actorId);
+
+    // ========== Quiz Query Operations ==========
+    
+    QuizDetailDTO getQuiz(Long quizId);
+    
+    List<QuizSummaryDTO> listQuizzesByModule(Long moduleId);
 }

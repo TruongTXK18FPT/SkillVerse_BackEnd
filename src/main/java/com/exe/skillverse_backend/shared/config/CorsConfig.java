@@ -32,9 +32,9 @@ public class CorsConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // Parse allowed origins from environment variable
+        // Parse allowed origins from environment variable (exact origins, required with credentials)
         List<String> origins = Arrays.asList(allowedOrigins.split(","));
-        configuration.setAllowedOriginPatterns(origins);
+        configuration.setAllowedOrigins(origins);
 
         // Parse allowed methods from environment variable
         List<String> methods = Arrays.asList(allowedMethods.split(","));

@@ -6,7 +6,7 @@ import org.springframework.data.domain.Pageable;
 
 public interface CodelabService {
     
-    CodingExerciseDetailDTO createExercise(Long lessonId, CodingExerciseCreateDTO dto, Long actorId);
+    CodingExerciseDetailDTO createExercise(Long moduleId, CodingExerciseCreateDTO dto, Long actorId);
     
     CodingExerciseDetailDTO updateExercise(Long exerciseId, CodingExerciseUpdateDTO dto, Long actorId);
     

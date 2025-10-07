@@ -4,13 +4,12 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.*;
 import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
-import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.mapper.AssignmentMapper;
 import com.exe.skillverse_backend.course_service.mapper.AssignmentSubmissionMapper;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
-import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.service.AssignmentService;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
@@ -35,7 +34,7 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     private final AssignmentRepository assignmentRepository;
     private final AssignmentSubmissionRepository submissionRepository;
-    private final LessonRepository lessonRepository;
+    private final com.exe.skillverse_backend.course_service.repository.ModuleRepository moduleRepository;
     private final CourseEnrollmentRepository enrollmentRepository;
     private final AssignmentMapper assignmentMapper;
     private final AssignmentSubmissionMapper submissionMapper;
@@ -43,20 +42,20 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional
-    public AssignmentDetailDTO createAssignment(Long lessonId, AssignmentCreateDTO dto, Long actorId) {
-        log.info("Creating assignment '{}' for lesson {} by actor {}", dto.getTitle(), lessonId, actorId);
+    public AssignmentDetailDTO createAssignment(Long moduleId, AssignmentCreateDTO dto, Long actorId) {
+        log.info("Creating assignment '{}' for module {} by actor {}", dto.getTitle(), moduleId, actorId);
         
-        Lesson lesson = getLessonOrThrow(lessonId);
-        ensureAuthorOrAdmin(actorId, lesson.getCourse().getAuthor().getId());
+        Module module = getModuleOrThrow(moduleId);
+        ensureAuthorOrAdmin(actorId, module.getCourse().getAuthor().getId());
         
         validateCreateAssignmentRequest(dto);
         
-        Assignment assignment = assignmentMapper.toEntity(dto, lesson);
+        Assignment assignment = assignmentMapper.toEntity(dto, module);
         assignment.setCreatedAt(now());
         assignment.setUpdatedAt(now());
         
         Assignment saved = assignmentRepository.save(assignment);
-        log.info("Assignment {} created for lesson {} by actor {}", saved.getId(), lessonId, actorId);
+        log.info("Assignment {} created for module {} by actor {}", saved.getId(), moduleId, actorId);
         
         return assignmentMapper.toDetailDto(saved);
     }
@@ -67,7 +66,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         log.info("Updating assignment {} by actor {}", assignmentId, actorId);
         
         Assignment assignment = getAssignmentOrThrow(assignmentId);
-        ensureAuthorOrAdmin(actorId, assignment.getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, assignment.getModule().getCourse().getAuthor().getId());
         
         validateUpdateAssignmentRequest(dto);
         
@@ -81,12 +80,21 @@ public class AssignmentServiceImpl implements AssignmentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public AssignmentDetailDTO getAssignmentById(Long assignmentId) {
+        log.info("Getting assignment details for ID {}", assignmentId);
+        
+        Assignment assignment = getAssignmentOrThrow(assignmentId);
+        return assignmentMapper.toDetailDto(assignment);
+    }
+
+    @Override
     @Transactional
     public void deleteAssignment(Long assignmentId, Long actorId) {
         log.info("Deleting assignment {} by actor {}", assignmentId, actorId);
         
         Assignment assignment = getAssignmentOrThrow(assignmentId);
-        ensureAuthorOrAdmin(actorId, assignment.getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, assignment.getModule().getCourse().getAuthor().getId());
         
         // Check if there are submissions
         long submissionCount = submissionRepository.countByAssignmentId(assignmentId);
@@ -107,7 +115,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         
         // Check enrollment
         boolean isEnrolled = enrollmentRepository.findByCourseIdAndUserId(
-                assignment.getLesson().getCourse().getId(), userId).isPresent();
+                assignment.getModule().getCourse().getId(), userId).isPresent();
         if (!isEnrolled) {
             throw new AccessDeniedException("USER_NOT_ENROLLED");
         }
@@ -153,7 +161,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         AssignmentSubmission submission = getSubmissionOrThrow(submissionId);
         
         // Check if grader has permission (course author/mentor/admin)
-        ensureAuthorOrAdmin(graderId, submission.getAssignment().getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(graderId, submission.getAssignment().getModule().getCourse().getAuthor().getId());
         
         validateGradingRequest(score, submission.getAssignment().getMaxScore());
         
@@ -188,11 +196,26 @@ public class AssignmentServiceImpl implements AssignmentService {
         return submissions.map(submissionMapper::toDetailDto).toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<AssignmentSummaryDTO> listAssignmentsByModule(Long moduleId) {
+        log.debug("Listing assignments for module {}", moduleId);
+        
+        // Verify module exists
+        getModuleOrThrow(moduleId);
+        
+        List<Assignment> assignments = assignmentRepository.findByModuleId(moduleId);
+        
+        return assignments.stream()
+                .map(assignmentMapper::toSummaryDto)
+                .toList();
+    }
+
     // ===== Helper Methods =====
     
-    private Lesson getLessonOrThrow(Long lessonId) {
-        return lessonRepository.findById(lessonId)
-                .orElseThrow(() -> new NotFoundException("LESSON_NOT_FOUND"));
+    private Module getModuleOrThrow(Long moduleId) {
+        return moduleRepository.findById(moduleId)
+                .orElseThrow(() -> new NotFoundException("MODULE_NOT_FOUND"));
     }
     
     private Assignment getAssignmentOrThrow(Long assignmentId) {

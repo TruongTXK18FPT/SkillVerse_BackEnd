@@ -84,4 +84,11 @@ public interface MediaRepository extends JpaRepository<Media, Long>, JpaSpecific
      */
     @Transactional(readOnly = true)
     List<Media> findByFileSizeGreaterThanOrderByFileSizeDesc(Long fileSize);
+
+    /**
+     * Find media by ID with user relationship loaded
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT m FROM Media m LEFT JOIN FETCH m.uploadedByUser WHERE m.id = :id")
+    Media findByIdWithUser(@Param("id") Long id);
 }

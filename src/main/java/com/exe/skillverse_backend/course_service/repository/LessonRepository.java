@@ -15,53 +15,60 @@ import java.util.Optional;
 public interface LessonRepository extends JpaRepository<Lesson, Long> {
 
     /**
-     * Find lessons by course ID ordered by order index ascending
+     * Find lessons by module ID ordered by order index ascending
      */
     @Transactional(readOnly = true)
-    List<Lesson> findByCourseIdOrderByOrderIndexAsc(Long courseId);
+    List<Lesson> findByModuleIdOrderByOrderIndexAsc(Long moduleId);
 
     /**
-     * Find lesson by ID and course ID
+     * Find lesson by ID and module ID
      */
     @Transactional(readOnly = true)
-    Optional<Lesson> findByIdAndCourseId(Long lessonId, Long courseId);
+    Optional<Lesson> findByIdAndModuleId(Long lessonId, Long moduleId);
 
     /**
-     * Check if lesson with given title exists in course (case insensitive)
+     * Check if lesson with given title exists in module (case insensitive)
      */
     @Transactional(readOnly = true)
-    boolean existsByCourseIdAndTitleIgnoreCase(Long courseId, String title);
+    boolean existsByModuleIdAndTitleIgnoreCase(Long moduleId, String title);
 
     /**
-     * Delete all lessons by course ID
+     * Delete all lessons by module ID
      */
     @Modifying
     @Transactional
-    int deleteByCourseId(Long courseId);
+    int deleteByModuleId(Long moduleId);
 
     /**
-     * Find lessons by course ID
+     * Find lessons by module ID
      */
     @Transactional(readOnly = true)
-    List<Lesson> findByCourseId(Long courseId);
+    List<Lesson> findByModuleId(Long moduleId);
 
     /**
-     * Count lessons in a course
+     * Count lessons in a module
      */
     @Transactional(readOnly = true)
-    long countByCourseId(Long courseId);
+    long countByModuleId(Long moduleId);
 
     /**
-     * Find next lesson by course and order index
+     * Count lessons in a course (across all modules)
      */
     @Transactional(readOnly = true)
-    @Query("SELECT l FROM Lesson l WHERE l.course.id = :courseId AND l.orderIndex > :currentIndex ORDER BY l.orderIndex ASC")
-    Optional<Lesson> findNextLesson(@Param("courseId") Long courseId, @Param("currentIndex") Integer currentIndex);
+    @Query("SELECT COUNT(l) FROM Lesson l WHERE l.module.course.id = :courseId")
+    long countByCourseId(@Param("courseId") Long courseId);
 
     /**
-     * Find previous lesson by course and order index
+     * Find next lesson by module and order index
      */
     @Transactional(readOnly = true)
-    @Query("SELECT l FROM Lesson l WHERE l.course.id = :courseId AND l.orderIndex < :currentIndex ORDER BY l.orderIndex DESC")
-    Optional<Lesson> findPreviousLesson(@Param("courseId") Long courseId, @Param("currentIndex") Integer currentIndex);
+    @Query("SELECT l FROM Lesson l WHERE l.module.id = :moduleId AND l.orderIndex > :currentIndex ORDER BY l.orderIndex ASC")
+    Optional<Lesson> findNextLesson(@Param("moduleId") Long moduleId, @Param("currentIndex") Integer currentIndex);
+
+    /**
+     * Find previous lesson by module and order index
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT l FROM Lesson l WHERE l.module.id = :moduleId AND l.orderIndex < :currentIndex ORDER BY l.orderIndex DESC")
+    Optional<Lesson> findPreviousLesson(@Param("moduleId") Long moduleId, @Param("currentIndex") Integer currentIndex);
 }

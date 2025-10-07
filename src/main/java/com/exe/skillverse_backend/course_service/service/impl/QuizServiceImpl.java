@@ -1,14 +1,15 @@
 package com.exe.skillverse_backend.course_service.service.impl;
 
 import com.exe.skillverse_backend.course_service.dto.quizdto.*;
-import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
+import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Quiz;
 import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
 import com.exe.skillverse_backend.course_service.entity.QuizOption;
 import com.exe.skillverse_backend.course_service.mapper.QuizMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizQuestionMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizOptionMapper;
-import com.exe.skillverse_backend.course_service.repository.LessonRepository;
+import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizQuestionRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizOptionRepository;
@@ -22,6 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -31,7 +34,7 @@ public class QuizServiceImpl implements QuizService {
     private final QuizRepository quizRepository;
     private final QuizQuestionRepository questionRepository;
     private final QuizOptionRepository optionRepository;
-    private final LessonRepository lessonRepository;
+    private final ModuleRepository moduleRepository;
     private final QuizMapper quizMapper;
     private final QuizQuestionMapper questionMapper;
     private final QuizOptionMapper optionMapper;
@@ -39,21 +42,40 @@ public class QuizServiceImpl implements QuizService {
 
     @Override
     @Transactional
-    public QuizDetailDTO createQuiz(Long lessonId, QuizCreateDTO dto, Long actorId) {
-        log.info("Creating quiz '{}' for lesson {} by actor {}", dto.getTitle(), lessonId, actorId);
-        
-        Lesson lesson = getLessonOrThrow(lessonId);
-        ensureAuthorOrAdmin(actorId, lesson.getCourse().getAuthor().getId());
-        
+    public QuizDetailDTO createQuiz(Long moduleId, QuizCreateDTO dto, Long actorId) {
+        log.info("Creating quiz '{}' for module {} by actor {}", dto.getTitle(), moduleId, actorId);
+
+        Module module = getModuleOrThrow(moduleId);
+        ensureAuthorOrAdmin(actorId, module.getCourse().getAuthor().getId());
+
         validateCreateQuizRequest(dto);
-        
-        Quiz quiz = quizMapper.toEntity(dto, lesson);
+
+        // Check if quiz already exists for this module
+        Optional<Quiz> existingQuiz = quizRepository.findByModuleId(moduleId);
+        if (existingQuiz.isPresent()) {
+            log.warn("Quiz already exists for module {}, returning existing quiz", moduleId);
+            return quizMapper.toDetailDto(existingQuiz.get());
+        }
+
+        Quiz quiz = quizMapper.toEntity(dto, module);
         quiz.setCreatedAt(now());
-        
-        Quiz saved = quizRepository.save(quiz);
-        log.info("Quiz {} created for lesson {} by actor {}", saved.getId(), lessonId, actorId);
-        
-        return quizMapper.toDetailDto(saved);
+
+        try {
+            Quiz saved = quizRepository.save(quiz);
+            log.info("Quiz {} created for module {} by actor {}", saved.getId(), moduleId, actorId);
+            return quizMapper.toDetailDto(saved);
+        } catch (Exception e) {
+            log.error("Failed to create quiz for module {}: {}", moduleId, e.getMessage());
+            // Check if it's a unique constraint violation
+            if (e.getMessage() != null && e.getMessage().contains("unique constraint")) {
+                log.warn("Quiz already exists for module {}, attempting to find existing quiz", moduleId);
+                Optional<Quiz> existingQuizRetry = quizRepository.findByModuleId(moduleId);
+                if (existingQuizRetry.isPresent()) {
+                    return quizMapper.toDetailDto(existingQuizRetry.get());
+                }
+            }
+            throw e;
+        }
     }
 
     @Override
@@ -62,7 +84,7 @@ public class QuizServiceImpl implements QuizService {
         log.info("Updating quiz {} by actor {}", quizId, actorId);
         
         Quiz quiz = getQuizOrThrow(quizId);
-        ensureAuthorOrAdmin(actorId, quiz.getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, quiz.getModule().getCourse().getAuthor().getId());
         
         validateUpdateQuizRequest(dto);
         
@@ -80,7 +102,7 @@ public class QuizServiceImpl implements QuizService {
         log.info("Deleting quiz {} by actor {}", quizId, actorId);
         
         Quiz quiz = getQuizOrThrow(quizId);
-        ensureAuthorOrAdmin(actorId, quiz.getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, quiz.getModule().getCourse().getAuthor().getId());
         
         // Cascade delete will handle questions and options
         quizRepository.delete(quiz);
@@ -93,7 +115,7 @@ public class QuizServiceImpl implements QuizService {
         log.info("Adding question to quiz {} by actor {}", quizId, actorId);
         
         Quiz quiz = getQuizOrThrow(quizId);
-        ensureAuthorOrAdmin(actorId, quiz.getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, quiz.getModule().getCourse().getAuthor().getId());
         
         validateCreateQuestionRequest(dto);
         
@@ -118,7 +140,7 @@ public class QuizServiceImpl implements QuizService {
         log.info("Updating question {} by actor {}", questionId, actorId);
         
         QuizQuestion question = getQuestionOrThrow(questionId);
-        ensureAuthorOrAdmin(actorId, question.getQuiz().getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, question.getQuiz().getModule().getCourse().getAuthor().getId());
         
         validateUpdateQuestionRequest(dto);
         
@@ -136,7 +158,7 @@ public class QuizServiceImpl implements QuizService {
         log.info("Deleting question {} by actor {}", questionId, actorId);
         
         QuizQuestion question = getQuestionOrThrow(questionId);
-        ensureAuthorOrAdmin(actorId, question.getQuiz().getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, question.getQuiz().getModule().getCourse().getAuthor().getId());
         
         // Cascade delete will handle options
         questionRepository.delete(question);
@@ -149,7 +171,7 @@ public class QuizServiceImpl implements QuizService {
         log.info("Adding option to question {} by actor {}", questionId, actorId);
         
         QuizQuestion question = getQuestionOrThrow(questionId);
-        ensureAuthorOrAdmin(actorId, question.getQuiz().getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, question.getQuiz().getModule().getCourse().getAuthor().getId());
         
         validateCreateOptionRequest(dto);
         
@@ -168,7 +190,7 @@ public class QuizServiceImpl implements QuizService {
         log.info("Updating option {} by actor {}", optionId, actorId);
         
         QuizOption option = getOptionOrThrow(optionId);
-        ensureAuthorOrAdmin(actorId, option.getQuestion().getQuiz().getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, option.getQuestion().getQuiz().getModule().getCourse().getAuthor().getId());
         
         validateUpdateOptionRequest(dto);
         
@@ -186,7 +208,7 @@ public class QuizServiceImpl implements QuizService {
         log.info("Deleting option {} by actor {}", optionId, actorId);
         
         QuizOption option = getOptionOrThrow(optionId);
-        ensureAuthorOrAdmin(actorId, option.getQuestion().getQuiz().getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, option.getQuestion().getQuiz().getModule().getCourse().getAuthor().getId());
         
         optionRepository.delete(option);
         log.info("Option {} deleted by actor {}", optionId, actorId);
@@ -194,9 +216,9 @@ public class QuizServiceImpl implements QuizService {
 
     // ===== Helper Methods =====
     
-    private Lesson getLessonOrThrow(Long lessonId) {
-        return lessonRepository.findById(lessonId)
-                .orElseThrow(() -> new NotFoundException("LESSON_NOT_FOUND"));
+    private Module getModuleOrThrow(Long moduleId) {
+        return moduleRepository.findById(moduleId)
+                .orElseThrow(() -> new NotFoundException("MODULE_NOT_FOUND"));
     }
     
     private Quiz getQuizOrThrow(Long quizId) {
@@ -269,5 +291,30 @@ public class QuizServiceImpl implements QuizService {
 
     private Instant now() {
         return Instant.now(clock);
+    }
+
+    // ========== Quiz Query Operations ==========
+    
+    @Override
+    @Transactional(readOnly = true)
+    public QuizDetailDTO getQuiz(Long quizId) {
+        log.debug("Getting quiz details for {}", quizId);
+        
+        Quiz quiz = getQuizOrThrow(quizId);
+        return quizMapper.toDetailDto(quiz);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<QuizSummaryDTO> listQuizzesByModule(Long moduleId) {
+        log.debug("Listing quizzes for module {}", moduleId);
+        
+        // Verify module exists
+        getModuleOrThrow(moduleId);
+        
+        List<Quiz> quizzes = quizRepository.findByModuleIdWithQuestions(moduleId);
+        return quizzes.stream()
+                .map(quizMapper::toSummaryDto)
+                .toList();
     }
 }

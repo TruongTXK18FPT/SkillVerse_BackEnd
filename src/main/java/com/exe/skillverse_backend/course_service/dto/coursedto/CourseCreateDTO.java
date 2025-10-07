@@ -9,10 +9,11 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class CourseCreateDTO {
-    //@NotBlank title, String description, String level, Long thumbnailMediaId
     @NotBlank
     private String title;
     private String description;
     private String level;
-    private Long thumbnailMediaId;
+    private Long thumbnailMediaId; // Back to thumbnailMediaId
+    private java.math.BigDecimal price;
+    private String currency;
 }

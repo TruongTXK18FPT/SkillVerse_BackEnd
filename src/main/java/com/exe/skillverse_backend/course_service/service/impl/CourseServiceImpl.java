@@ -57,8 +57,12 @@ public class CourseServiceImpl implements CourseService {
         // Load thumbnail media if provided
         Media thumbnail = null;
         if (dto.getThumbnailMediaId() != null) {
-            thumbnail = mediaRepository.findById(dto.getThumbnailMediaId())
-                    .orElseThrow(() -> new NotFoundException("MEDIA_NOT_FOUND"));
+            log.info("Loading thumbnail media with ID: {}", dto.getThumbnailMediaId());
+            thumbnail = mediaRepository.findByIdWithUser(dto.getThumbnailMediaId());
+            if (thumbnail == null) {
+                throw new NotFoundException("MEDIA_NOT_FOUND");
+            }
+            log.info("Loaded thumbnail media: {} - {}", thumbnail.getId(), thumbnail.getUrl());
         }
         
         Course entity = courseMapper.toEntity(dto, author, thumbnail);
@@ -88,10 +92,14 @@ public class CourseServiceImpl implements CourseService {
         validateUpdateCourseRequest(dto);
         
         // Load new thumbnail if provided
-        Media thumbnail = null;
+        Media thumbnail = course.getThumbnail(); // Keep existing thumbnail by default
         if (dto.getThumbnailMediaId() != null) {
-            thumbnail = mediaRepository.findById(dto.getThumbnailMediaId())
-                    .orElseThrow(() -> new NotFoundException("MEDIA_NOT_FOUND"));
+            log.info("Loading thumbnail media with ID: {}", dto.getThumbnailMediaId());
+            thumbnail = mediaRepository.findByIdWithUser(dto.getThumbnailMediaId());
+            if (thumbnail == null) {
+                throw new NotFoundException("MEDIA_NOT_FOUND");
+            }
+            log.info("Loaded thumbnail media: {} - {}", thumbnail.getId(), thumbnail.getUrl());
         }
         
         courseMapper.updateEntity(course, dto, thumbnail);
@@ -132,7 +140,10 @@ public class CourseServiceImpl implements CourseService {
     @Transactional(readOnly = true)
     public CourseDetailDTO getCourse(Long id) {
         log.debug("Fetching course details for id {}", id);
-        Course course = getCourseOrThrow(id);
+        Course course = courseRepository.findByIdWithAuthorAndModules(id);
+        if (course == null) {
+            throw new NotFoundException("COURSE_NOT_FOUND");
+        }
         return courseMapper.toDetailDto(course);
     }
 
@@ -151,11 +162,29 @@ public class CourseServiceImpl implements CourseService {
             }
         } else {
             if (status != null) {
-                page = courseRepository.findByStatus(status, pageable);
+                // Use query with eager loading to avoid LazyInitializationException
+                page = courseRepository.findByStatusWithAuthor(status, pageable);
             } else {
-                page = courseRepository.findAll(pageable);
+                // Use query with eager loading to avoid LazyInitializationException
+                page = courseRepository.findAllWithAuthor(pageable);
             }
         }
+        
+        return PageResponse.<CourseSummaryDTO>builder()
+                .items(page.map(courseMapper::toSummaryDto).getContent())
+                .page(page.getNumber())
+                .size(page.getSize())
+                .total(page.getTotalElements())
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<CourseSummaryDTO> listCoursesByAuthor(Long authorId, Pageable pageable) {
+        log.debug("Listing courses by author {}, page {}", authorId, pageable.getPageNumber());
+        
+        // Use query with eager loading to avoid LazyInitializationException
+        Page<Course> page = courseRepository.findByAuthorIdWithAuthor(authorId, pageable);
         
         return PageResponse.<CourseSummaryDTO>builder()
                 .items(page.map(courseMapper::toSummaryDto).getContent())
@@ -238,7 +267,8 @@ public class CourseServiceImpl implements CourseService {
     public PageResponse<CourseSummaryDTO> listCoursesByStatus(CourseStatus status, Pageable pageable) {
         log.debug("Listing courses with status '{}', page {}", status, pageable.getPageNumber());
         
-        Page<Course> page = courseRepository.findByStatus(status, pageable);
+        // Use query with eager loading to avoid LazyInitializationException
+        Page<Course> page = courseRepository.findByStatusWithAuthor(status, pageable);
         
         return PageResponse.<CourseSummaryDTO>builder()
                 .items(page.map(courseMapper::toSummaryDto).getContent())
@@ -299,7 +329,7 @@ public class CourseServiceImpl implements CourseService {
                     courseInfo.put("status", course.getStatus());
                     courseInfo.put("level", course.getLevel());
                     courseInfo.put("authorId", course.getAuthor().getId());
-                    courseInfo.put("lessonCount", course.getLessons().size());
+                    courseInfo.put("moduleCount", course.getModules().size());
                     return courseInfo;
                 })
                 .toList();

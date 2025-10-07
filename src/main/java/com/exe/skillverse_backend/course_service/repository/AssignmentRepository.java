@@ -14,31 +14,31 @@ import java.util.Optional;
 public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
 
     /**
-     * Find assignment by ID and lesson ID
+     * Find assignment by ID and module ID
      */
     @Transactional(readOnly = true)
-    @Query("SELECT a FROM Assignment a WHERE a.id = :id AND a.lesson.id = :lessonId")
-    Optional<Assignment> findByIdAndLessonId(@Param("id") Long id, @Param("lessonId") Long lessonId);
+    @Query("SELECT a FROM Assignment a WHERE a.id = :id AND a.module.id = :moduleId")
+    Optional<Assignment> findByIdAndModuleId(@Param("id") Long id, @Param("moduleId") Long moduleId);
 
     /**
-     * Find assignments by lesson ID ordered by due date ascending
+     * Find assignments by module ID ordered by due date ascending
      */
     @Transactional(readOnly = true)
-    @Query("SELECT a FROM Assignment a WHERE a.lesson.id = :lessonId ORDER BY a.dueAt ASC")
-    List<Assignment> findByLessonIdOrderByDueAtAsc(@Param("lessonId") Long lessonId);
+    @Query("SELECT a FROM Assignment a WHERE a.module.id = :moduleId ORDER BY a.dueAt ASC")
+    List<Assignment> findByModuleIdOrderByDueAtAsc(@Param("moduleId") Long moduleId);
 
     /**
-     * Find assignment by lesson ID (assuming one assignment per lesson)
+     * Find assignments by module ID
      */
     @Transactional(readOnly = true)
-    @Query("SELECT a FROM Assignment a WHERE a.lesson.id = :lessonId")
-    Optional<Assignment> findByLessonId(@Param("lessonId") Long lessonId);
+    @Query("SELECT a FROM Assignment a WHERE a.module.id = :moduleId")
+    List<Assignment> findByModuleId(@Param("moduleId") Long moduleId);
 
     /**
      * Find assignments by course ID
      */
     @Transactional(readOnly = true)
-    @Query("SELECT a FROM Assignment a WHERE a.lesson.course.id = :courseId")
+    @Query("SELECT a FROM Assignment a WHERE a.module.course.id = :courseId")
     List<Assignment> findByCourseId(@Param("courseId") Long courseId);
 
     /**
@@ -59,13 +59,13 @@ public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
      * Count assignments in a course
      */
     @Transactional(readOnly = true)
-    @Query("SELECT COUNT(a) FROM Assignment a WHERE a.lesson.course.id = :courseId")
+    @Query("SELECT COUNT(a) FROM Assignment a WHERE a.module.course.id = :courseId")
     long countByCourseId(@Param("courseId") Long courseId);
 
     /**
-     * Check if assignment exists for lesson
+     * Check if assignment exists for module
      */
     @Transactional(readOnly = true)
-    @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Assignment a WHERE a.lesson.id = :lessonId")
-    boolean existsByLessonId(@Param("lessonId") Long lessonId);
+    @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Assignment a WHERE a.module.id = :moduleId")
+    boolean existsByModuleId(@Param("moduleId") Long moduleId);
 }

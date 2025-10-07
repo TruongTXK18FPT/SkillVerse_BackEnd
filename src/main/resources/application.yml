@@ -6,7 +6,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: update # create, create-drop, update, validate, none
     show-sql: true
     properties:
       hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
@@ -97,6 +97,19 @@ premium:
       - .ac.uk
       - university.
       - student.
+
+# Cloudinary Configuration (Media Upload)
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:djv7loilz}
+  api-key: ${CLOUDINARY_API_KEY:916727194348317}
+  api-secret: ${CLOUDINARY_API_SECRET:hTqjRjjr3UtFz0xZ-72Ux-iPVO0}
+  url: ${CLOUDINARY_URL:cloudinary://916727194348317:hTqjRjjr3UtFz0xZ-72Ux-iPVO0@djv7loilz}
+  upload:
+    folder: skillverse # Base folder for uploads
+    resource-type: auto # auto, image, video, raw
+    use-filename: true
+    unique-filename: true
+    overwrite: false
 
 springdoc:
   api-docs:

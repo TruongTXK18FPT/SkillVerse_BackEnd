@@ -27,6 +27,21 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
      */
     @Transactional(readOnly = true)
     Page<Course> findByTitleContainingIgnoreCase(String q, Pageable pageable);
+    
+    /**
+     * Find courses by status with eager loading of author (avoid N+1)
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT c FROM Course c LEFT JOIN FETCH c.author WHERE c.status = :status")
+    Page<Course> findByStatusWithAuthor(@Param("status") CourseStatus status, Pageable pageable);
+    
+    /**
+     * Find all courses with eager loading of author (avoid N+1)
+     */
+    @Transactional(readOnly = true)
+    @Query(value = "SELECT c FROM Course c LEFT JOIN FETCH c.author",
+           countQuery = "SELECT COUNT(c) FROM Course c")
+    Page<Course> findAllWithAuthor(Pageable pageable);
 
     /**
      * Search courses by tags
@@ -48,8 +63,29 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
     Page<Course> findByAuthorId(Long authorId, Pageable pageable);
 
     /**
+     * Find courses by author with eager loading of author (avoid N+1 and LazyInitializationException)
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT c FROM Course c LEFT JOIN FETCH c.author WHERE c.author.id = :authorId")
+    Page<Course> findByAuthorIdWithAuthor(@Param("authorId") Long authorId, Pageable pageable);
+
+    /**
      * Find courses by status with pagination
      */
     @Transactional(readOnly = true)
     Page<Course> findByStatus(CourseStatus status, Pageable pageable);
+    
+    /**
+     * Find course by ID with eager loading of author (avoid LazyInitializationException)
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT c FROM Course c LEFT JOIN FETCH c.author WHERE c.id = :id")
+    Course findByIdWithAuthor(@Param("id") Long id);
+    
+    /**
+     * Find course by ID with eager loading of author and modules (avoid LazyInitializationException)
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT c FROM Course c LEFT JOIN FETCH c.author LEFT JOIN FETCH c.modules WHERE c.id = :id")
+    Course findByIdWithAuthorAndModules(@Param("id") Long id);
 }

@@ -18,6 +18,16 @@ public interface LessonMapper {
     @Mapping(target = "durationSec", source = "durationSec")
     LessonBriefDTO toBriefDto(Lesson lesson);
 
+    @Mapping(target = "id", source = "id")
+    @Mapping(target = "title", source = "title")
+    @Mapping(target = "type", source = "type")
+    @Mapping(target = "orderIndex", source = "orderIndex")
+    @Mapping(target = "durationSec", source = "durationSec")
+    @Mapping(target = "contentText", source = "contentText")
+    @Mapping(target = "videoUrl", source = "videoUrl")
+    @Mapping(target = "videoMediaId", source = "videoMedia.id")
+    LessonDetailDTO toDetailDto(Lesson lesson);
+
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "title", source = "createDto.title")
     @Mapping(target = "type", source = "createDto.type")
@@ -26,13 +36,10 @@ public interface LessonMapper {
     @Mapping(target = "videoUrl", source = "createDto.videoUrl")
     @Mapping(target = "videoMedia", source = "videoMedia")
     @Mapping(target = "durationSec", source = "createDto.durationSec")
-    @Mapping(target = "course", source = "course")
+    @Mapping(target = "module", source = "module")
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
-    @Mapping(target = "quiz", ignore = true)
-    @Mapping(target = "assignment", ignore = true)
-    @Mapping(target = "codelab", ignore = true)
-    Lesson toEntity(LessonCreateDTO createDto, Course course, Media videoMedia);
+    Lesson toEntity(LessonCreateDTO createDto, com.exe.skillverse_backend.course_service.entity.Module module, Media videoMedia);
 
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     @Mapping(target = "id", ignore = true)
@@ -43,12 +50,9 @@ public interface LessonMapper {
     @Mapping(target = "videoUrl", source = "updateDto.videoUrl")
     @Mapping(target = "videoMedia", source = "videoMedia")
     @Mapping(target = "durationSec", source = "updateDto.durationSec")
-    @Mapping(target = "course", ignore = true)
+    @Mapping(target = "module", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
-    @Mapping(target = "quiz", ignore = true)
-    @Mapping(target = "assignment", ignore = true)
-    @Mapping(target = "codelab", ignore = true)
     void updateEntity(@MappingTarget Lesson lesson, LessonUpdateDTO updateDto, Media videoMedia);
 
     // Helper method to map from ID to Media entity

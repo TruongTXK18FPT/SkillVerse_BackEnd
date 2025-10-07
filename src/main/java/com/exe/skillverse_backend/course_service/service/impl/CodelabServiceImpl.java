@@ -5,7 +5,7 @@ import com.exe.skillverse_backend.course_service.dto.codingdto.*;
 import com.exe.skillverse_backend.course_service.entity.CodingExercise;
 import com.exe.skillverse_backend.course_service.entity.CodingSubmission;
 import com.exe.skillverse_backend.course_service.entity.CodingTestCase;
-import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.enums.CodeSubmissionStatus;
 import com.exe.skillverse_backend.course_service.mapper.CodingExerciseMapper;
 import com.exe.skillverse_backend.course_service.mapper.CodingSubmissionMapper;
@@ -33,7 +33,7 @@ public class CodelabServiceImpl implements CodelabService {
     private final CodingExerciseRepository exerciseRepository;
     private final CodingTestCaseRepository testCaseRepository;
     private final CodingSubmissionRepository submissionRepository;
-    private final LessonRepository lessonRepository;
+    private final com.exe.skillverse_backend.course_service.repository.ModuleRepository moduleRepository;
     private final CourseEnrollmentRepository enrollmentRepository;
     private final CodingExerciseMapper exerciseMapper;
     private final CodingTestCaseMapper testCaseMapper;
@@ -42,18 +42,18 @@ public class CodelabServiceImpl implements CodelabService {
 
     @Override
     @Transactional
-    public CodingExerciseDetailDTO createExercise(Long lessonId, CodingExerciseCreateDTO dto, Long actorId) {
-        log.info("Creating coding exercise '{}' for lesson {} by actor {}", dto.getTitle(), lessonId, actorId);
+    public CodingExerciseDetailDTO createExercise(Long moduleId, CodingExerciseCreateDTO dto, Long actorId) {
+        log.info("Creating coding exercise '{}' for module {} by actor {}", dto.getTitle(), moduleId, actorId);
         
-        Lesson lesson = getLessonOrThrow(lessonId);
-        ensureAuthorOrAdmin(actorId, lesson.getCourse().getAuthor().getId());
+        Module module = getModuleOrThrow(moduleId);
+        ensureAuthorOrAdmin(actorId, module.getCourse().getAuthor().getId());
         
         validateCreateExerciseRequest(dto);
         
-        CodingExercise exercise = exerciseMapper.toEntity(dto, lesson);
+        CodingExercise exercise = exerciseMapper.toEntity(dto, module);
         
         CodingExercise saved = exerciseRepository.save(exercise);
-        log.info("Coding exercise {} created for lesson {} by actor {}", saved.getId(), lessonId, actorId);
+        log.info("Coding exercise {} created for module {} by actor {}", saved.getId(), moduleId, actorId);
         
         return exerciseMapper.toDetailDto(saved);
     }
@@ -64,7 +64,7 @@ public class CodelabServiceImpl implements CodelabService {
         log.info("Updating coding exercise {} by actor {}", exerciseId, actorId);
         
         CodingExercise exercise = getExerciseOrThrow(exerciseId);
-        ensureAuthorOrAdmin(actorId, exercise.getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, exercise.getModule().getCourse().getAuthor().getId());
         
         validateUpdateExerciseRequest(dto);
         
@@ -82,7 +82,7 @@ public class CodelabServiceImpl implements CodelabService {
         log.info("Deleting coding exercise {} by actor {}", exerciseId, actorId);
         
         CodingExercise exercise = getExerciseOrThrow(exerciseId);
-        ensureAuthorOrAdmin(actorId, exercise.getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, exercise.getModule().getCourse().getAuthor().getId());
         
         // Check if there are submissions
         long submissionCount = submissionRepository.countByExerciseId(exerciseId);
@@ -100,7 +100,7 @@ public class CodelabServiceImpl implements CodelabService {
         log.info("Adding test case to coding exercise {} by actor {}", exerciseId, actorId);
         
         CodingExercise exercise = getExerciseOrThrow(exerciseId);
-        ensureAuthorOrAdmin(actorId, exercise.getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, exercise.getModule().getCourse().getAuthor().getId());
         
         validateCreateTestCaseRequest(dto);
         
@@ -125,7 +125,7 @@ public class CodelabServiceImpl implements CodelabService {
         log.info("Updating test case {} by actor {}", testCaseId, actorId);
         
         CodingTestCase testCase = getTestCaseOrThrow(testCaseId);
-        ensureAuthorOrAdmin(actorId, testCase.getExercise().getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, testCase.getExercise().getModule().getCourse().getAuthor().getId());
         
         validateUpdateTestCaseRequest(dto);
         
@@ -143,7 +143,7 @@ public class CodelabServiceImpl implements CodelabService {
         log.info("Deleting test case {} by actor {}", testCaseId, actorId);
         
         CodingTestCase testCase = getTestCaseOrThrow(testCaseId);
-        ensureAuthorOrAdmin(actorId, testCase.getExercise().getLesson().getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, testCase.getExercise().getModule().getCourse().getAuthor().getId());
         
         testCaseRepository.delete(testCase);
         log.info("Test case {} deleted by actor {}", testCaseId, actorId);
@@ -158,7 +158,7 @@ public class CodelabServiceImpl implements CodelabService {
         
         // Check enrollment
         boolean isEnrolled = enrollmentRepository.findByCourseIdAndUserId(
-                exercise.getLesson().getCourse().getId(), userId).isPresent();
+                exercise.getModule().getCourse().getId(), userId).isPresent();
         if (!isEnrolled) {
             throw new AccessDeniedException("USER_NOT_ENROLLED");
         }
@@ -202,9 +202,9 @@ public class CodelabServiceImpl implements CodelabService {
 
     // ===== Helper Methods =====
     
-    private Lesson getLessonOrThrow(Long lessonId) {
-        return lessonRepository.findById(lessonId)
-                .orElseThrow(() -> new NotFoundException("LESSON_NOT_FOUND"));
+    private Module getModuleOrThrow(Long moduleId) {
+        return moduleRepository.findById(moduleId)
+                .orElseThrow(() -> new NotFoundException("MODULE_NOT_FOUND"));
     }
     
     private CodingExercise getExerciseOrThrow(Long exerciseId) {

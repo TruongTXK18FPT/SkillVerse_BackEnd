@@ -9,6 +9,7 @@ import lombok.*;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.math.BigDecimal;
 
 @Entity
 @Table(
@@ -42,6 +43,13 @@ public class Course {
   @Builder.Default
   private CourseStatus status = CourseStatus.DRAFT;
 
+  /* ====== Pricing (optional) ====== */
+  @Column(precision = 12, scale = 2)
+  private BigDecimal price;
+
+  @Column(length = 10)
+  private String currency;
+
   /* ====== Quan hệ User (tác giả) ====== */
   @ManyToOne(fetch = FetchType.LAZY, optional = false)
   @JoinColumn(name = "author_id", nullable = false)
@@ -69,16 +77,12 @@ public class Course {
   protected void onUpdate() {
     updatedAt = Instant.now();
   }
-
-  /* ====== Quan hệ nội dung: Course -> Lessons ====== */
+  /* ====== Course -> Modules ====== */
   @Builder.Default
-  @OneToMany(
-      mappedBy = "course",
-      cascade = CascadeType.ALL,
-      orphanRemoval = true
-  )
+  @OneToMany(mappedBy = "course", cascade = CascadeType.ALL, orphanRemoval = true)
+  @OrderBy("orderIndex ASC")
   @ToString.Exclude @EqualsAndHashCode.Exclude
-  private List<Lesson> lessons = new ArrayList<>();
+  private List<Module> modules = new ArrayList<>();
 
   /* ====== Quan hệ học viên/tiến độ/giao dịch/chứng chỉ/skill ====== */
   // Course <- CourseEnrollment  (nhiều học viên ghi danh vào một course)
@@ -104,16 +108,15 @@ public class Course {
   @OneToMany(mappedBy = "course", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
   @ToString.Exclude @EqualsAndHashCode.Exclude
   private List<CourseSkill> courseSkills = new ArrayList<>();
-
-  /* ====== Helper để giữ đồng bộ 2 chiều ====== */
-  public void addLesson(Lesson l) {
-    lessons.add(l);
-    l.setCourse(this);
+  /* ====== Helper Methods ====== */
+  
+  public void addModule(Module module) {
+    modules.add(module);
+    module.setCourse(this);
   }
-
-  public void removeLesson(Lesson l) {
-    lessons.remove(l);
-    l.setCourse(null);
+  public void removeModule(Module module) {
+    modules.remove(module);
+    module.setCourse(null);
   }
 }
 

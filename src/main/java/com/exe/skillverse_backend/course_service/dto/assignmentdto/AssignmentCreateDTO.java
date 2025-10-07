@@ -20,6 +20,7 @@ public class AssignmentCreateDTO {
     private String title;
     @NotNull
     private SubmissionType submissionType;
+    @NotNull
     private BigDecimal maxScore;
     private Instant dueAt;
     private String description;

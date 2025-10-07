@@ -14,31 +14,31 @@ import java.util.Optional;
 public interface CodingExerciseRepository extends JpaRepository<CodingExercise, Long> {
 
     /**
-     * Find coding exercise by ID and lesson ID
+     * Find coding exercise by ID and module ID
      */
     @Transactional(readOnly = true)
-    @Query("SELECT ce FROM CodingExercise ce WHERE ce.id = :id AND ce.lesson.id = :lessonId")
-    Optional<CodingExercise> findByIdAndLessonId(@Param("id") Long id, @Param("lessonId") Long lessonId);
+    @Query("SELECT ce FROM CodingExercise ce WHERE ce.id = :id AND ce.module.id = :moduleId")
+    Optional<CodingExercise> findByIdAndModuleId(@Param("id") Long id, @Param("moduleId") Long moduleId);
 
     /**
-     * Find coding exercises by lesson ID ordered by creation time
+     * Find coding exercises by module ID ordered by creation time
      */
     @Transactional(readOnly = true)
-    @Query("SELECT ce FROM CodingExercise ce WHERE ce.lesson.id = :lessonId ORDER BY ce.id ASC")
-    List<CodingExercise> findByLessonIdOrderByIdAsc(@Param("lessonId") Long lessonId);
+    @Query("SELECT ce FROM CodingExercise ce WHERE ce.module.id = :moduleId ORDER BY ce.id ASC")
+    List<CodingExercise> findByModuleIdOrderByIdAsc(@Param("moduleId") Long moduleId);
 
     /**
-     * Find coding exercise by lesson ID (assuming one exercise per lesson)
+     * Find coding exercise by module ID (assuming one exercise per module)
      */
     @Transactional(readOnly = true)
-    @Query("SELECT ce FROM CodingExercise ce WHERE ce.lesson.id = :lessonId")
-    Optional<CodingExercise> findByLessonId(@Param("lessonId") Long lessonId);
+    @Query("SELECT ce FROM CodingExercise ce WHERE ce.module.id = :moduleId")
+    Optional<CodingExercise> findByModuleId(@Param("moduleId") Long moduleId);
 
     /**
      * Find coding exercises by course ID
      */
     @Transactional(readOnly = true)
-    @Query("SELECT ce FROM CodingExercise ce WHERE ce.lesson.course.id = :courseId")
+    @Query("SELECT ce FROM CodingExercise ce WHERE ce.module.course.id = :courseId")
     List<CodingExercise> findByCourseId(@Param("courseId") Long courseId);
 
     /**
@@ -52,20 +52,20 @@ public interface CodingExerciseRepository extends JpaRepository<CodingExercise, 
      * Count coding exercises in a course
      */
     @Transactional(readOnly = true)
-    @Query("SELECT COUNT(ce) FROM CodingExercise ce WHERE ce.lesson.course.id = :courseId")
+    @Query("SELECT COUNT(ce) FROM CodingExercise ce WHERE ce.module.course.id = :courseId")
     long countByCourseId(@Param("courseId") Long courseId);
 
     /**
-     * Check if coding exercise exists for lesson
+     * Check if coding exercise exists for module
      */
     @Transactional(readOnly = true)
-    @Query("SELECT CASE WHEN COUNT(ce) > 0 THEN true ELSE false END FROM CodingExercise ce WHERE ce.lesson.id = :lessonId")
-    boolean existsByLessonId(@Param("lessonId") Long lessonId);
+    @Query("SELECT CASE WHEN COUNT(ce) > 0 THEN true ELSE false END FROM CodingExercise ce WHERE ce.module.id = :moduleId")
+    boolean existsByModuleId(@Param("moduleId") Long moduleId);
 
     /**
      * Find coding exercises by course ID and language
      */
     @Transactional(readOnly = true)
-    @Query("SELECT ce FROM CodingExercise ce WHERE ce.lesson.course.id = :courseId AND ce.language = :language")
+    @Query("SELECT ce FROM CodingExercise ce WHERE ce.module.course.id = :courseId AND ce.language = :language")
     List<CodingExercise> findByCourseIdAndLanguage(@Param("courseId") Long courseId, @Param("language") String language);
 }

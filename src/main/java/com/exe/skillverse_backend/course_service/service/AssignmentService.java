@@ -8,9 +8,11 @@ import java.util.List;
 
 public interface AssignmentService {
     
-    AssignmentDetailDTO createAssignment(Long lessonId, AssignmentCreateDTO dto, Long actorId);
+    AssignmentDetailDTO createAssignment(Long moduleId, AssignmentCreateDTO dto, Long actorId);
     
     AssignmentDetailDTO updateAssignment(Long assignmentId, AssignmentUpdateDTO dto, Long actorId);
+    
+    AssignmentDetailDTO getAssignmentById(Long assignmentId);
     
     void deleteAssignment(Long assignmentId, Long actorId);
 
@@ -19,4 +21,6 @@ public interface AssignmentService {
     AssignmentSubmissionDetailDTO grade(Long submissionId, Long graderId, BigDecimal score, String feedback);
     
     List<AssignmentSubmissionDetailDTO> listSubmissions(Long assignmentId, Pageable p);
+    
+    List<AssignmentSummaryDTO> listAssignmentsByModule(Long moduleId);
 }

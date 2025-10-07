@@ -17,7 +17,7 @@ public interface QuizOptionMapper {
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "optionText", source = "createDto.optionText")
     @Mapping(target = "isCorrect", source = "createDto.correct")
-    @Mapping(target = "feedback", source = "createDto.feedback")
+    @Mapping(target = "feedback", ignore = true) // Not provided in frontend
     @Mapping(target = "question", source = "question")
     QuizOption toEntity(QuizOptionCreateDTO createDto, QuizQuestion question);
 
@@ -25,7 +25,7 @@ public interface QuizOptionMapper {
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "optionText", source = "updateDto.optionText")
     @Mapping(target = "isCorrect", source = "updateDto.correct")
-    @Mapping(target = "feedback", source = "updateDto.feedback")
+    @Mapping(target = "feedback", ignore = true) // Not provided in frontend
     @Mapping(target = "question", ignore = true)
     void updateEntity(@MappingTarget QuizOption option, QuizOptionUpdateDTO updateDto);
 }

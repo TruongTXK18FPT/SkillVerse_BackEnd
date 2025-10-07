@@ -51,6 +51,14 @@ public class Media {
     @Column(name = "uploaded_at", nullable = false)
     private LocalDateTime uploadedAt = LocalDateTime.now();
 
+    /** Cloudinary public ID for deletion */
+    @Column(name = "cloudinary_public_id")
+    private String cloudinaryPublicId;
+
+    /** Cloudinary resource type (image, video, raw) */
+    @Column(name = "cloudinary_resource_type")
+    private String cloudinaryResourceType;
+
     /* =====================
        QUAN HỆ NGƯỢC (BACKREF)
        ===================== */

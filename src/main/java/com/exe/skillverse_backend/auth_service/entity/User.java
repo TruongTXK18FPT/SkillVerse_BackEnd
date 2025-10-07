@@ -10,7 +10,7 @@ import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 import com.exe.skillverse_backend.course_service.entity.CodingSubmission;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
-import com.exe.skillverse_backend.course_service.entity.LessonProgress;
+import com.exe.skillverse_backend.course_service.entity.ModuleProgress;
 import com.exe.skillverse_backend.course_service.entity.CoursePurchase;
 import com.exe.skillverse_backend.course_service.entity.Certificate;
 
@@ -123,11 +123,11 @@ public class User {
     @ToString.Exclude @EqualsAndHashCode.Exclude
     private Set<CourseEnrollment> enrollments = new HashSet<>();
 
-    // 6) Lesson progress: tiến độ học từng bài
+    // 6) Module progress: tiến độ học từng module
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
     @ToString.Exclude @EqualsAndHashCode.Exclude
-    private Set<LessonProgress> lessonProgresses = new HashSet<>();
+    private Set<ModuleProgress> moduleProgresses = new HashSet<>();
 
     // 7) Course purchases: giao dịch mua khóa
     @Builder.Default

@@ -1,10 +1,12 @@
 package com.exe.skillverse_backend.course_service.service.impl;
 
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
+import com.exe.skillverse_backend.course_service.dto.lessondto.LessonDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.mapper.LessonMapper;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonRepository;
@@ -28,18 +30,18 @@ import java.util.List;
 public class LessonServiceImpl implements LessonService {
 
     private final LessonRepository lessonRepository;
-    private final CourseRepository courseRepository;
+    private final com.exe.skillverse_backend.course_service.repository.ModuleRepository moduleRepository;
     private final MediaRepository mediaRepository;
     private final LessonMapper lessonMapper;
     private final Clock clock;
 
     @Override
     @Transactional
-    public LessonBriefDTO addLesson(Long courseId, LessonCreateDTO dto, Long actorId) {
-        log.info("Adding lesson '{}' to course {} by actor {}", dto.getTitle(), courseId, actorId);
+    public LessonBriefDTO addLesson(Long moduleId, LessonCreateDTO dto, Long actorId) {
+        log.info("Adding lesson '{}' to module {} by actor {}", dto.getTitle(), moduleId, actorId);
         
-        Course course = getCourseOrThrow(courseId);
-        ensureAuthorOrAdmin(actorId, course.getAuthor().getId());
+        Module module = getModuleOrThrow(moduleId);
+        ensureAuthorOrAdmin(actorId, module.getCourse().getAuthor().getId());
         
         validateCreateLessonRequest(dto);
         
@@ -54,15 +56,15 @@ public class LessonServiceImpl implements LessonService {
         Integer orderIndex = dto.getOrderIndex();
         if (orderIndex == null) {
             // Use count + 1 as the next order index
-            orderIndex = (int) (lessonRepository.countByCourseId(courseId) + 1);
+            orderIndex = (int) (lessonRepository.countByModuleId(moduleId) + 1);
         }
         
-        Lesson lesson = lessonMapper.toEntity(dto, course, videoMedia);
+        Lesson lesson = lessonMapper.toEntity(dto, module, videoMedia);
         lesson.setOrderIndex(orderIndex);
         lesson.setCreatedAt(now());
         
         Lesson saved = lessonRepository.save(lesson);
-        log.info("Lesson {} added to course {} by actor {}", saved.getId(), courseId, actorId);
+        log.info("Lesson {} added to module {} by actor {}", saved.getId(), moduleId, actorId);
         
         return lessonMapper.toBriefDto(saved);
     }
@@ -73,7 +75,7 @@ public class LessonServiceImpl implements LessonService {
         log.info("Updating lesson {} by actor {}", lessonId, actorId);
         
         Lesson lesson = getLessonOrThrow(lessonId);
-        ensureAuthorOrAdmin(actorId, lesson.getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, lesson.getModule().getCourse().getAuthor().getId());
         
         validateUpdateLessonRequest(dto);
         
@@ -98,7 +100,7 @@ public class LessonServiceImpl implements LessonService {
         log.info("Deleting lesson {} by actor {}", lessonId, actorId);
         
         Lesson lesson = getLessonOrThrow(lessonId);
-        ensureAuthorOrAdmin(actorId, lesson.getCourse().getAuthor().getId());
+        ensureAuthorOrAdmin(actorId, lesson.getModule().getCourse().getAuthor().getId());
         
         // TODO: Check policy for cascade delete of quizzes/assignments/exercises
         // For now, allow deletion (repositories have cascade configurations)
@@ -114,23 +116,30 @@ public class LessonServiceImpl implements LessonService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<LessonBriefDTO> listLessonsByCourse(Long courseId) {
-        log.debug("Listing lessons for course {}", courseId);
+    public List<LessonBriefDTO> listLessonsByModule(Long moduleId) {
+        log.debug("Listing lessons for module {}", moduleId);
         
-        // Verify course exists
-        getCourseOrThrow(courseId);
+        // Verify module exists
+        getModuleOrThrow(moduleId);
         
-        List<Lesson> lessons = lessonRepository.findByCourseIdOrderByOrderIndexAsc(courseId);
+        List<Lesson> lessons = lessonRepository.findByModuleIdOrderByOrderIndexAsc(moduleId);
         return lessons.stream()
                 .map(lessonMapper::toBriefDto)
                 .toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public LessonDetailDTO getLesson(Long lessonId) {
+        Lesson lesson = getLessonOrThrow(lessonId);
+        return lessonMapper.toDetailDto(lesson);
+    }
+
     // ===== Helper Methods =====
     
-    private Course getCourseOrThrow(Long courseId) {
-        return courseRepository.findById(courseId)
-                .orElseThrow(() -> new NotFoundException("COURSE_NOT_FOUND"));
+    private Module getModuleOrThrow(Long moduleId) {
+        return moduleRepository.findById(moduleId)
+                .orElseThrow(() -> new NotFoundException("MODULE_NOT_FOUND"));
     }
     
     private Lesson getLessonOrThrow(Long lessonId) {

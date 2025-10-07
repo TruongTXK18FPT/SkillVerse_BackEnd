@@ -10,10 +10,11 @@ import com.exe.skillverse_backend.shared.entity.Media;
 public class Lesson {
   @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
-
+  
+  // Lesson belongs to a module
   @ManyToOne(fetch = FetchType.LAZY, optional = false)
-  @JoinColumn(name = "course_id", nullable = false)
-  private Course course;
+  @JoinColumn(name = "module_id", nullable = false)
+  private Module module;
 
   @Column(nullable = false, length = 200)
   private String title;
@@ -30,16 +31,7 @@ public class Lesson {
   private Media videoMedia;
   private Integer durationSec;
 
+  @Builder.Default
   private Instant createdAt = Instant.now();
   private Instant updatedAt;
-
-  /** quan hệ 1–1 với đánh giá/bài tập/codelab (owner ở phía kia) */
-  @OneToOne(mappedBy = "lesson", fetch = FetchType.LAZY)
-  private Quiz quiz;
-
-  @OneToOne(mappedBy = "lesson", fetch = FetchType.LAZY)
-  private Assignment assignment;
-
-  @OneToOne(mappedBy = "lesson", fetch = FetchType.LAZY)
-  private CodingExercise codelab;
 }

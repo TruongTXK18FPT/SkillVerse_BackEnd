@@ -12,22 +12,24 @@ import com.exe.skillverse_backend.shared.exception.MediaOperationException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.exe.skillverse_backend.shared.service.MediaService;
-import com.exe.skillverse_backend.shared.storage.StorageClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 @Slf4j
 @Service
@@ -38,7 +40,7 @@ public class MediaServiceImpl implements MediaService {
     private final CourseRepository courseRepository;
     private final LessonRepository lessonRepository;
     private final MediaMapper mediaMapper;
-    private final StorageClient storageClient;
+    private final CloudinaryService cloudinaryService;
     private final Clock clock;
 
     // File validation constants
@@ -60,13 +62,30 @@ public class MediaServiceImpl implements MediaService {
         // Validate file
         validateFile(contentType, fileSize);
         
-        // Generate unique key for storage
-        String fileExtension = extractFileExtension(fileName);
-        String storageKey = generateStorageKey(actorId, fileExtension);
-        
         try {
-            // Upload to storage
-            String publicUrl = storageClient.putObject(storageKey, data, contentType, fileSize);
+            // Convert InputStream to MultipartFile
+            MultipartFile multipartFile = convertToMultipartFile(data, fileName, contentType, fileSize);
+            
+            // Determine file type and upload to Cloudinary
+            String folder = "user_" + actorId;
+            Map<String, Object> uploadResult;
+            
+            if (isImage(contentType)) {
+                log.debug("Uploading as image to folder: {}", folder);
+                uploadResult = cloudinaryService.uploadImage(multipartFile, folder);
+            } else if (isVideo(contentType)) {
+                log.debug("Uploading as video to folder: {}", folder);
+                uploadResult = cloudinaryService.uploadVideo(multipartFile, folder);
+            } else {
+                log.debug("Uploading as file to folder: {}", folder);
+                uploadResult = cloudinaryService.uploadFile(multipartFile, folder);
+            }
+            
+            // Extract Cloudinary response data
+            // Cloudinary returns snake_case keys: "url", "public_id", "resource_type"
+            String publicUrl = (String) uploadResult.get("url");
+            String publicId = (String) uploadResult.get("public_id"); // Fixed: was "publicId" (camelCase)
+            String resourceType = (String) uploadResult.get("resource_type"); // Fixed: was "resourceType" (camelCase)
             
             // Create Media entity
             Media media = new Media();
@@ -76,12 +95,18 @@ public class MediaServiceImpl implements MediaService {
             media.setFileSize(fileSize);
             media.setUploadedBy(actorId);
             media.setUploadedAt(now());
+            media.setCloudinaryPublicId(publicId); // Store Cloudinary public ID for deletion
+            media.setCloudinaryResourceType(resourceType); // Store resource type
             
             Media savedMedia = mediaRepository.save(media);
-            log.info("File '{}' uploaded successfully with ID {}", fileName, savedMedia.getId());
+            log.info("File '{}' uploaded successfully to Cloudinary with ID {} (public_id: {}, resource_type: {})", 
+                    fileName, savedMedia.getId(), publicId, resourceType);
             
             return mediaMapper.toDto(savedMedia);
             
+        } catch (IOException e) {
+            log.error("Failed to convert file '{}' by user {}: {}", fileName, actorId, e.getMessage());
+            throw new MediaOperationException("File conversion failed: " + e.getMessage(), e);
         } catch (Exception e) {
             log.error("Failed to upload file '{}' by user {}: {}", fileName, actorId, e.getMessage());
             throw new MediaOperationException("File upload failed: " + e.getMessage(), e);
@@ -99,9 +124,16 @@ public class MediaServiceImpl implements MediaService {
         // Check permissions - user must be owner of file or author/admin of course
         ensureOwnerOrAdmin(actorId, media.getUploadedBy(), course.getAuthor().getId());
         
-        // TODO: Implement direct courseId field when added to Media entity
-        // For now, this would be handled through Course.thumbnail relationship
-        log.info("Media {} attached to course {} successfully", mediaId, courseId);
+        // Set the media as the course thumbnail (bidirectional relationship)
+        course.setThumbnail(media);
+        media.getCoursesAsThumbnail().add(course);
+        
+        // Save both sides to ensure consistency
+        mediaRepository.save(media);
+        courseRepository.save(course);
+        
+        log.info("Media {} attached to course {} as thumbnail successfully (thumbnail_media_id={})", 
+                mediaId, courseId, media.getId());
         
         return mediaMapper.toDto(media);
     }
@@ -115,11 +147,18 @@ public class MediaServiceImpl implements MediaService {
         Lesson lesson = getLessonOrThrow(lessonId);
         
         // Check permissions - user must be owner of file or author/admin of course
-        ensureOwnerOrAdmin(actorId, media.getUploadedBy(), lesson.getCourse().getAuthor().getId());
+        ensureOwnerOrAdmin(actorId, media.getUploadedBy(), lesson.getModule().getCourse().getAuthor().getId());
         
-        // TODO: Implement direct lessonId field when added to Media entity
-        // For now, this would be handled through Lesson.videoMedia relationship
-        log.info("Media {} attached to lesson {} successfully", mediaId, lessonId);
+        // Set the media as the lesson video (bidirectional relationship)
+        lesson.setVideoMedia(media);
+        media.getLessonsAsVideo().add(lesson);
+        
+        // Save both sides to ensure consistency
+        mediaRepository.save(media);
+        lessonRepository.save(lesson);
+        
+        log.info("Media {} attached to lesson {} as video successfully (video_media_id={})", 
+                mediaId, lessonId, media.getId());
         
         return mediaMapper.toDto(media);
     }
@@ -132,10 +171,40 @@ public class MediaServiceImpl implements MediaService {
         Media media = getMediaOrThrow(mediaId);
         ensureOwnerOrAdmin(actorId, media.getUploadedBy(), null);
         
-        // TODO: Reset courseId and lessonId to null when fields are added to Media entity
-        // For now, this would require updating the relationships in Course/Lesson entities
+        int coursesUpdated = 0;
+        int lessonsUpdated = 0;
         
-        log.info("Media {} detached successfully", mediaId);
+        // Find and remove from courses using this as thumbnail
+        List<Course> coursesWithThumbnail = courseRepository.findAll().stream()
+            .filter(c -> c.getThumbnail() != null && c.getThumbnail().getId().equals(mediaId))
+            .collect(java.util.stream.Collectors.toList());
+        
+        for (Course course : coursesWithThumbnail) {
+            course.setThumbnail(null);
+            courseRepository.save(course);
+            coursesUpdated++;
+            log.info("Removed media {} from course {} thumbnail", mediaId, course.getId());
+        }
+        
+        // Find and remove from lessons using this as video
+        List<Lesson> lessonsWithVideo = lessonRepository.findAll().stream()
+            .filter(l -> l.getVideoMedia() != null && l.getVideoMedia().getId().equals(mediaId))
+            .collect(java.util.stream.Collectors.toList());
+        
+        for (Lesson lesson : lessonsWithVideo) {
+            lesson.setVideoMedia(null);
+            lessonRepository.save(lesson);
+            lessonsUpdated++;
+            log.info("Removed media {} from lesson {} video", mediaId, lesson.getId());
+        }
+        
+        // Clear the bidirectional collections in Media entity
+        media.getCoursesAsThumbnail().clear();
+        media.getLessonsAsVideo().clear();
+        mediaRepository.save(media);
+        
+        log.info("Media {} detached successfully from {} courses and {} lessons", 
+                mediaId, coursesUpdated, lessonsUpdated);
     }
 
     @Override
@@ -147,14 +216,26 @@ public class MediaServiceImpl implements MediaService {
         ensureOwnerOrAdmin(actorId, media.getUploadedBy(), null);
         
         try {
-            // TODO: Implement soft delete if deletedAt field is added to Media entity
-            // For now, perform hard delete
-            
-            // Extract storage key from URL for deletion
-            String storageKey = extractStorageKeyFromUrl(media.getUrl());
-            
-            // Delete from storage
-            storageClient.deleteObject(storageKey);
+            // Delete from Cloudinary if public ID exists
+            if (media.getCloudinaryPublicId() != null) {
+                String resourceType = media.getCloudinaryResourceType();
+                if (resourceType == null) {
+                    // Fallback: determine resource type from content type
+                    if (isImage(media.getType())) {
+                        resourceType = "image";
+                    } else if (isVideo(media.getType())) {
+                        resourceType = "video";
+                    } else {
+                        resourceType = "raw";
+                    }
+                }
+                
+                log.debug("Deleting file from Cloudinary: publicId={}, resourceType={}", 
+                         media.getCloudinaryPublicId(), resourceType);
+                cloudinaryService.deleteFile(media.getCloudinaryPublicId(), resourceType);
+            } else {
+                log.warn("Media {} has no Cloudinary public ID, skipping cloud deletion", mediaId);
+            }
             
             // Delete from database
             mediaRepository.delete(media);
@@ -224,14 +305,31 @@ public class MediaServiceImpl implements MediaService {
         // For now, allow access to all files
         
         try {
-            // Extract storage key from URL
-            String storageKey = extractStorageKeyFromUrl(media.getUrl());
-            
-            // Create signed URL with 1 hour expiration
-            return storageClient.createSignedGetUrl(storageKey, Duration.ofHours(1));
+            // Use Cloudinary signed URL if public ID exists
+            if (media.getCloudinaryPublicId() != null) {
+                String resourceType = media.getCloudinaryResourceType();
+                if (resourceType == null) {
+                    // Fallback: determine resource type from content type
+                    if (isImage(media.getType())) {
+                        resourceType = "image";
+                    } else if (isVideo(media.getType())) {
+                        resourceType = "video";
+                    } else {
+                        resourceType = "raw";
+                    }
+                }
+                
+                log.debug("Creating Cloudinary signed URL: publicId={}, resourceType={}", 
+                         media.getCloudinaryPublicId(), resourceType);
+                return cloudinaryService.generateSignedUrl(media.getCloudinaryPublicId(), resourceType);
+            } else {
+                log.warn("Media {} has no Cloudinary public ID, returning public URL", mediaId);
+                return media.getUrl();
+            }
             
         } catch (Exception e) {
-            log.warn("Failed to create signed URL for media {}, returning public URL", mediaId);
+            log.warn("Failed to create signed URL for media {}, returning public URL: {}", 
+                    mediaId, e.getMessage());
             return media.getUrl();
         }
     }
@@ -300,27 +398,37 @@ public class MediaServiceImpl implements MediaService {
         throw new AccessDeniedException("FORBIDDEN");
     }
 
-    private String generateStorageKey(Long userId, String fileExtension) {
-        String timestamp = String.valueOf(System.currentTimeMillis());
-        String uuid = UUID.randomUUID().toString().substring(0, 8);
-        return String.format("media/user_%d/%s_%s%s", userId, timestamp, uuid, fileExtension);
-    }
-
-    private String extractFileExtension(String fileName) {
-        if (fileName == null || !fileName.contains(".")) {
-            return "";
-        }
-        return fileName.substring(fileName.lastIndexOf("."));
-    }
-
-    private String extractStorageKeyFromUrl(String url) {
-        // TODO: Implement based on storage client implementation
-        // For S3: extract key from URL
-        // For local: extract relative path
-        return url.substring(url.lastIndexOf("/") + 1);
-    }
-
     private LocalDateTime now() {
         return LocalDateTime.now(clock);
+    }
+    
+    // ===== Cloudinary Helper Methods =====
+    
+    /**
+     * Convert InputStream to Spring MultipartFile for Cloudinary upload
+     */
+    private MultipartFile convertToMultipartFile(InputStream inputStream, String fileName, 
+                                                 String contentType, long fileSize) throws IOException {
+        byte[] bytes = inputStream.readAllBytes();
+        return new MockMultipartFile(
+                "file",
+                fileName,
+                contentType,
+                bytes
+        );
+    }
+    
+    /**
+     * Check if content type is an image
+     */
+    private boolean isImage(String contentType) {
+        return contentType != null && contentType.startsWith("image/");
+    }
+    
+    /**
+     * Check if content type is a video
+     */
+    private boolean isVideo(String contentType) {
+        return contentType != null && contentType.startsWith("video/");
     }
 }

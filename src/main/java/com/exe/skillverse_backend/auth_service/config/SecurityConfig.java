@@ -16,7 +16,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtGra
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfigurationSource;
 
-@Configuration
+@Configuration(proxyBeanMethods = false)
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
 @RequiredArgsConstructor
@@ -42,7 +42,9 @@ public class SecurityConfig {
                         "/api/mentors/register",
                         // Business service registration
                         "/api/business/register",
-                        // PayOS webhook (must be public for PayOS to call)
+                        "/api/courses",
+                        "/api/courses/*",
+                        "/api/courses/by-author/*",
                         "/api/v1/payments/callback/payos"
         };
 
@@ -58,7 +60,7 @@ public class SecurityConfig {
                         "/actuator/**"
         };
 
-        private final CustomJwtDecoder customJwtDecoder;
+        private final org.springframework.security.oauth2.jwt.JwtDecoder jwtDecoder;
         private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
         private final CorsConfigurationSource corsConfigurationSource;
 
@@ -68,6 +70,9 @@ public class SecurityConfig {
                                 // Public authentication endpoints
                                 .requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll()
                                 .requestMatchers(HttpMethod.GET, PUBLIC_ENDPOINTS).permitAll()
+
+                                // Allow all preflight CORS requests
+                                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                                 // Swagger/OpenAPI documentation endpoints
                                 .requestMatchers(SWAGGER_ENDPOINTS).permitAll()
@@ -90,7 +95,7 @@ public class SecurityConfig {
 
                 httpSecurity.oauth2ResourceServer(oauth2 -> oauth2
                                 .jwt(jwtConfigurer -> jwtConfigurer
-                                                .decoder(customJwtDecoder)
+                                                .decoder(jwtDecoder)
                                                 .jwtAuthenticationConverter(jwtAuthenticationConverter()))
                                 .authenticationEntryPoint(jwtAuthenticationEntryPoint));
 

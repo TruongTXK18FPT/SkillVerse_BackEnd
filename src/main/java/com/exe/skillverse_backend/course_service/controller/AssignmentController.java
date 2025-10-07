@@ -33,14 +33,14 @@ public class AssignmentController {
     // ========== Assignment Management ==========
     @PostMapping
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
-    @Operation(summary = "Create a new assignment for a lesson")
+    @Operation(summary = "Create a new assignment for a module")
     public ResponseEntity<AssignmentDetailDTO> createAssignment(
-            @Parameter(description = "Lesson ID") @RequestParam @NotNull Long lessonId,
+            @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
             @Parameter(description = "Assignment creation data") @Valid @RequestBody AssignmentCreateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
         
-        log.info("Creating assignment for lesson {} by user {}", lessonId, actorId);
-        AssignmentDetailDTO created = assignmentService.createAssignment(lessonId, dto, actorId);
+        log.info("Creating assignment for module {} by user {}", moduleId, actorId);
+        AssignmentDetailDTO created = assignmentService.createAssignment(moduleId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -55,6 +55,16 @@ public class AssignmentController {
         log.info("Updating assignment {} by user {}", assignmentId, actorId);
         AssignmentDetailDTO updated = assignmentService.updateAssignment(assignmentId, dto, actorId);
         return ResponseEntity.ok(updated);
+    }
+
+    @GetMapping("/{assignmentId}")
+    @Operation(summary = "Get assignment details by ID")
+    public ResponseEntity<AssignmentDetailDTO> getAssignmentById(
+            @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId) {
+        
+        log.info("Getting assignment details for ID {}", assignmentId);
+        AssignmentDetailDTO assignment = assignmentService.getAssignmentById(assignmentId);
+        return ResponseEntity.ok(assignment);
     }
 
     @DeleteMapping("/{assignmentId}")

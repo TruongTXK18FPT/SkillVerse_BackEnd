@@ -30,14 +30,14 @@ public class CodelabController {
 
     // ========== Exercise Management ==========
     @PostMapping
-    @Operation(summary = "Create a new coding exercise for a lesson")
+    @Operation(summary = "Create a new coding exercise for a module")
     public ResponseEntity<CodingExerciseDetailDTO> createExercise(
-            @Parameter(description = "Lesson ID") @RequestParam @NotNull Long lessonId,
+            @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
             @Parameter(description = "Exercise creation data") @Valid @RequestBody CodingExerciseCreateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
         
-        log.info("Creating coding exercise for lesson {} by user {}", lessonId, actorId);
-        CodingExerciseDetailDTO created = codelabService.createExercise(lessonId, dto, actorId);
+        log.info("Creating coding exercise for module {} by user {}", moduleId, actorId);
+        CodingExerciseDetailDTO created = codelabService.createExercise(moduleId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 

@@ -15,6 +15,8 @@ import java.util.stream.Collectors;
 public interface UserMapper {
 
     @Mappings({
+        @Mapping(target = "firstName", source = "firstName"),
+        @Mapping(target = "lastName", source = "lastName"),
         @Mapping(target = "fullName",
                  expression = "java(concatName(user.getFirstName(), user.getLastName()))"),
         @Mapping(target = "roles",

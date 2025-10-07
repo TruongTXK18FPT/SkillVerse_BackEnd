@@ -8,15 +8,15 @@ import java.time.Instant;
 import java.util.List;
 
 @Entity
-@Table(name = "assignments", uniqueConstraints = @UniqueConstraint(columnNames = "lesson_id"))
+@Table(name = "assignments")
 @Data @NoArgsConstructor @AllArgsConstructor @Builder
 public class Assignment {
   @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
-  @OneToOne(fetch = FetchType.LAZY, optional = false)
-  @JoinColumn(name = "lesson_id", nullable = false, unique = true)
-  private Lesson lesson;
+  @ManyToOne(fetch = FetchType.LAZY, optional = false)
+  @JoinColumn(name = "module_id", nullable = false)
+  private Module module;
 
   @Column(nullable = false, length = 200)
   private String title;
