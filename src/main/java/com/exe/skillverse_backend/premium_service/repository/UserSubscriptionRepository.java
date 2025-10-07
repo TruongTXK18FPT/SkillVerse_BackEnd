@@ -21,108 +21,117 @@ import java.util.Optional;
 @Repository
 public interface UserSubscriptionRepository extends JpaRepository<UserSubscription, Long> {
 
-    /**
-     * Find user's current active subscription
-     */
-    Optional<UserSubscription> findByUserAndIsActiveTrueAndStatus(
-            User user, UserSubscription.SubscriptionStatus status);
+        /**
+         * Find user's current active subscription
+         */
+        Optional<UserSubscription> findByUserAndIsActiveTrueAndStatus(
+                        User user, UserSubscription.SubscriptionStatus status);
 
-    /**
-     * Find user's active subscription (simplified)
-     */
-    Optional<UserSubscription> findByUserAndIsActiveTrue(User user);
+        /**
+         * Find user's active subscription (simplified)
+         */
+        Optional<UserSubscription> findByUserAndIsActiveTrue(User user);
 
-    /**
-     * Find all subscriptions for a user
-     */
-    Page<UserSubscription> findByUserOrderByCreatedAtDesc(User user, Pageable pageable);
+        /**
+         * Find all subscriptions for a user
+         */
+        Page<UserSubscription> findByUserOrderByCreatedAtDesc(User user, Pageable pageable);
 
-    /**
-     * Find subscriptions by plan
-     */
-    List<UserSubscription> findByPlan(PremiumPlan plan);
+        /**
+         * Find subscriptions by plan
+         */
+        List<UserSubscription> findByPlan(PremiumPlan plan);
 
-    /**
-     * Find active subscriptions by plan
-     */
-    List<UserSubscription> findByPlanAndIsActiveTrue(PremiumPlan plan);
+        /**
+         * Find active subscriptions by plan
+         */
+        List<UserSubscription> findByPlanAndIsActiveTrue(PremiumPlan plan);
 
-    /**
-     * Find subscriptions expiring soon
-     */
-    @Query("SELECT s FROM UserSubscription s WHERE s.isActive = true " +
-            "AND s.status = 'ACTIVE' AND s.endDate BETWEEN :now AND :cutoffDate")
-    List<UserSubscription> findSubscriptionsExpiringSoon(
-            @Param("now") LocalDateTime now,
-            @Param("cutoffDate") LocalDateTime cutoffDate);
+        /**
+         * Find subscriptions expiring soon
+         */
+        @Query("SELECT s FROM UserSubscription s WHERE s.isActive = true " +
+                        "AND s.status = 'ACTIVE' AND s.endDate BETWEEN :now AND :cutoffDate")
+        List<UserSubscription> findSubscriptionsExpiringSoon(
+                        @Param("now") LocalDateTime now,
+                        @Param("cutoffDate") LocalDateTime cutoffDate);
 
-    /**
-     * Find expired subscriptions that are still marked as active
-     */
-    @Query("SELECT s FROM UserSubscription s WHERE s.isActive = true " +
-            "AND s.status = 'ACTIVE' AND s.endDate < :now")
-    List<UserSubscription> findExpiredActiveSubscriptions(@Param("now") LocalDateTime now);
+        /**
+         * Find expired subscriptions that are still marked as active
+         */
+        @Query("SELECT s FROM UserSubscription s WHERE s.isActive = true " +
+                        "AND s.status = 'ACTIVE' AND s.endDate < :now")
+        List<UserSubscription> findExpiredActiveSubscriptions(@Param("now") LocalDateTime now);
 
-    /**
-     * Check if user has any active subscription
-     */
-    @Query("SELECT CASE WHEN COUNT(s) > 0 THEN true ELSE false END FROM UserSubscription s " +
-            "WHERE s.user = :user AND s.isActive = true AND s.status = 'ACTIVE' " +
-            "AND s.startDate <= :now AND s.endDate > :now")
-    Boolean hasActiveSubscription(@Param("user") User user, @Param("now") LocalDateTime now);
+        /**
+         * Check if user has any active subscription
+         */
+        @Query("SELECT CASE WHEN COUNT(s) > 0 THEN true ELSE false END FROM UserSubscription s " +
+                        "WHERE s.user = :user AND s.isActive = true AND s.status = 'ACTIVE' " +
+                        "AND s.startDate <= :now AND s.endDate > :now")
+        Boolean hasActiveSubscription(@Param("user") User user, @Param("now") LocalDateTime now);
 
-    /**
-     * Find user's subscription history by plan type
-     */
-    @Query("SELECT s FROM UserSubscription s JOIN s.plan p WHERE s.user = :user " +
-            "AND p.planType = :planType ORDER BY s.createdAt DESC")
-    List<UserSubscription> findByUserAndPlanType(
-            @Param("user") User user,
-            @Param("planType") PremiumPlan.PlanType planType);
+        /**
+         * Check if user has any active non-free subscription (exclude FREE_TIER)
+         */
+        @Query("SELECT CASE WHEN COUNT(s) > 0 THEN true ELSE false END FROM UserSubscription s " +
+                        "JOIN s.plan p " +
+                        "WHERE s.user = :user AND s.isActive = true AND s.status = 'ACTIVE' " +
+                        "AND s.startDate <= :now AND s.endDate > :now AND p.planType <> 'FREE_TIER'")
+        Boolean hasActiveNonFreeSubscription(@Param("user") User user, @Param("now") LocalDateTime now);
 
-    /**
-     * Count total subscriptions for a plan
-     */
-    Long countByPlan(PremiumPlan plan);
+        /**
+         * Find user's subscription history by plan type
+         */
+        @Query("SELECT s FROM UserSubscription s JOIN s.plan p WHERE s.user = :user " +
+                        "AND p.planType = :planType ORDER BY s.createdAt DESC")
+        List<UserSubscription> findByUserAndPlanType(
+                        @Param("user") User user,
+                        @Param("planType") PremiumPlan.PlanType planType);
 
-    /**
-     * Find subscriptions eligible for auto-renewal
-     */
-    @Query("SELECT s FROM UserSubscription s WHERE s.autoRenew = true " +
-            "AND s.isActive = true AND s.status = 'ACTIVE' " +
-            "AND s.endDate BETWEEN :now AND :renewalWindow")
-    List<UserSubscription> findSubscriptionsForAutoRenewal(
-            @Param("now") LocalDateTime now,
-            @Param("renewalWindow") LocalDateTime renewalWindow);
+        /**
+         * Count total subscriptions for a plan
+         */
+        Long countByPlan(PremiumPlan plan);
 
-    /**
-     * Find student subscriptions
-     */
-    List<UserSubscription> findByIsStudentSubscriptionTrueAndIsActiveTrue();
+        /**
+         * Find subscriptions eligible for auto-renewal
+         */
+        @Query("SELECT s FROM UserSubscription s WHERE s.autoRenew = true " +
+                        "AND s.isActive = true AND s.status = 'ACTIVE' " +
+                        "AND s.endDate BETWEEN :now AND :renewalWindow")
+        List<UserSubscription> findSubscriptionsForAutoRenewal(
+                        @Param("now") LocalDateTime now,
+                        @Param("renewalWindow") LocalDateTime renewalWindow);
 
-    /**
-     * Get subscription statistics by plan type
-     */
-    @Query("SELECT p.planType, COUNT(s), COUNT(CASE WHEN s.isActive = true THEN 1 END) " +
-            "FROM UserSubscription s JOIN s.plan p " +
-            "GROUP BY p.planType")
-    List<Object[]> getSubscriptionStatsByPlanType();
+        /**
+         * Find student subscriptions
+         */
+        List<UserSubscription> findByIsStudentSubscriptionTrueAndIsActiveTrue();
 
-    /**
-     * Bulk update expired subscriptions
-     */
-    @Modifying
-    @Query("UPDATE UserSubscription s SET s.isActive = false, s.status = 'EXPIRED' " +
-            "WHERE s.isActive = true AND s.status = 'ACTIVE' AND s.endDate < :now")
-    int markExpiredSubscriptions(@Param("now") LocalDateTime now);
+        /**
+         * Get subscription statistics by plan type
+         */
+        @Query("SELECT p.planType, COUNT(s), COUNT(CASE WHEN s.isActive = true THEN 1 END) " +
+                        "FROM UserSubscription s JOIN s.plan p " +
+                        "GROUP BY p.planType")
+        List<Object[]> getSubscriptionStatsByPlanType();
 
-    /**
-     * Find user's latest subscription for a specific plan type
-     */
-    @Query("SELECT s FROM UserSubscription s JOIN s.plan p WHERE s.user = :user " +
-            "AND p.planType = :planType ORDER BY s.createdAt DESC")
-    Page<UserSubscription> findLatestSubscriptionByUserAndPlanType(
-            @Param("user") User user,
-            @Param("planType") PremiumPlan.PlanType planType,
-            Pageable pageable);
+        /**
+         * Bulk update expired subscriptions
+         */
+        @Modifying
+        @Query("UPDATE UserSubscription s SET s.isActive = false, s.status = 'EXPIRED' " +
+                        "WHERE s.isActive = true AND s.status = 'ACTIVE' AND s.endDate < :now")
+        int markExpiredSubscriptions(@Param("now") LocalDateTime now);
+
+        /**
+         * Find user's latest subscription for a specific plan type
+         */
+        @Query("SELECT s FROM UserSubscription s JOIN s.plan p WHERE s.user = :user " +
+                        "AND p.planType = :planType ORDER BY s.createdAt DESC")
+        Page<UserSubscription> findLatestSubscriptionByUserAndPlanType(
+                        @Param("user") User user,
+                        @Param("planType") PremiumPlan.PlanType planType,
+                        Pageable pageable);
 }

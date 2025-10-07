@@ -12,8 +12,6 @@ import com.exe.skillverse_backend.auth_service.entity.Role;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
-import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
-import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
@@ -123,6 +121,17 @@ public class DataInitializer implements CommandLineRunner {
 
     private void initializePremiumPlans() {
         try {
+            // Create FREE_TIER plan (permanent)
+            createPremiumPlanIfNotExists(
+                    "free_tier",
+                    "Free Tier",
+                    "Default free plan with basic access",
+                    Integer.MAX_VALUE, // Permanent
+                    new BigDecimal("0"),
+                    PremiumPlan.PlanType.FREE_TIER,
+                    new BigDecimal("0"),
+                    "[\"Basic access\", \"Community participation\"]");
+
             // Create PREMIUM_BASIC plan
             createPremiumPlanIfNotExists(
                     "premium_basic",

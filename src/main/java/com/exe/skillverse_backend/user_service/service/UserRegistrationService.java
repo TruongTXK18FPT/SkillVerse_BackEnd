@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.service.UserCreationService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
 import com.exe.skillverse_backend.shared.service.AuditService;
+import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.shared.util.SecureAuditUtil;
 import com.exe.skillverse_backend.user_service.dto.request.UserRegistrationRequest;
 import com.exe.skillverse_backend.user_service.dto.response.UserRegistrationResponse;
@@ -23,6 +24,7 @@ public class UserRegistrationService implements RegistrationService<UserRegistra
     private final UserCreationService userCreationService;
     private final UserProfileRepository userProfileRepository;
     private final AuditService auditService;
+    private final PremiumService premiumService;
 
     @Override
     public UserRegistrationResponse register(UserRegistrationRequest request) {
@@ -42,7 +44,7 @@ public class UserRegistrationService implements RegistrationService<UserRegistra
                 request.getFullName());
 
         // Create user profile
-        UserProfile profile = createUserProfile(user.getId(), request);
+        createUserProfile(user.getId(), request);
 
         // Secure audit log - NO PII/sensitive data
         String secureAuditDetails = SecureAuditUtil.createRegistrationAuditDetails(
@@ -51,12 +53,15 @@ public class UserRegistrationService implements RegistrationService<UserRegistra
         auditService.logAction(user.getId(), "USER_REGISTRATION", "USER", user.getId().toString(),
                 secureAuditDetails);
 
+        // Assign Free Tier by default
+        premiumService.assignFreeTierIfMissing(user.getId());
+
         return UserRegistrationResponse.builder()
                 .success(true)
                 .email(request.getEmail())
                 .userId(user.getId())
-                .requiresVerification(true)  // User registration always requires email verification
-                .otpExpiryMinutes(10)  // OTP expires in 10 minutes
+                .requiresVerification(true) // User registration always requires email verification
+                .otpExpiryMinutes(10) // OTP expires in 10 minutes
                 .message("User registration successful! Please verify your email with the OTP code.")
                 .nextStep("Check your email and verify with the OTP code to activate your account")
                 .build();

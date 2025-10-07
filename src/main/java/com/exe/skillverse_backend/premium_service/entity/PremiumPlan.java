@@ -94,6 +94,7 @@ public class PremiumPlan {
      * Plan types corresponding to the UI
      */
     public enum PlanType {
+        FREE_TIER,
         PREMIUM_BASIC,
         PREMIUM_PLUS,
         STUDENT_PACK

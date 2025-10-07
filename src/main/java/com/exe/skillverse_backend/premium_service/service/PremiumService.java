@@ -68,4 +68,14 @@ public interface PremiumService {
      * Process expired subscriptions (scheduled task)
      */
     void processExpiredSubscriptions();
+
+    /**
+     * Assign Free Tier to user if no active subscription exists
+     */
+    void assignFreeTierIfMissing(Long userId);
+
+    /**
+     * Ensure the user has an active subscription; fallback to Free Tier if needed
+     */
+    UserSubscriptionResponse ensureActiveSubscriptionOrFree(Long userId);
 }

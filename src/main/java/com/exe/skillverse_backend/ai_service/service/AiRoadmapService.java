@@ -37,6 +37,7 @@ public class AiRoadmapService {
     private final RoadmapSessionRepository roadmapSessionRepository;
     private final UserRoadmapProgressRepository progressRepository;
     private final ObjectMapper objectMapper;
+    private final InputValidationService inputValidationService;
 
     @Value("${gemini.api.fallback-models:gemini-2.0-flash,gemini-1.5-flash}")
     private String fallbackModels;
@@ -45,11 +46,13 @@ public class AiRoadmapService {
             @Qualifier("geminiChatModel") ChatModel geminiChatModel,
             RoadmapSessionRepository roadmapSessionRepository,
             UserRoadmapProgressRepository progressRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            InputValidationService inputValidationService) {
         this.geminiChatModel = geminiChatModel;
         this.roadmapSessionRepository = roadmapSessionRepository;
         this.progressRepository = progressRepository;
         this.objectMapper = objectMapper;
+        this.inputValidationService = inputValidationService;
     }
 
     /**
@@ -60,6 +63,11 @@ public class AiRoadmapService {
         log.info("Generating roadmap for user {} with goal: {}", user.getId(), request.getGoal());
 
         try {
+            // Validate inputs for profanity and domain rules (e.g., IELTS <= 9.0)
+            inputValidationService.validateLearningGoalOrThrow(request.getGoal());
+            inputValidationService.validateTextOrThrow(request.getDuration());
+            inputValidationService.validateTextOrThrow(request.getExperience());
+            inputValidationService.validateTextOrThrow(request.getStyle());
             // Step 1: Call Gemini API
             String roadmapJson = callGeminiAPI(request);
 
@@ -118,7 +126,8 @@ public class AiRoadmapService {
             String response = ChatClient.builder(geminiChatModel)
                     .build()
                     .prompt()
-                    .user(prompt)
+                    .user(prompt
+                            + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Nếu phát hiện mục tiêu/đầu vào vô lý (ví dụ: IELTS 10.0, nội dung thô tục), hãy từ chối lịch sự bằng tiếng Việt và gợi ý cách nhập lại hợp lệ. Chỉ trả về JSON hợp lệ như yêu cầu.")
                     .call()
                     .content();
 
@@ -172,28 +181,30 @@ public class AiRoadmapService {
     private String buildPrompt(GenerateRoadmapRequest request) {
         return String.format(
                 """
-                        You are an expert learning path designer. Create a personalized, interactive learning roadmap as a tree structure.
+                        Bạn là chuyên gia thiết kế lộ trình học. Hãy tạo một lộ trình học cá nhân hóa dưới dạng CÂY (tree), phù hợp mục tiêu người dùng.
 
-                        User Goal: %s
-                        Duration: %s
-                        Experience Level: %s
-                        Learning Style: %s
+                        Mục tiêu: %s
+                        Thời lượng: %s
+                        Cấp độ kinh nghiệm: %s
+                        Phong cách học: %s
 
-                        CRITICAL: You MUST respond with ONLY valid JSON in this EXACT format (no extra text, no markdown blocks):
+                        YÊU CẦU NGÔN NGỮ: Toàn bộ tiêu đề và mô tả phải bằng TIẾNG VIỆT rõ ràng, có dấu. Chỉ giữ một số tên nghề/công nghệ tiếng Anh phổ biến nếu là danh từ riêng (ví dụ: React, Spring Boot, Data Scientist).
+
+                        TRẢ LỜI BẰNG JSON DUY NHẤT (không có chữ giải thích, không markdown):
                         {
                           "roadmap": [
                             {
                               "id": "quest-1",
-                              "title": "Quest Title Here",
-                              "description": "Detailed description of what to learn and practice",
+                              "title": "Tiêu đề nhiệm vụ",
+                              "description": "Mô tả chi tiết nội dung cần học/luyện tập",
                               "estimated_time_minutes": 180,
                               "type": "MAIN",
                               "children": ["quest-2", "quest-3"]
                             },
                             {
                               "id": "quest-2",
-                              "title": "Second Quest Title",
-                              "description": "Another learning objective",
+                              "title": "Tiêu đề nhiệm vụ 2",
+                              "description": "Mục tiêu học tập khác",
                               "estimated_time_minutes": 240,
                               "type": "SIDE",
                               "children": []
@@ -201,17 +212,19 @@ public class AiRoadmapService {
                           ]
                         }
 
-                        MANDATORY RULES:
-                        1. Create exactly 10-15 nodes in tree structure (not linear)
-                        2. "type" MUST be exactly "MAIN" or "SIDE" (uppercase, nothing else)
-                        3. "children" is an array of node IDs (can be empty [])
-                        4. "estimated_time_minutes" must be a number (not string)
-                        5. Use descriptive IDs like "quest-csharp-basics", "node-oop-concepts"
-                        6. First 2-3 nodes should be foundational (root nodes)
-                        7. %s learning style: %s
-                        8. Tailor content difficulty to "%s" experience level
+                        QUY TẮC BẮT BUỘC:
+                        1. Tạo đúng 10–15 node theo cấu trúc cây (không tuyến tính)
+                        2. Trường "type" CHỈ được là "MAIN" hoặc "SIDE" (in hoa)
+                        3. "children" là mảng ID node con (có thể rỗng []), MỌI ID trong children phải tồn tại trong danh sách node
+                        4. "estimated_time_minutes" là số (không phải chuỗi)
+                        5. Dùng ID mô tả, ví dụ: "quest-java-co-ban", "node-oop"
+                        6. 2–3 node đầu tiên là nền tảng gốc (root)
+                        7. KẾT NỐI RÕ RÀNG: Mọi node (trừ root) PHẢI là con của ít nhất 1 node khác; KHÔNG có node bị cô lập
+                        8. TẠO CHUỖI LIÊN KẾT: Tối thiểu 1 chuỗi MAIN liên tục bao phủ hành trình học từ cơ bản đến nâng cao (step-by-step)
+                        9. Phong cách %s: %s
+                        10. Điều chỉnh độ khó theo cấp độ "%s"
 
-                        RESPONSE FORMAT: Start with { and end with }. No markdown blocks. No explanations. Just the JSON object.
+                        ĐỊNH DẠNG PHẢN HỒI: Bắt đầu bằng { và kết thúc bằng }. Chỉ JSON, không thêm văn bản nào khác.
                         """,
                 request.getGoal(),
                 request.getDuration(),
