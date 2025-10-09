@@ -45,7 +45,12 @@ public class SecurityConfig {
                         "/api/courses",
                         "/api/courses/*",
                         "/api/courses/by-author/*",
-                        "/api/v1/payments/callback/payos"
+                        "/api/v1/payments/callback/payos",
+                        // Meowl Chat Service (AI assistant - public access)
+                        "/api/v1/meowl/chat",
+                        "/api/v1/meowl/reminders/**",
+                        "/api/v1/meowl/notifications/**",
+                        "/api/v1/meowl/health"
         };
 
         private static final String[] SWAGGER_ENDPOINTS = {

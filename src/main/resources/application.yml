@@ -6,7 +6,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: create # create, create-drop, update, validate, none
+      ddl-auto: update # create, create-drop, update, validate, none
     show-sql: true
     properties:
       hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
@@ -128,6 +128,17 @@ mistral:
     max-tokens: ${MISTRAL_API_MAX_TOKENS:30000}
     temperature: ${MISTRAL_API_TEMPERATURE:0.7}
     enabled: ${MISTRAL_ENABLED:true}
+
+# Meowl Chat Configuration (cute AI assistant with Gemini)
+meowl:
+  gemini:
+    api-key: ${MEOWL_GEMINI_API_KEY:AIzaSyCjmasjKHFuFEJYCTQDKL0rBqBy7XoNJXU}
+    api-url: ${MEOWL_GEMINI_API_URL:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent}
+    model: ${MEOWL_GEMINI_MODEL:gemini-2.5-flash-preview-09-2025}
+  reminder:
+    enabled: ${MEOWL_REMINDER_ENABLED:true}
+  notification:
+    enabled: ${MEOWL_NOTIFICATION_ENABLED:true}
 
 # AI Provider Selection
 ai:
