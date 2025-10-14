@@ -9,7 +9,7 @@ import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
 import org.mapstruct.*;
 
-@Mapper(config = CustomMapperConfig.class, uses = {UserMapper.class, MediaMapper.class})
+@Mapper(config = CustomMapperConfig.class, uses = {UserMapper.class, MediaMapper.class, ModuleMapper.class})
 public interface CourseMapper {
 
     @Mapping(target = "id", source = "id")
@@ -22,6 +22,13 @@ public interface CourseMapper {
     @Mapping(target = "modules", source = "modules")
     @Mapping(target = "price", source = "price")
     @Mapping(target = "currency", source = "currency")
+    @Mapping(target = "authorName", expression = "java(getAuthorFullName(course))")
+    @Mapping(target = "thumbnailUrl", source = "thumbnail.url")
+    @Mapping(target = "enrollmentCount", expression = "java(getEnrollmentCount(course))")
+    @Mapping(target = "submittedDate", expression = "java(toLocalDateTime(course.getSubmittedAt()))")
+    @Mapping(target = "publishedDate", expression = "java(toLocalDateTime(course.getPublishedAt()))")
+    @Mapping(target = "createdAt", expression = "java(toLocalDateTime(course.getCreatedAt()))")
+    @Mapping(target = "updatedAt", expression = "java(toLocalDateTime(course.getUpdatedAt()))")
     CourseDetailDTO toDetailDto(Course course);
 
     @Mapping(target = "id", source = "id")
@@ -36,6 +43,10 @@ public interface CourseMapper {
     @Mapping(target = "moduleCount", expression = "java(getModuleCount(course))")
     @Mapping(target = "price", source = "price")
     @Mapping(target = "currency", source = "currency")
+    @Mapping(target = "submittedDate", expression = "java(toLocalDateTime(course.getSubmittedAt()))")
+    @Mapping(target = "publishedDate", expression = "java(toLocalDateTime(course.getPublishedAt()))")
+    @Mapping(target = "createdAt", expression = "java(toLocalDateTime(course.getCreatedAt()))")
+    @Mapping(target = "updatedAt", expression = "java(toLocalDateTime(course.getUpdatedAt()))")
     CourseSummaryDTO toSummaryDto(Course course);
     
     // Helper methods for safe null handling
@@ -67,6 +78,12 @@ public interface CourseMapper {
             // Fallback to 0 if counting fails
             return 0;
         }
+    }
+
+    // Date conversion helpers
+    default java.time.LocalDateTime toLocalDateTime(java.time.Instant instant) {
+        if (instant == null) return null;
+        return java.time.LocalDateTime.ofInstant(instant, java.time.ZoneOffset.UTC);
     }
 
     @Mapping(target = "id", ignore = true)

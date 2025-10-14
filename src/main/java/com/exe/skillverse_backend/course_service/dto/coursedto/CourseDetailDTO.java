@@ -25,5 +25,12 @@ public class CourseDetailDTO {
     private List<ModuleSummaryDTO> modules;
     private java.math.BigDecimal price;
     private String currency;
+    private String authorName;
+    private String thumbnailUrl;
+    private Integer enrollmentCount;
+    private java.time.LocalDateTime createdAt;
+    private java.time.LocalDateTime updatedAt;
+    private java.time.LocalDateTime submittedDate;
+    private java.time.LocalDateTime publishedDate;
     
 }

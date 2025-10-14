@@ -103,8 +103,8 @@ cors:
 meowl:
   gemini:
     api-key: ${MEOWL_GEMINI_API_KEY:AIzaSyCjmasjKHFuFEJYCTQDKL0rBqBy7XoNJXU}
-    api-url: ${MEOWL_GEMINI_API_URL:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent}
-    model: ${MEOWL_GEMINI_MODEL:gemini-2.5-flash-preview-09-2025}
+    api-url: ${MEOWL_GEMINI_API_URL:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent}
+    model: ${MEOWL_GEMINI_MODEL:gemini-2.0-flash}
   reminder:
     enabled: ${MEOWL_REMINDER_ENABLED:true}
   notification:

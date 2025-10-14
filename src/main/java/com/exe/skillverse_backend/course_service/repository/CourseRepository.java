@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
 import java.util.Set;
 
 @Repository
@@ -88,4 +89,10 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
     @Transactional(readOnly = true)
     @Query("SELECT c FROM Course c LEFT JOIN FETCH c.author LEFT JOIN FETCH c.modules WHERE c.id = :id")
     Course findByIdWithAuthorAndModules(@Param("id") Long id);
+
+    /**
+     * Find course by title
+     */
+    @Transactional(readOnly = true)
+    Optional<Course> findByTitle(String title);
 }

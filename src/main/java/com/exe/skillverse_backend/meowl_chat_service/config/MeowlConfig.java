@@ -14,10 +14,10 @@ public class MeowlConfig {
     @Value("${meowl.gemini.api-key:AIzaSyCjmasjKHFuFEJYCTQDKL0rBqBy7XoNJXU}")
     private String apiKey;
 
-    @Value("${meowl.gemini.api-url:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent}")
+    @Value("${meowl.gemini.api-url:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent}")
     private String apiUrl;
 
-    @Value("${meowl.gemini.model:gemini-2.5-flash-preview-09-2025}")
+    @Value("${meowl.gemini.model:gemini-2.0-flash}")
     private String model;
 
     @Value("${meowl.reminder.enabled:true}")

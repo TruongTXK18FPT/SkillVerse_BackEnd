@@ -68,6 +68,12 @@ public class Course {
   @Column(name = "updated_at")
   private Instant updatedAt;
 
+  @Column(name = "submitted_at")
+  private Instant submittedAt;
+
+  @Column(name = "published_at")
+  private Instant publishedAt;
+
   @PrePersist
   protected void onCreate() {
     if (createdAt == null) createdAt = Instant.now();

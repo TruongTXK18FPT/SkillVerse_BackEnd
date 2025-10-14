@@ -22,4 +22,9 @@ public class CourseSummaryDTO {
     private Integer moduleCount;
     private java.math.BigDecimal price;
     private String currency;
+    // Additional timestamps for admin and list views
+    private java.time.LocalDateTime createdAt;
+    private java.time.LocalDateTime updatedAt;
+    private java.time.LocalDateTime submittedDate;
+    private java.time.LocalDateTime publishedDate;
 }
