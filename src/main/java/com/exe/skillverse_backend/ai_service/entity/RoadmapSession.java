@@ -42,33 +42,92 @@ public class RoadmapSession {
     private String title;
 
     /**
-     * User's learning goal
+     * Schema version: 1 = old format, 2 = enhanced format
      */
-    @Column(nullable = false, columnDefinition = "TEXT")
+    @Builder.Default
+    @Column(name = "schema_version", nullable = false)
+    private Integer schemaVersion = 2;
+
+    /**
+     * User's original learning goal (unmodified)
+     */
+    @Column(name = "original_goal", columnDefinition = "TEXT")
+    private String originalGoal;
+
+    /**
+     * AI-validated and clarified goal
+     */
+    @Column(name = "validated_goal", columnDefinition = "TEXT")
+    private String validatedGoal;
+
+    /**
+     * User's learning goal (kept for backward compatibility)
+     * 
+     * @deprecated Use originalGoal and validatedGoal instead
+     */
+    @Deprecated
+    @Column(columnDefinition = "TEXT")
     private String goal;
 
     /**
-     * Expected duration (e.g., "3 months", "6 weeks")
+     * Expected duration (e.g., "3 tháng", "6 tháng")
      */
     @Column(length = 50)
     private String duration;
 
     /**
-     * User's experience level (e.g., "beginner", "intermediate", "advanced")
+     * User's experience level (e.g., "Mới bắt đầu", "Trung cấp", "Nâng cao")
      */
-    @Column(length = 50)
+    @Column(name = "experience_level", length = 100)
+    private String experienceLevel;
+
+    /**
+     * Learning style preference (e.g., "Theo dự án - Học bằng cách làm")
+     */
+    @Column(name = "learning_style", length = 150)
+    private String learningStyle;
+
+    /**
+     * Old experience column (deprecated)
+     * 
+     * @deprecated Use experienceLevel instead
+     */
+    @Deprecated
+    @Column(name = "experience_level_deprecated", length = 50)
     private String experience;
 
     /**
-     * Learning style preference (e.g., "project-based", "theoretical",
-     * "video-based")
+     * Old style column (deprecated)
+     * 
+     * @deprecated Use learningStyle instead
      */
-    @Column(length = 50)
+    @Deprecated
+    @Column(name = "learning_style_deprecated", length = 50)
     private String style;
+
+    /**
+     * Statistics for premium quota tracking
+     */
+    @Column(name = "total_nodes")
+    private Integer totalNodes;
+
+    @Column(name = "total_estimated_hours")
+    private Double totalEstimatedHours;
+
+    @Column(name = "difficulty_level", length = 20)
+    private String difficultyLevel; // easy, medium, hard, expert
+
+    /**
+     * Whether user had premium subscription when roadmap was generated
+     */
+    @Builder.Default
+    @Column(name = "is_premium_generated", nullable = false)
+    private Boolean isPremiumGenerated = false;
 
     /**
      * Generated roadmap as JSON (tree structure with nodes)
      * Stored as JSONB for efficient querying in PostgreSQL
+     * Schema V2: Includes metadata, statistics, and enhanced nodes
      */
     @Column(nullable = false, columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)

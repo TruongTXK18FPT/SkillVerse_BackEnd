@@ -24,8 +24,15 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
     ChatMessage findLatestBySessionId(@Param("sessionId") Long sessionId);
 
     /**
-     * Find all sessions for a user
+     * Find all sessions for a user ordered by latest message
+     * Uses subquery to avoid PostgreSQL SELECT DISTINCT + ORDER BY conflict
      */
-    @Query("SELECT DISTINCT cm.sessionId FROM ChatMessage cm WHERE cm.user.id = :userId ORDER BY MAX(cm.createdAt) DESC")
+    @Query("SELECT cm.sessionId FROM ChatMessage cm WHERE cm.user.id = :userId " +
+            "GROUP BY cm.sessionId ORDER BY MAX(cm.createdAt) DESC")
     List<Long> findSessionIdsByUserId(@Param("userId") Long userId);
+
+    /**
+     * Delete all messages in a session
+     */
+    void deleteBySessionId(Long sessionId);
 }

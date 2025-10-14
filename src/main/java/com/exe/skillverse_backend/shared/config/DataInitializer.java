@@ -125,47 +125,47 @@ public class DataInitializer implements CommandLineRunner {
             createPremiumPlanIfNotExists(
                     "free_tier",
                     "Free Tier",
-                    "Default free plan with basic access",
+                    "Gói miễn phí với quyền truy cập cơ bản",
                     Integer.MAX_VALUE, // Permanent
                     new BigDecimal("0"),
                     PremiumPlan.PlanType.FREE_TIER,
                     new BigDecimal("0"),
-                    "[\"Basic access\", \"Community participation\"]");
+                    "[\"Truy cập cơ bản\", \"Tham gia cộng đồng\"]");
 
             // Create PREMIUM_BASIC plan
             createPremiumPlanIfNotExists(
                     "premium_basic",
                     "Premium Basic",
-                    "Access to premium courses and basic mentorship features",
+                    "Truy cập khóa học cao cấp và tính năng hướng dẫn cơ bản",
                     1, // 1 month duration
                     new BigDecimal("3000"), // 79,000 VND
                     PremiumPlan.PlanType.PREMIUM_BASIC,
                     new BigDecimal("10"), // 10% student discount
-                    "[\"Access to premium courses\", \"Basic chat with mentors\", \"Course completion certificates\", \"Priority support\"]");
+                    "[\"Truy cập khóa học cao cấp\", \"Trò chuyện cơ bản với mentor\", \"Chứng chỉ hoàn thành khóa học\", \"Hỗ trợ ưu tiên\"]");
 
             // Create PREMIUM_PLUS plan
             createPremiumPlanIfNotExists(
                     "premium_plus",
                     "Premium Plus",
-                    "Full access to all premium features including 1-on-1 mentorship",
+                    "Truy cập đầy đủ tất cả tính năng cao cấp bao gồm hướng dẫn 1-1",
                     3, // 3 months duration
                     new BigDecimal("4000"), // 249,000 VND
                     PremiumPlan.PlanType.PREMIUM_PLUS,
                     new BigDecimal("15"), // 15% student discount
-                    "[\"All Premium Basic features\", \"Unlimited 1-on-1 mentorship\", \"Career guidance sessions\", \"Resume review\", \"Job placement assistance\", \"Exclusive workshops\"]");
+                    "[\"Tất cả tính năng Premium Basic\", \"Hướng dẫn 1-1 không giới hạn\", \"Tư vấn nghề nghiệp\", \"Đánh giá CV\", \"Hỗ trợ tìm việc làm\", \"Hội thảo độc quyền\"]");
 
             // Create STUDENT plan
             createPremiumPlanIfNotExists(
                     "student",
                     "Student Pack",
-                    "Special discounted plan for students with essential premium features",
+                    "Gói ưu đãi đặc biệt cho sinh viên với tính năng cao cấp thiết yếu",
                     1, // 1 month duration
                     new BigDecimal("2000"), // 20,000 VND (already discounted base price)
                     PremiumPlan.PlanType.STUDENT_PACK,
                     new BigDecimal("0"), // No additional discount (already base discounted price)
-                    "[\"Access to premium courses\", \"Student community access\", \"Basic mentorship\", \"Course certificates\", \"Study materials download\"]");
+                    "[\"Truy cập khóa học cao cấp\", \"Truy cập cộng đồng sinh viên\", \"Hướng dẫn cơ bản\", \"Chứng chỉ khóa học\", \"Tải tài liệu học tập\"]");
 
-            log.info("🎉 All premium plans initialized successfully");
+            log.info("🎉 Tất cả gói premium đã được khởi tạo thành công");
 
         } catch (Exception e) {
             log.error("❌ Error initializing premium plans: {}", e.getMessage(), e);

@@ -1,5 +1,7 @@
 package com.exe.skillverse_backend.ai_service.service;
 
+import com.exe.skillverse_backend.ai_service.dto.ChatMessageResponse;
+import com.exe.skillverse_backend.ai_service.dto.ChatSessionSummary;
 import com.exe.skillverse_backend.ai_service.dto.request.ChatRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ChatResponse;
 import com.exe.skillverse_backend.ai_service.entity.ChatMessage;
@@ -16,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Service for AI-powered career counseling chatbot using Spring AI
@@ -43,8 +46,29 @@ public class AiChatbotService {
     // Career counseling system prompt (100% Vietnamese, chi tiết như bản tiếng Anh)
     private static final String SYSTEM_PROMPT = """
             Bạn là Meowl, cố vấn nghề nghiệp AI thân thiện của SkillVerse. 🐾
-            NGÔN NGỮ: Luôn trả lời 100% bằng TIẾNG VIỆT chuẩn, có dấu, dễ đọc. Chỉ giữ vài tên nghề/công nghệ tiếng Anh (Data Scientist, React, DevOps...).
-            BẢO VỆ: Nếu đầu vào vô lý (IELTS 10.0, thô tục), từ chối lịch sự và gợi ý cách nhập hợp lệ.
+
+            QUY TẮC TRẢ LỜI:
+            - Trả lời TRỰC TIẾP bằng tiếng Việt, không nhắc lại câu hỏi
+            - KHÔNG thêm tiêu đề như "Trả lời:", "Câu hỏi:", "Trả lời bằng tiếng Việt..."
+            - Bắt đầu NGAY bằng nội dung câu trả lời
+            - Sử dụng tiếng Việt chuẩn, có dấu, dễ đọc
+            - Giữ tên nghề/công nghệ tiếng Anh (Data Scientist, React, DevOps...)
+
+            XỬ LÝ INPUT SAI/VÔ LÝ (AUTO-CORRECTION):
+            - Nếu phát hiện thông tin sai (IELTS 10.0, GPA 5.0, tuổi âm, v.v.):
+              1) TỰ ĐỘNG ĐIỀU CHỈNH về giá trị hợp lý (IELTS 10.0 → 9.0, GPA 5.0 → 4.0)
+              2) THÔNG BÁO điều chỉnh một cách LỊCh SỰ ngay đầu response:
+                 "⚠️ *Mình nhận thấy bạn nhập IELTS 10.0, nhưng thang điểm IELTS chỉ từ 0-9.0. Mình đã hiểu là bạn đạt **9.0** (xuất sắc) nhé!*"
+              3) Tiếp tục TƯ VẤN như bình thường với giá trị đã điều chỉnh
+            - Với thông tin thô tục/không phù hợp: Từ chối lịch sự, không trả lời
+
+            QUY TẮC ĐIỀU CHỈNH:
+            - IELTS: 0-9.0 (max 9.0, các mốc 0.5)
+            - TOEFL: 0-120 (max 120)
+            - GPA: 0-4.0 (max 4.0, thang điểm Mỹ) hoặc 0-10 (thang điểm Việt Nam)
+            - Tuổi: 15-100 (hợp lý cho học tập/nghề nghiệp)
+            - Kinh nghiệm: 0-50 năm (hợp lý)
+            - Nếu không chắc chắn: Hỏi lại user thay vì đoán
 
             BỐI CẢNH 2025:
             - Cập nhật xu hướng việc làm, công nghệ, mức lương 2025; hybrid/remote phổ biến.
@@ -130,14 +154,17 @@ public class AiChatbotService {
         List<ChatMessage> previousMessages = chatMessageRepository
                 .findBySessionIdOrderByCreatedAtAsc(sessionId);
 
-        // Call AI with automatic provider selection and fallback
-        String aiResponse = callAIWithFallback(request.getMessage(), previousMessages);
+        // Add correction hints to help AI detect and fix invalid inputs
+        String messageWithHints = addCorrectionHints(request.getMessage());
 
-        // Save to database
+        // Call AI with automatic provider selection and fallback
+        String aiResponse = callAIWithFallback(messageWithHints, previousMessages);
+
+        // Save to database (save ONLY user's original message without any prefix)
         ChatMessage chatMessage = ChatMessage.builder()
                 .user(user)
                 .sessionId(sessionId)
-                .userMessage(request.getMessage())
+                .userMessage(request.getMessage()) // Save raw user message
                 .aiResponse(aiResponse)
                 .createdAt(LocalDateTime.now())
                 .build();
@@ -210,9 +237,11 @@ public class AiChatbotService {
 
     /**
      * Get conversation history for a session
+     * Returns DTOs to avoid lazy loading issues
+     * DEFENSIVE: Strips echo prefix from old database messages
      */
     @Transactional(readOnly = true)
-    public List<ChatMessage> getConversationHistory(Long sessionId, Long userId) {
+    public List<ChatMessageResponse> getConversationHistory(Long sessionId, Long userId) {
         List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
 
         // Verify user owns this session
@@ -220,14 +249,260 @@ public class AiChatbotService {
             throw new ApiException(ErrorCode.FORBIDDEN, "Access denied to this conversation");
         }
 
-        return messages;
+        // Convert to DTOs and clean old echo prefix
+        return messages.stream()
+                .map(msg -> {
+                    ChatMessageResponse response = convertToResponse(msg);
+                    // DEFENSIVE: Clean any old echo prefix from database
+                    response.setUserMessage(cleanEchoPrefix(response.getUserMessage()));
+                    return response;
+                })
+                .collect(Collectors.toList());
     }
 
     /**
-     * Get all session IDs for a user
+     * Get all sessions for a user with titles
+     * Returns session summaries with title preview from first message
      */
     @Transactional(readOnly = true)
-    public List<Long> getUserSessions(Long userId) {
-        return chatMessageRepository.findSessionIdsByUserId(userId);
+    public List<ChatSessionSummary> getUserSessions(Long userId) {
+        List<Long> sessionIds = chatMessageRepository.findSessionIdsByUserId(userId);
+
+        return sessionIds.stream()
+                .map(sessionId -> {
+                    List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+                    if (messages.isEmpty()) {
+                        return null;
+                    }
+
+                    // Use custom title if set, otherwise auto-generate from first message
+                    ChatMessage firstMessage = messages.get(0);
+                    String title;
+                    if (firstMessage.getCustomTitle() != null && !firstMessage.getCustomTitle().isEmpty()) {
+                        title = firstMessage.getCustomTitle();
+                    } else {
+                        title = extractTitle(firstMessage.getUserMessage());
+                    }
+
+                    return ChatSessionSummary.builder()
+                            .sessionId(sessionId)
+                            .title(title)
+                            .lastMessageAt(messages.get(messages.size() - 1).getCreatedAt())
+                            .messageCount(messages.size())
+                            .build();
+                })
+                .filter(summary -> summary != null)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Convert ChatMessage entity to response DTO
+     */
+    private ChatMessageResponse convertToResponse(ChatMessage message) {
+        return ChatMessageResponse.builder()
+                .id(message.getId())
+                .sessionId(message.getSessionId())
+                .userMessage(message.getUserMessage())
+                .aiResponse(message.getAiResponse())
+                .createdAt(message.getCreatedAt())
+                .userId(message.getUser().getId())
+                .userEmail(message.getUser().getEmail())
+                .build();
+    }
+
+    /**
+     * Delete a chat session and all its messages
+     */
+    @Transactional
+    public void deleteSession(Long sessionId, Long userId) {
+        // Verify user owns this session
+        List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+
+        if (messages.isEmpty()) {
+            throw new ApiException(ErrorCode.NOT_FOUND, "Phiên trò chuyện không tồn tại");
+        }
+
+        if (!messages.get(0).getUser().getId().equals(userId)) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "Bạn không có quyền xóa phiên này");
+        }
+
+        // Delete all messages in this session
+        chatMessageRepository.deleteBySessionId(sessionId);
+        log.info("Deleted session {} with {} messages for user {}", sessionId, messages.size(), userId);
+    }
+
+    /**
+     * Rename a chat session by updating custom title
+     * Note: Currently stores title in first message's metadata.
+     * Future improvement: Add ChatSession entity with customTitle field
+     */
+    @Transactional
+    public ChatSessionSummary renameSession(Long sessionId, Long userId, String newTitle) {
+        // Verify user owns this session
+        List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+
+        if (messages.isEmpty()) {
+            throw new ApiException(ErrorCode.NOT_FOUND, "Phiên trò chuyện không tồn tại");
+        }
+
+        if (!messages.get(0).getUser().getId().equals(userId)) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "Bạn không có quyền đổi tên phiên này");
+        }
+
+        // Validate title
+        if (newTitle == null || newTitle.trim().isEmpty()) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Tiêu đề không được để trống");
+        }
+
+        if (newTitle.length() > 100) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Tiêu đề không được vượt quá 100 ký tự");
+        }
+
+        String trimmedTitle = newTitle.trim();
+
+        // Store custom title in first message's customTitle field
+        ChatMessage firstMessage = messages.get(0);
+        firstMessage.setCustomTitle(trimmedTitle);
+        chatMessageRepository.save(firstMessage);
+
+        log.info("Renamed session {} to '{}' for user {}", sessionId, trimmedTitle, userId);
+
+        return ChatSessionSummary.builder()
+                .sessionId(sessionId)
+                .title(trimmedTitle)
+                .lastMessageAt(messages.get(messages.size() - 1).getCreatedAt())
+                .messageCount(messages.size())
+                .build();
+    }
+
+    /**
+     * Extract a meaningful title from user message
+     * Summarizes user request into short, clear title (50 chars max)
+     * Uses smart keyword extraction to generate concise titles
+     * Example: "xin chào, tôi muốn tìm hiểu về trending ngành học năm 2025 và những
+     * môn đáng học" → "Trending ngành học 2025"
+     */
+    private String extractTitle(String userMessage) {
+        if (userMessage == null || userMessage.isEmpty()) {
+            return "Cuộc trò chuyện mới";
+        }
+
+        // FIRST: Remove echo prefix from old database messages
+        String cleaned = cleanEchoPrefix(userMessage);
+
+        // Remove greetings at start
+        cleaned = cleaned.replaceAll("(?i)^(xin chào|hello|hi|chào|meowl)[,!.\\s]*", "");
+
+        // Extract main topic (intelligent keyword extraction)
+        cleaned = extractKeywords(cleaned);
+
+        // Remove question words at end
+        cleaned = cleaned.replaceAll("(?i)\\s+(như thế nào|thế nào|ra sao|không|chứ|nhỉ|à|hả)\\s*[?!.]*$", "");
+
+        // Remove trailing punctuation
+        cleaned = cleaned.replaceAll("[?!.,;:]+$", "").trim();
+
+        // Fallback if too short
+        if (cleaned.length() < 3) {
+            cleaned = cleanEchoPrefix(userMessage).trim();
+            if (cleaned.length() > 50) {
+                return cleaned.substring(0, 47) + "...";
+            }
+        }
+
+        // Capitalize first letter
+        if (cleaned.length() > 0) {
+            cleaned = cleaned.substring(0, 1).toUpperCase() + cleaned.substring(1);
+        }
+
+        // Truncate to 50 chars
+        if (cleaned.length() > 50) {
+            return cleaned.substring(0, 47) + "...";
+        }
+
+        return cleaned;
+    }
+
+    /**
+     * Extract keywords from user message for title generation
+     * Removes filler words and focuses on main topic
+     * Example: "tôi muốn tìm hiểu về trending ngành học năm 2025" → "trending ngành
+     * học năm 2025"
+     */
+    private String extractKeywords(String message) {
+        // Remove filler phrases at start
+        String result = message
+                .replaceAll("(?i)^(tôi muốn|cho tôi|tôi cần|hãy|giúp tôi|bạn có thể|mình muốn|em muốn)\\s+", "")
+                .replaceAll("(?i)^(tìm hiểu về|biết về|học về|xem|tìm|hỏi về|hỏi|hỏi xem)\\s+", "")
+                .replaceAll("(?i)^(thông tin về|thông tin|chi tiết về|chi tiết)\\s+", "");
+
+        // Remove expansion tails like "và những...", "và các..."
+        result = result.replaceAll("(?i)\\s+(và những|và các|cùng với|bao gồm|kèm theo)\\s+.*", "");
+
+        // Remove date/time context at end if message is already descriptive
+        if (result.split("\\s+").length > 4) {
+            result = result.replaceAll("(?i)\\s+(trong năm|năm|tháng|tuần|ngày)\\s+\\d{4}\\s*$", " năm $2");
+        }
+
+        return result.trim();
+    }
+
+    /**
+     * Detect and add correction hints to user message for AI to process
+     * Example: "IELTS 10.0" → adds hint "[Note: IELTS max is 9.0, user likely meant
+     * 9.0]"
+     */
+    private String addCorrectionHints(String message) {
+        if (message == null || message.isEmpty()) {
+            return message;
+        }
+
+        StringBuilder hints = new StringBuilder();
+
+        // Check for IELTS score > 9.0
+        if (message.matches(".*[Ii][Ee][Ll][Tt][Ss].*\\b([1-9]\\d|10)(\\.\\d+)?\\b.*")) {
+            hints.append("[⚠️ Phát hiện điểm IELTS > 9.0. IELTS max = 9.0, hãy auto-correct và giải thích.] ");
+        }
+
+        // Check for TOEFL score > 120
+        if (message.matches(".*[Tt][Oo][Ee][Ff][Ll].*\\b(1[3-9]\\d|[2-9]\\d{2})\\b.*")) {
+            hints.append("[⚠️ Phát hiện điểm TOEFL > 120. TOEFL max = 120, hãy auto-correct và giải thích.] ");
+        }
+
+        // Check for GPA > 4.0 (assuming 4.0 scale)
+        if (message.matches(".*[Gg][Pp][Aa].*\\b([5-9]|\\d{2,})(\\.\\d+)?\\b.*") && !message.contains("thang 10")) {
+            hints.append("[⚠️ Phát hiện GPA > 4.0. Nếu thang 4.0, max = 4.0. Hỏi user làm rõ thang điểm.] ");
+        }
+
+        // Check for unrealistic age
+        if (message.matches(".*(tuổi|năm sinh|age).*\\b([0-9]|1[0-4]|[1-9]\\d{2,})\\b.*")) {
+            hints.append("[⚠️ Phát hiện tuổi bất thường (<15 hoặc >100). Hãy hỏi lại user xác nhận.] ");
+        }
+
+        // If hints found, prepend to message for AI to see
+        if (hints.length() > 0) {
+            return hints.toString() + "\n\nCâu hỏi gốc: " + message;
+        }
+
+        return message;
+    }
+
+    /**
+     * Clean echo prefix from old database messages
+     * Removes "Trả lời bằng tiếng Việt... Câu hỏi:" that leaked from system prompt
+     */
+    private String cleanEchoPrefix(String message) {
+        if (message == null || message.isEmpty()) {
+            return message;
+        }
+
+        // Remove various forms of echo prefix (case insensitive)
+        String cleaned = message
+                .replaceAll("(?i)^Trả lời bằng tiếng Việt[^.]*\\.\\s*Câu hỏi:\\s*", "")
+                .replaceAll("(?i)^Answer in Vietnamese[^.]*\\.\\s*Question:\\s*", "")
+                .trim();
+
+        // If cleaning removed everything, return original
+        return cleaned.isEmpty() ? message : cleaned;
     }
 }

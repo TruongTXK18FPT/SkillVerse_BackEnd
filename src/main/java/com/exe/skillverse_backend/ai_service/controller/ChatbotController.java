@@ -1,8 +1,9 @@
 package com.exe.skillverse_backend.ai_service.controller;
 
+import com.exe.skillverse_backend.ai_service.dto.ChatMessageResponse;
+import com.exe.skillverse_backend.ai_service.dto.ChatSessionSummary;
 import com.exe.skillverse_backend.ai_service.dto.request.ChatRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ChatResponse;
-import com.exe.skillverse_backend.ai_service.entity.ChatMessage;
 import com.exe.skillverse_backend.ai_service.service.AiChatbotService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
@@ -67,11 +68,11 @@ public class ChatbotController {
      * 
      * @param sessionId      Chat session ID
      * @param authentication Current authenticated user
-     * @return List of messages in chronological order
+     * @return List of messages in chronological order (as DTOs)
      */
     @GetMapping("/history/{sessionId}")
     @Operation(summary = "Get Chat History", description = "Retrieve conversation history for a specific session")
-    public ResponseEntity<List<ChatMessage>> getHistory(
+    public ResponseEntity<List<ChatMessageResponse>> getHistory(
             @PathVariable Long sessionId,
             Authentication authentication) {
 
@@ -80,27 +81,75 @@ public class ChatbotController {
 
         log.info("User {} fetching chat history for session {}", userId, sessionId);
 
-        List<ChatMessage> history = aiChatbotService.getConversationHistory(sessionId, userId);
+        List<ChatMessageResponse> history = aiChatbotService.getConversationHistory(sessionId, userId);
 
         return ResponseEntity.ok(history);
     }
 
     /**
-     * Get all chat sessions for current user
+     * Get all chat sessions for current user with titles
      * 
      * @param authentication Current authenticated user
-     * @return List of session IDs
+     * @return List of session summaries with titles
      */
     @GetMapping("/sessions")
-    @Operation(summary = "Get User Sessions", description = "Get all chat session IDs for the current user")
-    public ResponseEntity<List<Long>> getSessions(Authentication authentication) {
+    @Operation(summary = "Get User Sessions", description = "Get all chat sessions with title previews for the current user")
+    public ResponseEntity<List<ChatSessionSummary>> getSessions(Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
 
         log.info("User {} fetching all chat sessions", userId);
 
-        List<Long> sessions = aiChatbotService.getUserSessions(userId);
+        List<ChatSessionSummary> sessions = aiChatbotService.getUserSessions(userId);
 
         return ResponseEntity.ok(sessions);
+    }
+
+    /**
+     * Delete a chat session
+     * 
+     * @param sessionId      Session ID to delete
+     * @param authentication Current authenticated user
+     * @return Success message
+     */
+    @DeleteMapping("/sessions/{sessionId}")
+    @Operation(summary = "Delete Chat Session", description = "Delete a chat session and all its messages")
+    public ResponseEntity<Void> deleteSession(
+            @PathVariable Long sessionId,
+            Authentication authentication) {
+
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+        log.info("User {} deleting chat session {}", userId, sessionId);
+
+        aiChatbotService.deleteSession(sessionId, userId);
+
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Rename a chat session
+     * 
+     * @param sessionId      Session ID to rename
+     * @param newTitle       New title for the session
+     * @param authentication Current authenticated user
+     * @return Updated session summary
+     */
+    @PatchMapping("/sessions/{sessionId}")
+    @Operation(summary = "Rename Chat Session", description = "Update the title of a chat session")
+    public ResponseEntity<ChatSessionSummary> renameSession(
+            @PathVariable Long sessionId,
+            @RequestParam String newTitle,
+            Authentication authentication) {
+
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+        log.info("User {} renaming chat session {} to '{}'", userId, sessionId, newTitle);
+
+        ChatSessionSummary updated = aiChatbotService.renameSession(sessionId, userId, newTitle);
+
+        return ResponseEntity.ok(updated);
     }
 }

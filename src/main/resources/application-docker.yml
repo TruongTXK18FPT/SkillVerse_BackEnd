@@ -5,17 +5,17 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:skillverse_user}
     password: ${SPRING_DATASOURCE_PASSWORD:12345}
     driver-class-name: org.postgresql.Driver
-    
+
   jpa:
     hibernate:
       # Use 'update' to auto-update schema, 'validate' for strict validation
-      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:create}
     show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-        '[format_sql]': true
-        '[jdbc.lob.non_contextual_creation]': true
+        "[format_sql]": true
+        "[jdbc.lob.non_contextual_creation]": true
 
   servlet:
     multipart:
@@ -24,7 +24,7 @@ spring:
       max-request-size: 500MB
       file-size-threshold: 2KB
       location: ${java.io.tmpdir}
-        
+
   mail:
     host: ${SPRING_MAIL_HOST:smtp.gmail.com}
     port: ${SPRING_MAIL_PORT:587}
@@ -36,11 +36,11 @@ spring:
           auth: true
           starttls:
             enable: true
-            
+
   jackson:
     time-zone: ${SPRING_JACKSON_TIME_ZONE:Asia/Ho_Chi_Minh}
     date-format: ${SPRING_JACKSON_DATE_FORMAT:yyyy-MM-dd'T'HH:mm:ss.SSS'Z'}
-        
+
   data:
     redis:
       host: redis
@@ -52,7 +52,7 @@ spring:
           max-active: 8
           max-idle: 8
           min-idle: 0
-        
+
 server:
   port: ${SERVER_PORT:8080}
   address: 0.0.0.0
@@ -81,7 +81,7 @@ cors:
   allowed-headers: ${CORS_ALLOWED_HEADERS:*}
   allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
   max-age: ${CORS_MAX_AGE:3600}
-      
+
 logging:
   level:
     com.exe.skillverse_backend: INFO

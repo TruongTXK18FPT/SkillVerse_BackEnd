@@ -29,8 +29,9 @@ public class ChatMessage {
 
     /**
      * User who sent the message
+     * EAGER fetch to avoid lazy loading serialization issues
      */
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
@@ -40,6 +41,14 @@ public class ChatMessage {
      */
     @Column(name = "session_id", nullable = false)
     private Long sessionId;
+
+    /**
+     * Custom title for the chat session
+     * Only stored in the first message of each session
+     * If null, title is auto-generated from first user message
+     */
+    @Column(name = "custom_title", length = 100)
+    private String customTitle;
 
     /**
      * User's input message

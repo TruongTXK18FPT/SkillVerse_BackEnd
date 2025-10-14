@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.ai_service.dto.request.UpdateProgressRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ProgressResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
+import com.exe.skillverse_backend.ai_service.dto.response.ValidationResult;
 import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
@@ -62,6 +63,24 @@ public class RoadmapController {
         RoadmapResponse response = aiRoadmapService.generateRoadmap(request, user);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    /**
+     * Pre-validate roadmap generation request without actually generating
+     * 
+     * @param request Roadmap generation parameters to validate
+     * @return List of validation warnings (INFO/WARNING/ERROR severity)
+     */
+    @PostMapping("/validate")
+    @Operation(summary = "Pre-validate Roadmap Request", description = "Validate user inputs before generating roadmap. Returns warnings for deprecated technologies, time feasibility issues, test score validation, etc. ERROR severity blocks generation.")
+    public ResponseEntity<List<ValidationResult>> preValidate(
+            @Valid @RequestBody GenerateRoadmapRequest request) {
+
+        log.info("Pre-validating roadmap request for goal: {}", request.getGoal());
+
+        List<ValidationResult> warnings = aiRoadmapService.preValidateRequest(request);
+
+        return ResponseEntity.ok(warnings);
     }
 
     /**

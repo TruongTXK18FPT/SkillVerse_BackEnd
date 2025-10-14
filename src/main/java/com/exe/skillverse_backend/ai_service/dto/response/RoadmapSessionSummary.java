@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * Simplified DTO for listing user's roadmap sessions
+ * Simplified DTO for listing user's roadmap sessions (Schema V2)
  */
 @Data
 @NoArgsConstructor
@@ -18,11 +18,22 @@ public class RoadmapSessionSummary {
 
     private Long sessionId;
     private String title;
-    private String goal;
+
+    // V2 field names (matching RoadmapSession entity)
+    private String originalGoal;
+    private String validatedGoal; // May be null for old V1 data
     private String duration;
-    private String experience;
+    private String experienceLevel;
+    private String learningStyle;
+
+    // Progress tracking
     private Integer totalQuests;
     private Integer completedQuests;
     private Integer progressPercentage;
+
+    // Metadata
+    private String difficultyLevel;
+    private Integer schemaVersion;
+
     private Instant createdAt;
 }
