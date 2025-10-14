@@ -31,7 +31,7 @@ public class MentorProfileController {
     @Operation(summary = "Get current mentor profile")
     public ResponseEntity<MentorProfileResponse> getMyMentorProfile(
             @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt) {
-        
+
         Long mentorId = Long.parseLong(jwt.getSubject());
         log.info("Getting current mentor profile for ID: {}", mentorId);
         MentorProfileResponse profile = mentorProfileService.getMentorProfile(mentorId);
@@ -42,7 +42,7 @@ public class MentorProfileController {
     @Operation(summary = "Get mentor profile by ID")
     public ResponseEntity<MentorProfileResponse> getMentorProfile(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId) {
-        
+
         log.info("Getting mentor profile for ID: {}", mentorId);
         MentorProfileResponse profile = mentorProfileService.getMentorProfile(mentorId);
         return ResponseEntity.ok(profile);
@@ -53,7 +53,7 @@ public class MentorProfileController {
     public ResponseEntity<MentorProfileResponse> updateMyMentorProfile(
             @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt,
             @Parameter(description = "Profile update data") @Valid @RequestBody MentorProfileUpdateRequest request) {
-        
+
         Long mentorId = Long.parseLong(jwt.getSubject());
         log.info("Updating current mentor profile for ID: {}", mentorId);
         MentorProfileResponse updatedProfile = mentorProfileService.updateMentorProfile(mentorId, request);
@@ -65,7 +65,7 @@ public class MentorProfileController {
     public ResponseEntity<MentorProfileResponse> updateMentorProfile(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
             @Parameter(description = "Profile update data") @Valid @RequestBody MentorProfileUpdateRequest request) {
-        
+
         log.info("Updating mentor profile for ID: {}", mentorId);
         MentorProfileResponse updatedProfile = mentorProfileService.updateMentorProfile(mentorId, request);
         return ResponseEntity.ok(updatedProfile);
@@ -76,20 +76,19 @@ public class MentorProfileController {
     public ResponseEntity<AvatarUploadResponse> uploadMyMentorAvatar(
             @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt,
             @Parameter(description = "Avatar file") @RequestParam("file") MultipartFile file) {
-        
+
         Long mentorId = Long.parseLong(jwt.getSubject());
         log.info("Uploading avatar for current mentor ID: {}", mentorId);
-        
+
         try {
             String avatarUrl = mentorProfileService.uploadMentorAvatar(
-                    mentorId, 
-                    file.getBytes(), 
-                    file.getOriginalFilename()
-            );
-            
+                    mentorId,
+                    file.getBytes(),
+                    file.getOriginalFilename());
+
             AvatarUploadResponse response = new AvatarUploadResponse(avatarUrl);
             return ResponseEntity.ok(response);
-            
+
         } catch (IOException e) {
             log.error("Error reading file for mentor ID: {}", mentorId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
@@ -101,19 +100,18 @@ public class MentorProfileController {
     public ResponseEntity<AvatarUploadResponse> uploadMentorAvatar(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
             @Parameter(description = "Avatar file") @RequestParam("file") MultipartFile file) {
-        
+
         log.info("Uploading avatar for mentor ID: {}", mentorId);
-        
+
         try {
             String avatarUrl = mentorProfileService.uploadMentorAvatar(
-                    mentorId, 
-                    file.getBytes(), 
-                    file.getOriginalFilename()
-            );
-            
+                    mentorId,
+                    file.getBytes(),
+                    file.getOriginalFilename());
+
             AvatarUploadResponse response = new AvatarUploadResponse(avatarUrl);
             return ResponseEntity.ok(response);
-            
+
         } catch (IOException e) {
             log.error("Error reading file for mentor ID: {}", mentorId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
