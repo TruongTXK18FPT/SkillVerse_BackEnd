@@ -73,6 +73,24 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/google")
+    @Operation(summary = "Google OAuth login", description = "Authenticates user with Google OAuth ID Token. " +
+            "Creates new USER account if user doesn't exist. Only USER role can login with Google.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Google login successful", content = @Content(schema = @Schema(implementation = AuthResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid Google token or user role restriction", content = @Content),
+            @ApiResponse(responseCode = "401", description = "Authentication failed", content = @Content)
+    })
+    public ResponseEntity<?> googleLogin(
+            @Valid @RequestBody com.exe.skillverse_backend.auth_service.dto.request.GoogleAuthRequest request) {
+        try {
+            AuthResponse response = authService.authenticateWithGoogle(request.getIdToken());
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
+        }
+    }
+
     // refresh token khi user muon refresh token
     @PostMapping("/refresh")
     @Operation(summary = "Refresh access token", description = "Generates a new access token using a valid refresh token")

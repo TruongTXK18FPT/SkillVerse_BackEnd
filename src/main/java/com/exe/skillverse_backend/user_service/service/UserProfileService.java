@@ -31,6 +31,20 @@ public class UserProfileService {
     private final UserRepository userRepository;
     private final AuditService auditService;
 
+    /**
+     * ✅ SECURITY: Sanitize string inputs to prevent XSS attacks
+     * Removes HTML tags and dangerous characters
+     */
+    private String sanitizeInput(String input) {
+        if (input == null) {
+            return null;
+        }
+        // Remove HTML tags and trim
+        return input.replaceAll("<[^>]*>", "")
+                .replaceAll("[<>\"']", "")
+                .trim();
+    }
+
     @Transactional
     public UserProfileResponse updateProfile(Long userId, UpdateProfileRequest request) {
         try {
@@ -293,6 +307,56 @@ public class UserProfileService {
 
     public boolean hasProfile(Long userId) {
         return userProfileRepository.existsByUserId(userId);
+    }
+
+    /**
+     * Create a user profile for Google OAuth users.
+     * This method is called automatically during Google registration.
+     * 
+     * @param user    The user entity
+     * @param name    Full name from Google
+     * @param email   Email from Google
+     * @param picture Profile picture URL from Google
+     */
+    @Transactional
+    public void createUserProfileForGoogleUser(User user, String name, String email, String picture) {
+        try {
+            log.info("Creating user profile for Google user: {}", email);
+
+            // ✅ SECURITY: Sanitize inputs from Google (prevent XSS)
+            String sanitizedName = sanitizeInput(name);
+            String sanitizedEmail = sanitizeInput(email);
+
+            // ✅ VALIDATION: Ensure name length is reasonable
+            if (sanitizedName != null && sanitizedName.length() > 255) {
+                sanitizedName = sanitizedName.substring(0, 255);
+                log.warn("Name truncated to 255 characters for user: {}", email);
+            }
+
+            UserProfile profile = new UserProfile();
+            profile.setUserId(user.getId()); // ✅ Set userId as primary key
+            // ⚠️ DON'T set user relationship - causes Hibernate merge instead of persist!
+            profile.setFullName(sanitizedName != null ? sanitizedName : sanitizedEmail);
+            profile.setPhone(null);
+            profile.setAddress(null);
+            profile.setBio(null);
+            profile.setRegion(null);
+            profile.setCompanyId(null);
+            profile.setAvatarMediaId(null);
+            profile.setSocialLinks(null);
+
+            userProfileRepository.save(profile);
+
+            log.info("User profile created successfully for Google user: {}", email);
+
+            // Log action
+            auditService.logAction(user.getId(), "CREATE", "USER_PROFILE", user.getId().toString(),
+                    "User profile created for Google user: " + email);
+
+        } catch (Exception e) {
+            log.error("Failed to create user profile for Google user: {}", email, e);
+            throw new RuntimeException("Failed to create user profile: " + e.getMessage());
+        }
     }
 
     private String getProficiencyLabel(Integer proficiency) {

@@ -33,7 +33,7 @@ public class User {
     @Column(unique = true, nullable = false)
     private String email;
 
-    @Column(nullable = false)
+    @Column(nullable = true) // Nullable for Google OAuth users
     private String password;
 
     @Column(name = "first_name")
@@ -49,6 +49,22 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(name = "primary_role", nullable = false)
     private PrimaryRole primaryRole = PrimaryRole.USER;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "auth_provider", nullable = false)
+    private AuthProvider authProvider = AuthProvider.LOCAL;
+
+    /**
+     * Indicates if user has linked their Google account.
+     * Allows dual authentication: both email+password AND Google login.
+     * - LOCAL user with googleLinked=true: Can use both methods
+     * - LOCAL user with googleLinked=false: Only password login
+     * - GOOGLE user with googleLinked=true: Originally registered via Google
+     */
+    @Builder.Default
+    @Column(name = "google_linked", nullable = false)
+    private boolean googleLinked = false;
 
     @Builder.Default
     @Enumerated(EnumType.STRING)
@@ -78,67 +94,72 @@ public class User {
     private LocalDateTime updatedAt = LocalDateTime.now();
     @Builder.Default
     @ManyToMany(fetch = FetchType.EAGER)
-    @JoinTable(
-        name = "user_roles",
-        joinColumns = @JoinColumn(name = "user_id"),
-        inverseJoinColumns = @JoinColumn(name = "role_id")
-    )
+    @JoinTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"), inverseJoinColumns = @JoinColumn(name = "role_id"))
     private Set<Role> roles = new HashSet<>();
 
     /* ----------------- Course Service relations ----------------- */
 
     // 1) Courses do user là tác giả/giảng viên chính
     @Builder.Default
-    @OneToMany(mappedBy = "author", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
-    @ToString.Exclude @EqualsAndHashCode.Exclude
+    @OneToMany(mappedBy = "author", cascade = { CascadeType.PERSIST, CascadeType.MERGE })
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Set<Course> courses = new HashSet<>();
 
     // 2) Media do user upload (đã có sẵn trong shared.Media)
     @Builder.Default
-    @OneToMany(mappedBy = "uploadedByUser", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
-    @ToString.Exclude @EqualsAndHashCode.Exclude
+    @OneToMany(mappedBy = "uploadedByUser", cascade = { CascadeType.PERSIST, CascadeType.MERGE })
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Set<Media> mediaUploads = new HashSet<>();
 
     // 3) Assignment submissions do user nộp
     @Builder.Default
-    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
-    @ToString.Exclude @EqualsAndHashCode.Exclude
+    @OneToMany(mappedBy = "user", cascade = { CascadeType.PERSIST, CascadeType.MERGE })
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Set<AssignmentSubmission> assignmentSubmissions = new HashSet<>();
 
     // 3b) Các bài assignment mà user là người chấm (grader)
     @Builder.Default
-    @OneToMany(mappedBy = "gradedBy", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
-    @ToString.Exclude @EqualsAndHashCode.Exclude
+    @OneToMany(mappedBy = "gradedBy", cascade = { CascadeType.PERSIST, CascadeType.MERGE })
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Set<AssignmentSubmission> assignmentGradings = new HashSet<>();
 
     // 4) Coding submissions do user nộp (CODELAB)
     @Builder.Default
-    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
-    @ToString.Exclude @EqualsAndHashCode.Exclude
+    @OneToMany(mappedBy = "user", cascade = { CascadeType.PERSIST, CascadeType.MERGE })
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Set<CodingSubmission> codingSubmissions = new HashSet<>();
 
     // 5) Enrollment: user ghi danh và học các khóa
     @Builder.Default
-    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
-    @ToString.Exclude @EqualsAndHashCode.Exclude
+    @OneToMany(mappedBy = "user", cascade = { CascadeType.PERSIST, CascadeType.MERGE })
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Set<CourseEnrollment> enrollments = new HashSet<>();
 
     // 6) Module progress: tiến độ học từng module
     @Builder.Default
-    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
-    @ToString.Exclude @EqualsAndHashCode.Exclude
+    @OneToMany(mappedBy = "user", cascade = { CascadeType.PERSIST, CascadeType.MERGE })
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Set<ModuleProgress> moduleProgresses = new HashSet<>();
 
     // 7) Course purchases: giao dịch mua khóa
     @Builder.Default
-    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
-    @ToString.Exclude @EqualsAndHashCode.Exclude
+    @OneToMany(mappedBy = "user", cascade = { CascadeType.PERSIST, CascadeType.MERGE })
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Set<CoursePurchase> coursePurchases = new HashSet<>();
 
     // 8) Certificates: chứng chỉ đã cấp cho user
     @Builder.Default
-    @OneToMany(mappedBy = "user", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
-    @ToString.Exclude @EqualsAndHashCode.Exclude
+    @OneToMany(mappedBy = "user", cascade = { CascadeType.PERSIST, CascadeType.MERGE })
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private Set<Certificate> certificates = new HashSet<>();
 
     @PreUpdate
@@ -146,4 +167,3 @@ public class User {
         updatedAt = LocalDateTime.now();
     }
 }
-

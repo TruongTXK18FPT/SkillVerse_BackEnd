@@ -46,6 +46,7 @@ public class AuthService {
         private final RecruiterProfileRepository recruiterProfileRepository;
         private final EmailVerificationService emailVerificationService;
         private final EmailService emailService;
+        private final GoogleTokenVerificationService googleTokenVerificationService;
 
         @Value("${jwt.secret:mySecretKey}")
         private String jwtSecret;
@@ -172,6 +173,8 @@ public class AuthService {
                         userDto.setRoles(user.getRoles().stream()
                                         .map(role -> role.getName())
                                         .collect(Collectors.toSet()));
+                        userDto.setAuthProvider(user.getAuthProvider().toString());
+                        userDto.setGoogleLinked(user.isGoogleLinked());
 
                         return AuthResponse.builder()
                                         .accessToken(accessToken)
@@ -393,5 +396,203 @@ public class AuthService {
                                         user.getId(), user.getPrimaryRole(), e.getMessage());
                 }
                 return null;
+        }
+
+        /**
+         * Authenticate user with Google OAuth.
+         * If user doesn't exist, creates a new USER account.
+         * Only USER role can login with Google (MENTOR/BUSINESS must use local auth).
+         * 
+         * @param idToken Google ID Token from frontend
+         * @return AuthResponse with JWT tokens and user info
+         * @throws RuntimeException if authentication fails
+         */
+        @Transactional
+        public AuthResponse authenticateWithGoogle(String idToken) {
+                try {
+                        log.info("Starting Google authentication");
+
+                        // ✅ SECURITY: Validate input token
+                        if (idToken == null || idToken.trim().isEmpty()) {
+                                log.error("Empty or null access token provided");
+                                throw new IllegalArgumentException("Access token is required");
+                        }
+
+                        if (idToken.length() > 2048) { // Reasonable token size limit
+                                log.error("Access token too long: {} characters", idToken.length());
+                                throw new IllegalArgumentException("Invalid access token format");
+                        }
+
+                        // 1. Get user info from Google using access token
+                        // Note: idToken parameter actually contains access_token from frontend
+                        java.util.Map<String, Object> userInfo = googleTokenVerificationService
+                                        .getUserInfoFromAccessToken(idToken);
+
+                        String email = (String) userInfo.get("email");
+                        String name = (String) userInfo.get("name");
+                        String picture = (String) userInfo.get("picture");
+                        Boolean emailVerified = (Boolean) userInfo.get("verified_email");
+
+                        log.info("Google user info fetched for email: {}", email);
+
+                        // ✅ SECURITY: Validate email format from Google
+                        if (email == null || email.isEmpty()) {
+                                log.error("Email not provided by Google");
+                                throw new RuntimeException("Email not provided by Google");
+                        }
+
+                        if (!email.matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
+                                log.error("Invalid email format from Google: {}", email);
+                                throw new RuntimeException("Invalid email format");
+                        }
+
+                        // Google OAuth users are already verified
+                        if (emailVerified != null && !emailVerified) {
+                                log.warn("Email not verified by Google for: {}", email);
+                                // Continue anyway as Google OAuth implies verification
+                        }
+
+                        // 2. Check if user exists
+                        Optional<User> existingUser = userRepository.findByEmail(email);
+
+                        User user;
+                        boolean isNewUser = false;
+
+                        if (existingUser.isEmpty()) {
+                                log.info("Creating new user from Google login: {}", email);
+
+                                // 3. Create new user with USER role only
+                                user = User.builder()
+                                                .email(email)
+                                                .password(null) // No password for Google users
+                                                .primaryRole(PrimaryRole.USER)
+                                                .status(UserStatus.ACTIVE)
+                                                .isEmailVerified(true)
+                                                .authProvider(com.exe.skillverse_backend.auth_service.entity.AuthProvider.GOOGLE)
+                                                .googleLinked(true) // ✅ Mark as Google-linked from start
+                                                .createdAt(java.time.LocalDateTime.now())
+                                                .updatedAt(java.time.LocalDateTime.now())
+                                                .build();
+
+                                user = userRepository.save(user);
+
+                                // ✅ CRITICAL: Assign USER role to Google user
+                                Role userRole = roleRepository.findByName("USER")
+                                                .orElseThrow(() -> new RuntimeException(
+                                                                "USER role not found in database"));
+                                user.getRoles().add(userRole);
+                                user = userRepository.saveAndFlush(user); // Force flush to DB immediately
+
+                                log.info("User role assigned and flushed to database for: {}", email);
+
+                                // ✅ Force reload user with roles populated (fix Hibernate lazy loading)
+                                user = userRepository.findById(user.getId())
+                                                .orElseThrow(() -> new RuntimeException(
+                                                                "User not found after creation"));
+
+                                log.info("User reloaded with {} roles", user.getRoles().size());
+
+                                isNewUser = true;
+
+                                // Log user creation
+                                auditService.logAction(user.getId(), "GOOGLE_REGISTRATION", "USER",
+                                                user.getId().toString(), "New user registered via Google: " + email);
+
+                                log.info("Created new Google user successfully: {}", email);
+
+                                // ✅ BEST PRACTICE: Create UserProfile in separate transaction
+                                // This ensures User creation is committed even if profile creation fails
+                                try {
+                                        userProfileService.createUserProfileForGoogleUser(user, name, email, picture);
+                                } catch (Exception e) {
+                                        log.error("Failed to create user profile, but user was created successfully",
+                                                        e);
+                                        // User can complete profile later - don't fail authentication
+                                }
+
+                        } else {
+                                user = existingUser.get();
+                                log.info("Existing user logging in with Google: {}", email);
+
+                                // 5. Validate: Only USER role can login with Google
+                                if (user.getPrimaryRole() != PrimaryRole.USER) {
+                                        log.error("Non-USER role attempted Google login: {} with role {}",
+                                                        email, user.getPrimaryRole());
+                                        throw new RuntimeException("Only USER accounts can login with Google. " +
+                                                        "MENTOR and BUSINESS accounts must use email/password login.");
+                                }
+
+                                // 6. Check account status
+                                if (user.getStatus() != UserStatus.ACTIVE) {
+                                        log.error("Inactive user attempted Google login: {}", email);
+                                        throw new RuntimeException(
+                                                        "Your account is not active. Please contact support.");
+                                }
+
+                                // 7. Link Google account if not already linked
+                                if (!user.isGoogleLinked()) {
+                                        log.info("Linking Google account to existing {} user: {}",
+                                                        user.getAuthProvider(), email);
+
+                                        // ✅ NEW APPROACH: Enable dual authentication
+                                        // - Keep authProvider as-is (LOCAL or GOOGLE)
+                                        // - Set googleLinked = true to allow Google login
+                                        // - Keep password intact (for LOCAL users)
+                                        user.setGoogleLinked(true);
+                                        user.setUpdatedAt(java.time.LocalDateTime.now());
+                                        userRepository.save(user);
+
+                                        // Log the linking action
+                                        auditService.logAction(user.getId(), "GOOGLE_ACCOUNT_LINKED", "USER",
+                                                        user.getId().toString(),
+                                                        String.format("Google account linked to %s user: %s",
+                                                                        user.getAuthProvider(), email));
+
+                                        log.info("Google account linked successfully. User can now login with both methods.");
+                                }
+
+                                // Log login
+                                auditService.logAction(user.getId(), "GOOGLE_LOGIN", "USER",
+                                                user.getId().toString(), "User logged in via Google: " + email);
+                        }
+
+                        // 8. Generate JWT tokens
+                        String accessToken = generateToken(user);
+                        String refreshToken = generateRefreshToken(user);
+
+                        // 9. Get user full name
+                        String fullName = isNewUser ? name : getUserFullName(user);
+
+                        // 10. Build user DTO
+                        UserDto userDto = new UserDto();
+                        userDto.setId(user.getId());
+                        userDto.setEmail(user.getEmail());
+                        userDto.setFullName(fullName);
+                        userDto.setRoles(user.getRoles().stream()
+                                        .map(role -> role.getName())
+                                        .collect(Collectors.toSet()));
+                        userDto.setAuthProvider(user.getAuthProvider().toString());
+                        userDto.setGoogleLinked(user.isGoogleLinked());
+
+                        // 11. Build response
+                        AuthResponse response = AuthResponse.builder()
+                                        .accessToken(accessToken)
+                                        .refreshToken(refreshToken)
+                                        .tokenType("Bearer")
+                                        .expiresIn(accessTokenExpiration)
+                                        .user(userDto)
+                                        .needsProfileCompletion(isNewUser)
+                                        .build();
+
+                        log.info("Google authentication successful for user: {}", email);
+                        return response;
+
+                } catch (IllegalArgumentException e) {
+                        log.error("Invalid Google token: {}", e.getMessage());
+                        throw new RuntimeException("Invalid Google ID token: " + e.getMessage());
+                } catch (Exception e) {
+                        log.error("Google authentication failed", e);
+                        throw new RuntimeException("Google authentication failed: " + e.getMessage());
+                }
         }
 }

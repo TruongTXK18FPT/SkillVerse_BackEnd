@@ -153,6 +153,20 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-retry</artifactId>
         </dependency>
+
+        <!-- Google API Client for Google OAuth Token Verification -->
+        <dependency>
+            <groupId>com.google.api-client</groupId>
+            <artifactId>google-api-client</artifactId>
+            <version>2.2.0</version>
+        </dependency>
+
+        <!-- Spring Dotenv - Load .env file automatically -->
+        <dependency>
+            <groupId>me.paulschwarz</groupId>
+            <artifactId>spring-dotenv</artifactId>
+            <version>4.0.0</version>
+        </dependency>
     </dependencies>
 
     <build>

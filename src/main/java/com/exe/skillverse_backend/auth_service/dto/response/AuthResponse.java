@@ -14,4 +14,7 @@ public class AuthResponse {
 
     private Long expiresIn;
     private UserDto user;
+
+    @Builder.Default
+    private boolean needsProfileCompletion = false;
 }

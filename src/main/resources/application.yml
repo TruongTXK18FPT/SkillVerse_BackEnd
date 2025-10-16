@@ -50,6 +50,23 @@ spring:
     mapper:
       accept-case-insensitive-enums: true # cho phép enum không phân biệt hoa/thường
 
+  # Google OAuth2 Configuration (for Google Login)
+  # Works for both dev (localhost:5173) and prod (skillverse.vn)
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+              - openid
+              - profile
+              - email
+        provider:
+          google:
+            issuer-uri: https://accounts.google.com
+
   # Spring AI Configuration
   # Using Mistral AI for chatbot and Gemini (via OpenAI-compatible API) for roadmap
   # Simple API key authentication - no Google Cloud setup needed!
@@ -91,6 +108,8 @@ email:
 
 cors:
   allowed:
+    # Development: localhost ports
+    # Production: skillverse.vn domains
     origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000,http://localhost:52514,https://skillverse.vn,https://www.skillverse.vn}
     methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS,PATCH}
     headers: ${CORS_ALLOWED_HEADERS:*}

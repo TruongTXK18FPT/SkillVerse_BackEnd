@@ -16,4 +16,15 @@ public class UserDto {
     private String lastName;
     private String fullName;
     private Set<String> roles;
+
+    /**
+     * Primary authentication method (LOCAL or GOOGLE)
+     */
+    private String authProvider;
+
+    /**
+     * Whether user has linked their Google account.
+     * If true, user can login with both password AND Google.
+     */
+    private boolean googleLinked;
 }
