@@ -9,7 +9,7 @@ spring:
   jpa:
     hibernate:
       # Use 'update' to auto-update schema, 'validate' for strict validation
-      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update} # create, create-drop, update, validate, none
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:create} # create, create-drop, update, validate, none
     show-sql: false
     properties:
       hibernate:
