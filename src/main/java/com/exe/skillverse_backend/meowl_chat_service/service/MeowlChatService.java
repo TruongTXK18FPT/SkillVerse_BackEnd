@@ -7,6 +7,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.mistralai.MistralAiChatModel;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -27,6 +30,7 @@ public class MeowlChatService {
     private final RestTemplate meowlRestTemplate;
     private final MeowlReminderService reminderService;
     private final ObjectMapper objectMapper;
+    private final MistralAiChatModel mistralAiChatModel;
 
     // System prompts with developer guard
     private static final Map<String, String> SYSTEM_PROMPTS = new HashMap<>();
@@ -124,6 +128,7 @@ public class MeowlChatService {
 
     /**
      * Send a message to Meowl and get a cute, helpful response
+     * First tries Gemini API, falls back to Mistral if Gemini fails
      */
     public MeowlChatResponse chat(MeowlChatRequest request) {
         try {
@@ -132,8 +137,29 @@ public class MeowlChatService {
             // Build the prompt with system context
             String fullPrompt = buildPrompt(request, language);
             
-            // Call Gemini API
-            String aiResponse = callGeminiApi(fullPrompt);
+            // Try Gemini API first
+            String aiResponse;
+            String aiProvider = "Gemini";
+            
+            try {
+                log.info("Attempting to call Gemini API for Meowl chat");
+                aiResponse = callGeminiApi(fullPrompt);
+                log.info("Successfully got response from Gemini API");
+            } catch (Exception geminiError) {
+                log.warn("Gemini API failed, falling back to Mistral: {}", geminiError.getMessage());
+                
+                // Fallback to Mistral
+                try {
+                    log.info("Attempting fallback to Mistral API");
+                    aiResponse = callMistralApi(fullPrompt);
+                    aiProvider = "Mistral";
+                    log.info("Successfully got response from Mistral API (fallback)");
+                } catch (Exception mistralError) {
+                    log.error("Both Gemini and Mistral APIs failed", mistralError);
+                    throw new RuntimeException("All AI providers failed: Gemini - " + geminiError.getMessage() + 
+                                             ", Mistral - " + mistralError.getMessage());
+                }
+            }
             
             // Make response cute
             String cuteResponse = makeCuteResponse(aiResponse, language);
@@ -147,6 +173,8 @@ public class MeowlChatService {
             // Get notifications
             List<MeowlChatResponse.MeowlNotification> notifications = 
                 reminderService.getNotifications(request.getUserId(), language);
+            
+            log.info("Meowl chat completed successfully using {}", aiProvider);
             
             return MeowlChatResponse.builder()
                 .message(cuteResponse)
@@ -333,6 +361,34 @@ public class MeowlChatService {
         }
         
         return response;
+    }
+
+    /**
+     * Call Mistral AI API as fallback (using Spring AI)
+     */
+    private String callMistralApi(String prompt) {
+        try {
+            log.debug("Calling Mistral API with prompt: {}", prompt.substring(0, Math.min(100, prompt.length())));
+            
+            // Use Spring AI ChatClient with Mistral
+            ChatClient chatClient = ChatClient.create(mistralAiChatModel);
+            
+            String response = chatClient.prompt()
+                .user(prompt)
+                .call()
+                .content();
+            
+            if (response == null || response.trim().isEmpty()) {
+                throw new RuntimeException("Empty response from Mistral API");
+            }
+            
+            log.debug("Mistral API response length: {} characters", response.length());
+            return response.trim();
+            
+        } catch (Exception e) {
+            log.error("Error calling Mistral API: ", e);
+            throw new RuntimeException("Failed to call Mistral API: " + e.getMessage(), e);
+        }
     }
 
     /**

@@ -121,7 +121,7 @@ cors:
 # Meowl Chat Configuration (cute AI assistant with Gemini)
 meowl:
   gemini:
-    api-key: ${MEOWL_GEMINI_API_KEY:AIzaSyCjmasjKHFuFEJYCTQDKL0rBqBy7XoNJXU}
+    api-key: ${MEOWL_GEMINI_API_KEY:AIzaSyCwZQvNhiTU4CUFSVd9jNGylJxxCPAtG7k}
     api-url: ${MEOWL_GEMINI_API_URL:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent}
     model: ${MEOWL_GEMINI_MODEL:gemini-2.0-flash}
   reminder:
