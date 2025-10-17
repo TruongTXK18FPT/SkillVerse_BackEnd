@@ -12,12 +12,23 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * Global exception handler for REST controllers.
+ * Handles various types of exceptions and returns appropriate error responses.
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    /* ApiException do mình chủ động ném */
+    /**
+     * Handles ApiException thrown intentionally by the application.
+     *
+     * @param ex  the ApiException
+     * @param req the HTTP request
+     * @return error response entity
+     */
     @ExceptionHandler(ApiException.class)
-    public ResponseEntity<ErrorResponse> handleApiException(ApiException ex, HttpServletRequest req) {
+    public ResponseEntity<ErrorResponse> handleApiException(
+            ApiException ex, HttpServletRequest req) {
         var ec = ex.getErrorCode();
         var body = ErrorResponse.builder()
                 .code(ec.code)
@@ -30,11 +41,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ec.status).body(body);
     }
 
-    /* Validate @Valid trên @RequestBody – MethodArgumentNotValidException */
+    /**
+     * Handles validation errors for @Valid on @RequestBody.
+     *
+     * @param ex  the MethodArgumentNotValidException
+     * @param req the HTTP request
+     * @return error response entity with field validation errors
+     */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex, HttpServletRequest req) {
+    public ResponseEntity<ErrorResponse> handleValidation(
+            MethodArgumentNotValidException ex, HttpServletRequest req) {
         Map<String, Object> fieldErrors = new HashMap<>();
-        ex.getBindingResult().getFieldErrors().forEach(fe -> fieldErrors.put(fe.getField(), fe.getDefaultMessage()));
+        ex.getBindingResult().getFieldErrors().forEach(
+                fe -> fieldErrors.put(fe.getField(), fe.getDefaultMessage()));
         var body = ErrorResponse.builder()
                 .code(ErrorCode.VALIDATION_FAILED.code)
                 .message("Validation failed")
@@ -46,11 +65,19 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ErrorCode.VALIDATION_FAILED.status).body(body);
     }
 
-    /* Validate @Valid trên @ModelAttribute/@PathVariable – BindException */
+    /**
+     * Handles validation errors for @Valid on @ModelAttribute or @PathVariable.
+     *
+     * @param ex  the BindException
+     * @param req the HTTP request
+     * @return error response entity with field validation errors
+     */
     @ExceptionHandler(BindException.class)
-    public ResponseEntity<ErrorResponse> handleBind(BindException ex, HttpServletRequest req) {
+    public ResponseEntity<ErrorResponse> handleBind(
+            BindException ex, HttpServletRequest req) {
         Map<String, Object> fieldErrors = new HashMap<>();
-        ex.getBindingResult().getFieldErrors().forEach(fe -> fieldErrors.put(fe.getField(), fe.getDefaultMessage()));
+        ex.getBindingResult().getFieldErrors().forEach(
+                fe -> fieldErrors.put(fe.getField(), fe.getDefaultMessage()));
         var body = ErrorResponse.builder()
                 .code(ErrorCode.VALIDATION_FAILED.code)
                 .message("Validation failed")
@@ -62,9 +89,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ErrorCode.VALIDATION_FAILED.status).body(body);
     }
 
-    /* Authentication exceptions - Handle login/auth related errors */
+    /**
+     * Handles authentication exceptions for login and auth errors.
+     *
+     * @param ex  the AuthenticationException
+     * @param req the HTTP request
+     * @return error response entity
+     */
     @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<ErrorResponse> handleAuthentication(AuthenticationException ex, HttpServletRequest req) {
+    public ResponseEntity<ErrorResponse> handleAuthentication(
+            AuthenticationException ex, HttpServletRequest req) {
         var body = ErrorResponse.builder()
                 .code(ErrorCode.UNAUTHORIZED.code)
                 .message(ex.getMessage())
@@ -75,9 +109,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ErrorCode.UNAUTHORIZED.status).body(body);
     }
 
-    /* Account pending approval - Handle mentor/recruiter approval cases */
+    /**
+     * Handles account pending approval exceptions for mentor/recruiter cases.
+     *
+     * @param ex  the AccountPendingApprovalException
+     * @param req the HTTP request
+     * @return error response entity
+     */
     @ExceptionHandler(AccountPendingApprovalException.class)
-    public ResponseEntity<ErrorResponse> handleAccountPendingApproval(AccountPendingApprovalException ex, HttpServletRequest req) {
+    public ResponseEntity<ErrorResponse> handleAccountPendingApproval(
+            AccountPendingApprovalException ex, HttpServletRequest req) {
         var body = ErrorResponse.builder()
                 .code(ErrorCode.FORBIDDEN.code)
                 .message(ex.getMessage())
@@ -88,9 +129,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ErrorCode.FORBIDDEN.status).body(body);
     }
 
-    /* File upload size exceeded - Handle MaxUploadSizeExceededException */
+    /**
+     * Handles file upload size exceeded exceptions.
+     *
+     * @param ex  the MaxUploadSizeExceededException
+     * @param req the HTTP request
+     * @return error response entity
+     */
     @ExceptionHandler(MaxUploadSizeExceededException.class)
-    public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException ex, HttpServletRequest req) {
+    public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceeded(
+            MaxUploadSizeExceededException ex, HttpServletRequest req) {
         var body = ErrorResponse.builder()
                 .code(ErrorCode.BAD_REQUEST.code)
                 .message("File size exceeds the maximum allowed limit of 500MB")
@@ -101,9 +149,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ErrorCode.BAD_REQUEST.status).body(body);
     }
 
-    /* Fallback – lỗi không bắt được */
+    /**
+     * Fallback handler for unexpected exceptions.
+     *
+     * @param ex  the Exception
+     * @param req the HTTP request
+     * @return error response entity
+     */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest req) {
+    public ResponseEntity<ErrorResponse> handleUnexpected(
+            Exception ex, HttpServletRequest req) {
         var body = ErrorResponse.builder()
                 .code(ErrorCode.INTERNAL_ERROR.code)
                 .message(ex.getMessage() != null ? ex.getMessage() : "Unexpected error")
@@ -114,12 +169,20 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(ErrorCode.INTERNAL_ERROR.status).body(body);
     }
 
+    /**
+     * Converts details object to a Map.
+     *
+     * @param details the details object
+     * @return map representation of details
+     */
     @SuppressWarnings("unchecked")
     private Map<String, Object> asMap(Object details) {
-        if (details == null)
+        if (details == null) {
             return new HashMap<>();
-        if (details instanceof Map<?, ?> m)
+        }
+        if (details instanceof Map<?, ?> m) {
             return (Map<String, Object>) m;
+        }
         return Map.of("info", details);
     }
 }

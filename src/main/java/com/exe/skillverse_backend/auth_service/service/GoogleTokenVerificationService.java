@@ -29,7 +29,15 @@ public class GoogleTokenVerificationService {
     @Value("${spring.security.oauth2.client.registration.google.client-id}")
     private String googleClientId;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate;
+
+    /**
+     * Constructor for GoogleTokenVerificationService.
+     * Creates a RestTemplate instance for making HTTP requests to Google APIs.
+     */
+    public GoogleTokenVerificationService() {
+        this.restTemplate = new RestTemplate();
+    }
 
     /**
      * Get user info from Google using access token.
