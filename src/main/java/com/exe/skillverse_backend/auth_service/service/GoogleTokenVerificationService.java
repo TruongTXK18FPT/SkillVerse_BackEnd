@@ -26,7 +26,9 @@ import java.util.Map;
 @Service
 public class GoogleTokenVerificationService {
 
-    @Value("${spring.security.oauth2.client.registration.google.client-id}")
+    // Read directly from GOOGLE_CLIENT_ID environment variable
+    // This must match the env var name, not the Spring OAuth2 property path
+    @Value("${GOOGLE_CLIENT_ID:}")
     private String googleClientId;
 
     private final RestTemplate restTemplate;
@@ -109,6 +111,13 @@ public class GoogleTokenVerificationService {
      */
     public GoogleIdToken.Payload verifyIdToken(String idTokenString) throws Exception {
         log.info("Verifying Google ID token");
+
+        // ✅ Validate Google Client ID is configured
+        if (googleClientId == null || googleClientId.isEmpty()) {
+            log.error("Google Client ID not configured. Please set GOOGLE_CLIENT_ID environment variable.");
+            throw new IllegalStateException(
+                    "Google OAuth is not configured. Please contact system administrator.");
+        }
 
         GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
                 new NetHttpTransport(),
