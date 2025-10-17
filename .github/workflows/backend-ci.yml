@@ -103,19 +103,71 @@ jobs:
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       JWT_ACCESS_TOKEN_EXPIRATION: ${{ secrets.JWT_ACCESS_TOKEN_EXPIRATION }}
       JWT_REFRESH_TOKEN_EXPIRATION: ${{ secrets.JWT_REFRESH_TOKEN_EXPIRATION }}
+
+      # Google OAuth2 Configuration
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+
+      # Email Configuration
       SPRING_MAIL_HOST: ${{ secrets.SPRING_MAIL_HOST }}
       SPRING_MAIL_PORT: ${{ secrets.SPRING_MAIL_PORT }}
       SPRING_MAIL_USERNAME: ${{ secrets.SPRING_MAIL_USERNAME }}
       SPRING_MAIL_PASSWORD: ${{ secrets.SPRING_MAIL_PASSWORD }}
       EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
       EMAIL_FROM_NAME: ${{ secrets.EMAIL_FROM_NAME }}
+
+      # Gemini AI Configuration
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_OPENAI_BASE_URL: ${{ secrets.GEMINI_OPENAI_BASE_URL }}
+      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+      GEMINI_FALLBACK_MODELS: ${{ secrets.GEMINI_FALLBACK_MODELS }}
+      GEMINI_TEMPERATURE: ${{ secrets.GEMINI_TEMPERATURE }}
+      GEMINI_MAX_TOKENS: ${{ secrets.GEMINI_MAX_TOKENS }}
+      GEMINI_ENABLED: ${{ secrets.GEMINI_ENABLED }}
+
+      # Mistral AI Configuration
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      MISTRAL_API_MODEL: ${{ secrets.MISTRAL_API_MODEL }}
+      MISTRAL_ENABLED: ${{ secrets.MISTRAL_ENABLED }}
+      MISTRAL_API_MAX_TOKENS: ${{ secrets.MISTRAL_API_MAX_TOKENS }}
+      MISTRAL_API_TEMPERATURE: ${{ secrets.MISTRAL_API_TEMPERATURE }}
+
+      # Meowl Chat Configuration
+      MEOWL_REMINDER_ENABLED: ${{ secrets.MEOWL_REMINDER_ENABLED }}
+      MEOWL_NOTIFICATION_ENABLED: ${{ secrets.MEOWL_NOTIFICATION_ENABLED }}
+
+      # Payment Gateway Configuration (PayOS)
+      PAYOS_CLIENT_ID: ${{ secrets.PAYOS_CLIENT_ID }}
+      PAYOS_API_KEY: ${{ secrets.PAYOS_API_KEY }}
+      PAYOS_CHECKSUM_KEY: ${{ secrets.PAYOS_CHECKSUM_KEY }}
+      PAYOS_BASE_URL: ${{ secrets.PAYOS_BASE_URL }}
+      PAYOS_WEBHOOK_URL: ${{ secrets.PAYOS_WEBHOOK_URL }}
+
+      # Premium Subscription Configuration
+      PREMIUM_AUTO_CREATE_PLANS: ${{ secrets.PREMIUM_AUTO_CREATE_PLANS }}
+
+      # Cloudinary Configuration
+      CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+      CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+      CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+
+      # CORS Configuration
       CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
       CORS_ALLOWED_METHODS: ${{ secrets.CORS_ALLOWED_METHODS }}
       CORS_ALLOWED_HEADERS: ${{ secrets.CORS_ALLOWED_HEADERS }}
       CORS_ALLOW_CREDENTIALS: ${{ secrets.CORS_ALLOW_CREDENTIALS }}
       CORS_MAX_AGE: ${{ secrets.CORS_MAX_AGE }}
+
+      # Jackson Configuration
       SPRING_JACKSON_TIME_ZONE: ${{ secrets.SPRING_JACKSON_TIME_ZONE }}
       SPRING_JACKSON_DATE_FORMAT: ${{ secrets.SPRING_JACKSON_DATE_FORMAT }}
+
+      # Swagger Configuration
+      SPRINGDOC_API_DOCS_ENABLED: ${{ secrets.SPRINGDOC_API_DOCS_ENABLED }}
+      SPRINGDOC_SWAGGER_UI_ENABLED: ${{ secrets.SPRINGDOC_SWAGGER_UI_ENABLED }}
+      SPRINGDOC_API_DOCS_PATH: ${{ secrets.SPRINGDOC_API_DOCS_PATH }}
+      SPRINGDOC_SWAGGER_UI_PATH: ${{ secrets.SPRINGDOC_SWAGGER_UI_PATH }}
 
     steps:
       - name: 📥 Checkout Code
@@ -224,19 +276,71 @@ jobs:
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       JWT_ACCESS_TOKEN_EXPIRATION: ${{ secrets.JWT_ACCESS_TOKEN_EXPIRATION }}
       JWT_REFRESH_TOKEN_EXPIRATION: ${{ secrets.JWT_REFRESH_TOKEN_EXPIRATION }}
+
+      # Google OAuth2 Configuration
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+
+      # Email Configuration
       SPRING_MAIL_HOST: ${{ secrets.SPRING_MAIL_HOST }}
       SPRING_MAIL_PORT: ${{ secrets.SPRING_MAIL_PORT }}
       SPRING_MAIL_USERNAME: ${{ secrets.SPRING_MAIL_USERNAME }}
       SPRING_MAIL_PASSWORD: ${{ secrets.SPRING_MAIL_PASSWORD }}
       EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
       EMAIL_FROM_NAME: ${{ secrets.EMAIL_FROM_NAME }}
+
+      # Gemini AI Configuration
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_OPENAI_BASE_URL: ${{ secrets.GEMINI_OPENAI_BASE_URL }}
+      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
+      GEMINI_FALLBACK_MODELS: ${{ secrets.GEMINI_FALLBACK_MODELS }}
+      GEMINI_TEMPERATURE: ${{ secrets.GEMINI_TEMPERATURE }}
+      GEMINI_MAX_TOKENS: ${{ secrets.GEMINI_MAX_TOKENS }}
+      GEMINI_ENABLED: ${{ secrets.GEMINI_ENABLED }}
+
+      # Mistral AI Configuration
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      MISTRAL_API_MODEL: ${{ secrets.MISTRAL_API_MODEL }}
+      MISTRAL_ENABLED: ${{ secrets.MISTRAL_ENABLED }}
+      MISTRAL_API_MAX_TOKENS: ${{ secrets.MISTRAL_API_MAX_TOKENS }}
+      MISTRAL_API_TEMPERATURE: ${{ secrets.MISTRAL_API_TEMPERATURE }}
+
+      # Meowl Chat Configuration
+      MEOWL_REMINDER_ENABLED: ${{ secrets.MEOWL_REMINDER_ENABLED }}
+      MEOWL_NOTIFICATION_ENABLED: ${{ secrets.MEOWL_NOTIFICATION_ENABLED }}
+
+      # Payment Gateway Configuration (PayOS)
+      PAYOS_CLIENT_ID: ${{ secrets.PAYOS_CLIENT_ID }}
+      PAYOS_API_KEY: ${{ secrets.PAYOS_API_KEY }}
+      PAYOS_CHECKSUM_KEY: ${{ secrets.PAYOS_CHECKSUM_KEY }}
+      PAYOS_BASE_URL: ${{ secrets.PAYOS_BASE_URL }}
+      PAYOS_WEBHOOK_URL: ${{ secrets.PAYOS_WEBHOOK_URL }}
+
+      # Premium Subscription Configuration
+      PREMIUM_AUTO_CREATE_PLANS: ${{ secrets.PREMIUM_AUTO_CREATE_PLANS }}
+
+      # Cloudinary Configuration
+      CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+      CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+      CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+      CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
+
+      # CORS Configuration
       CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
       CORS_ALLOWED_METHODS: ${{ secrets.CORS_ALLOWED_METHODS }}
       CORS_ALLOWED_HEADERS: ${{ secrets.CORS_ALLOWED_HEADERS }}
       CORS_ALLOW_CREDENTIALS: ${{ secrets.CORS_ALLOW_CREDENTIALS }}
       CORS_MAX_AGE: ${{ secrets.CORS_MAX_AGE }}
+
+      # Jackson Configuration
       SPRING_JACKSON_TIME_ZONE: ${{ secrets.SPRING_JACKSON_TIME_ZONE }}
       SPRING_JACKSON_DATE_FORMAT: ${{ secrets.SPRING_JACKSON_DATE_FORMAT }}
+
+      # Swagger Configuration
+      SPRINGDOC_API_DOCS_ENABLED: ${{ secrets.SPRINGDOC_API_DOCS_ENABLED }}
+      SPRINGDOC_SWAGGER_UI_ENABLED: ${{ secrets.SPRINGDOC_SWAGGER_UI_ENABLED }}
+      SPRINGDOC_API_DOCS_PATH: ${{ secrets.SPRINGDOC_API_DOCS_PATH }}
+      SPRINGDOC_SWAGGER_UI_PATH: ${{ secrets.SPRINGDOC_SWAGGER_UI_PATH }}
 
     steps:
       - name: 📥 Checkout Code
@@ -278,12 +382,38 @@ jobs:
             -e JWT_SECRET="${JWT_SECRET}" \
             -e JWT_ACCESS_TOKEN_EXPIRATION="${JWT_ACCESS_TOKEN_EXPIRATION}" \
             -e JWT_REFRESH_TOKEN_EXPIRATION="${JWT_REFRESH_TOKEN_EXPIRATION}" \
+            -e GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}" \
+            -e GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET}" \
             -e SPRING_MAIL_HOST="${SPRING_MAIL_HOST}" \
             -e SPRING_MAIL_PORT="${SPRING_MAIL_PORT}" \
             -e SPRING_MAIL_USERNAME="${SPRING_MAIL_USERNAME}" \
             -e SPRING_MAIL_PASSWORD="${SPRING_MAIL_PASSWORD}" \
             -e EMAIL_FROM="${EMAIL_FROM}" \
             -e EMAIL_FROM_NAME="${EMAIL_FROM_NAME}" \
+            -e GEMINI_API_KEY="${GEMINI_API_KEY}" \
+            -e GEMINI_OPENAI_BASE_URL="${GEMINI_OPENAI_BASE_URL}" \
+            -e GEMINI_MODEL="${GEMINI_MODEL}" \
+            -e GEMINI_FALLBACK_MODELS="${GEMINI_FALLBACK_MODELS}" \
+            -e GEMINI_TEMPERATURE="${GEMINI_TEMPERATURE}" \
+            -e GEMINI_MAX_TOKENS="${GEMINI_MAX_TOKENS}" \
+            -e GEMINI_ENABLED="${GEMINI_ENABLED}" \
+            -e MISTRAL_API_KEY="${MISTRAL_API_KEY}" \
+            -e MISTRAL_API_MODEL="${MISTRAL_API_MODEL}" \
+            -e MISTRAL_ENABLED="${MISTRAL_ENABLED}" \
+            -e MISTRAL_API_MAX_TOKENS="${MISTRAL_API_MAX_TOKENS}" \
+            -e MISTRAL_API_TEMPERATURE="${MISTRAL_API_TEMPERATURE}" \
+            -e MEOWL_REMINDER_ENABLED="${MEOWL_REMINDER_ENABLED}" \
+            -e MEOWL_NOTIFICATION_ENABLED="${MEOWL_NOTIFICATION_ENABLED}" \
+            -e PAYOS_CLIENT_ID="${PAYOS_CLIENT_ID}" \
+            -e PAYOS_API_KEY="${PAYOS_API_KEY}" \
+            -e PAYOS_CHECKSUM_KEY="${PAYOS_CHECKSUM_KEY}" \
+            -e PAYOS_BASE_URL="${PAYOS_BASE_URL}" \
+            -e PAYOS_WEBHOOK_URL="${PAYOS_WEBHOOK_URL}" \
+            -e PREMIUM_AUTO_CREATE_PLANS="${PREMIUM_AUTO_CREATE_PLANS}" \
+            -e CLOUDINARY_CLOUD_NAME="${CLOUDINARY_CLOUD_NAME}" \
+            -e CLOUDINARY_API_KEY="${CLOUDINARY_API_KEY}" \
+            -e CLOUDINARY_API_SECRET="${CLOUDINARY_API_SECRET}" \
+            -e CLOUDINARY_URL="${CLOUDINARY_URL}" \
             -e CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS}" \
             -e CORS_ALLOWED_METHODS="${CORS_ALLOWED_METHODS}" \
             -e CORS_ALLOWED_HEADERS="${CORS_ALLOWED_HEADERS}" \
@@ -291,6 +421,10 @@ jobs:
             -e CORS_MAX_AGE="${CORS_MAX_AGE}" \
             -e SPRING_JACKSON_TIME_ZONE="${SPRING_JACKSON_TIME_ZONE}" \
             -e SPRING_JACKSON_DATE_FORMAT="${SPRING_JACKSON_DATE_FORMAT}" \
+            -e SPRINGDOC_API_DOCS_ENABLED="${SPRINGDOC_API_DOCS_ENABLED}" \
+            -e SPRINGDOC_SWAGGER_UI_ENABLED="${SPRINGDOC_SWAGGER_UI_ENABLED}" \
+            -e SPRINGDOC_API_DOCS_PATH="${SPRINGDOC_API_DOCS_PATH}" \
+            -e SPRINGDOC_SWAGGER_UI_PATH="${SPRINGDOC_SWAGGER_UI_PATH}" \
             skillverse-backend:${{ github.sha }}
             
           echo "⏳ Waiting for application to start..."
