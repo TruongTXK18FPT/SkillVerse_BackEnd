@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+    "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+    "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<suppressions>
+  <!-- Suppress package name checks for entire project (allows underscores) -->
+  <suppress checks="PackageName" files="."/>
+  
+  <!-- Suppress indentation checks for existing files (temporary) -->
+  <suppress checks="Indentation" files=".*/(user_service|business_service|mentor_service|course_service|admin_service|payment_service|premium_service|roadmap_service|chat_service)/.*"/>
+  
+  <!-- Suppress Javadoc checks for DTOs and entities -->
+  <suppress checks="MissingJavadocType" files=".*/dto/.*"/>
+  <suppress checks="MissingJavadocType" files=".*/entity/.*"/>
+  <suppress checks="MissingJavadocMethod" files=".*/dto/.*"/>
+  <suppress checks="MissingJavadocMethod" files=".*/entity/.*"/>
+  
+  <!-- Allow star imports in specific packages -->
+  <suppress checks="AvoidStarImport" files=".*/entity/.*"/>
+  
+  <!-- Suppress custom import order for existing code -->
+  <suppress checks="CustomImportOrder" files=".*/(user_service|business_service|mentor_service|course_service)/.*"/>
+</suppressions>

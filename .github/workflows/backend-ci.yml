@@ -98,6 +98,18 @@ jobs:
     runs-on: ubuntu-latest
     needs: quality-check
 
+    # Add Redis service for the application
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     env:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
@@ -223,36 +235,83 @@ jobs:
         run: |
           # Start app in background with docker profile and production PostgreSQL
           echo "🚀 Starting application with docker profile..."
+          
+          # Start application with explicit configuration for CI environment
           java -jar target/*.jar \
             --spring.profiles.active=docker \
-            --server.port=8080 &
+            --server.port=8080 \
+            --server.address=0.0.0.0 \
+            --spring.data.redis.host=localhost \
+            --spring.data.redis.port=6379 \
+            --logging.level.root=INFO \
+            --logging.level.com.exe.skillverse_backend=DEBUG > app.log 2>&1 &
+          
           APP_PID=$!
+          echo "📝 Application PID: $APP_PID"
           echo $APP_PID > app.pid
 
-          # Wait for startup with progress
-          echo "⏳ Waiting for application startup..."
-          for i in {1..60}; do
-            if curl -f http://localhost:8080/actuator/health >/dev/null 2>&1; then
+          # Wait for startup with enhanced retry logic
+          echo "⏳ Waiting for application startup (up to 3 minutes)..."
+          HEALTH_CHECK_PASSED=false
+          
+          for i in {1..36}; do
+            echo "Attempt $i/36: Checking health endpoint..."
+            
+            # Check if process is still running
+            if ! kill -0 $APP_PID 2>/dev/null; then
+              echo "❌ Application process died! Last 50 lines of logs:"
+              tail -n 50 app.log
+              exit 1
+            fi
+            
+            # Try health check
+            if curl -f -s http://localhost:8080/actuator/health >/dev/null 2>&1; then
               echo "✅ Application is ready!"
+              HEALTH_CHECK_PASSED=true
               break
             fi
-            echo "Waiting... ($i/60)"
-            sleep 1
+            
+            echo "⏳ Not ready yet, waiting 5 seconds... (${i}/36)"
+            sleep 5
           done
 
-          # Test health endpoint
-          curl -f http://localhost:8080/actuator/health || {
-            echo "❌ Health check failed"
+          # Verify health check passed
+          if [ "$HEALTH_CHECK_PASSED" = false ]; then
+            echo "❌ Health check failed after 3 minutes. Application logs:"
+            cat app.log
+            echo ""
+            echo "Process status:"
             ps aux | grep java
+            echo ""
+            echo "Port status:"
+            netstat -tlnp 2>/dev/null | grep 8080 || echo "Port 8080 not listening"
+            kill $APP_PID 2>/dev/null || true
             exit 1
-          }
+          fi
+
+          # Display successful health check
+          echo "🏥 Health check response:"
+          curl -s http://localhost:8080/actuator/health | jq '.' || curl -s http://localhost:8080/actuator/health
 
           # Download OpenAPI spec
-          curl -f http://localhost:8080/v3/api-docs > api-docs.json || echo "Failed to get API docs"
-          curl -f http://localhost:8080/v3/api-docs.yaml > api-docs.yaml || echo "Failed to get API docs YAML"
+          echo "📥 Downloading API documentation..."
+          if curl -f -s http://localhost:8080/v3/api-docs > api-docs.json; then
+            echo "✅ Downloaded api-docs.json ($(wc -c < api-docs.json) bytes)"
+          else
+            echo "⚠️ Failed to download api-docs.json"
+          fi
+          
+          if curl -f -s http://localhost:8080/v3/api-docs.yaml > api-docs.yaml; then
+            echo "✅ Downloaded api-docs.yaml ($(wc -c < api-docs.yaml) bytes)"
+          else
+            echo "⚠️ Failed to download api-docs.yaml"
+          fi
 
-          # Stop application
-          kill $APP_PID || true
+          # Stop application gracefully
+          echo "🛑 Stopping application..."
+          kill $APP_PID 2>/dev/null || true
+          sleep 3
+          kill -9 $APP_PID 2>/dev/null || true
 
       - name: 📊 Upload API Documentation
         uses: actions/upload-artifact@v4
@@ -371,14 +430,27 @@ jobs:
 
       - name: 🧪 Test Docker Image
         run: |
+          # Start Redis for the test
+          echo "🚀 Starting Redis container..."
+          docker run -d --name test-redis \
+            -p 6379:6379 \
+            redis:7-alpine
+          
+          # Wait for Redis to be ready
+          sleep 5
+          
           # Start backend container with all environment variables
+          echo "🚀 Starting backend container..."
           docker run -d --name test-backend \
             -p 8080:8080 \
+            --link test-redis:redis \
             -e SPRING_PROFILES_ACTIVE=docker \
             -e SPRING_DATASOURCE_URL=jdbc:postgresql://221.132.33.141:5432/skillverse_db \
             -e SPRING_DATASOURCE_USERNAME=skillverse_user \
             -e SPRING_DATASOURCE_PASSWORD="${DB_PASSWORD}" \
             -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
+            -e SPRING_DATA_REDIS_HOST=redis \
+            -e SPRING_DATA_REDIS_PORT=6379 \
             -e JWT_SECRET="${JWT_SECRET}" \
             -e JWT_ACCESS_TOKEN_EXPIRATION="${JWT_ACCESS_TOKEN_EXPIRATION}" \
             -e JWT_REFRESH_TOKEN_EXPIRATION="${JWT_REFRESH_TOKEN_EXPIRATION}" \
@@ -428,30 +500,56 @@ jobs:
             skillverse-backend:${{ github.sha }}
             
           echo "⏳ Waiting for application to start..."
-          sleep 10
 
-          # Check container status
-          docker ps -a --filter name=test-backend
+          # Enhanced health check with retry logic
+          HEALTH_CHECK_PASSED=false
+          for i in {1..30}; do
+            echo "Health check attempt $i/30..."
+            
+            # Check if container is still running
+            if ! docker ps | grep -q test-backend; then
+              echo "❌ Container stopped unexpectedly!"
+              docker ps -a --filter name=test-backend
+              docker logs test-backend --tail 100
+              exit 1
+            fi
+            
+            # Try health check
+            if curl -f -s http://localhost:8080/actuator/health >/dev/null 2>&1; then
+              echo "✅ Health check passed!"
+              HEALTH_CHECK_PASSED=true
+              break
+            fi
+            
+            echo "⏳ Not ready yet, waiting 5 seconds... ($i/30)"
+            sleep 5
+          done
 
-          # Check application logs
-          echo "📋 Application logs:"
-          docker logs test-backend --tail 50
-
-          # Wait more and check if port is listening
-          sleep 20
-          netstat -tlnp | grep :8080 || echo "Port 8080 not listening"
-
-          # Try health check with verbose output
-          echo "🏥 Testing health endpoint..."
-          curl -v -f http://localhost:8080/actuator/health || {
-            echo "❌ Health check failed, showing more logs:"
+          # Verify health check passed
+          if [ "$HEALTH_CHECK_PASSED" = false ]; then
+            echo "❌ Health check failed after 2.5 minutes"
+            echo "📋 Container status:"
+            docker ps -a --filter name=test-backend
+            echo ""
+            echo "📋 Application logs:"
             docker logs test-backend --tail 100
+            echo ""
+            echo "📋 Port status:"
+            netstat -tlnp 2>/dev/null | grep :8080 || echo "Port 8080 not listening"
+            docker stop test-backend test-redis || true
+            docker rm test-backend test-redis || true
             exit 1
-          }
+          fi
+
+          # Display health response
+          echo "🏥 Health check response:"
+          curl -s http://localhost:8080/actuator/health | jq '.' || curl -s http://localhost:8080/actuator/health
 
           # Cleanup
-          docker stop test-backend || true
-          docker rm test-backend || true
+          echo "🧹 Cleaning up containers..."
+          docker stop test-backend test-redis || true
+          docker rm test-backend test-redis || true
+          echo "✅ Docker test completed successfully!"
 
   # Job 5: Deploy to VPS
   deploy:
