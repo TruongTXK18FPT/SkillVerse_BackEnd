@@ -4,7 +4,7 @@ FROM maven:3.9.6-eclipse-temurin-21 AS build
 # Set working directory
 WORKDIR /app
 
-# Copy pom.xml first for dependency caching
+# Copy pom.xml and Maven configuration first for dependency caching
 COPY pom.xml .
 COPY .mvn .mvn
 COPY mvnw mvnw.cmd ./
@@ -12,14 +12,15 @@ COPY mvnw mvnw.cmd ./
 # Make mvnw executable
 RUN chmod +x mvnw
 
-# Download dependencies (this layer will be cached if pom.xml doesn't change)
-RUN ./mvnw dependency:go-offline -B
-
-# Copy source code
+# Copy source code early (dependency download happens during build)
+# This avoids separate dependency:go-offline which can fail with Maven Central issues
 COPY src ./src
 
-# Build the application
-RUN ./mvnw clean package -DskipTests -B
+# Build the application with retry logic for dependency downloads
+# Maven config in .mvn/maven.config handles retry settings
+RUN ./mvnw clean package -DskipTests -B || \
+    (echo "First build attempt failed, retrying in 5 seconds..." && sleep 5 && ./mvnw clean package -DskipTests -B) || \
+    (echo "Second build attempt failed, retrying in 10 seconds with fresh local repo..." && sleep 10 && rm -rf /root/.m2/repository && ./mvnw clean package -DskipTests -B)
 
 # Runtime stage
 FROM eclipse-temurin:21-jre-alpine

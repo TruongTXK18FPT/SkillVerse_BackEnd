@@ -20,6 +20,8 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <java.version>21</java.version>
         <spring-ai.version>1.0.0-M4</spring-ai.version>
+        <!-- Override Jackson version to avoid Maven Central CDN issues with very new versions -->
+        <jackson.version>2.18.2</jackson.version>
     </properties>
 
     <dependencyManagement>
