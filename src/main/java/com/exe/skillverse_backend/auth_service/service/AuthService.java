@@ -261,18 +261,30 @@ public class AuthService {
         @Transactional
         public AuthResponse refreshToken(String refreshToken) {
                 try {
+                        log.info("Starting token refresh process");
+
                         RefreshToken storedRefreshToken = refreshTokenRepository.findByToken(refreshToken)
-                                        .orElseThrow(() -> new RuntimeException("Invalid refresh token"));
+                                        .orElseThrow(() -> {
+                                                log.error("Refresh token not found in database");
+                                                return new RuntimeException("Invalid refresh token");
+                                        });
 
                         // Check expiration
                         if (storedRefreshToken.getExpiryDate().isBefore(LocalDateTime.now())) {
+                                log.warn("Refresh token expired for user ID: {}", storedRefreshToken.getUserId());
                                 refreshTokenRepository.delete(storedRefreshToken);
                                 throw new RuntimeException("Refresh token expired");
                         }
 
                         // Get user
                         User user = userRepository.findById(storedRefreshToken.getUserId())
-                                        .orElseThrow(() -> new RuntimeException("User not found"));
+                                        .orElseThrow(() -> {
+                                                log.error("User not found for refresh token, user ID: {}",
+                                                                storedRefreshToken.getUserId());
+                                                return new RuntimeException("User not found");
+                                        });
+
+                        log.info("Refreshing tokens for user: {} (ID: {})", user.getEmail(), user.getId());
 
                         // Generate new tokens
                         String newAccessToken = generateToken(user);
@@ -281,18 +293,36 @@ public class AuthService {
                         // Delete old refresh token
                         refreshTokenRepository.delete(storedRefreshToken);
 
+                        // Get user profile information
+                        String fullName = getUserFullName(user);
+
+                        // Build user DTO
+                        UserDto userDto = new UserDto();
+                        userDto.setId(user.getId());
+                        userDto.setEmail(user.getEmail());
+                        userDto.setFullName(fullName);
+                        userDto.setRoles(user.getRoles().stream()
+                                        .map(role -> role.getName())
+                                        .collect(Collectors.toSet()));
+                        userDto.setAuthProvider(user.getAuthProvider().toString());
+                        userDto.setGoogleLinked(user.isGoogleLinked());
+
                         // Log action
                         auditService.logAction(user.getId(), "TOKEN_REFRESH", "USER", user.getId().toString(),
                                         "Tokens refreshed for user: " + user.getEmail());
+
+                        log.info("Token refresh successful for user: {}", user.getEmail());
 
                         return AuthResponse.builder()
                                         .accessToken(newAccessToken)
                                         .refreshToken(newRefreshToken)
                                         .tokenType("Bearer")
                                         .expiresIn(accessTokenExpiration)
+                                        .user(userDto) // ✅ FIX: Add user data to response
                                         .build();
 
                 } catch (Exception e) {
+                        log.error("Token refresh failed: {}", e.getMessage(), e);
                         auditService.logSystemAction("TOKEN_REFRESH_FAILED", "USER", null,
                                         "Token refresh failed: " + e.getMessage());
                         throw e;

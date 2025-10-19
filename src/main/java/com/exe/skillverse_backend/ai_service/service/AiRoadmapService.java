@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Service for AI-powered roadmap generation using Spring AI with Gemini
@@ -724,6 +725,9 @@ public class AiRoadmapService {
             // V2: Parse full structure
             ParsedRoadmap parsed = validateAndParseRoadmapV2(session.getRoadmapJson());
 
+            // Load progress data
+            Map<String, RoadmapResponse.QuestProgress> progressMap = loadProgressData(sessionId);
+
             return RoadmapResponse.builder()
                     .sessionId(session.getId())
                     .metadata(parsed.metadata())
@@ -731,6 +735,7 @@ public class AiRoadmapService {
                     .statistics(parsed.statistics())
                     .learningTips(parsed.learningTips())
                     .createdAt(session.getCreatedAt())
+                    .progress(progressMap)
                     .build();
         } else {
             // V1 Legacy: Convert to V2 format (best-effort)
@@ -758,6 +763,9 @@ public class AiRoadmapService {
                     .totalEstimatedHours(calculateTotalHours(nodes))
                     .build();
 
+            // Load progress data for V1 roadmaps too
+            Map<String, RoadmapResponse.QuestProgress> progressMap = loadProgressData(sessionId);
+
             return RoadmapResponse.builder()
                     .sessionId(session.getId())
                     .metadata(metadata)
@@ -765,8 +773,27 @@ public class AiRoadmapService {
                     .statistics(statistics)
                     .learningTips(List.of()) // Empty list for V1 data
                     .createdAt(session.getCreatedAt())
+                    .progress(progressMap)
                     .build();
         }
+    }
+
+    /**
+     * Load progress data for a roadmap session
+     */
+    private Map<String, RoadmapResponse.QuestProgress> loadProgressData(Long sessionId) {
+        List<UserRoadmapProgress> progressList = progressRepository.findBySessionId(sessionId);
+
+        return progressList.stream()
+                .collect(Collectors.toMap(
+                        UserRoadmapProgress::getQuestId,
+                        progress -> RoadmapResponse.QuestProgress.builder()
+                                .questId(progress.getQuestId())
+                                .status(progress.getStatus().toString())
+                                .progress(
+                                        progress.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED ? 100 : 0)
+                                .completedAt(progress.getCompletedAt())
+                                .build()));
     }
 
     /**

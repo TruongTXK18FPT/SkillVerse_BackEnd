@@ -37,6 +37,33 @@ public class ChatbotController {
     private final UserRepository userRepository;
 
     /**
+     * Utility method to validate authentication and extract user ID
+     * Prevents code duplication across all endpoints
+     */
+    private Long validateAuthenticationAndGetUserId(Authentication authentication) {
+        // STRICT AUTH VALIDATION
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new ApiException(ErrorCode.UNAUTHORIZED, "Authentication required");
+        }
+
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        if (jwt == null) {
+            throw new ApiException(ErrorCode.UNAUTHORIZED, "Invalid authentication token");
+        }
+
+        String userIdStr = jwt.getClaimAsString("userId");
+        if (userIdStr == null || userIdStr.trim().isEmpty()) {
+            throw new ApiException(ErrorCode.UNAUTHORIZED, "User ID not found in token");
+        }
+
+        try {
+            return Long.valueOf(userIdStr);
+        } catch (NumberFormatException e) {
+            throw new ApiException(ErrorCode.UNAUTHORIZED, "Invalid user ID format");
+        }
+    }
+
+    /**
      * Send a message to the AI career counselor
      * 
      * @param request        Chat message request
@@ -49,8 +76,7 @@ public class ChatbotController {
             @Valid @RequestBody ChatRequest request,
             Authentication authentication) {
 
-        Jwt jwt = (Jwt) authentication.getPrincipal();
-        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+        Long userId = validateAuthenticationAndGetUserId(authentication);
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "User not found"));
@@ -76,8 +102,7 @@ public class ChatbotController {
             @PathVariable Long sessionId,
             Authentication authentication) {
 
-        Jwt jwt = (Jwt) authentication.getPrincipal();
-        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+        Long userId = validateAuthenticationAndGetUserId(authentication);
 
         log.info("User {} fetching chat history for session {}", userId, sessionId);
 
@@ -95,8 +120,7 @@ public class ChatbotController {
     @GetMapping("/sessions")
     @Operation(summary = "Get User Sessions", description = "Get all chat sessions with title previews for the current user")
     public ResponseEntity<List<ChatSessionSummary>> getSessions(Authentication authentication) {
-        Jwt jwt = (Jwt) authentication.getPrincipal();
-        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+        Long userId = validateAuthenticationAndGetUserId(authentication);
 
         log.info("User {} fetching all chat sessions", userId);
 
@@ -118,8 +142,7 @@ public class ChatbotController {
             @PathVariable Long sessionId,
             Authentication authentication) {
 
-        Jwt jwt = (Jwt) authentication.getPrincipal();
-        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+        Long userId = validateAuthenticationAndGetUserId(authentication);
 
         log.info("User {} deleting chat session {}", userId, sessionId);
 
@@ -143,8 +166,7 @@ public class ChatbotController {
             @RequestParam String newTitle,
             Authentication authentication) {
 
-        Jwt jwt = (Jwt) authentication.getPrincipal();
-        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+        Long userId = validateAuthenticationAndGetUserId(authentication);
 
         log.info("User {} renaming chat session {} to '{}'", userId, sessionId, newTitle);
 

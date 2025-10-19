@@ -25,6 +25,7 @@ public class RoadmapResponse {
     private RoadmapStatistics statistics;
     private List<String> learningTips;
     private Instant createdAt;
+    private Map<String, QuestProgress> progress; // Quest progress tracking
 
     /**
      * Metadata about the roadmap generation
@@ -96,5 +97,19 @@ public class RoadmapResponse {
             MAIN, // Main path quest - required for core learning
             SIDE // Optional side quest - supplementary/advanced
         }
+    }
+
+    /**
+     * Quest progress tracking
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class QuestProgress {
+        private String questId;
+        private String status; // NOT_STARTED, IN_PROGRESS, COMPLETED, SKIPPED
+        private Integer progress; // 0-100
+        private Instant completedAt;
     }
 }
