@@ -33,8 +33,7 @@ public class CustomJwtDecoder implements JwtDecoder {
 
     @Value("${jwt.issuer:skillverse}")
     private String expectedIssuer;
-
-    @Value("${jwt.audience}")
+    @Value("${jwt.audience:}")
     private String expectedAudience; // optional
 
     // allow small clock skew
