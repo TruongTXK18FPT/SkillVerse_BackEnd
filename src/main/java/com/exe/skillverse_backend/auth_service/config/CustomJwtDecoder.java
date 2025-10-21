@@ -12,6 +12,8 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Component;
 
 import java.util.Date;
+import java.time.Instant;
+import java.time.Duration;
 
 @Component
 @RequiredArgsConstructor
@@ -28,6 +30,15 @@ public class CustomJwtDecoder implements JwtDecoder {
 
     @Value("${jwt.refresh-token-expiration:86400}")
     private long refreshTokenExpiration;
+
+    @Value("${jwt.issuer:skillverse}")
+    private String expectedIssuer;
+
+    @Value("${jwt.audience:}")
+    private String expectedAudience; // optional
+
+    // allow small clock skew
+    private static final Duration CLOCK_SKEW = Duration.ofSeconds(60);
 
     // Getter methods for JWT configuration
     public String getJwtSecret() {
@@ -54,10 +65,38 @@ public class CustomJwtDecoder implements JwtDecoder {
                 throw new JwtException("Invalid JWT signature");
             }
 
-            // Check expiration
+            // Check expiration with small leeway
             Date expirationTime = signedJWT.getJWTClaimsSet().getExpirationTime();
-            if (expirationTime != null && expirationTime.before(new Date())) {
-                throw new JwtException("JWT token expired");
+            if (expirationTime != null) {
+                Instant exp = expirationTime.toInstant();
+                if (exp.isBefore(Instant.now().minus(CLOCK_SKEW))) {
+                    throw new JwtException("JWT token expired");
+                }
+            }
+
+            // Validate not-before if present (with leeway)
+            Date notBefore = signedJWT.getJWTClaimsSet().getNotBeforeTime();
+            if (notBefore != null) {
+                Instant nbf = notBefore.toInstant();
+                if (nbf.isAfter(Instant.now().plus(CLOCK_SKEW))) {
+                    throw new JwtException("JWT token not active yet");
+                }
+            }
+
+            // Validate issuer
+            String issuer = signedJWT.getJWTClaimsSet().getIssuer();
+            if (expectedIssuer != null && !expectedIssuer.isEmpty()) {
+                if (issuer == null || !expectedIssuer.equals(issuer)) {
+                    throw new JwtException("Invalid token issuer");
+                }
+            }
+
+            // Optional audience check
+            if (expectedAudience != null && !expectedAudience.isEmpty()) {
+                var audiences = signedJWT.getJWTClaimsSet().getAudience();
+                if (audiences == null || audiences.stream().noneMatch(a -> expectedAudience.equals(a))) {
+                    throw new JwtException("Invalid token audience");
+                }
             }
 
             // Check if token is invalidated

@@ -29,6 +29,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 
 @Service
 @RequiredArgsConstructor
@@ -56,6 +58,9 @@ public class AuthService {
 
         @Value("${jwt.refresh-token-expiration:86400}") // 24 hours
         private Long refreshTokenExpiration;
+
+        @Value("${jwt.refresh-pepper:skillverse-refresh-pepper}")
+        private String refreshPepper;
 
         @Transactional
         public RegistrationResponse verifyEmailAndActivate(String email, String otp) {
@@ -263,35 +268,57 @@ public class AuthService {
                 try {
                         log.info("Starting token refresh process");
 
-                        RefreshToken storedRefreshToken = refreshTokenRepository.findByToken(refreshToken)
-                                        .orElseThrow(() -> {
-                                                log.error("Refresh token not found in database");
-                                                return new RuntimeException("Invalid refresh token");
-                                        });
+                        // Lookup by HASH first (new scheme)
+                        String providedHash = hashRefreshToken(refreshToken);
+                        Optional<RefreshToken> byHash = refreshTokenRepository.findByToken(providedHash);
+                        RefreshToken tokenRecord;
+
+                        if (byHash.isPresent()) {
+                                tokenRecord = byHash.get();
+                        } else {
+                                // Backward compatibility: lookup plaintext (legacy)
+                                Optional<RefreshToken> legacy = refreshTokenRepository.findByToken(refreshToken);
+                                if (legacy.isEmpty()) {
+                                        log.error("Refresh token not found (hash and legacy)");
+                                        throw new RuntimeException("Invalid refresh token");
+                                }
+                                // Migrate to hash in-place
+                                RefreshToken migrated = legacy.get();
+                                migrated.setToken(providedHash);
+                                tokenRecord = refreshTokenRepository.save(migrated);
+                        }
 
                         // Check expiration
-                        if (storedRefreshToken.getExpiryDate().isBefore(LocalDateTime.now())) {
-                                log.warn("Refresh token expired for user ID: {}", storedRefreshToken.getUserId());
-                                refreshTokenRepository.delete(storedRefreshToken);
+                        if (tokenRecord.getExpiryDate().isBefore(LocalDateTime.now())) {
+                                log.warn("Refresh token expired for user ID: {}", tokenRecord.getUserId());
+                                refreshTokenRepository.delete(tokenRecord);
                                 throw new RuntimeException("Refresh token expired");
                         }
 
+                        // Reuse detection: if provided token cannot be found by current hash (handled
+                        // above)
+                        // or if multiple valid tokens exist for same user (shouldn't due to
+                        // deleteByUserId),
+                        // we could enforce additional policies; current rotation + single-token per
+                        // user prevents reuse window.
+
                         // Get user
-                        User user = userRepository.findById(storedRefreshToken.getUserId())
+                        User user = userRepository.findById(tokenRecord.getUserId())
                                         .orElseThrow(() -> {
                                                 log.error("User not found for refresh token, user ID: {}",
-                                                                storedRefreshToken.getUserId());
+                                                                tokenRecord.getUserId());
                                                 return new RuntimeException("User not found");
                                         });
 
                         log.info("Refreshing tokens for user: {} (ID: {})", user.getEmail(), user.getId());
 
-                        // Generate new tokens
+                        // Generate new tokens (absolute lifetime enforcement: do not extend beyond
+                        // current expiry)
                         String newAccessToken = generateToken(user);
-                        String newRefreshToken = generateRefreshToken(user);
+                        String newRefreshToken = generateRefreshToken(user, tokenRecord.getExpiryDate());
 
                         // Delete old refresh token
-                        refreshTokenRepository.delete(storedRefreshToken);
+                        refreshTokenRepository.delete(tokenRecord);
 
                         // Get user profile information
                         String fullName = getUserFullName(user);
@@ -362,17 +389,43 @@ public class AuthService {
         }
 
         private String generateRefreshToken(User user) {
+                return generateRefreshToken(user, null);
+        }
+
+        private String generateRefreshToken(User user, LocalDateTime legacyExpiry) {
                 // Delete existing refresh token for user
                 refreshTokenRepository.deleteByUserId(user.getId());
 
-                // Create new refresh token
+                // Create new refresh token (plaintext to return to client)
+                String plain = UUID.randomUUID().toString();
+                String tokenHash = hashRefreshToken(plain);
+
                 RefreshToken refreshToken = new RefreshToken();
                 refreshToken.setUserId(user.getId());
-                refreshToken.setToken(UUID.randomUUID().toString());
-                refreshToken.setExpiryDate(LocalDateTime.now().plusSeconds(refreshTokenExpiration));
+                refreshToken.setToken(tokenHash); // store hash only
+                // Absolute lifetime: do not extend beyond previous expiry when rotating via
+                // refresh
+                LocalDateTime newExpiry = LocalDateTime.now().plusSeconds(refreshTokenExpiration);
+                if (legacyExpiry != null && legacyExpiry.isBefore(newExpiry)) {
+                        newExpiry = legacyExpiry; // cap to legacy expiry
+                }
+                refreshToken.setExpiryDate(newExpiry);
 
-                refreshToken = refreshTokenRepository.save(refreshToken);
-                return refreshToken.getToken();
+                refreshTokenRepository.save(refreshToken);
+                return plain; // return plaintext to client
+        }
+
+        private String hashRefreshToken(String token) {
+                try {
+                        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                        byte[] bytes = digest.digest((refreshPepper + ":" + token).getBytes(StandardCharsets.UTF_8));
+                        StringBuilder sb = new StringBuilder();
+                        for (byte b : bytes)
+                                sb.append(String.format("%02x", b));
+                        return sb.toString();
+                } catch (Exception e) {
+                        throw new RuntimeException("Failed to hash refresh token");
+                }
         }
 
         /**

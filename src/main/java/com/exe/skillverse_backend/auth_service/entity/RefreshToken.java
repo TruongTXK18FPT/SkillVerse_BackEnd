@@ -19,8 +19,13 @@ public class RefreshToken {
     @JoinColumn(name = "user_id", insertable = false, updatable = false)
     private User user;
 
-    @Column(nullable = false, unique = true)
+    // Store SHA-256 hash of refresh token (peppered), not plaintext
+    @Column(nullable = false, unique = true, length = 64)
     private String token;
+
+    // Optional: detect reuse by tracking last rotated at
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
 
     @Column(name = "expiry_date", nullable = false)
     private LocalDateTime expiryDate;

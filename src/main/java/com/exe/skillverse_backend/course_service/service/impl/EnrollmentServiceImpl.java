@@ -27,6 +27,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.math.BigDecimal;
 
 @Service
 @RequiredArgsConstructor
@@ -47,7 +48,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     @Transactional
     public EnrollmentDetailDTO enrollUser(EnrollRequestDTO dto, Long userId) {
         log.info("Enrolling user {} in course {}", userId, dto.getCourseId());
-        
+
         // Validate course exists
         Course course = courseRepository.findById(dto.getCourseId())
                 .orElseThrow(() -> new NotFoundException(COURSE_NOT_FOUND));
@@ -61,17 +62,21 @@ public class EnrollmentServiceImpl implements EnrollmentService {
             throw new ConflictException("USER_ALREADY_ENROLLED");
         }
 
-        // Create enrollment - let JPA handle the ID creation
+        // Create enrollment - set composite key explicitly for safety
         CourseEnrollment enrollment = new CourseEnrollment();
         enrollment.setUser(user);
         enrollment.setCourse(course);
+        enrollment.setId(new CourseEnrollment.CourseEnrollmentId(userId, dto.getCourseId()));
         enrollment.setEnrollDate(Instant.now(clock));
         enrollment.setStatus(EnrollmentStatus.ENROLLED);
         enrollment.setProgressPercent(0);
-        enrollment.setEntitlementSource(EntitlementSource.PURCHASE);
+        // Set source based on pricing
+        boolean isFree = course.getPrice() == null || BigDecimal.ZERO.compareTo(course.getPrice()) == 0;
+        // System does not define FREE in EntitlementSource; treat free grant as ADMIN
+        enrollment.setEntitlementSource(isFree ? EntitlementSource.ADMIN : EntitlementSource.PURCHASE);
 
         CourseEnrollment saved = enrollmentRepository.save(enrollment);
-        
+
         log.info("User {} successfully enrolled in course {}", userId, dto.getCourseId());
         return mapToDetailDTO(saved);
     }
@@ -80,7 +85,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     @Transactional
     public void unenrollUser(Long courseId, Long userId) {
         log.info("Unenrolling user {} from course {}", userId, courseId);
-        
+
         CourseEnrollment enrollment = enrollmentRepository.findByCourseIdAndUserId(courseId, userId)
                 .orElseThrow(() -> new NotFoundException(ENROLLMENT_NOT_FOUND));
 
@@ -93,7 +98,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     public EnrollmentDetailDTO getEnrollment(Long courseId, Long userId) {
         CourseEnrollment enrollment = enrollmentRepository.findByCourseIdAndUserId(courseId, userId)
                 .orElseThrow(() -> new NotFoundException(ENROLLMENT_NOT_FOUND));
-        
+
         return mapToDetailDTO(enrollment);
     }
 
@@ -107,7 +112,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     @Transactional(readOnly = true)
     public PageResponse<EnrollmentDetailDTO> getUserEnrollments(Long userId, Pageable pageable) {
         Page<CourseEnrollment> enrollments = enrollmentRepository.findByUserId(userId, pageable);
-        
+
         return PageResponse.<EnrollmentDetailDTO>builder()
                 .items(enrollments.map(this::mapToDetailDTO).getContent())
                 .page(enrollments.getNumber())
@@ -130,7 +135,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
         }
 
         Page<CourseEnrollment> enrollments = enrollmentRepository.findByCourseId(courseId, pageable);
-        
+
         return PageResponse.<EnrollmentDetailDTO>builder()
                 .items(enrollments.map(this::mapToDetailDTO).getContent())
                 .page(enrollments.getNumber())
@@ -165,7 +170,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
                 .orElseThrow(() -> new NotFoundException(ENROLLMENT_NOT_FOUND));
 
         enrollment.setProgressPercent(progressPercentage);
-        
+
         // Auto-complete if progress reaches 100%
         if (progressPercentage == 100) {
             enrollment.setStatus(EnrollmentStatus.COMPLETED);
@@ -213,7 +218,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
 
         // For now, just return enrollments by status
         Page<CourseEnrollment> enrollments = enrollmentRepository.findByStatus(EnrollmentStatus.ENROLLED, pageable);
-        
+
         return PageResponse.<EnrollmentDetailDTO>builder()
                 .items(enrollments.map(this::mapToDetailDTO).getContent())
                 .page(enrollments.getNumber())
@@ -225,8 +230,9 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     private EnrollmentDetailDTO mapToDetailDTO(CourseEnrollment enrollment) {
         Course course = enrollment.getCourse();
         LocalDateTime enrolledAt = LocalDateTime.ofInstant(enrollment.getEnrollDate(), ZoneId.systemDefault());
-        LocalDateTime completedAt = enrollment.getStatus() == EnrollmentStatus.COMPLETED ? enrolledAt.plusDays(7) : null; // Simplified
-        
+        LocalDateTime completedAt = enrollment.getStatus() == EnrollmentStatus.COMPLETED ? enrolledAt.plusDays(7)
+                : null; // Simplified
+
         return EnrollmentDetailDTO.builder()
                 .id(course.getId()) // Using courseId as id for simplicity
                 .courseId(course.getId())

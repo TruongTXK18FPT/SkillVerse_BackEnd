@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.course_service.repository;
 
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
+import com.exe.skillverse_backend.course_service.entity.CourseEnrollment.CourseEnrollmentId;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -10,12 +11,11 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.Serializable;
 import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollment, Serializable> {
+public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollment, CourseEnrollmentId> {
 
     /**
      * Find enrollment by course ID and user ID
@@ -36,7 +36,7 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
      */
     @Transactional(readOnly = true)
     @Query("SELECT CASE WHEN COUNT(ce) > 0 THEN true ELSE false END " +
-           "FROM CourseEnrollment ce WHERE ce.course.id = :courseId AND ce.user.id = :userId")
+            "FROM CourseEnrollment ce WHERE ce.course.id = :courseId AND ce.user.id = :userId")
     boolean existsByCourseIdAndUserId(@Param("courseId") Long courseId, @Param("userId") Long userId);
 
     /**
@@ -79,5 +79,6 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
      */
     @Transactional(readOnly = true)
     @Query("SELECT ce FROM CourseEnrollment ce WHERE ce.user.id = :userId AND ce.progressPercent >= :minProgress")
-    List<CourseEnrollment> findUserEnrollmentsWithMinProgress(@Param("userId") Long userId, @Param("minProgress") Integer minProgress);
+    List<CourseEnrollment> findUserEnrollmentsWithMinProgress(@Param("userId") Long userId,
+            @Param("minProgress") Integer minProgress);
 }

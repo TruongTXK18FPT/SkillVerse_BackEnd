@@ -28,7 +28,7 @@ public class SecurityConfig {
                         "/api/auth/google",
                         "/api/auth/refresh",
                         "/api/auth/verify",
-                        "/api/auth/logout",
+                        // logout should NOT be public; require authentication
                         "/api/auth/forgot-password/**",
                         "/api/auth/reset-password/**",
                         "/api/auth/verify-email/**",

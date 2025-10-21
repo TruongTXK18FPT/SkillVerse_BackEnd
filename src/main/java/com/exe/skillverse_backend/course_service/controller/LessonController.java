@@ -31,26 +31,26 @@ public class LessonController {
     private final LessonService lessonService;
 
     @PostMapping
-    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
     @Operation(summary = "Add a new lesson to a module")
     public ResponseEntity<LessonBriefDTO> addLesson(
             @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
             @Parameter(description = "Lesson creation data") @Valid @RequestBody LessonCreateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Adding lesson to module {} by user {}", moduleId, actorId);
         LessonBriefDTO created = lessonService.addLesson(moduleId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @PutMapping("/{lessonId}")
-    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
     @Operation(summary = "Update an existing lesson")
     public ResponseEntity<LessonBriefDTO> updateLesson(
             @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId,
             @Parameter(description = "Lesson update data") @Valid @RequestBody LessonUpdateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Updating lesson {} by user {}", lessonId, actorId);
         LessonBriefDTO updated = lessonService.updateLesson(lessonId, dto, actorId);
         return ResponseEntity.ok(updated);
@@ -61,7 +61,7 @@ public class LessonController {
     public ResponseEntity<Void> deleteLesson(
             @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Deleting lesson {} by user {}", lessonId, actorId);
         lessonService.deleteLesson(lessonId, actorId);
         return ResponseEntity.noContent().build();
@@ -71,7 +71,7 @@ public class LessonController {
     @Operation(summary = "List lessons by module")
     public ResponseEntity<List<LessonBriefDTO>> listLessonsByModule(
             @Parameter(description = "Module ID") @PathVariable @NotNull Long moduleId) {
-        
+
         List<LessonBriefDTO> lessons = lessonService.listLessonsByModule(moduleId);
         return ResponseEntity.ok(lessons);
     }

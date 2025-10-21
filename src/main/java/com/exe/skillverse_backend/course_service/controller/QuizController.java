@@ -30,26 +30,26 @@ public class QuizController {
 
     // ========== Quiz Management ==========
     @PostMapping
-    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
     @Operation(summary = "Create a new quiz for a module")
     public ResponseEntity<QuizDetailDTO> createQuiz(
             @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
             @Parameter(description = "Quiz creation data") @Valid @RequestBody QuizCreateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Creating quiz for module {} by user {}", moduleId, actorId);
         QuizDetailDTO created = quizService.createQuiz(moduleId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @PutMapping("/{quizId}")
-    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
     @Operation(summary = "Update an existing quiz")
     public ResponseEntity<QuizDetailDTO> updateQuiz(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
             @Parameter(description = "Quiz update data") @Valid @RequestBody QuizUpdateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Updating quiz {} by user {}", quizId, actorId);
         QuizDetailDTO updated = quizService.updateQuiz(quizId, dto, actorId);
         return ResponseEntity.ok(updated);
@@ -60,7 +60,7 @@ public class QuizController {
     public ResponseEntity<Void> deleteQuiz(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Deleting quiz {} by user {}", quizId, actorId);
         quizService.deleteQuiz(quizId, actorId);
         return ResponseEntity.noContent().build();
@@ -73,7 +73,7 @@ public class QuizController {
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
             @Parameter(description = "Question creation data") @Valid @RequestBody QuizQuestionCreateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Adding question to quiz {} by user {}", quizId, actorId);
         QuizQuestionDetailDTO created = quizService.addQuestion(quizId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -85,7 +85,7 @@ public class QuizController {
             @Parameter(description = "Question ID") @PathVariable @NotNull Long questionId,
             @Parameter(description = "Question update data") @Valid @RequestBody QuizQuestionUpdateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Updating question {} by user {}", questionId, actorId);
         QuizQuestionDetailDTO updated = quizService.updateQuestion(questionId, dto, actorId);
         return ResponseEntity.ok(updated);
@@ -96,7 +96,7 @@ public class QuizController {
     public ResponseEntity<Void> deleteQuestion(
             @Parameter(description = "Question ID") @PathVariable @NotNull Long questionId,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Deleting question {} by user {}", questionId, actorId);
         quizService.deleteQuestion(questionId, actorId);
         return ResponseEntity.noContent().build();
@@ -109,7 +109,7 @@ public class QuizController {
             @Parameter(description = "Question ID") @PathVariable @NotNull Long questionId,
             @Parameter(description = "Option creation data") @Valid @RequestBody QuizOptionCreateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Adding option to question {} by user {}", questionId, actorId);
         QuizOptionDetailDTO created = quizService.addOption(questionId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -121,7 +121,7 @@ public class QuizController {
             @Parameter(description = "Option ID") @PathVariable @NotNull Long optionId,
             @Parameter(description = "Option update data") @Valid @RequestBody QuizOptionUpdateDTO dto,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Updating option {} by user {}", optionId, actorId);
         QuizOptionDetailDTO updated = quizService.updateOption(optionId, dto, actorId);
         return ResponseEntity.ok(updated);
@@ -132,19 +132,19 @@ public class QuizController {
     public ResponseEntity<Void> deleteOption(
             @Parameter(description = "Option ID") @PathVariable @NotNull Long optionId,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
-        
+
         log.info("Deleting option {} by user {}", optionId, actorId);
         quizService.deleteOption(optionId, actorId);
         return ResponseEntity.noContent().build();
     }
 
     // ========== Quiz Query Operations ==========
-    
+
     @GetMapping("/{quizId}")
     @Operation(summary = "Get quiz details by ID")
     public ResponseEntity<QuizDetailDTO> getQuiz(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId) {
-        
+
         log.info("Getting quiz details for {}", quizId);
         QuizDetailDTO quiz = quizService.getQuiz(quizId);
         return ResponseEntity.ok(quiz);
@@ -154,7 +154,7 @@ public class QuizController {
     @Operation(summary = "List quizzes by module")
     public ResponseEntity<List<QuizSummaryDTO>> listQuizzesByModule(
             @Parameter(description = "Module ID") @PathVariable @NotNull Long moduleId) {
-        
+
         log.info("Listing quizzes for module {}", moduleId);
         List<QuizSummaryDTO> quizzes = quizService.listQuizzesByModule(moduleId);
         return ResponseEntity.ok(quizzes);
