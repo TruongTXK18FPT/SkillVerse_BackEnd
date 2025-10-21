@@ -34,7 +34,7 @@ public class CustomJwtDecoder implements JwtDecoder {
     @Value("${jwt.issuer:skillverse}")
     private String expectedIssuer;
 
-    @Value("${jwt.audience:}")
+    @Value("${jwt.audience}")
     private String expectedAudience; // optional
 
     // allow small clock skew
@@ -59,8 +59,8 @@ public class CustomJwtDecoder implements JwtDecoder {
             // Parse the JWT
             SignedJWT signedJWT = SignedJWT.parse(token);
 
-            // Verify signature
-            MACVerifier verifier = new MACVerifier(jwtSecret);
+            // Verify signature - MUST use getBytes() to match signing
+            MACVerifier verifier = new MACVerifier(jwtSecret.getBytes());
             if (!signedJWT.verify(verifier)) {
                 throw new JwtException("Invalid JWT signature");
             }

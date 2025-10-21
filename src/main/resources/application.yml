@@ -6,7 +6,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update # create, create-drop, update, validate, none
+      ddl-auto: create # create, create-drop, update, validate, none
     show-sql: true
     properties:
       hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
@@ -98,9 +98,9 @@ spring:
       on-client-errors: false
 
 jwt:
-  secret: ${JWT_SECRET:1TjXchw5FloESb63Kc+DFhTARvpWL4jUGCwfGWxuG5SIf/1y/LgJxHnMqaF6A/ij}
-  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:3600} # 1 hour in seconds
-  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:86400} # 24 hours in seconds
+  secret: ${JWT_SECRET}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION} # 1 hour in seconds
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION} # 24 hours in seconds
 
 email:
   from: ${EMAIL_FROM:skillverseexe@gmail.com}
@@ -170,6 +170,18 @@ cloudinary:
     use-filename: true
     unique-filename: true
     overwrite: false
+
+# Portfolio CV Generation AI Configuration (separate Mistral API key)
+portfolio:
+  ai:
+    mistral:
+      api-key: ${PORTFOLIO_MISTRAL_API_KEY:RyNJ2HEDKf6PCPIyMyqApfn5tWlODkqC}
+      api-url: ${PORTFOLIO_MISTRAL_API_BASE_URL:https://api.mistral.ai/v1/chat/completions}
+      model: ${PORTFOLIO_MISTRAL_API_MODEL:mistral-large-latest}
+      enabled: ${PORTFOLIO_MISTRAL_ENABLED:true}
+      timeout: ${PORTFOLIO_MISTRAL_API_TIMEOUT:30000}
+      max-tokens: ${PORTFOLIO_MISTRAL_API_MAX_TOKENS:30000}
+      temperature: ${PORTFOLIO_MISTRAL_API_TEMPERATURE:0.7}
 
 springdoc:
   api-docs:
