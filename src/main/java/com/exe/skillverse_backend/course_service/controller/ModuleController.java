@@ -91,6 +91,14 @@ public class ModuleController {
     return ResponseEntity.ok(lessons);
   }
 
+  @GetMapping("/modules/{moduleId}/progress")
+  @Operation(summary = "Get module progress for a user")
+  public ResponseEntity<com.exe.skillverse_backend.course_service.dto.moduledto.ModuleProgressDTO> getModuleProgress(
+      @PathVariable @NotNull Long moduleId,
+      @RequestParam @NotNull Long userId) {
+    return ResponseEntity.ok(moduleService.getProgress(moduleId, userId));
+  }
+
   @GetMapping("/modules/{moduleId}/assignments")
   @Operation(summary = "List assignments in a module")
   public ResponseEntity<List<AssignmentSummaryDTO>> listAssignmentsByModule(

@@ -83,4 +83,32 @@ public class LessonController {
         LessonDetailDTO lesson = lessonService.getLesson(lessonId);
         return ResponseEntity.ok(lesson);
     }
+
+    @GetMapping("/modules/{moduleId}/lessons/{lessonId}/next")
+    @Operation(summary = "Get next lesson in a module")
+    public ResponseEntity<LessonBriefDTO> getNextLesson(
+            @PathVariable @NotNull Long moduleId,
+            @PathVariable @NotNull Long lessonId) {
+        LessonBriefDTO next = lessonService.getNextLesson(moduleId, lessonId);
+        return ResponseEntity.ok(next);
+    }
+
+    @GetMapping("/modules/{moduleId}/lessons/{lessonId}/prev")
+    @Operation(summary = "Get previous lesson in a module")
+    public ResponseEntity<LessonBriefDTO> getPrevLesson(
+            @PathVariable @NotNull Long moduleId,
+            @PathVariable @NotNull Long lessonId) {
+        LessonBriefDTO prev = lessonService.getPreviousLesson(moduleId, lessonId);
+        return ResponseEntity.ok(prev);
+    }
+
+    @PutMapping("/modules/{moduleId}/lessons/{lessonId}/complete")
+    @Operation(summary = "Mark lesson as completed for a user")
+    public ResponseEntity<Void> completeLesson(
+            @PathVariable @NotNull Long moduleId,
+            @PathVariable @NotNull Long lessonId,
+            @RequestParam @NotNull Long userId) {
+        lessonService.markLessonCompleted(moduleId, lessonId, userId);
+        return ResponseEntity.noContent().build();
+    }
 }

@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.auth_service.dto.request.ResendOtpRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.VerifyEmailRequest;
 import com.exe.skillverse_backend.auth_service.dto.response.AuthResponse;
 import com.exe.skillverse_backend.auth_service.dto.response.RegistrationResponse;
+import com.exe.skillverse_backend.auth_service.dto.request.GoogleAuthRequest;
 import com.exe.skillverse_backend.auth_service.service.AuthService;
 import com.exe.skillverse_backend.auth_service.service.EmailVerificationService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -82,7 +83,7 @@ public class AuthController {
             @ApiResponse(responseCode = "401", description = "Authentication failed", content = @Content)
     })
     public ResponseEntity<?> googleLogin(
-            @Valid @RequestBody com.exe.skillverse_backend.auth_service.dto.request.GoogleAuthRequest request) {
+            @Valid @RequestBody GoogleAuthRequest request) {
         try {
             AuthResponse response = authService.authenticateWithGoogle(request.getIdToken());
             return ResponseEntity.ok(response);

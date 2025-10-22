@@ -99,8 +99,8 @@ spring:
 
 jwt:
   secret: ${JWT_SECRET}
-  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION} # 1 hour in seconds
-  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION} # 24 hours in seconds
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:3600} # 1 hour in seconds
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:86400} # 24 hours in seconds
   refresh-pepper: ${JWT_REFRESH_PEPPER:skillverse-refresh-pepper}
 
 email:
