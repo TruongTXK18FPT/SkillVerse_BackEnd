@@ -116,6 +116,7 @@ jobs:
       JWT_ACCESS_TOKEN_EXPIRATION: ${{ secrets.JWT_ACCESS_TOKEN_EXPIRATION }}
       JWT_REFRESH_TOKEN_EXPIRATION: ${{ secrets.JWT_REFRESH_TOKEN_EXPIRATION }}
       JWT_REFRESH_PEPPER: ${{ secrets.JWT_REFRESH_PEPPER }}
+      JWT_ISSUER: ${{ secrets.JWT_ISSUER }}
 
       # Google OAuth2 Configuration
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
