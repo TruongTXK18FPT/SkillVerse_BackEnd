@@ -551,7 +551,7 @@ public class AuthService {
                                                 .primaryRole(PrimaryRole.USER)
                                                 .status(UserStatus.ACTIVE)
                                                 .isEmailVerified(true)
-                                                .authProvider(com.exe.skillverse_backend.auth_service.entity.AuthProvider.GOOGLE)
+                                                .authProvider(AuthProvider.GOOGLE)
                                                 .googleLinked(true) // ✅ Mark as Google-linked from start
                                                 .createdAt(java.time.LocalDateTime.now())
                                                 .updatedAt(java.time.LocalDateTime.now())
