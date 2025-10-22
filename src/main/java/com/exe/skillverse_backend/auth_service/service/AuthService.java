@@ -50,16 +50,16 @@ public class AuthService {
         private final EmailService emailService;
         private final GoogleTokenVerificationService googleTokenVerificationService;
 
-        @Value("${jwt.secret:mySecretKey}")
+        @Value("${jwt.secret}")
         private String jwtSecret;
 
-        @Value("${jwt.access-token-expiration:3600}") // 1 hour
+        @Value("${jwt.access-token-expiration}") // 1 hour
         private Long accessTokenExpiration;
 
-        @Value("${jwt.refresh-token-expiration:86400}") // 24 hours
+        @Value("${jwt.refresh-token-expiration}") // 24 hours
         private Long refreshTokenExpiration;
 
-        @Value("${jwt.refresh-pepper:skillverse-refresh-pepper}")
+        @Value("${jwt.refresh-pepper}")
         private String refreshPepper;
 
         @Transactional

@@ -33,8 +33,6 @@ public class CustomJwtDecoder implements JwtDecoder {
 
     @Value("${jwt.issuer:skillverse}")
     private String expectedIssuer;
-    @Value("${jwt.audience:}")
-    private String expectedAudience; // optional
 
     // allow small clock skew
     private static final Duration CLOCK_SKEW = Duration.ofSeconds(60);
@@ -87,14 +85,6 @@ public class CustomJwtDecoder implements JwtDecoder {
             if (expectedIssuer != null && !expectedIssuer.isEmpty()) {
                 if (issuer == null || !expectedIssuer.equals(issuer)) {
                     throw new JwtException("Invalid token issuer");
-                }
-            }
-
-            // Optional audience check
-            if (expectedAudience != null && !expectedAudience.isEmpty()) {
-                var audiences = signedJWT.getJWTClaimsSet().getAudience();
-                if (audiences == null || audiences.stream().noneMatch(a -> expectedAudience.equals(a))) {
-                    throw new JwtException("Invalid token audience");
                 }
             }
 
