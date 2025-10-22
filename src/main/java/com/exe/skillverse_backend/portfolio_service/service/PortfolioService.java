@@ -62,7 +62,6 @@ public class PortfolioService {
         
         // Create new extended profile
         PortfolioExtendedProfile extendedProfile = PortfolioExtendedProfile.builder()
-                .userId(userId)
                 .user(user)
                 .build();
 
@@ -715,6 +714,37 @@ public class PortfolioService {
                 .createdAt(review.getCreatedAt())
                 .updatedAt(review.getUpdatedAt())
                 .build();
+    }
+
+    @Transactional
+    public GeneratedCVDTO setActiveCV(Long userId, Long cvId) {
+        // Deactivate previous active CVs
+        cvRepository.findByUserIdAndIsActiveTrue(userId).ifPresent(oldCv -> {
+            oldCv.setIsActive(false);
+            cvRepository.save(oldCv);
+        });
+
+        // Set new CV as active
+        GeneratedCV newActiveCv = cvRepository.findById(cvId)
+                .orElseThrow(() -> new RuntimeException("CV not found: " + cvId));
+        if (!newActiveCv.getUser().getId().equals(userId)) {
+            throw new RuntimeException("Unauthorized to set this CV as active");
+        }
+        newActiveCv.setIsActive(true);
+        newActiveCv = cvRepository.save(newActiveCv);
+        return mapToCVDTO(newActiveCv);
+    }
+
+    @Transactional
+    public void deleteCV(Long cvId, Long userId) {
+        GeneratedCV cv = cvRepository.findById(cvId)
+                .orElseThrow(() -> new RuntimeException("CV not found: " + cvId));
+        
+        if (!cv.getUser().getId().equals(userId)) {
+            throw new RuntimeException("Unauthorized to delete this CV");
+        }
+        
+        cvRepository.delete(cv);
     }
 
     private GeneratedCVDTO mapToCVDTO(GeneratedCV cv) {

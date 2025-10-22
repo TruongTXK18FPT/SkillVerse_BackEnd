@@ -3,12 +3,15 @@ package com.exe.skillverse_backend.portfolio_service.service;
 import com.exe.skillverse_backend.portfolio_service.dto.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.HttpClientErrorException;
 
 import java.util.HashMap;
 import java.util.List;
@@ -29,7 +32,9 @@ public class CVGeneratorAIService {
     private String model;
 
     private final RestTemplate restTemplate = new RestTemplate();
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     /**
      * Generate CV content using Mistral AI based on user's portfolio data
@@ -50,7 +55,6 @@ public class CVGeneratorAIService {
             headers.setBearerAuth(mistralApiKey);
 
             Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", model);
             requestBody.put("messages", List.of(
                     Map.of("role", "system", "content", "You are an expert CV writer and career consultant. Create professional, well-structured CVs in HTML format with excellent formatting and design."),
                     Map.of("role", "user", "content", prompt)
@@ -58,22 +62,60 @@ public class CVGeneratorAIService {
             requestBody.put("temperature", 0.7);
             requestBody.put("max_tokens", 4000);
 
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-            ResponseEntity<String> response = restTemplate.exchange(
-                    mistralApiUrl,
-                    HttpMethod.POST,
-                    entity,
-                    String.class
-            );
+            // Try with primary model, retry on 429, then fallback once
+            String[] modelsToTry = new String[] { model, "mistral-small-latest" };
+            for (int m = 0; m < modelsToTry.length; m++) {
+                String currentModel = modelsToTry[m];
+                requestBody.put("model", currentModel);
 
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                JsonNode jsonResponse = objectMapper.readTree(response.getBody());
-                String cvContent = jsonResponse.at("/choices/0/message/content").asText();
-                log.info("CV generated successfully for user: {}", profile.getUserId());
-                return cvContent;
-            } else {
-                throw new RuntimeException("Failed to generate CV: " + response.getStatusCode());
+                int maxAttempts = 3;
+                for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+                    try {
+                        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+                        ResponseEntity<String> response = restTemplate.exchange(
+                                mistralApiUrl,
+                                HttpMethod.POST,
+                                entity,
+                                String.class
+                        );
+
+                        if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                            JsonNode jsonResponse = objectMapper.readTree(response.getBody());
+                            String cvContent = jsonResponse.at("/choices/0/message/content").asText();
+                            log.info("CV generated successfully for user: {} with model {}", profile.getUserId(), currentModel);
+                            return cvContent;
+                        }
+
+                        log.warn("Mistral response not OK ({}), attempt {}/{} with model {}", response.getStatusCode(), attempt, maxAttempts, currentModel);
+                    } catch (HttpClientErrorException e) {
+                        if (e.getStatusCode() == HttpStatus.TOO_MANY_REQUESTS) {
+                            long backoffMs = (long) (1000L * Math.pow(2, attempt - 1));
+                            log.warn("429 from Mistral (model {}), backing off {} ms, attempt {}/{}", currentModel, backoffMs, attempt, maxAttempts);
+                            try {
+                                Thread.sleep(backoffMs);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                            }
+                            continue; // retry
+                        }
+                        // Other 4xx/5xx -> do not retry endlessly
+                        throw e;
+                    } catch (Exception ex) {
+                        // Transient network errors: brief retry
+                        long backoffMs = (long) (800L * Math.pow(2, attempt - 1));
+                        log.warn("Transient error calling Mistral (model {}): {}. Backoff {} ms, attempt {}/{}", currentModel, ex.getMessage(), backoffMs, attempt, maxAttempts);
+                        try {
+                            Thread.sleep(backoffMs);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }
+
+                log.warn("Exhausted retries for model {}.{}", currentModel, (m < modelsToTry.length - 1 ? " Trying fallback model..." : ""));
             }
+
+            throw new RuntimeException("Failed to generate CV after retries and fallback model");
 
         } catch (Exception e) {
             log.error("Error generating CV with Mistral AI", e);

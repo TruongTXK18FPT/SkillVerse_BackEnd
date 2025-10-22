@@ -499,4 +499,49 @@ public class PortfolioController {
             ));
         }
     }
+
+    @PutMapping("/cv/{cvId}/set-active")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Set CV as active", description = "Set a specific CV as the active one for the user")
+    public ResponseEntity<?> setActiveCV(
+            @PathVariable Long cvId,
+            Authentication authentication) {
+        try {
+            Long userId = Long.parseLong(authentication.getName());
+            GeneratedCVDTO cv = portfolioService.setActiveCV(userId, cvId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "CV set as active successfully",
+                    "data", cv
+            ));
+        } catch (Exception e) {
+            log.error("Error setting CV as active", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", "Failed to set CV as active: " + e.getMessage()
+            ));
+        }
+    }
+
+    @DeleteMapping("/cv/{cvId}")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Delete CV", description = "Delete a specific CV")
+    public ResponseEntity<?> deleteCV(
+            @PathVariable Long cvId,
+            Authentication authentication) {
+        try {
+            Long userId = Long.parseLong(authentication.getName());
+            portfolioService.deleteCV(cvId, userId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "CV deleted successfully"
+            ));
+        } catch (Exception e) {
+            log.error("Error deleting CV", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", "Failed to delete CV: " + e.getMessage()
+            ));
+        }
+    }
 }
