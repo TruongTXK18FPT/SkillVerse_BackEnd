@@ -59,7 +59,7 @@ public class AuthService {
         @Value("${jwt.refresh-token-expiration}") // 24 hours
         private Long refreshTokenExpiration;
 
-        @Value("${jwt.refresh-pepper}")
+        @Value("${jwt.refresh-pepper:skillverse-refresh-pepper}")
         private String refreshPepper;
 
         @Transactional
