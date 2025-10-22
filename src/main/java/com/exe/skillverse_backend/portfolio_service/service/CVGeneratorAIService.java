@@ -54,9 +54,12 @@ public class CVGeneratorAIService {
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(mistralApiKey);
 
+            // Enhanced system prompt with template-specific design guidelines
+            String systemPrompt = buildSystemPrompt(request.getTemplateName());
+
             Map<String, Object> requestBody = new HashMap<>();
             requestBody.put("messages", List.of(
-                    Map.of("role", "system", "content", "You are an expert CV writer and career consultant. Create professional, well-structured CVs in HTML format with excellent formatting and design."),
+                    Map.of("role", "system", "content", systemPrompt),
                     Map.of("role", "user", "content", prompt)
             ));
             requestBody.put("temperature", 0.7);
@@ -120,6 +123,170 @@ public class CVGeneratorAIService {
         } catch (Exception e) {
             log.error("Error generating CV with Mistral AI", e);
             throw new RuntimeException("Failed to generate CV: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Build template-specific system prompt with design guidelines
+     */
+    private String buildSystemPrompt(String templateName) {
+        String basePrompt = "You are an expert CV writer and career consultant. Create professional, well-structured CVs in HTML format with excellent formatting and design.\n\n";
+        
+        if (templateName == null || templateName.isEmpty()) {
+            templateName = "professional"; // Default
+        }
+        
+        switch (templateName.toLowerCase()) {
+            case "professional":
+                return basePrompt + """
+                    📘 PROFESSIONAL TEMPLATE DESIGN GUIDELINES:
+                    
+                    COLOR SCHEME:
+                    - Primary: Navy Blue (#1e3a8a) for headers and accents
+                    - Secondary: Light Blue (#3b82f6) for section dividers
+                    - Text: Dark Gray (#1f2937) for body text
+                    - Background: White (#ffffff) with subtle gray sections (#f9fafb)
+                    - Accent: Gold (#d97706) for highlights and achievements
+                    
+                    LAYOUT:
+                    - Two-column layout: Left sidebar (30%) for contact/skills, Right (70%) for experience
+                    - Professional header with name in large, bold font (32px)
+                    - Clear section dividers with horizontal lines
+                    - Consistent spacing: 20px between sections, 12px between items
+                    - Use serif font (Georgia, Times New Roman) for headings
+                    - Use sans-serif font (Arial, Helvetica) for body text
+                    
+                    STRUCTURE:
+                    1. Header: Name, title, contact bar at top with icons
+                    2. Left Sidebar: Photo placeholder, skills with progress bars, languages, contact details
+                    3. Right Content: Professional summary, experience (reverse chronological), education, certifications
+                    4. Footer: References available upon request
+                    
+                    STYLING:
+                    - Box shadows for depth: 0 2px 4px rgba(0,0,0,0.1)
+                    - Rounded corners: 8px for containers
+                    - Bold section titles (18px, uppercase, letter-spacing: 1px)
+                    - Use bullet points (•) for lists
+                    - Add subtle background patterns in sidebar
+                    """;
+                
+            case "minimal":
+                return basePrompt + """
+                    ⚪ MINIMAL TEMPLATE DESIGN GUIDELINES:
+                    
+                    COLOR SCHEME:
+                    - Primary: Pure Black (#000000) for all text
+                    - Secondary: Medium Gray (#6b7280) for dates and secondary info
+                    - Background: Pure White (#ffffff)
+                    - Accent: Single line color - Charcoal (#374151) for dividers only
+                    - NO other colors, keep it monochrome and clean
+                    
+                    LAYOUT:
+                    - Single-column, left-aligned layout for maximum readability
+                    - Generous white space: 40px margins, 30px between sections
+                    - Name at top-left in large, thin font (36px, font-weight: 300)
+                    - Minimalist section headers (14px, uppercase, thin font weight)
+                    - Clean, thin horizontal lines (1px) to separate sections
+                    - Use only Helvetica Neue or Arial font family (light/regular weights)
+                    
+                    STRUCTURE:
+                    1. Header: Name + title in minimal style (no borders, no backgrounds)
+                    2. Contact: Single line with email, phone, location (separated by |)
+                    3. Summary: 2-3 lines, italic, gray text
+                    4. Experience: Title - Company - Date (no bullets, simple paragraphs)
+                    5. Education & Certifications: Inline format
+                    6. Skills: Comma-separated list, no progress bars
+                    
+                    STYLING:
+                    - NO shadows, NO borders, NO background colors
+                    - NO icons, NO graphics, NO decorative elements
+                    - Line height: 1.8 for maximum readability
+                    - Font sizes: 36px (name), 14px (headers), 11px (body)
+                    - Use thin divider lines (border-top: 1px solid #e5e7eb)
+                    - Keep it ultra-clean and Scandinavian-inspired
+                    """;
+                
+            case "modern":
+                return basePrompt + """
+                    🎨 MODERN TEMPLATE DESIGN GUIDELINES:
+                    
+                    COLOR SCHEME:
+                    - Primary: Vibrant Purple (#8b5cf6) for headers and key elements
+                    - Secondary: Cyan/Teal (#06b6d4) for accents and highlights
+                    - Tertiary: Coral (#f59e0b) for achievements and metrics
+                    - Text: Near-black (#0f172a) for readability
+                    - Background: White (#ffffff) with colorful gradient sections
+                    - Sidebar: Gradient background (linear-gradient: #8b5cf6 to #06b6d4)
+                    
+                    LAYOUT:
+                    - Asymmetric three-section layout: Thin left accent bar (5%), Main sidebar (25%), Content (70%)
+                    - Bold, large name (40px, font-weight: 700) with gradient text effect
+                    - Floating section cards with shadows
+                    - Modern, clean spacing: 24px between sections
+                    - Use modern sans-serif fonts (Inter, Poppins, or Montserrat)
+                    - Gradient backgrounds for skill badges
+                    
+                    STRUCTURE:
+                    1. Header: Full-width with gradient background, name + animated title
+                    2. Left Accent: Vertical color bar with year milestones
+                    3. Sidebar: Photo, skills with circular progress indicators, social media icons
+                    4. Content: Experience cards with hover effects, project showcases with thumbnails
+                    5. Floating achievement badges
+                    
+                    STYLING:
+                    - Card-based design with box-shadows: 0 4px 6px rgba(0,0,0,0.1)
+                    - Gradient buttons and badges: linear-gradient(135deg, #8b5cf6, #06b6d4)
+                    - Rounded corners: 12px for cards, 24px for buttons
+                    - Use CSS Grid and Flexbox for modern layouts
+                    - Add subtle animations: transition: all 0.3s ease
+                    - Icon integration for contact, skills, and social media
+                    - Color-coded skill categories (Frontend: purple, Backend: cyan, Design: coral)
+                    """;
+                
+            case "creative":
+                return basePrompt + """
+                    🎭 CREATIVE TEMPLATE DESIGN GUIDELINES:
+                    
+                    COLOR SCHEME:
+                    - Primary: Vibrant Magenta (#ec4899) for bold statements
+                    - Secondary: Electric Blue (#3b82f6) for creative flair
+                    - Tertiary: Sunny Yellow (#fbbf24) for energy and highlights
+                    - Quaternary: Lime Green (#84cc16) for growth metrics
+                    - Text: Deep Purple (#581c87) instead of black for personality
+                    - Background: Cream (#fef3c7) with colorful geometric shapes
+                    
+                    LAYOUT:
+                    - Unique magazine-style layout with overlapping elements
+                    - Asymmetric grid with varying column widths
+                    - Large, artistic name (48px) with creative typography (handwriting or display font)
+                    - Colorful section headers with decorative shapes (circles, triangles, waves)
+                    - Use display fonts (Playfair Display, Bebas Neue) for headers
+                    - Use readable sans-serif (Open Sans) for body
+                    - Infographic-style data visualization for skills and achievements
+                    
+                    STRUCTURE:
+                    1. Hero Section: Full-width with creative background pattern, name in artistic font
+                    2. Profile Photo: Circular with colorful border or geometric frame
+                    3. Skills: Visual infographic with icons, charts, and percentages
+                    4. Experience: Timeline format with colorful nodes and connecting lines
+                    5. Projects: Grid gallery with colorful overlay on hover
+                    6. Sidebar: Floating colorful boxes with achievements and stats
+                    
+                    STYLING:
+                    - Bold, overlapping sections with z-index layering
+                    - Colorful geometric shapes as background elements (SVG patterns)
+                    - Large drop shadows: 0 10px 25px rgba(0,0,0,0.15)
+                    - Mix of rounded (24px) and sharp corners for contrast
+                    - Colorful tags and badges for skills (each skill = different color)
+                    - Use gradients liberally: radial-gradient, conic-gradient
+                    - Add decorative elements: dots, lines, shapes, icons
+                    - Timeline visualization with colorful connecting lines
+                    - Percentage bars with gradient fills and animations
+                    - Creative section dividers (zigzag, waves, geometric patterns)
+                    """;
+                
+            default:
+                return basePrompt + "Create a well-formatted, professional CV in HTML format.";
         }
     }
 
@@ -303,16 +470,21 @@ public class CVGeneratorAIService {
             prompt.append(request.getAdditionalInstructions()).append("\n");
         }
 
-        prompt.append("\n\nGenerate a complete, professional CV in HTML format with:");
-        prompt.append("\n1. Modern, clean design with proper CSS styling");
-        prompt.append("\n2. Well-organized sections with clear headings");
-        prompt.append("\n3. Professional color scheme (subtle blues, grays)");
-        prompt.append("\n4. Responsive layout that looks good on all devices");
-        prompt.append("\n5. Print-friendly formatting");
-        prompt.append("\n6. Use professional fonts like Arial, Helvetica, or sans-serif");
-        prompt.append("\n7. Include all relevant information from the data provided");
-        prompt.append("\n8. Make it ATS (Applicant Tracking System) friendly");
-        prompt.append("\n\nReturn ONLY the complete HTML code, starting with <!DOCTYPE html>");
+        prompt.append("\n\n🎯 FINAL REQUIREMENTS:\n");
+        prompt.append("\n1. Follow the EXACT color scheme specified for the ").append(request.getTemplateName() != null ? request.getTemplateName().toUpperCase() : "PROFESSIONAL").append(" template");
+        prompt.append("\n2. Implement the layout structure as described in the template guidelines");
+        prompt.append("\n3. Use the specified fonts and typography styles");
+        prompt.append("\n4. Apply all styling details (shadows, borders, spacing, etc.)");
+        prompt.append("\n5. Make it responsive with CSS media queries for mobile devices");
+        prompt.append("\n6. Include print-friendly CSS (@media print rules)");
+        prompt.append("\n7. Use semantic HTML5 tags (header, section, article, aside)");
+        prompt.append("\n8. Add CSS for smooth visual experience with proper contrast ratios");
+        prompt.append("\n9. Include all candidate information from the data provided");
+        prompt.append("\n10. Ensure the design is unique and matches the template's personality");
+        prompt.append("\n\n⚠️ CRITICAL: Return ONLY the complete HTML code, starting with <!DOCTYPE html>");
+        prompt.append("\nInclude ALL CSS inline in a <style> tag within <head>.");
+        prompt.append("\nDo NOT include any markdown, explanations, or code fences - just pure HTML.");
+        prompt.append("\nThe HTML must be fully self-contained and ready to render immediately.");
 
         return prompt.toString();
     }
