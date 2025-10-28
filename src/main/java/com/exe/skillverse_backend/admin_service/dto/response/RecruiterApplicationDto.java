@@ -40,6 +40,18 @@ public class RecruiterApplicationDto {
     @Schema(description = "Company documents URL")
     private String companyDocumentsUrl;
 
+    @Schema(description = "Contact person phone number", example = "+84912345678")
+    private String contactPersonPhone;
+
+    @Schema(description = "Contact person position/title", example = "CEO")
+    private String contactPersonPosition;
+
+    @Schema(description = "Company size", example = "11-50")
+    private String companySize;
+
+    @Schema(description = "Industry/sector", example = "Information Technology")
+    private String industry;
+
     @Schema(description = "Application status", example = "PENDING")
     private ApplicationStatus applicationStatus;
 

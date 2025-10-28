@@ -459,6 +459,15 @@ public class AdminApprovalService {
                                 .companyDocumentsUrl(recruiter.getCompanyDocumentsUrl() != null
                                                 ? recruiter.getCompanyDocumentsUrl()
                                                 : "N/A")
+                                // Contact Person Information
+                                .contactPersonPhone(recruiter.getContactPersonPhone())
+                                .contactPersonPosition(recruiter.getContactPersonPosition() != null
+                                                ? recruiter.getContactPersonPosition()
+                                                : "N/A")
+                                // Company Extended Information
+                                .companySize(recruiter.getCompanySize() != null ? recruiter.getCompanySize() : "N/A")
+                                .industry(recruiter.getIndustry() != null ? recruiter.getIndustry() : "N/A")
+                                // Application Status
                                 .applicationStatus(recruiter.getApplicationStatus())
                                 .isEmailVerified(isEmailVerified)
                                 .userStatus(userStatus)

@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.shared.service.AuditService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
 import com.exe.skillverse_backend.shared.util.SecureAuditUtil;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,7 @@ public class BusinessRegistrationService
         private final UserCreationService userCreationService;
         private final RecruiterProfileRepository recruiterProfileRepository;
         private final AuditService auditService;
+        private final CloudinaryService cloudinaryService;
 
         @Override
         @Transactional
@@ -97,6 +99,10 @@ public class BusinessRegistrationService
                         String companyWebsite,
                         String companyAddress,
                         String taxCodeOrBusinessRegistrationNumber,
+                        String contactPersonPhone,
+                        String contactPersonPosition,
+                        String companySize,
+                        String industry,
                         MultipartFile companyDocumentsFile) {
 
                 try {
@@ -107,6 +113,7 @@ public class BusinessRegistrationService
                                         email, password, confirmPassword, fullName, phone, bio, address, region,
                                         companyName, companyWebsite, companyAddress,
                                         taxCodeOrBusinessRegistrationNumber,
+                                        contactPersonPhone, contactPersonPosition, companySize, industry,
                                         companyDocumentsFile);
 
                         // 2. Process registration using existing logic
@@ -135,6 +142,10 @@ public class BusinessRegistrationService
                         String companyWebsite,
                         String companyAddress,
                         String taxCodeOrBusinessRegistrationNumber,
+                        String contactPersonPhone,
+                        String contactPersonPosition,
+                        String companySize,
+                        String industry,
                         MultipartFile companyDocumentsFile) {
 
                 BusinessRegistrationRequest request = new BusinessRegistrationRequest();
@@ -150,17 +161,26 @@ public class BusinessRegistrationService
                 request.setCompanyWebsite(companyWebsite);
                 request.setCompanyAddress(companyAddress);
                 request.setTaxCodeOrBusinessRegistrationNumber(taxCodeOrBusinessRegistrationNumber);
+                request.setContactPersonPhone(contactPersonPhone);
+                request.setContactPersonPosition(contactPersonPosition);
+                request.setCompanySize(companySize);
+                request.setIndustry(industry);
 
-                // Handle file upload (business logic)
+                // Handle file upload using Cloudinary
                 if (companyDocumentsFile != null && !companyDocumentsFile.isEmpty()) {
-                        String docsUrl = "uploads/business/documents/" + email + "_"
-                                        + companyDocumentsFile.getOriginalFilename();
-                        request.setCompanyDocumentsUrl(docsUrl);
-                        log.info("Company documents file received: {} (size: {} bytes)",
-                                        companyDocumentsFile.getOriginalFilename(), companyDocumentsFile.getSize());
+                        try {
+                                log.info("Uploading company documents to Cloudinary for: {}", email);
+                                var uploadResult = cloudinaryService.uploadFile(companyDocumentsFile,
+                                                "company-documents");
+                                String cloudinaryUrl = (String) uploadResult.get("secure_url");
+                                request.setCompanyDocumentsUrl(cloudinaryUrl);
+                                log.info("Company documents uploaded successfully: {}", cloudinaryUrl);
+                        } catch (Exception e) {
+                                log.error("Failed to upload company documents to Cloudinary for: {}", email, e);
+                                throw new RuntimeException("Failed to upload company documents: " + e.getMessage());
+                        }
                 } else {
-                        // Set a placeholder URL if no file is provided (for testing)
-                        request.setCompanyDocumentsUrl("placeholder-company-docs-url");
+                        throw new RuntimeException("Company documents file is required");
                 }
 
                 return request;
@@ -177,12 +197,20 @@ public class BusinessRegistrationService
                                 .companyAddress(request.getCompanyAddress())
                                 .taxCodeOrBusinessRegistrationNumber(request.getTaxCodeOrBusinessRegistrationNumber())
                                 .companyDocumentsUrl(request.getCompanyDocumentsUrl())
+                                // Contact Person Information
+                                .contactPersonPhone(request.getContactPersonPhone())
+                                .contactPersonPosition(request.getContactPersonPosition())
+                                // Company Extended Information
+                                .companySize(request.getCompanySize())
+                                .industry(request.getIndustry())
+                                // Application Status
                                 .applicationStatus(ApplicationStatus.PENDING)
                                 .applicationDate(LocalDateTime.now())
                                 .build();
 
                 recruiterProfileRepository.save(recruiterProfile);
-                log.info("Created recruiter profile for user: {} with company: {}", user.getId(),
-                                request.getCompanyName());
+                log.info("Created recruiter profile for user: {} with company: {}, position: {}, size: {}, industry: {}",
+                                user.getId(), request.getCompanyName(), request.getContactPersonPosition(),
+                                request.getCompanySize(), request.getIndustry());
         }
 }

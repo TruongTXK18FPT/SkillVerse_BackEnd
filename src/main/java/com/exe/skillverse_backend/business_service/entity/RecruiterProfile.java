@@ -42,6 +42,20 @@ public class RecruiterProfile {
     @Column(name = "company_documents_url", nullable = false)
     private String companyDocumentsUrl; // URL to uploaded company documents
 
+    // Contact Person Information
+    @Column(name = "contact_person_phone", length = 20)
+    private String contactPersonPhone; // Optional - can be null
+
+    @Column(name = "contact_person_position", nullable = false, length = 100)
+    private String contactPersonPosition; // Position/Title (e.g., CEO, HR Manager)
+
+    // Company Extended Information
+    @Column(name = "company_size", nullable = false, length = 50)
+    private String companySize; // Company size (e.g., "1-10", "11-50", "51-200", "200+")
+
+    @Column(name = "industry", nullable = false, length = 200)
+    private String industry; // Industry/Sector (e.g., "IT", "Education", "Healthcare")
+
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "application_status", nullable = false)

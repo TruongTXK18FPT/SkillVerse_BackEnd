@@ -48,6 +48,10 @@ public class BusinessRegistrationController {
             @RequestParam("companyWebsite") String companyWebsite,
             @RequestParam("companyAddress") String companyAddress,
             @RequestParam("taxCodeOrBusinessRegistrationNumber") String taxCodeOrBusinessRegistrationNumber,
+            @RequestParam(value = "contactPersonPhone", required = false) String contactPersonPhone,
+            @RequestParam("contactPersonPosition") String contactPersonPosition,
+            @RequestParam("companySize") String companySize,
+            @RequestParam("industry") String industry,
             @RequestParam(value = "companyDocumentsFile", required = false) MultipartFile companyDocumentsFile) {
         try {
             log.info("Processing business registration for email: {}", email);
@@ -56,6 +60,7 @@ public class BusinessRegistrationController {
             BusinessRegistrationResponse response = businessRegistrationService.registerBusiness(
                     email, password, confirmPassword, fullName, phone, bio, address, region,
                     companyName, companyWebsite, companyAddress, taxCodeOrBusinessRegistrationNumber,
+                    contactPersonPhone, contactPersonPosition, companySize, industry,
                     companyDocumentsFile);
 
             log.info("Business registration successful for email: {}", email);
