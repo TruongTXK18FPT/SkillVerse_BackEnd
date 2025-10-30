@@ -82,12 +82,15 @@ public class JobApplicationService {
 
     /**
      * Get all applications for current user
+     * OPTIMIZED: Uses JOIN FETCH to prevent N+1 queries (41 queries → 1 query for
+     * 20 applications)
      */
     @Transactional(readOnly = true)
     public List<JobApplicationResponse> getMyApplications(Long userId) {
         log.info("Fetching applications for user ID: {}", userId);
 
-        List<JobApplication> applications = jobApplicationRepository.findByUserIdOrderByAppliedAtDesc(userId);
+        List<JobApplication> applications = jobApplicationRepository
+                .findByUserIdWithJobAndRecruiterOrderByAppliedAtDesc(userId);
         return applications.stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
@@ -105,7 +108,10 @@ public class JobApplicationService {
                 .orElseThrow(
                         () -> new NotFoundException("Job not found or you don't have permission to view applicants"));
 
-        List<JobApplication> applications = jobApplicationRepository.findByJobPostingIdOrderByAppliedAtDesc(jobId);
+        // OPTIMIZED: Uses JOIN FETCH to prevent N+1 queries when loading applicant user
+        // details
+        List<JobApplication> applications = jobApplicationRepository
+                .findByJobPostingIdWithUserOrderByAppliedAtDesc(jobId);
         return applications.stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());

@@ -32,6 +32,7 @@ public class JobPostingResponse {
     // Recruiter information
     private String recruiterCompanyName;
     private String recruiterEmail;
+    private Long recruiterUserId; // For checking if current user owns this job
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

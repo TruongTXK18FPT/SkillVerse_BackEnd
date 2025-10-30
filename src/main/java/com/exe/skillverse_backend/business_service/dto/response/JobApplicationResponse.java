@@ -28,7 +28,7 @@ public class JobApplicationResponse {
     private String rejectionReason;
     private LocalDateTime reviewedAt;
     private LocalDateTime processedAt;
-    
+
     // Job details for user's application view
     private String recruiterCompanyName;
     private BigDecimal minBudget;

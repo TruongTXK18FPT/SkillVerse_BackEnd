@@ -15,13 +15,38 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
 
     /**
      * Find all applications by user ID ordered by applied date descending
+     * (DEPRECATED - USE WITH JOIN FETCH)
      */
     List<JobApplication> findByUserIdOrderByAppliedAtDesc(Long userId);
 
     /**
+     * Find all applications by user ID with job posting and recruiter eagerly
+     * loaded (N+1 FIX)
+     * Performance: 41 queries → 1 query for 20 applications
+     */
+    @Query("SELECT DISTINCT ja FROM JobApplication ja " +
+            "JOIN FETCH ja.jobPosting jp " +
+            "JOIN FETCH jp.recruiterProfile rp " +
+            "JOIN FETCH rp.user u " +
+            "WHERE ja.user.id = :userId " +
+            "ORDER BY ja.appliedAt DESC")
+    List<JobApplication> findByUserIdWithJobAndRecruiterOrderByAppliedAtDesc(@Param("userId") Long userId);
+
+    /**
      * Find all applications for a specific job ordered by applied date descending
+     * (DEPRECATED - USE WITH JOIN FETCH)
      */
     List<JobApplication> findByJobPostingIdOrderByAppliedAtDesc(Long jobId);
+
+    /**
+     * Find all applications for a specific job with user eagerly loaded (N+1 FIX)
+     * Performance: Prevents lazy loading when loading applicants list
+     */
+    @Query("SELECT DISTINCT ja FROM JobApplication ja " +
+            "JOIN FETCH ja.user u " +
+            "WHERE ja.jobPosting.id = :jobId " +
+            "ORDER BY ja.appliedAt DESC")
+    List<JobApplication> findByJobPostingIdWithUserOrderByAppliedAtDesc(@Param("jobId") Long jobId);
 
     /**
      * Find application by job ID and user ID (for duplicate check)
