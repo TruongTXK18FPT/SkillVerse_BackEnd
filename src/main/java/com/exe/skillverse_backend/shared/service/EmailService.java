@@ -211,4 +211,166 @@ public class EmailService {
                 """
                 .formatted(name, role.toLowerCase(), reasonText);
     }
+
+    // ==================== JOB APPLICATION EMAILS ====================
+
+    /**
+     * Send email when application status is marked as REVIEWED
+     */
+    public void sendJobApplicationReviewed(String email, String fullName, String jobTitle) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(email);
+            message.setSubject("Your Job Application Has Been Reviewed - SkillVerse");
+            message.setText(buildJobApplicationReviewedContent(fullName, jobTitle));
+
+            mailSender.send(message);
+
+            log.info("👀 EMAIL SERVICE: Application reviewed email sent successfully to {} for job: {}", email,
+                    jobTitle);
+
+        } catch (Exception e) {
+            log.error("❌ Failed to send application reviewed email to {}: {}", email, e.getMessage());
+            // Fallback to console logging
+            log.info("👀 [FALLBACK] EMAIL SERVICE: Sending application reviewed email to {} for job: {}", email,
+                    jobTitle);
+            log.info("📧 Subject: Your Job Application Has Been Reviewed - SkillVerse");
+            log.info("📝 Your application for '{}' has been reviewed by the recruiter", jobTitle);
+            log.info("✉️  [SIMULATED] Application reviewed email sent successfully to {}", email);
+        }
+    }
+
+    /**
+     * Send email when application is ACCEPTED with custom message
+     */
+    public void sendJobApplicationAccepted(String email, String fullName, String jobTitle, String acceptanceMessage) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(email);
+            message.setSubject("🎉 Congratulations! Your Job Application Has Been Accepted - SkillVerse");
+            message.setText(buildJobApplicationAcceptedContent(fullName, jobTitle, acceptanceMessage));
+
+            mailSender.send(message);
+
+            log.info("🎉 EMAIL SERVICE: Application accepted email sent successfully to {} for job: {}", email,
+                    jobTitle);
+
+        } catch (Exception e) {
+            log.error("❌ Failed to send application accepted email to {}: {}", email, e.getMessage());
+            // Fallback to console logging
+            log.info("🎉 [FALLBACK] EMAIL SERVICE: Sending application accepted email to {} for job: {}", email,
+                    jobTitle);
+            log.info("📧 Subject: Congratulations! Your Job Application Has Been Accepted - SkillVerse");
+            log.info("📝 Your application for '{}' has been accepted!", jobTitle);
+            log.info("💌 Message: {}", acceptanceMessage);
+            log.info("✉️  [SIMULATED] Application accepted email sent successfully to {}", email);
+        }
+    }
+
+    /**
+     * Send email when application is REJECTED with reason
+     */
+    public void sendJobApplicationRejected(String email, String fullName, String jobTitle, String rejectionReason) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(email);
+            message.setSubject("Job Application Update - SkillVerse");
+            message.setText(buildJobApplicationRejectedContent(fullName, jobTitle, rejectionReason));
+
+            mailSender.send(message);
+
+            log.info("📧 EMAIL SERVICE: Application rejected email sent successfully to {} for job: {}", email,
+                    jobTitle);
+
+        } catch (Exception e) {
+            log.error("❌ Failed to send application rejected email to {}: {}", email, e.getMessage());
+            // Fallback to console logging
+            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending application rejected email to {} for job: {}", email,
+                    jobTitle);
+            log.info("📧 Subject: Job Application Update - SkillVerse");
+            log.info("📝 Your application for '{}' has been reviewed", jobTitle);
+            log.info("✉️  [SIMULATED] Application rejected email sent successfully to {}", email);
+        }
+    }
+
+    private String buildJobApplicationReviewedContent(String name, String jobTitle) {
+        return """
+                Dear %s,
+
+                Thank you for your application on SkillVerse!
+
+                We're writing to let you know that the recruiter has reviewed your application for the position:
+
+                📋 Job: %s
+
+                Your application is now under consideration. The recruiter will reach out to you soon with further updates regarding the next steps in the hiring process.
+
+                You can check your application status anytime by logging into your SkillVerse account.
+
+                Thank you for your patience and interest in this opportunity!
+
+                Best regards,
+                The SkillVerse Team
+                """
+                .formatted(name, jobTitle);
+    }
+
+    private String buildJobApplicationAcceptedContent(String name, String jobTitle, String acceptanceMessage) {
+        return """
+                Dear %s,
+
+                Congratulations! 🎉
+
+                We're thrilled to inform you that your application for the following position has been ACCEPTED:
+
+                📋 Job: %s
+
+                The recruiter has sent you the following message:
+
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                %s
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                Please follow the instructions provided by the recruiter to proceed with the next steps.
+
+                If you have any questions, feel free to reply to this email or contact the recruiter directly using the information provided in their message.
+
+                Congratulations once again, and we wish you all the best!
+
+                Best regards,
+                The SkillVerse Team
+                """
+                .formatted(name, jobTitle, acceptanceMessage);
+    }
+
+    private String buildJobApplicationRejectedContent(String name, String jobTitle, String rejectionReason) {
+        String reasonText = rejectionReason != null && !rejectionReason.trim().isEmpty()
+                ? "\n\nFeedback from recruiter:\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" + rejectionReason
+                        + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                : "";
+
+        return """
+                Dear %s,
+
+                Thank you for your interest and for applying to the following position on SkillVerse:
+
+                📋 Job: %s
+
+                After careful consideration, we regret to inform you that the recruiter has decided not to move forward with your application at this time.%s
+
+                This decision doesn't reflect on your qualifications or skills. We encourage you to:
+                • Continue building your profile on SkillVerse
+                • Apply to other job opportunities that match your expertise
+                • Connect with mentors to enhance your skills
+
+                We appreciate your interest and wish you the best of luck in your job search!
+
+                Best regards,
+                The SkillVerse Team
+                """
+                .formatted(name, jobTitle, reasonText);
+    }
 }
