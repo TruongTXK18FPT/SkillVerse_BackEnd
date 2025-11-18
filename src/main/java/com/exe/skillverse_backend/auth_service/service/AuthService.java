@@ -384,7 +384,7 @@ public class AuthService {
 
         public String buildScope(User user) {
                 return user.getRoles().stream()
-                                .map(Role::getName)
+                                .map(role -> "ROLE_" + role.getName())
                                 .collect(Collectors.joining(" "));
         }
 

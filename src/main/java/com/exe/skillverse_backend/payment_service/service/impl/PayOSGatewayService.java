@@ -58,10 +58,21 @@ public class PayOSGatewayService implements PaymentGatewayService {
             String digitsOnly = transaction.getInternalReference().replaceAll("\\D+", "");
             String lastNine = digitsOnly.length() >= 9 ? digitsOnly.substring(digitsOnly.length() - 9) : digitsOnly;
             int orderCode = Integer.parseInt(lastNine);
+            String description = transaction.getDescription() != null 
+                ? transaction.getDescription() 
+                : "Payment for order " + transaction.getInternalReference();
+            
             paymentRequest.put("orderCode", orderCode);
             paymentRequest.put("amount", transaction.getAmount().intValue());
-            paymentRequest.put("description", transaction.getDescription());
+            paymentRequest.put("description", description);
             paymentRequest.put("items", createPaymentItems(transaction));
+            
+            // Validate required URLs
+            if (successUrl == null || cancelUrl == null) {
+                log.error("Missing required URLs: successUrl={} cancelUrl={}", successUrl, cancelUrl);
+                throw new IllegalArgumentException("successUrl and cancelUrl are required for PayOS payment");
+            }
+            
             paymentRequest.put("returnUrl", successUrl);
             paymentRequest.put("cancelUrl", cancelUrl);
 
@@ -94,6 +105,7 @@ public class PayOSGatewayService implements PaymentGatewayService {
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(paymentRequest, headers);
             String apiUrl = payOSProperties.getBaseUrl() + "/v2/payment-requests";
 
+            log.info("Calling PayOS API: {} with orderCode: {}", apiUrl, orderCode);
             ResponseEntity<Map> response = restTemplate.postForEntity(apiUrl, request, Map.class);
 
             if ((response.getStatusCode() == HttpStatus.OK || response.getStatusCode() == HttpStatus.CREATED)
@@ -121,6 +133,9 @@ public class PayOSGatewayService implements PaymentGatewayService {
                 throw new RuntimeException("Failed to create PayOS payment: " + response.getStatusCode());
             }
 
+        } catch (org.springframework.web.client.HttpClientErrorException | org.springframework.web.client.HttpServerErrorException e) {
+            log.error("PayOS API error: status={} body={}", e.getStatusCode(), e.getResponseBodyAsString());
+            throw new RuntimeException("PayOS API error: " + e.getStatusCode() + " - " + e.getResponseBodyAsString(), e);
         } catch (Exception e) {
             log.error("Error creating PayOS payment: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to create PayOS payment", e);

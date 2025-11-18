@@ -8,8 +8,8 @@ import com.exe.skillverse_backend.payment_service.dto.response.PaymentTransactio
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.repository.PaymentTransactionRepository;
 import com.exe.skillverse_backend.payment_service.service.PaymentService;
-import com.exe.skillverse_backend.payment_service.service.impl.PayOSGatewayService;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
+import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -30,6 +30,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final UserRepository userRepository;
     private final PayOSGatewayService payOSGatewayService;
     private final PremiumService premiumService;
+    private final WalletService walletService;
 
     @Override
     @Transactional
@@ -168,8 +169,21 @@ public class PaymentServiceImpl implements PaymentService {
     public PaymentTransaction processPaymentCallback(String gatewayReference, String status, String metadata) {
         log.info("Processing payment callback for reference: {} with status: {}", gatewayReference, status);
 
-        PaymentTransaction transaction = paymentTransactionRepository.findByReferenceId(gatewayReference)
-                .orElseThrow(() -> new RuntimeException("Payment transaction not found: " + gatewayReference));
+        var transactionOpt = paymentTransactionRepository.findByReferenceId(gatewayReference);
+        if (transactionOpt.isEmpty()) {
+            // Check if this is a test webhook from PayOS (orderCode like "123", "456", etc.)
+            if (gatewayReference.matches("^\\d{1,3}$")) {
+                log.warn("⚠️ Ignoring test webhook from PayOS - orderCode: {}", gatewayReference);
+                throw new RuntimeException("Test webhook ignored: " + gatewayReference);
+            }
+            
+            log.error("❌ Payment transaction not found with referenceId: '{}'. Gateway status: {}", gatewayReference, status);
+            throw new RuntimeException("Payment transaction not found: " + gatewayReference);
+        }
+
+        PaymentTransaction transaction = transactionOpt.get();
+        log.info("✅ Found payment transaction - ID: {}, User: {}, Current Status: {}, Type: {}",
+            transaction.getId(), transaction.getUser().getId(), transaction.getStatus(), transaction.getType());
 
         PaymentTransaction.PaymentStatus newStatus = switch (status.toUpperCase()) {
             case "SUCCESS", "COMPLETED", "PAID" -> PaymentTransaction.PaymentStatus.COMPLETED;
@@ -177,6 +191,14 @@ public class PaymentServiceImpl implements PaymentService {
             case "CANCELLED" -> PaymentTransaction.PaymentStatus.CANCELLED;
             default -> PaymentTransaction.PaymentStatus.PENDING;
         };
+
+        // Idempotency: Check if already processed with same or better status
+        // to prevent duplicate wallet deposits and transaction creation
+        if (transaction.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED &&
+            newStatus == PaymentTransaction.PaymentStatus.COMPLETED) {
+            log.warn("⚠️ Callback already processed for payment: {} (status already COMPLETED). Ignoring duplicate.", gatewayReference);
+            return transaction;
+        }
 
         transaction.setStatus(newStatus);
         // Preserve original metadata that contains subscriptionId; don't overwrite with
@@ -210,6 +232,39 @@ public class PaymentServiceImpl implements PaymentService {
                         e.getMessage(), e);
                 // Don't fail the callback processing if subscription activation fails
             }
+        }
+        
+        // Handle wallet deposit if payment is completed and it's a wallet deposit
+        if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED &&
+                transaction.getType() == PaymentTransaction.PaymentType.WALLET_TOPUP) {
+
+            try {
+                log.info("💰 Processing wallet deposit - User: {}, Amount: {}, Reference: {}",
+                        transaction.getUser().getId(), transaction.getAmount(), transaction.getInternalReference());
+
+                walletService.depositCash(
+                        transaction.getUser().getId(),
+                        transaction.getAmount(),
+                        transaction.getInternalReference(),
+                        transaction.getDescription() != null ?
+                                transaction.getDescription() :
+                                "Nạp tiền qua PayOS"
+                );
+
+                log.info("✅ Successfully deposited {} VNĐ to wallet for user {}",
+                        transaction.getAmount(), transaction.getUser().getId());
+            } catch (Exception e) {
+                log.error("❌ Failed to deposit to wallet for payment {}: {}",
+                        transaction.getInternalReference(), e.getMessage(), e);
+                // Mark transaction as failed if wallet deposit fails
+                transaction.setStatus(PaymentTransaction.PaymentStatus.FAILED);
+                transaction.setFailureReason("Wallet deposit failed: " + e.getMessage());
+                paymentTransactionRepository.save(transaction);
+                throw new RuntimeException("Wallet deposit failed", e);
+            }
+        } else if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED) {
+            log.info("⚠️ Payment completed but not WALLET_TOPUP - Type: {}, User: {}",
+                transaction.getType(), transaction.getUser().getId());
         }
 
         return savedTransaction;
@@ -277,22 +332,62 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     @Override
+    @Transactional
     public boolean verifyPaymentWithGateway(String internalReference) {
-        log.info("Verifying payment with gateway: {}", internalReference);
+        log.info("🔍 Verifying payment with gateway: {}", internalReference);
 
         Optional<PaymentTransaction> transactionOpt = paymentTransactionRepository
                 .findByInternalReference(internalReference);
 
         if (transactionOpt.isEmpty()) {
-            log.warn("Payment transaction not found: {}", internalReference);
+            log.warn("❌ Payment transaction not found: {}", internalReference);
             return false;
         }
 
         PaymentTransaction transaction = transactionOpt.get();
 
-        // In a real implementation, you would call the payment gateway API here
-        // For now, we'll just check if the transaction exists and is completed
-        return transaction.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED;
+        // If already completed, no need to verify again
+        if (transaction.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED) {
+            log.info("✅ Payment already completed: {}", internalReference);
+            return true;
+        }
+
+        try {
+            // Verify with PayOS gateway using referenceId (orderCode)
+            if (transaction.getReferenceId() != null) {
+                log.info("🔄 Verifying with PayOS - orderCode: {}", transaction.getReferenceId());
+                PaymentTransaction.PaymentStatus gatewayStatus = payOSGatewayService.verifyPayment(transaction.getReferenceId());
+
+                log.info("📊 PayOS verification result - orderCode: {}, status: {}",
+                    transaction.getReferenceId(), gatewayStatus);
+
+                // If payment is completed on gateway, process it (only if not already processed)
+                if (gatewayStatus == PaymentTransaction.PaymentStatus.COMPLETED) {
+                    log.info("💰 Payment confirmed by PayOS, processing callback...");
+                    // Call processPaymentCallback only if status is still PENDING (idempotency check)
+                    // This prevents duplicate processing from webhook + verification race condition
+                    if (transaction.getStatus() == PaymentTransaction.PaymentStatus.PENDING) {
+                        processPaymentCallback(transaction.getReferenceId(), "PAID", null);
+                    } else {
+                        log.info("⚠️ Payment already processed (status: {}), skipping callback", transaction.getStatus());
+                    }
+                    return true;
+                } else if (gatewayStatus == PaymentTransaction.PaymentStatus.CANCELLED ||
+                           gatewayStatus == PaymentTransaction.PaymentStatus.FAILED) {
+                    // Update status if cancelled or failed
+                    transaction.setStatus(gatewayStatus);
+                    paymentTransactionRepository.save(transaction);
+                    log.info("⚠️ Payment status updated to: {}", gatewayStatus);
+                    return false;
+                }
+            }
+
+            return false;
+
+        } catch (Exception e) {
+            log.error("❌ Error verifying payment with gateway: {}", e.getMessage(), e);
+            return false;
+        }
     }
 
     private PaymentTransactionResponse convertToResponse(PaymentTransaction transaction) {

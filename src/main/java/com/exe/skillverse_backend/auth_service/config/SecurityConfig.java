@@ -44,11 +44,13 @@ public class SecurityConfig {
                         // Business service registration
                         "/api/business/register",
                         "/api/courses",
-                        "/api/courses/*",
-                        "/api/courses/by-author/*",
-                        "/api/v1/payments/callback/payos",
-                        // Meowl Chat Service (AI assistant - public access)
-                        "/api/v1/meowl/chat",
+                "/api/courses/*",
+                "/api/courses/by-author/*",
+                "/api/v1/payments/callback/payos",
+                "/api/payment/payos/webhook", // PayOS webhook (alternative endpoint)
+                "/api/payments/test/**", // Payment test endpoints (DEV ONLY)
+                // Meowl Chat Service (AI assistant - public access)
+                "/api/v1/meowl/chat",
                         "/api/v1/meowl/reminders/**",
                         "/api/v1/meowl/notifications/**",
                         "/api/v1/meowl/health"
@@ -116,7 +118,7 @@ public class SecurityConfig {
         @Bean
         JwtAuthenticationConverter jwtAuthenticationConverter() {
                 JwtGrantedAuthoritiesConverter jwtGrantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
-                jwtGrantedAuthoritiesConverter.setAuthorityPrefix(""); // No prefix - use role names directly
+                jwtGrantedAuthoritiesConverter.setAuthorityPrefix("ROLE_"); // Add ROLE_ prefix for @PreAuthorize("hasRole(...)")
                 jwtGrantedAuthoritiesConverter.setAuthoritiesClaimName("roles");
 
                 JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();

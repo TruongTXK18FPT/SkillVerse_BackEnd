@@ -64,6 +64,20 @@ public class PayOSWebhookController {
 
             String metadata = payload.toString(); // Store raw payload
 
+            // Validate orderCode before processing
+            if (orderCode == null || orderCode.equals("null") || orderCode.isEmpty()) {
+                log.error("PayOS webhook missing orderCode: {}", payload);
+                return ResponseEntity.badRequest().body(Map.of("error", "Missing orderCode"));
+            }
+            
+            // Ignore test webhooks from PayOS (orderCode like "123", "456", etc.)
+            if (orderCode.matches("^\\d{1,3}$")) {
+                log.warn("⚠️ Ignoring test webhook from PayOS - orderCode: {}", orderCode);
+                return ResponseEntity.ok(Map.of("message", "Test webhook ignored"));
+            }
+
+            log.info("Processing PayOS webhook - orderCode: {}, status: {}", orderCode, status);
+
             // Process the callback
             paymentService.processPaymentCallback(orderCode, status, metadata);
 
@@ -71,9 +85,16 @@ public class PayOSWebhookController {
             return ResponseEntity.ok(Map.of("message", "Webhook processed successfully"));
 
         } catch (Exception e) {
-            log.error("Error processing PayOS webhook: {}", e.getMessage(), e);
+            log.error("❌ Error processing PayOS webhook", e);
+            log.error("❌ Error details - Message: {}, Type: {}", e.getMessage(), e.getClass().getSimpleName());
+            log.error("❌ Payload that caused error: {}", payload);
+            
+            // Return error but don't expose internal details to PayOS
             return ResponseEntity.internalServerError()
-                    .body(Map.of("error", "Failed to process webhook"));
+                    .body(Map.of(
+                        "error", "Failed to process webhook",
+                        "message", e.getMessage() != null ? e.getMessage() : "Unknown error"
+                    ));
         }
     }
 }

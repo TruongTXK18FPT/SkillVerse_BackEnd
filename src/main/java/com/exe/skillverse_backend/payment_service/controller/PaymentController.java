@@ -79,6 +79,34 @@ public class PaymentController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @PostMapping("/verify/{internalReference}")
+    @Operation(summary = "Verify & sync payment with gateway", description = "Verify payment status with PayOS gateway and update local payment if necessary (fallback for webhook)")
+    public ResponseEntity<PaymentTransactionResponse> verifyPaymentWithGateway(
+            @PathVariable String internalReference) {
+
+        log.info(" Verifying payment with gateway for reference: {}", internalReference);
+        
+        try {
+            // Verify with gateway and update status
+            boolean verified = paymentService.verifyPaymentWithGateway(internalReference);
+            
+            if (verified) {
+                var paymentOpt = paymentService.getPaymentByReference(internalReference);
+                if (paymentOpt.isPresent()) {
+                    log.info(" Payment verified and updated - Status: {}", paymentOpt.get().getStatus());
+                    return ResponseEntity.ok(paymentOpt.get());
+                }
+            }
+            
+            log.warn(" Payment verification failed or not found: {}", internalReference);
+            return ResponseEntity.notFound().build();
+            
+        } catch (Exception e) {
+            log.error(" Error verifying payment: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
     @GetMapping("/transaction/id/{paymentId}")
     @Operation(summary = "Get payment by ID", description = "Get payment details by payment ID")
     public ResponseEntity<PaymentTransactionResponse> getPaymentById(
