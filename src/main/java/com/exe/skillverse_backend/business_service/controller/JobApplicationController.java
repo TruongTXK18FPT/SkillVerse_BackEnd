@@ -42,10 +42,9 @@ public class JobApplicationController {
 
     /**
      * GET /api/jobs/my-applications - Get all applications for current user
-     * Note: Both USER and RECRUITER can access (USER to see their applications, RECRUITER might accidentally check but will get empty list)
      */
     @GetMapping("/my-applications")
-    @PreAuthorize("hasAnyAuthority('USER', 'RECRUITER')")
+    @PreAuthorize("hasAuthority('USER')")
     public ResponseEntity<List<JobApplicationResponse>> getMyApplications(Authentication authentication) {
 
         Long userId = Long.parseLong(authentication.getName());
