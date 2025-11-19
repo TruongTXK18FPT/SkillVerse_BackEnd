@@ -32,7 +32,7 @@ public class AssignmentController {
 
     // ========== Assignment Management ==========
     @PostMapping
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Create a new assignment for a module")
     public ResponseEntity<AssignmentDetailDTO> createAssignment(
             @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
@@ -45,7 +45,7 @@ public class AssignmentController {
     }
 
     @PutMapping("/{assignmentId}")
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Update an existing assignment")
     public ResponseEntity<AssignmentDetailDTO> updateAssignment(
             @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
@@ -68,7 +68,7 @@ public class AssignmentController {
     }
 
     @DeleteMapping("/{assignmentId}")
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Delete an assignment")
     public ResponseEntity<Void> deleteAssignment(
             @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
@@ -93,7 +93,7 @@ public class AssignmentController {
     }
 
     @PutMapping("/submissions/{submissionId}/grade")
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Grade an assignment submission")
     public ResponseEntity<AssignmentSubmissionDetailDTO> gradeSubmission(
             @Parameter(description = "Submission ID") @PathVariable @NotNull Long submissionId,

@@ -27,7 +27,7 @@ public class JobApplicationController {
      * POST /api/jobs/{jobId}/apply - Apply to a job (USER only)
      */
     @PostMapping("/{jobId}/apply")
-    @PreAuthorize("hasAuthority('USER')")
+    @PreAuthorize("hasRole('USER')")
     public ResponseEntity<JobApplicationResponse> applyToJob(
             @PathVariable Long jobId,
             @Valid @RequestBody ApplyJobRequest request,
@@ -44,7 +44,7 @@ public class JobApplicationController {
      * GET /api/jobs/my-applications - Get all applications for current user
      */
     @GetMapping("/my-applications")
-    @PreAuthorize("hasAuthority('USER')")
+    @PreAuthorize("hasRole('USER')")
     public ResponseEntity<List<JobApplicationResponse>> getMyApplications(Authentication authentication) {
 
         Long userId = Long.parseLong(authentication.getName());
@@ -59,7 +59,7 @@ public class JobApplicationController {
      * only)
      */
     @GetMapping("/{jobId}/applicants")
-    @PreAuthorize("hasAuthority('RECRUITER')")
+    @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<List<JobApplicationResponse>> getJobApplicants(
             @PathVariable Long jobId,
             Authentication authentication) {
@@ -76,7 +76,7 @@ public class JobApplicationController {
      * status (RECRUITER only)
      */
     @PatchMapping("/applications/{applicationId}/status")
-    @PreAuthorize("hasAuthority('RECRUITER')")
+    @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<JobApplicationResponse> updateApplicationStatus(
             @PathVariable Long applicationId,
             @Valid @RequestBody UpdateApplicationStatusRequest request,

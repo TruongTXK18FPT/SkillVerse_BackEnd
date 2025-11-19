@@ -126,7 +126,7 @@ public class MediaUploadController {
     }
 
     @DeleteMapping("/delete/{publicId}")
-    @PreAuthorize("hasAuthority('ADMIN') or hasAuthority('MENTOR')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MENTOR')")
     @Operation(summary = "Delete a file", description = "Delete a file from Cloudinary by its public ID")
     public ResponseEntity<?> deleteFile(
             @Parameter(description = "Public ID of the file to delete") @PathVariable String publicId,

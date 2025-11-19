@@ -31,7 +31,7 @@ public class LessonController {
     private final LessonService lessonService;
 
     @PostMapping
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Add a new lesson to a module")
     public ResponseEntity<LessonBriefDTO> addLesson(
             @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
@@ -44,7 +44,7 @@ public class LessonController {
     }
 
     @PutMapping("/{lessonId}")
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Update an existing lesson")
     public ResponseEntity<LessonBriefDTO> updateLesson(
             @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId,

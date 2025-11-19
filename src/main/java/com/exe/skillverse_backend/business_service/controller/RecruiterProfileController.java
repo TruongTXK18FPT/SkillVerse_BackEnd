@@ -25,7 +25,7 @@ public class RecruiterProfileController {
     private final RecruiterProfileService recruiterProfileService;
 
     @GetMapping("/profile")
-    @PreAuthorize("hasAuthority('RECRUITER')")
+    @PreAuthorize("hasRole('RECRUITER')")
     @Operation(summary = "Get current recruiter profile")
     public ResponseEntity<RecruiterProfileResponse> getMyRecruiterProfile(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt) {
@@ -55,7 +55,7 @@ public class RecruiterProfileController {
     }
 
     @PutMapping("/profile")
-    @PreAuthorize("hasAuthority('RECRUITER')")
+    @PreAuthorize("hasRole('RECRUITER')")
     @Operation(summary = "Update current recruiter profile")
     public ResponseEntity<RecruiterProfileResponse> updateMyRecruiterProfile(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,

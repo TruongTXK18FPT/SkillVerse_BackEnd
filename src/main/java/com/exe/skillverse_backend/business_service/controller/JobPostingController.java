@@ -28,7 +28,7 @@ public class JobPostingController {
      * POST /api/jobs - Create new job posting (RECRUITER only)
      */
     @PostMapping
-    @PreAuthorize("hasAuthority('RECRUITER')")
+    @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<JobPostingResponse> createJob(
             @Valid @RequestBody CreateJobRequest request,
             Authentication authentication) {
@@ -45,7 +45,7 @@ public class JobPostingController {
      * or CLOSED)
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('RECRUITER')")
+    @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<JobPostingResponse> updateJob(
             @PathVariable Long id,
             @Valid @RequestBody UpdateJobRequest request,
@@ -62,7 +62,7 @@ public class JobPostingController {
      * PATCH /api/jobs/{id}/status - Change job status (RECRUITER only)
      */
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasAuthority('RECRUITER')")
+    @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<JobPostingResponse> changeStatus(
             @PathVariable Long id,
             @RequestParam JobStatus status,
@@ -79,7 +79,7 @@ public class JobPostingController {
      * GET /api/jobs/my-jobs - Get all jobs for current recruiter
      */
     @GetMapping("/my-jobs")
-    @PreAuthorize("hasAuthority('RECRUITER')")
+    @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<List<JobPostingResponse>> getMyJobs(Authentication authentication) {
 
         Long userId = Long.parseLong(authentication.getName());
@@ -117,7 +117,7 @@ public class JobPostingController {
      * DELETE /api/jobs/{id} - Delete job (RECRUITER only, only if IN_PROGRESS)
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('RECRUITER')")
+    @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<Void> deleteJob(
             @PathVariable Long id,
             Authentication authentication) {
@@ -134,7 +134,7 @@ public class JobPostingController {
      * applications)
      */
     @PostMapping("/{id}/reopen")
-    @PreAuthorize("hasAuthority('RECRUITER')")
+    @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<JobPostingResponse> reopenJob(
             @PathVariable Long id,
             Authentication authentication) {

@@ -30,7 +30,7 @@ public class QuizController {
 
     // ========== Quiz Management ==========
     @PostMapping
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Create a new quiz for a module")
     public ResponseEntity<QuizDetailDTO> createQuiz(
             @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
@@ -43,7 +43,7 @@ public class QuizController {
     }
 
     @PutMapping("/{quizId}")
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Update an existing quiz")
     public ResponseEntity<QuizDetailDTO> updateQuiz(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,

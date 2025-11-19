@@ -35,25 +35,23 @@ public class SecurityConfig {
                         "/api/auth/resend-verification/**",
                         "/api/auth/resend-otp",
                         "/api/auth/complete-profile",
-                        // User service registration
-                        "/api/users/register",
-                        "/api/users/verify-email",
-                        "/api/users/resend-otp",
-                        // Mentor service registration
-                        "/api/mentors/register",
-                        // Business service registration
-                        "/api/business/register",
+                        // Public course listing and details
                         "/api/courses",
-                "/api/courses/*",
-                "/api/courses/by-author/*",
-                "/api/v1/payments/callback/payos",
-                "/api/payment/payos/webhook", // PayOS webhook (alternative endpoint)
-                "/api/payments/test/**", // Payment test endpoints (DEV ONLY)
-                // Meowl Chat Service (AI assistant - public access)
-                "/api/v1/meowl/chat",
+                        "/api/courses/**",
+                        "/api/courses/by-author/**",
+                        "/api/v1/payments/callback/payos",
+                        "/api/payment/payos/webhook", // PayOS webhook (alternative endpoint)
+                        "/api/payments/test/**", // Payment test endpoints (DEV ONLY)
+                        // Meowl Chat Service (AI assistant - public access)
+                        "/api/v1/meowl/chat",
                         "/api/v1/meowl/reminders/**",
                         "/api/v1/meowl/notifications/**",
-                        "/api/v1/meowl/health"
+                        "/api/v1/meowl/health",
+                        // Public jobs listing
+                        "/api/jobs/public",
+                        "/api/jobs/public/**",
+                        // Public premium plans listing
+                        "/api/premium/plans"
         };
 
         private static final String[] SWAGGER_ENDPOINTS = {
@@ -118,7 +116,8 @@ public class SecurityConfig {
         @Bean
         JwtAuthenticationConverter jwtAuthenticationConverter() {
                 JwtGrantedAuthoritiesConverter jwtGrantedAuthoritiesConverter = new JwtGrantedAuthoritiesConverter();
-                jwtGrantedAuthoritiesConverter.setAuthorityPrefix("ROLE_"); // Add ROLE_ prefix for @PreAuthorize("hasRole(...)")
+                jwtGrantedAuthoritiesConverter.setAuthorityPrefix("ROLE_"); // Add ROLE_ prefix for
+                                                                            // @PreAuthorize("hasRole(...)")
                 jwtGrantedAuthoritiesConverter.setAuthoritiesClaimName("roles");
 
                 JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();

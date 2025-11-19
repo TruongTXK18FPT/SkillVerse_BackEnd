@@ -34,7 +34,7 @@ public class ModuleController {
   private final AssignmentService assignmentService;
 
   @PostMapping("/courses/{courseId}/modules")
-  @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+  @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
   @Operation(summary = "Create a module under a course")
   public ResponseEntity<ModuleDetailDTO> createModule(
       @PathVariable @NotNull Long courseId,
@@ -45,7 +45,7 @@ public class ModuleController {
   }
 
   @PutMapping("/modules/{moduleId}")
-  @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+  @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
   @Operation(summary = "Update a module")
   public ResponseEntity<ModuleDetailDTO> updateModule(
       @PathVariable @NotNull Long moduleId,
@@ -56,7 +56,7 @@ public class ModuleController {
   }
 
   @DeleteMapping("/modules/{moduleId}")
-  @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+  @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
   @Operation(summary = "Delete a module")
   public ResponseEntity<Void> deleteModule(
       @PathVariable @NotNull Long moduleId,
@@ -73,7 +73,7 @@ public class ModuleController {
   }
 
   @PostMapping("/modules/{moduleId}/assign-lesson/{lessonId}")
-  @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+  @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
   @Operation(summary = "Assign a lesson to module")
   public ResponseEntity<Void> assignLesson(
       @PathVariable @NotNull Long moduleId,

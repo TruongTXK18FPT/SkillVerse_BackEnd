@@ -37,7 +37,7 @@ public class AdminAuditController {
                         @ApiResponse(responseCode = "200", description = "Recent audit logs retrieved successfully"),
                         @ApiResponse(responseCode = "403", description = "Access denied - Admin role required")
         })
-        @PreAuthorize("hasAuthority('ADMIN')")
+        @PreAuthorize("hasRole('ADMIN')")
         public ResponseEntity<List<AuditLogDto>> getRecentAuditLogs() {
                 log.info("Admin requesting recent audit logs");
                 List<AuditLogDto> auditLogs = auditService.getRecentAuditLogsDto();
@@ -51,7 +51,7 @@ public class AdminAuditController {
                         @ApiResponse(responseCode = "403", description = "Access denied - Admin role required"),
                         @ApiResponse(responseCode = "404", description = "User not found")
         })
-        @PreAuthorize("hasAuthority('ADMIN')")
+        @PreAuthorize("hasRole('ADMIN')")
         public ResponseEntity<List<AuditLogDto>> getUserAuditLogs(
                         @Parameter(description = "User ID to get audit logs for", required = true) @PathVariable Long userId) {
                 log.info("Admin requesting audit logs for user: {}", userId);
@@ -65,7 +65,7 @@ public class AdminAuditController {
                         @ApiResponse(responseCode = "200", description = "Object audit logs retrieved successfully"),
                         @ApiResponse(responseCode = "403", description = "Access denied - Admin role required")
         })
-        @PreAuthorize("hasAuthority('ADMIN')")
+        @PreAuthorize("hasRole('ADMIN')")
         public ResponseEntity<List<AuditLogDto>> getObjectAuditLogs(
                         @Parameter(description = "Type of object (e.g., USER, COURSE, MENTOR)", required = true) @PathVariable String objectType,
                         @Parameter(description = "ID of the object", required = true) @PathVariable Long objectId) {
@@ -80,7 +80,7 @@ public class AdminAuditController {
                         @ApiResponse(responseCode = "200", description = "Action audit logs retrieved successfully"),
                         @ApiResponse(responseCode = "403", description = "Access denied - Admin role required")
         })
-        @PreAuthorize("hasAuthority('ADMIN')")
+        @PreAuthorize("hasRole('ADMIN')")
         public ResponseEntity<List<AuditLogDto>> getAuditLogsByAction(
                         @Parameter(description = "Action type (e.g., LOGIN, LOGOUT, CREATE, UPDATE, DELETE)", required = true) @PathVariable String action) {
                 log.info("Admin requesting audit logs for action: {}", action);
@@ -95,7 +95,7 @@ public class AdminAuditController {
                         @ApiResponse(responseCode = "400", description = "Invalid date format or range"),
                         @ApiResponse(responseCode = "403", description = "Access denied - Admin role required")
         })
-        @PreAuthorize("hasAuthority('ADMIN')")
+        @PreAuthorize("hasRole('ADMIN')")
         public ResponseEntity<List<AuditLogDto>> getAuditLogsByDateRange(
                         @Parameter(description = "Start date (ISO format: 2024-01-01T00:00:00)", required = true) @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
                         @Parameter(description = "End date (ISO format: 2024-12-31T23:59:59)", required = true) @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate) {
@@ -115,13 +115,11 @@ public class AdminAuditController {
                         @ApiResponse(responseCode = "200", description = "Audit summary retrieved successfully"),
                         @ApiResponse(responseCode = "403", description = "Access denied - Admin role required")
         })
-        @PreAuthorize("hasAuthority('ADMIN')")
+        @PreAuthorize("hasRole('ADMIN')")
         public ResponseEntity<AuditSummaryResponseDto> getAuditSummary() {
                 log.info("Admin requesting audit summary");
 
                 List<AuditLog> recentLogs = auditService.getRecentAuditLogs();
-
-                // Calculate summary statistics
                 long totalLogs = recentLogs.size();
                 long userRegistrations = recentLogs.stream()
                                 .filter(log -> "USER_REGISTRATION".equals(log.getAction()))

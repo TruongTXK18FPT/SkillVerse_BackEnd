@@ -45,7 +45,7 @@ public class CourseController {
     private final CloudinaryService cloudinaryService;
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Create a new course")
     public ResponseEntity<CourseDetailDTO> createCourse(
             @Parameter(description = "Author user ID") @RequestParam @NotNull Long authorId,
@@ -107,7 +107,7 @@ public class CourseController {
     }
 
     @PutMapping(value = "/{courseId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Update an existing course")
     public ResponseEntity<CourseDetailDTO> updateCourse(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
@@ -170,7 +170,7 @@ public class CourseController {
     }
 
     @DeleteMapping("/{courseId}")
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Delete a course")
     public ResponseEntity<Void> deleteCourse(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
@@ -215,7 +215,7 @@ public class CourseController {
     // ========== Admin-only Course Approval Endpoints ==========
 
     @PostMapping("/{courseId}/submit")
-    @PreAuthorize("hasAuthority('MENTOR') or hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Submit course for admin approval")
     public ResponseEntity<CourseDetailDTO> submitCourseForApproval(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
@@ -227,7 +227,7 @@ public class CourseController {
     }
 
     @PostMapping("/{courseId}/approve")
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Approve a course (Admin only)")
     public ResponseEntity<CourseDetailDTO> approveCourse(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
@@ -239,7 +239,7 @@ public class CourseController {
     }
 
     @PostMapping("/{courseId}/reject")
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Reject a course (Admin only)")
     public ResponseEntity<CourseDetailDTO> rejectCourse(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
@@ -252,7 +252,7 @@ public class CourseController {
     }
 
     @GetMapping("/pending")
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "List courses pending approval (Admin only)")
     public ResponseEntity<PageResponse<CourseSummaryDTO>> listPendingCourses(
             @PageableDefault(size = 20) Pageable pageable) {
