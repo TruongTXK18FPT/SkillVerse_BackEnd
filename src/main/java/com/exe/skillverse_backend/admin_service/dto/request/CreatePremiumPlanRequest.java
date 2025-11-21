@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.admin_service.dto.request;
 
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -9,6 +10,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * Request DTO for creating a new premium plan (Admin only)
@@ -67,4 +69,8 @@ public class CreatePremiumPlanRequest {
     @Schema(description = "Whether plan is active", example = "true")
     @Builder.Default
     private Boolean isActive = true;
+
+    @Valid
+    @Schema(description = "Feature limits configuration for this plan")
+    private List<FeatureLimitConfigRequest> featureLimits;
 }

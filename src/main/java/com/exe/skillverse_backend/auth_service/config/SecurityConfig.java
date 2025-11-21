@@ -35,7 +35,14 @@ public class SecurityConfig {
                         "/api/auth/resend-verification/**",
                         "/api/auth/resend-otp",
                         "/api/auth/complete-profile",
-                        // Public course listing and details
+                        // User service registration
+                        "/api/users/register",
+                        "/api/users/verify-email",
+                        "/api/users/resend-otp",
+                        // Mentor service registration
+                        "/api/mentors/register",
+                        // Business service registration
+                        "/api/business/register",
                         "/api/courses",
                         "/api/courses/**",
                         "/api/courses/by-author/**",

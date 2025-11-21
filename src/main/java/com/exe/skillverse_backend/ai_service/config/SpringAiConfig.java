@@ -33,21 +33,45 @@ public class SpringAiConfig {
     @Value("${spring.ai.openai.chat.options.max-tokens:30000}")
     private Integer geminiMaxTokens;
 
+    @Value("${spring.ai.openai.fallback-models:gemini-2.0-flash}")
+    private String fallbackModels;
+
     /**
-     * Creates a ChatModel bean for Gemini using OpenAI-compatible API
+     * Creates PRIMARY ChatModel bean for Gemini using OpenAI-compatible API
      * This bean will be used by AiRoadmapService for roadmap generation
      *
-     * @return ChatModel configured for Gemini
+     * @return ChatModel configured for Gemini primary model
      */
     @Bean
     @Qualifier("geminiChatModel")
     public ChatModel geminiChatModel() {
+        return createGeminiChatModel(geminiModel);
+    }
+
+    /**
+     * Creates FALLBACK ChatModel bean for Gemini 2.0 Flash Experimental
+     * Used when primary model quota is exceeded
+     * Note: Gemini 1.5 has been deprecated, only 2.0 is available as fallback
+     *
+     * @return ChatModel configured for Gemini 2.0 Flash Experimental
+     */
+    @Bean
+    @Qualifier("geminiFallback1ChatModel")
+    public ChatModel geminiFallback1ChatModel() {
+        String model = fallbackModels.trim(); // Only one fallback now
+        return createGeminiChatModel(model);
+    }
+
+    /**
+     * Helper method to create ChatModel with specific Gemini model
+     */
+    private ChatModel createGeminiChatModel(String modelName) {
         // Create OpenAI API client configured for Gemini's OpenAI-compatible endpoint
         OpenAiApi openAiApi = new OpenAiApi(geminiBaseUrl, geminiApiKey);
 
-        // Configure chat options with Gemini model and parameters
+        // Configure chat options with specified model and parameters
         OpenAiChatOptions chatOptions = OpenAiChatOptions.builder()
-                .withModel(geminiModel)
+                .withModel(modelName)
                 .withTemperature(geminiTemperature)
                 .withMaxTokens(geminiMaxTokens)
                 .build();

@@ -6,7 +6,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: update # create, create-drop, update, validate, none
+      ddl-auto: create # create, create-drop, update, validate, none
     show-sql: true
     properties:
       hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
@@ -76,15 +76,15 @@ spring:
       chat:
         enabled: ${MISTRAL_ENABLED:true}
         options:
-          model: ${MISTRAL_API_MODEL:mistral-large-latest}
+          model: ${MISTRAL_API_MODEL:mistral-small-latest}
           temperature: ${MISTRAL_API_TEMPERATURE:0.7}
           max-tokens: ${MISTRAL_API_MAX_TOKENS:30000}
 
     # OpenAI configuration - using Gemini's OpenAI-compatible endpoint
     openai:
-      api-key: ${GEMINI_API_KEY:AIzaSyA3IZ1rLOOox7_QsB8UvxzecNHL0xax0J4}
+      api-key: ${GEMINI_API_KEY:AIzaSyDHwnFm4uEBMcagNfLjfxFxAXmQh7vO3cY}
       base-url: ${GEMINI_OPENAI_BASE_URL:https://generativelanguage.googleapis.com/v1beta/openai/}
-      fallback-models: ${GEMINI_FALLBACK_MODELS:gemini-2.0-flash,gemini-1.5-flash}
+      fallback-models: ${GEMINI_FALLBACK_MODELS:gemini-2.0-flash}
       chat:
         enabled: ${GEMINI_ENABLED:true}
         options:
@@ -92,9 +92,9 @@ spring:
           temperature: ${GEMINI_TEMPERATURE:0.7}
           max-tokens: ${GEMINI_MAX_TOKENS:30000}
 
-    # Retry Configuration
+    # Retry Configuration (DISABLED - we have manual fallback logic)
     retry:
-      max-attempts: 3
+      max-attempts: 1 # No auto-retry, we handle fallback manually
       on-client-errors: false
 
 jwt:

@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.admin_service.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -8,6 +9,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * Request DTO for updating an existing premium plan (Admin only)
@@ -32,13 +34,13 @@ public class UpdatePremiumPlanRequest {
 
     @NotNull(message = "Duration is required")
     @Min(value = 1, message = "Duration must be at least 1 month")
-    @Max(value = 12, message = "Duration must not exceed 12 months")
-    @Schema(description = "Plan duration in months", example = "3")
+    // Note: Allow Integer.MAX_VALUE for FREE_TIER (permanent plan)
+    @Schema(description = "Plan duration in months (use Integer.MAX_VALUE for permanent plans like FREE_TIER)", example = "3")
     private Integer durationMonths;
 
     @NotNull(message = "Price is required")
-    @DecimalMin(value = "0.0", inclusive = false, message = "Price must be greater than 0")
-    @Schema(description = "Plan price in VND", example = "199000")
+    @DecimalMin(value = "0.0", inclusive = true, message = "Price must be at least 0")
+    @Schema(description = "Plan price in VND (0 for FREE_TIER)", example = "199000")
     private BigDecimal price;
 
     @NotNull(message = "Student discount is required")
@@ -56,4 +58,8 @@ public class UpdatePremiumPlanRequest {
 
     @Schema(description = "Whether plan is active", example = "true")
     private Boolean isActive;
+
+    @Valid
+    @Schema(description = "Feature limits configuration for this plan (optional - only update if provided)")
+    private List<FeatureLimitConfigRequest> featureLimits;
 }

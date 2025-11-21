@@ -11,6 +11,8 @@ import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.premium_service.entity.FeatureType;
+import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -38,25 +40,28 @@ import java.util.stream.Collectors;
 public class AiRoadmapService {
 
     private final ChatModel geminiChatModel;
+    private final ChatModel geminiFallback1ChatModel;
     private final RoadmapSessionRepository roadmapSessionRepository;
     private final UserRoadmapProgressRepository progressRepository;
     private final ObjectMapper objectMapper;
     private final InputValidationService inputValidationService;
-
-    @Value("${spring.ai.openai.fallback-models:gemini-2.0-flash,gemini-1.5-flash}")
-    private String fallbackModels;
+    private final UsageLimitService usageLimitService;
 
     public AiRoadmapService(
             @Qualifier("geminiChatModel") ChatModel geminiChatModel,
+            @Qualifier("geminiFallback1ChatModel") ChatModel geminiFallback1ChatModel,
             RoadmapSessionRepository roadmapSessionRepository,
             UserRoadmapProgressRepository progressRepository,
             ObjectMapper objectMapper,
-            InputValidationService inputValidationService) {
+            InputValidationService inputValidationService,
+            UsageLimitService usageLimitService) {
         this.geminiChatModel = geminiChatModel;
+        this.geminiFallback1ChatModel = geminiFallback1ChatModel;
         this.roadmapSessionRepository = roadmapSessionRepository;
         this.progressRepository = progressRepository;
         this.objectMapper = objectMapper;
         this.inputValidationService = inputValidationService;
+        this.usageLimitService = usageLimitService;
     }
 
     /**
@@ -102,6 +107,11 @@ public class AiRoadmapService {
         log.info("🚀 Generating roadmap V2 for user {} with goal: {}", user.getId(), request.getGoal());
 
         try {
+            // Step 0: CHECK USAGE LIMIT FIRST
+            usageLimitService.checkAndRecordUsage(
+                    user.getId(),
+                    FeatureType.AI_ROADMAP_GENERATION);
+
             // Step 1: AI Goal Validation (CRITICAL - blocks invalid/malicious goals)
             ValidationResult aiValidation = validateGoalWithAI(request.getGoal());
 
@@ -192,38 +202,68 @@ public class AiRoadmapService {
     }
 
     /**
-     * Call Gemini API using Spring AI ChatClient
-     * Automatic retry is handled by Spring AI retry configuration
+     * Call Gemini API using Spring AI ChatClient with fallback model
+     * Tries primary model first (2.5 Flash), then fallback to 2.0 Flash if quota
+     * exceeded
+     * Note: Gemini 1.5 has been deprecated
      */
     private String callGeminiAPI(GenerateRoadmapRequest request) {
         String prompt = buildPrompt(request);
+        Exception lastException = null;
 
+        // Try primary model first (gemini-2.5-flash)
         try {
-            log.info("Calling Gemini API via Spring AI ChatClient");
-
-            // Use Spring AI ChatClient to call Gemini
-            String response = ChatClient.builder(geminiChatModel)
-                    .build()
-                    .prompt()
-                    .user(prompt
-                            + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Nếu phát hiện mục tiêu/đầu vào vô lý (ví dụ: IELTS 10.0, nội dung thô tục), hãy từ chối lịch sự bằng tiếng Việt và gợi ý cách nhập lại hợp lệ. Chỉ trả về JSON hợp lệ như yêu cầu.")
-                    .call()
-                    .content();
-
-            log.debug("Raw AI response length: {} chars", response.length());
-            log.debug("Raw AI response preview: {}", response.substring(0, Math.min(500, response.length())));
-
-            // Extract JSON from markdown code blocks if present
-            String cleanedResponse = extractJsonFromResponse(response);
-
-            log.info("✅ Successfully generated roadmap with Gemini");
-            return cleanedResponse;
-
+            log.info("🎯 Calling Gemini API (primary: 2.5 Flash) via Spring AI ChatClient");
+            return callGeminiWithModel(geminiChatModel, prompt, "Primary (2.5 Flash)");
         } catch (Exception e) {
-            log.error("Failed to call Gemini API: {}", e.getMessage());
+            lastException = e;
+            String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
+
+            // Check if it's a quota/rate limit error (429)
+            if (errorMsg.contains("429") || errorMsg.contains("quota") ||
+                    errorMsg.contains("resource_exhausted") || errorMsg.contains("rate limit")) {
+
+                log.warn("⚠️ Primary model quota exceeded, trying fallback (2.0 Flash)...");
+
+                // Try fallback (gemini-2.0-flash-exp)
+                try {
+                    return callGeminiWithModel(geminiFallback1ChatModel, prompt, "Fallback (2.0 Flash)");
+                } catch (Exception fallbackEx) {
+                    lastException = fallbackEx;
+                    log.error("❌ Fallback model also failed: {}", fallbackEx.getMessage());
+                }
+            } else {
+                log.error("❌ Primary model failed with non-quota error: {}", e.getMessage());
+            }
+
+            // Both attempts failed
+            log.error("❌ All Gemini API attempts failed: {}", lastException.getMessage());
             throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE,
-                    "AI service unavailable. Please try again later. Error: " + e.getMessage());
+                    "AI service unavailable. Both models exhausted. Error: " + lastException.getMessage());
         }
+    }
+
+    /**
+     * Call Gemini with specific ChatModel
+     */
+    private String callGeminiWithModel(ChatModel chatModel, String prompt, String modelLabel) {
+        log.info("📡 Calling Gemini {} model...", modelLabel);
+        String response = ChatClient.builder(chatModel)
+                .build()
+                .prompt()
+                .user(prompt
+                        + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Nếu phát hiện mục tiêu/đầu vào vô lý (ví dụ: IELTS 10.0, nội dung thô tục), hãy từ chối lịch sự bằng tiếng Việt và gợi ý cách nhập lại hợp lệ. Chỉ trả về JSON hợp lệ như yêu cầu.")
+                .call()
+                .content();
+
+        log.debug("Raw AI response length: {} chars", response.length());
+        log.debug("Raw AI response preview: {}", response.substring(0, Math.min(500, response.length())));
+
+        // Extract JSON from markdown code blocks if present
+        String cleanedResponse = extractJsonFromResponse(response);
+
+        log.info("✅ Successfully generated roadmap with Gemini");
+        return cleanedResponse;
     }
 
     /**

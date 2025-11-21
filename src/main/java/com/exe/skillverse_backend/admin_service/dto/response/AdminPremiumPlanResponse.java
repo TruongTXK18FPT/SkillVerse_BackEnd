@@ -77,4 +77,7 @@ public class AdminPremiumPlanResponse {
 
     @Schema(description = "Plan last update timestamp")
     private LocalDateTime updatedAt;
+
+    @Schema(description = "Feature limits configured for this plan")
+    private List<FeatureLimitResponse> featureLimits;
 }

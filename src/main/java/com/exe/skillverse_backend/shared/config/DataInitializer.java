@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.Set;
 
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -25,6 +26,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 @Component
+@Order(1) // Run first - create roles, users, and FREE_TIER plan
 @Slf4j
 @RequiredArgsConstructor
 public class DataInitializer implements CommandLineRunner {
@@ -41,10 +43,12 @@ public class DataInitializer implements CommandLineRunner {
 
         @Override
         public void run(String... args) throws Exception {
+                log.info("🚀 [ORDER 1] DataInitializer starting...");
                 initializeRoles();
                 initializeUsers();
                 initializePremiumPlans();
                 initializeCourses();
+                log.info("✅ [ORDER 1] DataInitializer completed");
                 // initializeProfiles(); // Temporarily disabled - profiles can be created via
                 // API
         }

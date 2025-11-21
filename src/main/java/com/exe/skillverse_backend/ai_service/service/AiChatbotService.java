@@ -7,6 +7,8 @@ import com.exe.skillverse_backend.ai_service.dto.response.ChatResponse;
 import com.exe.skillverse_backend.ai_service.entity.ChatMessage;
 import com.exe.skillverse_backend.ai_service.repository.ChatMessageRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.premium_service.entity.FeatureType;
+import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
@@ -33,14 +35,17 @@ public class AiChatbotService {
   private final ChatModel mistralChatModel;
   private final ChatMessageRepository chatMessageRepository;
   private final InputValidationService inputValidationService;
+  private final UsageLimitService usageLimitService;
 
   public AiChatbotService(
       @Qualifier("mistralAiChatModel") ChatModel mistralChatModel,
       ChatMessageRepository chatMessageRepository,
-      InputValidationService inputValidationService) {
+      InputValidationService inputValidationService,
+      UsageLimitService usageLimitService) {
     this.mistralChatModel = mistralChatModel;
     this.chatMessageRepository = chatMessageRepository;
     this.inputValidationService = inputValidationService;
+    this.usageLimitService = usageLimitService;
   }
 
   // MEOWL AI CAREER ADVISOR - OPTIMIZED VERSION 2025
@@ -250,7 +255,12 @@ public class AiChatbotService {
    */
   @Transactional
   public ChatResponse chat(ChatRequest request, User user) {
-    // Validate user input (profanity only - let AI handle auto-correction)
+    // 1. CHECK USAGE LIMIT FIRST
+    usageLimitService.checkAndRecordUsage(
+        user.getId(),
+        FeatureType.AI_CHATBOT_REQUESTS);
+
+    // 2. Validate user input (profanity only - let AI handle auto-correction)
     try {
       inputValidationService.validateTextOrThrow(request.getMessage());
     } catch (IllegalArgumentException ex) {

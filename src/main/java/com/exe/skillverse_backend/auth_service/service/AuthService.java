@@ -8,6 +8,10 @@ import com.exe.skillverse_backend.auth_service.dto.response.RegistrationResponse
 import com.exe.skillverse_backend.auth_service.dto.response.UserDto;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
+import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
+import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
+import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
+import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
 import com.exe.skillverse_backend.shared.exception.AccountPendingApprovalException;
 import com.exe.skillverse_backend.shared.exception.AuthenticationException;
 import com.exe.skillverse_backend.shared.service.AuditService;
@@ -48,6 +52,8 @@ public class AuthService {
         private final RecruiterProfileRepository recruiterProfileRepository;
         private final EmailVerificationService emailVerificationService;
         private final EmailService emailService;
+        private final PremiumPlanRepository premiumPlanRepository;
+        private final UserSubscriptionRepository userSubscriptionRepository;
         private final GoogleTokenVerificationService googleTokenVerificationService;
 
         @Value("${jwt.secret}")
@@ -583,6 +589,15 @@ public class AuthService {
 
                                 log.info("Created new Google user successfully: {}", email);
 
+                                // ✅ Auto-assign FREE_TIER subscription to new Google user
+                                try {
+                                        assignFreeTierSubscription(user);
+                                } catch (Exception e) {
+                                        log.error("Failed to assign FREE_TIER subscription to Google user: {}", email,
+                                                        e);
+                                        // Don't fail authentication - user can be assigned subscription later
+                                }
+
                                 // ✅ BEST PRACTICE: Create UserProfile in separate transaction
                                 // This ensures User creation is committed even if profile creation fails
                                 try {
@@ -676,6 +691,39 @@ public class AuthService {
                 } catch (Exception e) {
                         log.error("Google authentication failed", e);
                         throw new RuntimeException("Google authentication failed: " + e.getMessage());
+                }
+        }
+
+        /**
+         * Auto-assign FREE_TIER subscription to new user
+         */
+        private void assignFreeTierSubscription(User user) {
+                try {
+                        // Find FREE_TIER plan
+                        PremiumPlan freeTier = premiumPlanRepository
+                                        .findByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType.FREE_TIER)
+                                        .orElseThrow(() -> new IllegalStateException("FREE_TIER plan not found"));
+
+                        // Create permanent subscription for FREE_TIER
+                        UserSubscription subscription = UserSubscription.builder()
+                                        .user(user)
+                                        .plan(freeTier)
+                                        .startDate(LocalDateTime.now())
+                                        .endDate(LocalDateTime.now().plusYears(100)) // Permanent
+                                        .isActive(true)
+                                        .autoRenew(false)
+                                        .isStudentSubscription(false)
+                                        .status(UserSubscription.SubscriptionStatus.ACTIVE)
+                                        .build();
+
+                        userSubscriptionRepository.save(subscription);
+                        log.info("✅ Auto-assigned FREE_TIER subscription to user: {} (ID: {})", user.getEmail(),
+                                        user.getId());
+
+                } catch (Exception e) {
+                        log.error("❌ Failed to assign FREE_TIER subscription to user: {}", user.getEmail(), e);
+                        // Don't throw exception - user creation should succeed even if subscription
+                        // fails
                 }
         }
 }

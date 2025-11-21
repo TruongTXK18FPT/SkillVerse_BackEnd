@@ -6,12 +6,18 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
+import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
+import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
+import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
 import com.exe.skillverse_backend.shared.service.AuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
 
 /**
  * Service for creating User entities for other services
@@ -28,6 +34,8 @@ public class UserCreationService {
     private final PasswordEncoder passwordEncoder;
     private final EmailVerificationService emailVerificationService;
     private final AuditService auditService;
+    private final PremiumPlanRepository premiumPlanRepository;
+    private final UserSubscriptionRepository userSubscriptionRepository;
 
     /**
      * Create a new user for mentor registration
@@ -103,6 +111,9 @@ public class UserCreationService {
         user = userRepository.save(user);
         log.info("Created user with ID: {} for role: {}", user.getId(), primaryRole);
 
+        // Auto-assign FREE_TIER subscription to new users
+        assignFreeTierSubscription(user);
+
         // Generate OTP for email verification only if requested
         if (generateOtp) {
             emailVerificationService.generateOtpForUser(email);
@@ -122,6 +133,38 @@ public class UserCreationService {
      */
     private User createUser(String email, String password, String fullName, PrimaryRole primaryRole, String roleName) {
         return createUser(email, password, fullName, primaryRole, roleName, true);
+    }
+
+    /**
+     * Auto-assign FREE_TIER subscription to new user
+     */
+    private void assignFreeTierSubscription(User user) {
+        try {
+            // Find FREE_TIER plan
+            PremiumPlan freeTier = premiumPlanRepository
+                    .findByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType.FREE_TIER)
+                    .orElseThrow(() -> new IllegalStateException("FREE_TIER plan not found"));
+
+            // Create permanent subscription for FREE_TIER
+            UserSubscription subscription = UserSubscription.builder()
+                    .user(user)
+                    .plan(freeTier)
+                    .startDate(LocalDateTime.now())
+                    .endDate(LocalDateTime.now().plusYears(100)) // Permanent
+                    .isActive(true)
+                    .autoRenew(false)
+                    .isStudentSubscription(false)
+                    .status(UserSubscription.SubscriptionStatus.ACTIVE)
+                    .build();
+
+            userSubscriptionRepository.save(subscription);
+            log.info("✅ Auto-assigned FREE_TIER subscription to user: {} (ID: {})", user.getEmail(), user.getId());
+
+        } catch (Exception e) {
+            log.error("❌ Failed to assign FREE_TIER subscription to user: {}", user.getEmail(), e);
+            // Don't throw exception - user creation should succeed even if subscription
+            // fails
+        }
     }
 
     /**

@@ -91,6 +91,15 @@ public class PremiumPlan {
     private Set<UserSubscription> subscriptions = new HashSet<>();
 
     /**
+     * Feature limits configured for this plan
+     */
+    @OneToMany(mappedBy = "plan", cascade = CascadeType.ALL, orphanRemoval = true)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    @Builder.Default
+    private Set<PlanFeatureLimits> featureLimits = new HashSet<>();
+
+    /**
      * Plan types corresponding to the UI
      */
     public enum PlanType {

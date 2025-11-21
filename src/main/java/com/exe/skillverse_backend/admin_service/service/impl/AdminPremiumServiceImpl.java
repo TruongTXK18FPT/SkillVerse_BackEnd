@@ -1,11 +1,15 @@
 package com.exe.skillverse_backend.admin_service.service.impl;
 
 import com.exe.skillverse_backend.admin_service.dto.request.CreatePremiumPlanRequest;
+import com.exe.skillverse_backend.admin_service.dto.request.FeatureLimitConfigRequest;
 import com.exe.skillverse_backend.admin_service.dto.request.UpdatePremiumPlanRequest;
 import com.exe.skillverse_backend.admin_service.dto.response.AdminPremiumPlanResponse;
+import com.exe.skillverse_backend.admin_service.dto.response.FeatureLimitResponse;
 import com.exe.skillverse_backend.admin_service.service.AdminPremiumService;
+import com.exe.skillverse_backend.premium_service.entity.PlanFeatureLimits;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
+import com.exe.skillverse_backend.premium_service.repository.PlanFeatureLimitsRepository;
 import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -28,6 +33,7 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
     private static final String FREE_TIER_NAME = "free_tier";
 
     private final PremiumPlanRepository premiumPlanRepository;
+    private final PlanFeatureLimitsRepository featureLimitsRepository;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -35,9 +41,17 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
     public List<AdminPremiumPlanResponse> getAllPlans() {
         log.info("Admin fetching all premium plans");
         List<PremiumPlan> plans = premiumPlanRepository.findAll();
-        return plans.stream()
+        List<AdminPremiumPlanResponse> responses = plans.stream()
                 .map(this::mapToAdminResponse)
                 .collect(Collectors.toList());
+
+        // Debug logging for FREE_TIER
+        responses.stream()
+                .filter(r -> r.getIsFreeTier())
+                .forEach(r -> log.info("FREE_TIER response - ID: {}, featureLimits count: {}",
+                        r.getId(), r.getFeatureLimits() != null ? r.getFeatureLimits().size() : 0));
+
+        return responses;
     }
 
     @Override
@@ -91,6 +105,12 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
         PremiumPlan savedPlan = premiumPlanRepository.save(plan);
         log.info("Successfully created premium plan: {} (ID: {})", savedPlan.getName(), savedPlan.getId());
 
+        // Create feature limits if provided
+        if (request.getFeatureLimits() != null && !request.getFeatureLimits().isEmpty()) {
+            createFeatureLimits(savedPlan, request.getFeatureLimits());
+            log.info("Created {} feature limits for plan {}", request.getFeatureLimits().size(), savedPlan.getName());
+        }
+
         return mapToAdminResponse(savedPlan);
     }
 
@@ -102,12 +122,21 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
         PremiumPlan plan = premiumPlanRepository.findById(planId)
                 .orElseThrow(() -> new RuntimeException("Premium plan not found with ID: " + planId));
 
-        // Validation: Cannot update FREE_TIER
+        // Special handling for FREE_TIER: Allow updating ONLY feature limits
         if (plan.getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
-            throw new RuntimeException("Cannot update FREE_TIER plan. FREE_TIER is a system plan.");
+            if (request.getFeatureLimits() != null && !request.getFeatureLimits().isEmpty()) {
+                updateFeatureLimits(plan, request.getFeatureLimits());
+                log.info("✅ Updated {} feature limits for FREE_TIER", request.getFeatureLimits().size());
+                return mapToAdminResponse(plan);
+            }
+
+            // Block updating core properties of FREE_TIER
+            throw new RuntimeException(
+                    "Cannot update FREE_TIER core properties (name, price, duration, etc.). " +
+                            "Only feature limits can be adjusted for FREE_TIER plan.");
         }
 
-        // Update fields
+        // Update fields for non-FREE_TIER plans
         plan.setDisplayName(request.getDisplayName());
         plan.setDescription(request.getDescription());
         plan.setDurationMonths(request.getDurationMonths());
@@ -124,6 +153,12 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
 
         PremiumPlan updatedPlan = premiumPlanRepository.save(plan);
         log.info("Successfully updated premium plan: {} (ID: {})", updatedPlan.getName(), updatedPlan.getId());
+
+        // Update feature limits if provided
+        if (request.getFeatureLimits() != null && !request.getFeatureLimits().isEmpty()) {
+            updateFeatureLimits(updatedPlan, request.getFeatureLimits());
+            log.info("Updated {} feature limits for plan {}", request.getFeatureLimits().size(), updatedPlan.getName());
+        }
 
         return mapToAdminResponse(updatedPlan);
     }
@@ -207,6 +242,9 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                         .count())
                 .multiply(plan.getPrice());
 
+        // Get feature limits
+        List<FeatureLimitResponse> featureLimits = mapFeatureLimitsToResponse(plan);
+
         return AdminPremiumPlanResponse.builder()
                 .id(plan.getId())
                 .name(plan.getName())
@@ -227,6 +265,94 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                 .isFreeTier(plan.getPlanType() == PremiumPlan.PlanType.FREE_TIER)
                 .createdAt(plan.getCreatedAt())
                 .updatedAt(plan.getUpdatedAt())
+                .featureLimits(featureLimits)
                 .build();
+    }
+
+    /**
+     * Create feature limits for a plan
+     */
+    private void createFeatureLimits(PremiumPlan plan,
+            List<FeatureLimitConfigRequest> limitRequests) {
+        for (FeatureLimitConfigRequest request : limitRequests) {
+            PlanFeatureLimits limit = PlanFeatureLimits.builder()
+                    .plan(plan)
+                    .featureType(request.getFeatureType())
+                    .limitValue(request.getLimitValue())
+                    .resetPeriod(request.getResetPeriod())
+                    .isUnlimited(request.getIsUnlimited())
+                    .bonusMultiplier(
+                            request.getBonusMultiplier() != null ? request.getBonusMultiplier() : BigDecimal.ONE)
+                    .description(request.getDescription())
+                    .isActive(request.getIsActive())
+                    .build();
+
+            featureLimitsRepository.save(limit);
+        }
+    }
+
+    /**
+     * Update feature limits for a plan
+     */
+    private void updateFeatureLimits(PremiumPlan plan, List<FeatureLimitConfigRequest> limitRequests) {
+        for (FeatureLimitConfigRequest request : limitRequests) {
+            Optional<PlanFeatureLimits> existing = featureLimitsRepository
+                    .findByPlanAndFeatureType(plan, request.getFeatureType());
+
+            if (existing.isPresent()) {
+                // Update existing limit
+                PlanFeatureLimits limit = existing.get();
+                limit.setLimitValue(request.getLimitValue());
+                limit.setResetPeriod(request.getResetPeriod());
+                limit.setIsUnlimited(request.getIsUnlimited());
+                limit.setBonusMultiplier(
+                        request.getBonusMultiplier() != null ? request.getBonusMultiplier() : BigDecimal.ONE);
+                limit.setDescription(request.getDescription());
+                limit.setIsActive(request.getIsActive());
+                featureLimitsRepository.save(limit);
+            } else {
+                // Create new limit
+                PlanFeatureLimits limit = PlanFeatureLimits.builder()
+                        .plan(plan)
+                        .featureType(request.getFeatureType())
+                        .limitValue(request.getLimitValue())
+                        .resetPeriod(request.getResetPeriod())
+                        .isUnlimited(request.getIsUnlimited())
+                        .bonusMultiplier(
+                                request.getBonusMultiplier() != null ? request.getBonusMultiplier() : BigDecimal.ONE)
+                        .description(request.getDescription())
+                        .isActive(request.getIsActive())
+                        .build();
+
+                featureLimitsRepository.save(limit);
+            }
+        }
+    }
+
+    /**
+     * Map feature limits to response DTOs
+     */
+    private List<FeatureLimitResponse> mapFeatureLimitsToResponse(PremiumPlan plan) {
+        List<PlanFeatureLimits> limits = featureLimitsRepository.findByPlan(plan);
+
+        log.debug("Mapping feature limits for plan: {} (ID: {}), found {} limits",
+                plan.getName(), plan.getId(), limits.size());
+
+        return limits.stream()
+                .map(limit -> FeatureLimitResponse.builder()
+                        .id(limit.getId())
+                        .featureType(limit.getFeatureType())
+                        .featureName(limit.getFeatureType().getDisplayName())
+                        .featureNameVi(limit.getFeatureType().getDisplayNameVi())
+                        .limitValue(limit.getLimitValue())
+                        .resetPeriod(limit.getResetPeriod())
+                        .isUnlimited(limit.getIsUnlimited())
+                        .bonusMultiplier(limit.getBonusMultiplier())
+                        .description(limit.getDescription())
+                        .isActive(limit.getIsActive())
+                        .createdAt(limit.getCreatedAt())
+                        .updatedAt(limit.getUpdatedAt())
+                        .build())
+                .collect(Collectors.toList());
     }
 }
