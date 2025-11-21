@@ -20,7 +20,7 @@ import java.util.List;
  * Controller for user usage limits and tracking
  */
 @RestController
-@RequestMapping("/api/v1/usage")
+@RequestMapping("/api/usage")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Usage Limits", description = "User endpoints for checking usage limits and current usage")
