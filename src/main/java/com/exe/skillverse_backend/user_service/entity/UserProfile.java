@@ -36,6 +36,9 @@ public class UserProfile {
     @JoinColumn(name = "avatar_media_id", insertable = false, updatable = false)
     private Media avatarMedia;
 
+    @Column(name = "avatar_position")
+    private String avatarPosition; // center, top, bottom, left, right, etc.
+
     @Column(columnDefinition = "TEXT")
     private String bio;
 

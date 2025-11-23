@@ -14,6 +14,7 @@ public class UserProfileResponse {
     private String fullName;
     private Long avatarMediaId;
     private String avatarMediaUrl;
+    private String avatarPosition;
     private String bio;
     private String phone;
     private String address;

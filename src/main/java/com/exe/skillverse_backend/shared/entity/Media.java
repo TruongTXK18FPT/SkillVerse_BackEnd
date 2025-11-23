@@ -8,6 +8,9 @@ import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 
 import jakarta.persistence.*;
 import lombok.Data;
+import lombok.Builder;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 
@@ -18,6 +21,9 @@ import java.util.Set;
 @Entity
 @Table(name = "media")
 @Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class Media {
 
     @Id

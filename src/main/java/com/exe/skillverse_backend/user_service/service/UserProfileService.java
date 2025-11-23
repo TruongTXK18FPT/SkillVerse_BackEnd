@@ -13,12 +13,19 @@ import com.exe.skillverse_backend.user_service.entity.UserProfile;
 import com.exe.skillverse_backend.user_service.entity.UserSkill;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.user_service.repository.UserSkillRepository;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.exe.skillverse_backend.shared.entity.Media;
+import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -30,6 +37,8 @@ public class UserProfileService {
     private final UserSkillRepository userSkillRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
+    private final CloudinaryService cloudinaryService;
+    private final MediaRepository mediaRepository;
 
     /**
      * ✅ SECURITY: Sanitize string inputs to prevent XSS attacks
@@ -57,6 +66,9 @@ public class UserProfileService {
             }
             if (request.getAvatarMediaId() != null) {
                 profile.setAvatarMediaId(request.getAvatarMediaId());
+            }
+            if (request.getAvatarPosition() != null) {
+                profile.setAvatarPosition(request.getAvatarPosition());
             }
             if (request.getBio() != null) {
                 profile.setBio(request.getBio());
@@ -121,6 +133,71 @@ public class UserProfileService {
                 .map(this::mapToProfileResponse)
                 .collect(Collectors.toList());
     }
+
+    /**
+     * Upload avatar for user profile
+     * @param userId User ID
+     * @param file Avatar image file
+     * @return Avatar URL
+     */
+    @Transactional
+    public String uploadAvatar(Long userId, MultipartFile file) {
+        try {
+            log.info("Uploading avatar for user: {}", userId);
+            
+            // Get user profile
+            UserProfile profile = userProfileRepository.findByUserId(userId)
+                    .orElseThrow(() -> new RuntimeException("User profile not found"));
+            
+            // Upload to Cloudinary
+            Map<String, Object> uploadResult = cloudinaryService.uploadImage(file, "users/avatars");
+            String avatarUrl = (String) uploadResult.get("secure_url");
+            String cloudinaryPublicId = (String) uploadResult.get("public_id");
+            
+            log.info("Avatar uploaded to Cloudinary: {}", avatarUrl);
+            
+            // Create or update Media entity
+            Media media = Media.builder()
+                    .url(avatarUrl)
+                    .cloudinaryPublicId(cloudinaryPublicId)
+                    .cloudinaryResourceType("image")
+                    .type("IMAGE")
+                    .uploadedAt(LocalDateTime.now())
+                    .build();
+            media = mediaRepository.save(media);
+            
+            // Delete old avatar if exists
+            if (profile.getAvatarMediaId() != null) {
+                Media oldMedia = mediaRepository.findById(profile.getAvatarMediaId()).orElse(null);
+                if (oldMedia != null && oldMedia.getCloudinaryPublicId() != null) {
+                    try {
+                        cloudinaryService.deleteFile(oldMedia.getCloudinaryPublicId(), "image");
+                        mediaRepository.delete(oldMedia);
+                        log.info("Deleted old avatar: {}", oldMedia.getCloudinaryPublicId());
+                    } catch (Exception e) {
+                        log.error("Failed to delete old avatar", e);
+                    }
+                }
+            }
+            
+            // Update profile with new avatar
+            profile.setAvatarMediaId(media.getId());
+            userProfileRepository.save(profile);
+            
+            // Log action
+            auditService.logAction(userId, "UPLOAD_AVATAR", "USER_PROFILE", userId.toString(),
+                    "Avatar uploaded successfully");
+            
+            return avatarUrl;
+            
+        } catch (IOException e) {
+            log.error("Failed to upload avatar", e);
+            auditService.logAction(userId, "UPLOAD_AVATAR_FAILED", "USER_PROFILE", userId.toString(),
+                    "Failed to upload avatar: " + e.getMessage());
+            throw new RuntimeException("Failed to upload avatar: " + e.getMessage());
+        }
+    }
+
     // Skills Management
 
     @Transactional
@@ -237,6 +314,7 @@ public class UserProfileService {
                 .fullName(profile.getFullName())
                 .avatarMediaId(profile.getAvatarMediaId())
                 .avatarMediaUrl(profile.getAvatarMedia() != null ? profile.getAvatarMedia().getUrl() : null)
+                .avatarPosition(profile.getAvatarPosition())
                 .bio(profile.getBio())
                 .phone(profile.getPhone())
                 .address(profile.getAddress())

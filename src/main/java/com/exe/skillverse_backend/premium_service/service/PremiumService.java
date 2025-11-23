@@ -78,4 +78,10 @@ public interface PremiumService {
      * Ensure the user has an active subscription; fallback to Free Tier if needed
      */
     UserSubscriptionResponse ensureActiveSubscriptionOrFree(Long userId);
+
+    /**
+     * Purchase premium subscription using wallet cash
+     * Throws exception if insufficient balance
+     */
+    UserSubscriptionResponse purchaseWithWalletCash(Long userId, Long planId, boolean applyStudentDiscount);
 }

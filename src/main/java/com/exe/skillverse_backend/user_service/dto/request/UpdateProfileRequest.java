@@ -11,6 +11,9 @@ public class UpdateProfileRequest {
 
     private Long avatarMediaId;
 
+    @Size(max = 50, message = "Avatar position must not exceed 50 characters")
+    private String avatarPosition;
+
     @Size(max = 1000, message = "Bio must not exceed 1000 characters")
     private String bio;
 

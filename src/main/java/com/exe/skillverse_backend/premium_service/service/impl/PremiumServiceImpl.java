@@ -12,6 +12,10 @@ import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
 import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
 import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
+import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
+import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
+import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
+import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
@@ -19,6 +23,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +38,9 @@ public class PremiumServiceImpl implements PremiumService {
         private final UserSubscriptionRepository userSubscriptionRepository;
         private final UserRepository userRepository;
         private final PaymentTransactionRepository paymentTransactionRepository;
+        private final WalletService walletService;
+        private final WalletRepository walletRepository;
+        private final WalletTransactionRepository walletTransactionRepository;
 
         private static final List<String> STUDENT_EMAIL_DOMAINS = List.of(
                         ".edu", ".edu.vn", ".ac.uk", "university.", "student.", ".edu.au");
@@ -300,5 +308,95 @@ public class PremiumServiceImpl implements PremiumService {
                                 .cancelledAt(subscription.getCancelledAt())
                                 .createdAt(subscription.getCreatedAt())
                                 .build();
+        }
+
+        @Override
+        @Transactional
+        public UserSubscriptionResponse purchaseWithWalletCash(Long userId, Long planId, boolean applyStudentDiscount) {
+                log.info("💰 User {} purchasing premium plan {} with wallet cash", userId, planId);
+
+                // 1. Validate user
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
+
+                // 2. Validate plan
+                PremiumPlan plan = premiumPlanRepository.findById(planId)
+                                .filter(p -> p.getIsActive())
+                                .orElseThrow(() -> new RuntimeException("Premium plan not found: " + planId));
+
+                // 3. Check existing subscription
+                Optional<UserSubscription> existingSubscription = userSubscriptionRepository
+                                .findByUserAndIsActiveTrue(user);
+
+                if (existingSubscription.isPresent()) {
+                        PremiumPlan existingPlan = existingSubscription.get().getPlan();
+                        if (existingPlan.getPlanType() != PremiumPlan.PlanType.FREE_TIER) {
+                                throw new RuntimeException("User already has an active premium subscription");
+                        }
+                        // Deactivate FREE_TIER to allow upgrading
+                        UserSubscription activeSub = existingSubscription.get();
+                        activeSub.cancel("Upgrading from Free Tier via Wallet");
+                        userSubscriptionRepository.save(activeSub);
+                }
+
+                // 4. Calculate price (with student discount if applicable)
+                boolean isStudentEligible = applyStudentDiscount && isValidStudentEmail(user.getEmail());
+                BigDecimal finalPrice = isStudentEligible ? plan.getStudentPrice() : plan.getPrice();
+
+                log.info("💵 Plan price: {} VND (student discount: {})", finalPrice, isStudentEligible);
+
+                // 5. Get wallet and check balance
+                com.exe.skillverse_backend.wallet_service.entity.Wallet wallet = walletRepository
+                                .findByUserIdWithLock(userId)
+                                .orElseThrow(() -> new RuntimeException("Wallet not found for user: " + userId));
+
+                if (!wallet.hasAvailableCash(finalPrice)) {
+                        BigDecimal available = wallet.getAvailableCashBalance();
+                        BigDecimal needed = finalPrice.subtract(available);
+                        throw new RuntimeException(String.format(
+                                        "Insufficient wallet balance. Available: %,.0f VND, Required: %,.0f VND, Need to deposit: %,.0f VND",
+                                        available, finalPrice, needed));
+                }
+
+                // 6. Deduct cash from wallet
+                wallet.deductCash(finalPrice);
+                walletRepository.save(wallet);
+
+                // 7. Create wallet transaction record
+                WalletTransaction walletTransaction = WalletTransaction.builder()
+                                .wallet(wallet)
+                                .transactionType(WalletTransaction.TransactionType.PURCHASE_PREMIUM)
+                                .currencyType(WalletTransaction.CurrencyType.CASH)
+                                .cashAmount(finalPrice)
+                                .cashBalanceAfter(wallet.getCashBalance())
+                                .description(String.format("Mua gói Premium: %s", plan.getDisplayName()))
+                                .referenceType("PREMIUM_SUBSCRIPTION")
+                                .referenceId(planId.toString())
+                                .status(WalletTransaction.TransactionStatus.COMPLETED)
+                                .build();
+                
+                walletTransaction = walletTransactionRepository.save(walletTransaction);
+                log.info("💳 Wallet transaction created: {}", walletTransaction.getTransactionId());
+
+                // 8. Create and activate subscription immediately
+                LocalDateTime startDate = LocalDateTime.now();
+                LocalDateTime endDate = startDate.plusMonths(plan.getDurationMonths());
+
+                UserSubscription subscription = UserSubscription.builder()
+                                .user(user)
+                                .plan(plan)
+                                .startDate(startDate)
+                                .endDate(endDate)
+                                .isActive(true) // Activate immediately since payment is done
+                                .status(UserSubscription.SubscriptionStatus.ACTIVE)
+                                .isStudentSubscription(isStudentEligible)
+                                .autoRenew(false)
+                                .build();
+
+                subscription = userSubscriptionRepository.save(subscription);
+
+                log.info("✅ Premium subscription activated for user {} via wallet payment", userId);
+
+                return convertToUserSubscriptionResponse(subscription);
         }
 }

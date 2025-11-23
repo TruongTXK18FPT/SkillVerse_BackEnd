@@ -109,4 +109,30 @@ public class PremiumController {
 
         return ResponseEntity.ok(hasActivePremium);
     }
+
+    @PostMapping("/purchase-with-wallet")
+    @Operation(summary = "Purchase premium subscription with wallet cash")
+    public ResponseEntity<UserSubscriptionResponse> purchaseWithWallet(
+            @RequestParam Long planId,
+            @RequestParam(required = false, defaultValue = "false") Boolean applyStudentDiscount,
+            Authentication authentication) {
+
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+        log.info("User {} purchasing premium plan {} with wallet", userId, planId);
+        
+        try {
+            UserSubscriptionResponse response = premiumService.purchaseWithWalletCash(
+                userId, 
+                planId, 
+                applyStudentDiscount != null && applyStudentDiscount
+            );
+            
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            log.error("Failed to purchase premium with wallet: {}", e.getMessage());
+            throw e;
+        }
+    }
 }
