@@ -9,12 +9,11 @@ import com.exe.skillverse_backend.premium_service.dto.response.PremiumPlanRespon
 import com.exe.skillverse_backend.premium_service.dto.response.UserSubscriptionResponse;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
+import com.exe.skillverse_backend.premium_service.entity.SubscriptionCancellation;
 import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
 import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
+import com.exe.skillverse_backend.premium_service.repository.SubscriptionCancellationRepository;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
-import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
-import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
-import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,8 +38,7 @@ public class PremiumServiceImpl implements PremiumService {
         private final UserRepository userRepository;
         private final PaymentTransactionRepository paymentTransactionRepository;
         private final WalletService walletService;
-        private final WalletRepository walletRepository;
-        private final WalletTransactionRepository walletTransactionRepository;
+        private final SubscriptionCancellationRepository cancellationRepository;
 
         private static final List<String> STUDENT_EMAIL_DOMAINS = List.of(
                         ".edu", ".edu.vn", ".ac.uk", "university.", "student.", ".edu.au");
@@ -188,6 +186,89 @@ public class PremiumServiceImpl implements PremiumService {
                 String lowerEmail = email.toLowerCase();
                 return STUDENT_EMAIL_DOMAINS.stream()
                                 .anyMatch(lowerEmail::contains);
+        }
+
+        @Override
+        @Scheduled(cron = "0 0 2 * * ?") // Run at 2 AM daily
+        @Transactional
+        public void processAutoRenewals() {
+                log.info("🔄 Starting auto-renewal process...");
+                
+                LocalDateTime now = LocalDateTime.now();
+                LocalDateTime renewalWindow = now.plusDays(3); // Renew 3 days before expiry
+                
+                List<UserSubscription> subscriptionsToRenew = userSubscriptionRepository
+                        .findSubscriptionsForAutoRenewal(now, renewalWindow);
+                
+                log.info("Found {} subscriptions eligible for auto-renewal", subscriptionsToRenew.size());
+                
+                int successCount = 0;
+                int failCount = 0;
+                
+                for (UserSubscription subscription : subscriptionsToRenew) {
+                        try {
+                                processAutoRenewal(subscription);
+                                successCount++;
+                        } catch (Exception e) {
+                                log.error("Failed to auto-renew subscription {} for user {}: {}", 
+                                        subscription.getId(), 
+                                        subscription.getUser().getId(), 
+                                        e.getMessage());
+                                failCount++;
+                        }
+                }
+                
+                log.info("✅ Auto-renewal process completed. Success: {}, Failed: {}", successCount, failCount);
+        }
+        
+        private void processAutoRenewal(UserSubscription subscription) {
+                log.info("Processing auto-renewal for subscription {} (user: {})", 
+                        subscription.getId(), 
+                        subscription.getUser().getId());
+                
+                User user = subscription.getUser();
+                PremiumPlan currentPlan = subscription.getPlan();
+                
+                // Calculate price with student discount if applicable
+                BigDecimal price = currentPlan.getPrice();
+                if (subscription.getIsStudentSubscription()) {
+                        price = price.multiply(BigDecimal.valueOf(0.8)); // 20% student discount
+                }
+                
+                // Try to deduct from wallet
+                try {
+                        walletService.deductCash(user.getId(), price, 
+                                "Gia hạn tự động gói " + currentPlan.getDisplayName(),
+                                "AUTO_RENEWAL",
+                                subscription.getId().toString());
+                        
+                        // Calculate new end date
+                        LocalDateTime newStartDate = subscription.getEndDate();
+                        LocalDateTime newEndDate = calculateEndDate(newStartDate, currentPlan.getDurationMonths());
+                        
+                        // Update subscription
+                        subscription.setStartDate(newStartDate);
+                        subscription.setEndDate(newEndDate);
+                        subscription.setIsActive(true);
+                        subscription.setStatus(UserSubscription.SubscriptionStatus.ACTIVE);
+                        // Keep autoRenew = true for next cycle
+                        
+                        userSubscriptionRepository.save(subscription);
+                        
+                        log.info("✅ Auto-renewed subscription {} until {}", 
+                                subscription.getId(), 
+                                newEndDate);
+                        
+                } catch (Exception e) {
+                        log.error("❌ Auto-renewal failed for subscription {}: Insufficient balance. Disabling auto-renewal.", 
+                                subscription.getId());
+                        
+                        // Disable auto-renewal if payment fails
+                        subscription.setAutoRenew(false);
+                        userSubscriptionRepository.save(subscription);
+                        
+                        // TODO: Send notification to user about failed auto-renewal
+                }
         }
 
         @Override
@@ -345,38 +426,17 @@ public class PremiumServiceImpl implements PremiumService {
 
                 log.info("💵 Plan price: {} VND (student discount: {})", finalPrice, isStudentEligible);
 
-                // 5. Get wallet and check balance
-                com.exe.skillverse_backend.wallet_service.entity.Wallet wallet = walletRepository
-                                .findByUserIdWithLock(userId)
-                                .orElseThrow(() -> new RuntimeException("Wallet not found for user: " + userId));
-
-                if (!wallet.hasAvailableCash(finalPrice)) {
-                        BigDecimal available = wallet.getAvailableCashBalance();
-                        BigDecimal needed = finalPrice.subtract(available);
-                        throw new RuntimeException(String.format(
-                                        "Insufficient wallet balance. Available: %,.0f VND, Required: %,.0f VND, Need to deposit: %,.0f VND",
-                                        available, finalPrice, needed));
+                // 5. Deduct cash from wallet using WalletService
+                String purchaseDescription = String.format("Mua gói Premium: %s", plan.getDisplayName());
+                try {
+                        walletService.deductCash(userId, finalPrice, purchaseDescription, 
+                                        "PREMIUM_SUBSCRIPTION", planId.toString());
+                } catch (Exception e) {
+                        log.error("Failed to deduct wallet balance: {}", e.getMessage());
+                        throw new RuntimeException("Insufficient wallet balance or payment failed: " + e.getMessage());
                 }
-
-                // 6. Deduct cash from wallet
-                wallet.deductCash(finalPrice);
-                walletRepository.save(wallet);
-
-                // 7. Create wallet transaction record
-                WalletTransaction walletTransaction = WalletTransaction.builder()
-                                .wallet(wallet)
-                                .transactionType(WalletTransaction.TransactionType.PURCHASE_PREMIUM)
-                                .currencyType(WalletTransaction.CurrencyType.CASH)
-                                .cashAmount(finalPrice)
-                                .cashBalanceAfter(wallet.getCashBalance())
-                                .description(String.format("Mua gói Premium: %s", plan.getDisplayName()))
-                                .referenceType("PREMIUM_SUBSCRIPTION")
-                                .referenceId(planId.toString())
-                                .status(WalletTransaction.TransactionStatus.COMPLETED)
-                                .build();
                 
-                walletTransaction = walletTransactionRepository.save(walletTransaction);
-                log.info("💳 Wallet transaction created: {}", walletTransaction.getTransactionId());
+                log.info("💳 Wallet payment processed successfully");
 
                 // 8. Create and activate subscription immediately
                 LocalDateTime startDate = LocalDateTime.now();
@@ -398,5 +458,229 @@ public class PremiumServiceImpl implements PremiumService {
                 log.info("✅ Premium subscription activated for user {} via wallet payment", userId);
 
                 return convertToUserSubscriptionResponse(subscription);
+        }
+
+        @Override
+        @Transactional
+        public void enableAutoRenewal(Long userId) {
+                log.info("🔄 Enabling auto-renewal for user {}", userId);
+
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found"));
+
+                var subscriptionOpt = userSubscriptionRepository.findByUserAndIsActiveTrue(user);
+                if (subscriptionOpt.isEmpty()) {
+                        throw new RuntimeException("No active subscription found");
+                }
+
+                UserSubscription subscription = subscriptionOpt.get();
+                
+                // Check if already enabled
+                if (subscription.getAutoRenew()) {
+                        throw new RuntimeException("Auto-renewal is already enabled");
+                }
+
+                // Enable auto-renewal
+                subscription.setAutoRenew(true);
+                userSubscriptionRepository.save(subscription);
+
+                log.info("✅ Auto-renewal enabled for user {}. Next renewal before {}", 
+                        userId, subscription.getEndDate());
+        }
+
+        @Override
+        @Transactional
+        public void cancelAutoRenewal(Long userId) {
+                log.info("🔄 Cancelling auto-renewal for user {}", userId);
+
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
+
+                UserSubscription subscription = userSubscriptionRepository
+                                .findByUserAndIsActiveTrue(user)
+                                .orElseThrow(() -> new RuntimeException("No active subscription found for user: " + userId));
+
+                if (subscription.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
+                        throw new RuntimeException("Free tier does not have auto-renewal");
+                }
+
+                // Just turn off auto-renewal, keep subscription active until end date
+                subscription.setAutoRenew(false);
+                userSubscriptionRepository.save(subscription);
+
+                log.info("✅ Auto-renewal cancelled for user {}. Subscription remains active until {}", 
+                        userId, subscription.getEndDate());
+        }
+
+        @Override
+        @Transactional
+        public double cancelSubscriptionWithRefund(Long userId, String reason) {
+                log.info("🔄 Processing subscription cancellation with refund for user {}", userId);
+
+                // 1. Find user and active subscription
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
+
+                UserSubscription subscription = userSubscriptionRepository
+                                .findByUserAndIsActiveTrue(user)
+                                .orElseThrow(() -> new RuntimeException("No active subscription found for user: " + userId));
+
+                // 2. Check if Free tier (cannot cancel/refund)
+                if (subscription.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
+                        throw new RuntimeException("Cannot cancel Free tier subscription");
+                }
+
+                // 2.5. Check cancellation limit (max 1 time per month)
+                String currentMonth = SubscriptionCancellation.getCurrentMonth();
+                Long cancellationsThisMonth = cancellationRepository.countByUserAndCancellationMonth(user, currentMonth);
+                if (cancellationsThisMonth >= 1) {
+                        throw new RuntimeException("Bạn đã hủy gói Premium trong tháng này. Chỉ được phép hủy 1 lần/tháng. Vui lòng thử lại vào tháng sau.");
+                }
+
+                // 3. Calculate days since purchase
+                LocalDateTime purchaseDate = subscription.getStartDate();
+                LocalDateTime now = LocalDateTime.now();
+                long hoursSincePurchase = java.time.Duration.between(purchaseDate, now).toHours();
+                long daysSincePurchase = hoursSincePurchase / 24;
+
+                // 4. Calculate refund percentage based on usage time
+                int refundPercentage;
+                if (hoursSincePurchase <= 24) {
+                        refundPercentage = 100; // Within 24h: 100% refund
+                } else if (daysSincePurchase <= 3) {
+                        refundPercentage = 50;  // 1-3 days: 50% refund
+                } else {
+                        refundPercentage = 0;   // Over 3 days: No refund, just cancel auto-renewal
+                }
+
+                // 5. Calculate actual refund amount
+                BigDecimal originalPrice = subscription.getPlan().getPrice();
+                if (subscription.getIsStudentSubscription()) {
+                        originalPrice = originalPrice.multiply(BigDecimal.valueOf(0.8)); // 20% student discount
+                }
+                
+                BigDecimal refundAmount = originalPrice.multiply(BigDecimal.valueOf(refundPercentage))
+                                                      .divide(BigDecimal.valueOf(100));
+
+                // 6. Cancel subscription or just turn off auto-renewal
+                if (refundPercentage > 0) {
+                        // Full cancellation with refund
+                        subscription.setIsActive(false);
+                        subscription.setStatus(UserSubscription.SubscriptionStatus.CANCELLED);
+                        subscription.setEndDate(now);
+                        
+                        // Process refund to wallet
+                        String refundDescription = String.format(
+                                "Hoàn tiền %d%% hủy gói Premium %s - Lý do: %s", 
+                                refundPercentage,
+                                subscription.getPlan().getPlanType(),
+                                reason != null ? reason : "Không hài lòng"
+                        );
+                        String referenceId = "SUB_REFUND_" + subscription.getId() + "_" + System.currentTimeMillis();
+                        
+                        walletService.processRefund(userId, refundAmount, refundDescription, referenceId);
+                        
+                        // Assign Free tier back
+                        assignFreeTierIfMissing(userId);
+                        
+                        log.info("✅ Subscription cancelled with {}% refund ({} VND) for user {}", 
+                                refundPercentage, refundAmount, userId);
+                } else {
+                        // No refund, just cancel auto-renewal
+                        subscription.setAutoRenew(false);
+                        log.info("⚠️ No refund (over 3 days). Auto-renewal cancelled. Subscription active until {}", 
+                                subscription.getEndDate());
+                }
+
+                userSubscriptionRepository.save(subscription);
+
+                // 7. Record cancellation
+                SubscriptionCancellation cancellationRecord = SubscriptionCancellation.builder()
+                                .user(user)
+                                .subscription(subscription)
+                                .cancellationMonth(currentMonth)
+                                .refundPercentage(refundPercentage)
+                                .refundAmount(refundAmount)
+                                .daysSincePurchase(daysSincePurchase)
+                                .reason(reason)
+                                .cancellationType(refundPercentage > 0 ? 
+                                        SubscriptionCancellation.CancellationType.CANCEL_WITH_REFUND :
+                                        SubscriptionCancellation.CancellationType.CANCEL_AUTO_RENEWAL)
+                                .build();
+                
+                cancellationRepository.save(cancellationRecord);
+                log.info("📝 Recorded cancellation for user {} in month {}", userId, currentMonth);
+
+                return refundAmount.doubleValue();
+        }
+
+        @Override
+        public RefundEligibility getRefundEligibility(Long userId) {
+                log.info("🔍 Checking refund eligibility for user {}", userId);
+
+                User user = userRepository.findById(userId).orElse(null);
+                if (user == null) {
+                        return new RefundEligibility(false, 0, 0.0, 0, "User not found");
+                }
+
+                var subscriptionOpt = userSubscriptionRepository.findByUserAndIsActiveTrue(user);
+                if (subscriptionOpt.isEmpty()) {
+                        return new RefundEligibility(false, 0, 0.0, 0, "No active subscription");
+                }
+
+                UserSubscription subscription = subscriptionOpt.get();
+
+                if (subscription.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
+                        return new RefundEligibility(false, 0, 0.0, 0, "Free tier cannot be refunded");
+                }
+
+                // CHECK CANCELLATION LIMIT FIRST
+                String currentMonth = SubscriptionCancellation.getCurrentMonth();
+                Long cancellationsThisMonth = cancellationRepository.countByUserAndCancellationMonth(user, currentMonth);
+                if (cancellationsThisMonth >= 1) {
+                        throw new RuntimeException("Bạn đã hủy gói Premium trong tháng này. Chỉ được phép hủy 1 lần/tháng. Vui lòng thử lại vào tháng sau.");
+                }
+
+                // Calculate time since purchase
+                LocalDateTime purchaseDate = subscription.getStartDate();
+                LocalDateTime now = LocalDateTime.now();
+                long hoursSincePurchase = java.time.Duration.between(purchaseDate, now).toHours();
+                long daysSincePurchase = hoursSincePurchase / 24;
+
+                // Determine refund percentage
+                int refundPercentage;
+                String message;
+                if (hoursSincePurchase <= 24) {
+                        refundPercentage = 100;
+                        message = "Eligible for 100% refund (within 24 hours)";
+                } else if (daysSincePurchase <= 3) {
+                        refundPercentage = 50;
+                        message = "Eligible for 50% refund (1-3 days)";
+                } else {
+                        refundPercentage = 0;
+                        message = "No refund available (over 3 days). Can only cancel auto-renewal.";
+                }
+
+                // Calculate refund amount
+                BigDecimal originalPrice = subscription.getPlan().getPrice();
+                if (subscription.getIsStudentSubscription()) {
+                        originalPrice = originalPrice.multiply(BigDecimal.valueOf(0.8));
+                }
+                
+                double refundAmount = originalPrice.multiply(BigDecimal.valueOf(refundPercentage))
+                                                   .divide(BigDecimal.valueOf(100))
+                                                   .doubleValue();
+
+                return new RefundEligibility(true, refundPercentage, refundAmount, daysSincePurchase, message);
+        }
+
+        /**
+         * Helper method to calculate end date based on start date and duration
+         */
+        private LocalDateTime calculateEndDate(LocalDateTime startDate, Integer durationMonths) {
+                if (durationMonths == null || durationMonths <= 0) {
+                        throw new IllegalArgumentException("Duration months must be positive");
+                }
+                return startDate.plusMonths(durationMonths);
         }
 }

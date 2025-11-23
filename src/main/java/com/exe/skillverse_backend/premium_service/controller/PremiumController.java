@@ -16,6 +16,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/premium")
@@ -135,4 +136,98 @@ public class PremiumController {
             throw e;
         }
     }
+
+    @PostMapping("/subscription/enable-auto-renewal")
+    @Operation(summary = "Enable auto-renewal for subscription")
+    public ResponseEntity<?> enableAutoRenewal(Authentication authentication) {
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+        log.info("User {} requesting to enable auto-renewal", userId);
+        
+        try {
+            premiumService.enableAutoRenewal(userId);
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Auto-renewal enabled successfully. Your subscription will be automatically renewed."
+            ));
+        } catch (RuntimeException e) {
+            log.error("Failed to enable auto-renewal: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of(
+                "success", false,
+                "message", e.getMessage()
+            ));
+        }
+    }
+
+    @PostMapping("/subscription/cancel-auto-renewal")
+    @Operation(summary = "Cancel auto-renewal (no refund, subscription continues until end date)")
+    public ResponseEntity<?> cancelAutoRenewal(Authentication authentication) {
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+        log.info("User {} requesting auto-renewal cancellation", userId);
+        
+        try {
+            premiumService.cancelAutoRenewal(userId);
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "Auto-renewal cancelled successfully. Your subscription will remain active until the end date."
+            ));
+        } catch (RuntimeException e) {
+            log.error("Failed to cancel auto-renewal: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of(
+                "success", false,
+                "message", e.getMessage()
+            ));
+        }
+    }
+
+    @PostMapping("/subscription/cancel-with-refund")
+    @Operation(summary = "Cancel subscription with refund (24h=100%, 1-3days=50%, >3days=0%)")
+    public ResponseEntity<?> cancelSubscriptionWithRefund(
+            @RequestParam(required = false) String reason,
+            Authentication authentication) {
+
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+        log.info("User {} requesting subscription cancellation with refund", userId);
+        
+        try {
+            double refundAmount = premiumService.cancelSubscriptionWithRefund(userId, reason);
+            
+            String message = refundAmount > 0 
+                ? "Subscription cancelled successfully. Refund amount: " + refundAmount + " VND"
+                : "Auto-renewal cancelled. No refund available (over 3 days).";
+            
+            return ResponseEntity.ok(new RefundResponse(
+                true,
+                message,
+                refundAmount
+            ));
+        } catch (RuntimeException e) {
+            log.error("Failed to cancel subscription with refund: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(new RefundResponse(
+                false,
+                e.getMessage(),
+                0.0
+            ));
+        }
+    }
+
+    @GetMapping("/subscription/refund-eligibility")
+    @Operation(summary = "Get refund eligibility details (percentage and amount)")
+    public ResponseEntity<PremiumService.RefundEligibility> checkRefundEligibility(Authentication authentication) {
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+        log.info("Checking refund eligibility for user: {}", userId);
+        PremiumService.RefundEligibility eligibility = premiumService.getRefundEligibility(userId);
+
+        return ResponseEntity.ok(eligibility);
+    }
+
+    // Inner response classes
+    private record RefundResponse(boolean success, String message, double refundAmount) {}
 }

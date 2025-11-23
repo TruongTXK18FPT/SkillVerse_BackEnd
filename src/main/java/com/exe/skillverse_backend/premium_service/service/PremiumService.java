@@ -84,4 +84,47 @@ public interface PremiumService {
      * Throws exception if insufficient balance
      */
     UserSubscriptionResponse purchaseWithWalletCash(Long userId, Long planId, boolean applyStudentDiscount);
+
+    /**
+     * Enable auto-renewal for subscription
+     */
+    void enableAutoRenewal(Long userId);
+
+    /**
+     * Cancel auto-renewal (user keeps subscription until end date)
+     * No refund, just prevents next billing cycle
+     */
+    void cancelAutoRenewal(Long userId);
+
+    /**
+     * Process auto-renewal for subscriptions expiring soon
+     * Scheduled task runs daily to renew subscriptions
+     */
+    void processAutoRenewals();
+
+    /**
+     * Cancel subscription with refund based on usage time:
+     * - Within 24h: 100% refund
+     * - 1-3 days: 50% refund
+     * - Over 3 days: 0% refund (only stops auto-renewal)
+     * Returns refund amount
+     */
+    double cancelSubscriptionWithRefund(Long userId, String reason);
+
+    /**
+     * Get refund eligibility and amount
+     * Returns object with: eligible, refundPercentage, refundAmount, daysUsed
+     */
+    RefundEligibility getRefundEligibility(Long userId);
+
+    /**
+     * DTO for refund eligibility information
+     */
+    record RefundEligibility(
+        boolean eligible,
+        int refundPercentage,
+        double refundAmount,
+        long daysUsed,
+        String message
+    ) {}
 }

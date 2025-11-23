@@ -403,4 +403,92 @@ public class WalletService {
                 "startDate", startDate != null ? startDate : "today",
                 "endDate", endDate != null ? endDate : "today");
     }
+
+    /**
+     * Deduct cash from wallet (for premium purchase, etc.)
+     */
+    @Transactional
+    public WalletTransaction deductCash(
+            Long userId,
+            BigDecimal cashAmount,
+            String description,
+            String referenceType,
+            String referenceId) {
+        if (cashAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Deduct amount must be greater than 0");
+        }
+
+        Wallet wallet = walletRepository.findByUser_Id(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Wallet not found for user: " + userId));
+
+        // Check if sufficient balance
+        if (wallet.getCashBalance().compareTo(cashAmount) < 0) {
+            throw new IllegalArgumentException(String.format(
+                "Insufficient balance. Available: %s VND, Required: %s VND",
+                wallet.getCashBalance(), cashAmount));
+        }
+
+        // Deduct amount from cash balance
+        BigDecimal newBalance = wallet.getCashBalance().subtract(cashAmount);
+        wallet.setCashBalance(newBalance);
+        walletRepository.save(wallet);
+
+        // Create debit transaction
+        WalletTransaction transaction = WalletTransaction.builder()
+                .wallet(wallet)
+                .transactionType(WalletTransaction.TransactionType.PURCHASE_PREMIUM)
+                .cashAmount(cashAmount)
+                .currencyType(WalletTransaction.CurrencyType.CASH)
+                .cashBalanceAfter(newBalance)
+                .description(description)
+                .status(WalletTransaction.TransactionStatus.COMPLETED)
+                .referenceId(referenceId)
+                .referenceType(referenceType)
+                .build();
+
+        WalletTransaction savedTransaction = transactionRepository.save(transaction);
+        log.info("✅ Deducted {} VND from user {} wallet", cashAmount, userId);
+
+        return savedTransaction;
+    }
+
+    /**
+     * Process refund to wallet (for subscription cancellation, etc.)
+     */
+    @Transactional
+    public WalletTransaction processRefund(
+            Long userId,
+            BigDecimal cashAmount,
+            String description,
+            String referenceId) {
+        if (cashAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Refund amount must be greater than 0");
+        }
+
+        Wallet wallet = walletRepository.findByUser_Id(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Wallet not found for user: " + userId));
+
+        // Add refund amount to cash balance
+        BigDecimal newBalance = wallet.getCashBalance().add(cashAmount);
+        wallet.setCashBalance(newBalance);
+        walletRepository.save(wallet);
+
+        // Create refund transaction
+        WalletTransaction transaction = WalletTransaction.builder()
+                .wallet(wallet)
+                .transactionType(WalletTransaction.TransactionType.REFUND_CASH)
+                .cashAmount(cashAmount)
+                .currencyType(WalletTransaction.CurrencyType.CASH)
+                .cashBalanceAfter(newBalance)
+                .description(description)
+                .status(WalletTransaction.TransactionStatus.COMPLETED)
+                .referenceId(referenceId)
+                .referenceType("SUBSCRIPTION_REFUND")
+                .build();
+
+        WalletTransaction savedTransaction = transactionRepository.save(transaction);
+        log.info("✅ Processed refund of {} VND to user {}", cashAmount, userId);
+
+        return savedTransaction;
+    }
 }
