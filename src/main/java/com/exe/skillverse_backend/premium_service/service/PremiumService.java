@@ -5,8 +5,11 @@ import com.exe.skillverse_backend.premium_service.dto.response.PremiumPlanRespon
 import com.exe.skillverse_backend.premium_service.dto.response.UserSubscriptionResponse;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -127,4 +130,26 @@ public interface PremiumService {
         long daysUsed,
         String message
     ) {}
+
+    // ==================== ADMIN METHODS ====================
+
+    /**
+     * Admin: Get all subscriptions with filtering
+     */
+    Page<UserSubscriptionResponse> getAllSubscriptionsAdmin(
+            String status,
+            Long userId,
+            Long planId,
+            Pageable pageable
+    );
+
+    /**
+     * Admin: Get subscription detail by ID
+     */
+    Optional<UserSubscriptionResponse> getSubscriptionByIdAdmin(Long id);
+
+    /**
+     * Admin: Get premium statistics
+     */
+    Map<String, Object> getPremiumStatistics();
 }

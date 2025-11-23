@@ -15,6 +15,7 @@ public class UserDto {
     private String firstName;
     private String lastName;
     private String fullName;
+    private String avatarUrl;
     private Set<String> roles;
 
     /**

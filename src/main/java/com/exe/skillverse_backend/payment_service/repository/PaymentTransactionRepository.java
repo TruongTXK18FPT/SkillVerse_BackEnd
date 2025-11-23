@@ -105,4 +105,30 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
             "AND pt.referenceId IS NOT NULL " +
             "ORDER BY pt.createdAt ASC")
     List<PaymentTransaction> findTransactionsNeedingStatusUpdate();
+
+    // ==================== ADMIN METHODS ====================
+
+    /**
+     * Admin: Find transactions by status with pagination
+     */
+    Page<PaymentTransaction> findByStatus(PaymentTransaction.PaymentStatus status, Pageable pageable);
+
+    /**
+     * Admin: Find transactions by user ID with pagination
+     */
+    Page<PaymentTransaction> findByUserId(Long userId, Pageable pageable);
+
+    /**
+     * Admin: Find transactions by status and user ID with pagination
+     */
+    Page<PaymentTransaction> findByStatusAndUserId(
+        PaymentTransaction.PaymentStatus status, 
+        Long userId, 
+        Pageable pageable
+    );
+
+    /**
+     * Admin: Find transactions by date range
+     */
+    List<PaymentTransaction> findByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
 }

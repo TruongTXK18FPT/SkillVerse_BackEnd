@@ -24,6 +24,7 @@ public class WithdrawalRequestResponse {
     private Long userId;
     private String userFullName;
     private String userEmail;
+    private String userAvatarUrl;
     
     private BigDecimal amount;
     private BigDecimal fee;
@@ -68,6 +69,13 @@ public class WithdrawalRequestResponse {
      * Convert from entity to DTO
      */
     public static WithdrawalRequestResponse fromEntity(WithdrawalRequest request) {
+        return fromEntity(request, null);
+    }
+    
+    /**
+     * Convert from entity to DTO with avatar URL
+     */
+    public static WithdrawalRequestResponse fromEntity(WithdrawalRequest request, String userAvatarUrl) {
         String userFullName = buildFullName(request.getUser().getFirstName(), request.getUser().getLastName());
         String approvedByName = request.getApprovedBy() != null
             ? buildFullName(request.getApprovedBy().getFirstName(), request.getApprovedBy().getLastName())
@@ -79,6 +87,7 @@ public class WithdrawalRequestResponse {
                 .userId(request.getUser().getId())
                 .userFullName(userFullName)
                 .userEmail(request.getUser().getEmail())
+                .userAvatarUrl(userAvatarUrl)
                 .amount(request.getAmount())
                 .fee(request.getFee())
                 .netAmount(request.getNetAmount())
@@ -115,7 +124,14 @@ public class WithdrawalRequestResponse {
      * Convert for admin (full account number)
      */
     public static WithdrawalRequestResponse fromEntityForAdmin(WithdrawalRequest request) {
-        WithdrawalRequestResponse response = fromEntity(request);
+        return fromEntityForAdmin(request, null);
+    }
+    
+    /**
+     * Convert for admin (full account number) with avatar URL
+     */
+    public static WithdrawalRequestResponse fromEntityForAdmin(WithdrawalRequest request, String userAvatarUrl) {
+        WithdrawalRequestResponse response = fromEntity(request, userAvatarUrl);
         response.setBankAccountNumber(request.getBankAccountNumber()); // Full number for admin
         return response;
     }

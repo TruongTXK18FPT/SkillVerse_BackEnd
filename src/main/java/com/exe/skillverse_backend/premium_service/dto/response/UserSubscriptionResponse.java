@@ -25,6 +25,15 @@ public class UserSubscriptionResponse {
     @Schema(description = "User ID", example = "123")
     private Long userId;
 
+    @Schema(description = "User name")
+    private String userName;
+
+    @Schema(description = "User email")
+    private String userEmail;
+
+    @Schema(description = "User avatar URL")
+    private String userAvatarUrl;
+
     @Schema(description = "Premium plan information")
     private PremiumPlanResponse plan;
 

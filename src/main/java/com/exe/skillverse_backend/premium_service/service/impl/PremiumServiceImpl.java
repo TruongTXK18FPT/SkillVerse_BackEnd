@@ -15,6 +15,7 @@ import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRep
 import com.exe.skillverse_backend.premium_service.repository.SubscriptionCancellationRepository;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
@@ -39,6 +40,7 @@ public class PremiumServiceImpl implements PremiumService {
         private final PaymentTransactionRepository paymentTransactionRepository;
         private final WalletService walletService;
         private final SubscriptionCancellationRepository cancellationRepository;
+        private final UserProfileService userProfileService;
 
         private static final List<String> STUDENT_EMAIL_DOMAINS = List.of(
                         ".edu", ".edu.vn", ".ac.uk", "university.", "student.", ".edu.au");
@@ -369,9 +371,17 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         private UserSubscriptionResponse convertToUserSubscriptionResponse(UserSubscription subscription) {
+                User user = subscription.getUser();
+                String fullName = (user.getFirstName() != null ? user.getFirstName() : "") + 
+                                 " " + 
+                                 (user.getLastName() != null ? user.getLastName() : "");
+                
                 return UserSubscriptionResponse.builder()
                                 .id(subscription.getId())
-                                .userId(subscription.getUser().getId())
+                                .userId(user.getId())
+                                .userName(fullName.trim())
+                                .userEmail(user.getEmail())
+                                .userAvatarUrl(getUserAvatarUrl(user))
                                 .plan(convertToPremiumPlanResponse(subscription.getPlan()))
                                 .startDate(subscription.getStartDate())
                                 .endDate(subscription.getEndDate())
@@ -682,5 +692,137 @@ public class PremiumServiceImpl implements PremiumService {
                         throw new IllegalArgumentException("Duration months must be positive");
                 }
                 return startDate.plusMonths(durationMonths);
+        }
+        
+        // ==================== ADMIN METHODS ====================
+        
+        @Override
+        @Transactional(readOnly = true)
+        public org.springframework.data.domain.Page<UserSubscriptionResponse> getAllSubscriptionsAdmin(
+                        String status,
+                        Long userId,
+                        Long planId,
+                        Pageable pageable
+        ) {
+                log.info("Admin fetching all subscriptions - status: {}, userId: {}, planId: {}", status, userId, planId);
+                
+                // For now, return all subscriptions with pagination
+                // TODO: Add filtering by status, userId, planId
+                org.springframework.data.domain.Page<UserSubscription> subscriptions = userSubscriptionRepository.findAll(pageable);
+                
+                return subscriptions.map(sub -> {
+                                PremiumPlanResponse planResponse = PremiumPlanResponse.builder()
+                                                .id(sub.getPlan().getId())
+                                                .name(sub.getPlan().getName())
+                                                .price(sub.getPlan().getPrice())
+                                                .durationMonths(sub.getPlan().getDurationMonths())
+                                                .build();
+                                
+                                String fullName = (sub.getUser().getFirstName() != null ? sub.getUser().getFirstName() : "") + 
+                                                " " + 
+                                                (sub.getUser().getLastName() != null ? sub.getUser().getLastName() : "");
+                                
+                                return UserSubscriptionResponse.builder()
+                                                .id(sub.getId())
+                                                .userId(sub.getUser().getId())
+                                                .userName(fullName.trim())
+                                                .userEmail(sub.getUser().getEmail())
+                                                .userAvatarUrl(getUserAvatarUrl(sub.getUser()))
+                                                .plan(planResponse)
+                                                .status(sub.getStatus())
+                                                .startDate(sub.getStartDate())
+                                                .endDate(sub.getEndDate())
+                                                .isStudentSubscription(sub.getIsStudentSubscription())
+                                                .build();
+                                });
+        }
+        
+        @Override
+        @Transactional(readOnly = true)
+        public Optional<UserSubscriptionResponse> getSubscriptionByIdAdmin(Long id) {
+                log.info("Admin fetching subscription detail for id: {}", id);
+                
+                return userSubscriptionRepository.findById(id)
+                                .map(sub -> {
+                                                PremiumPlanResponse planResponse = PremiumPlanResponse.builder()
+                                                                .id(sub.getPlan().getId())
+                                                                .name(sub.getPlan().getName())
+                                                                .price(sub.getPlan().getPrice())
+                                                                .durationMonths(sub.getPlan().getDurationMonths())
+                                                                .build();
+                                                
+                                                String fullName = (sub.getUser().getFirstName() != null ? sub.getUser().getFirstName() : "") + 
+                                                                " " + 
+                                                                (sub.getUser().getLastName() != null ? sub.getUser().getLastName() : "");
+                                                
+                                                return UserSubscriptionResponse.builder()
+                                                                .id(sub.getId())
+                                                                .userId(sub.getUser().getId())
+                                                                .userName(fullName.trim())
+                                                                .userEmail(sub.getUser().getEmail())
+                                                                .userAvatarUrl(getUserAvatarUrl(sub.getUser()))
+                                                                .plan(planResponse)
+                                                                .status(sub.getStatus())
+                                                                .startDate(sub.getStartDate())
+                                                                .endDate(sub.getEndDate())
+                                                                .isStudentSubscription(sub.getIsStudentSubscription())
+                                                                .build();
+                                                });
+        }
+        
+        @Override
+        @Transactional(readOnly = true)
+        public java.util.Map<String, Object> getPremiumStatistics() {
+                log.info("Admin fetching premium statistics");
+                
+                List<UserSubscription> allSubscriptions = userSubscriptionRepository.findAll();
+                
+                long totalSubscriptions = allSubscriptions.size();
+                long activeSubscriptions = allSubscriptions.stream()
+                                .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.ACTIVE)
+                                .count();
+                long expiredSubscriptions = allSubscriptions.stream()
+                                .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.EXPIRED)
+                                .count();
+                long cancelledSubscriptions = allSubscriptions.stream()
+                                .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.CANCELLED)
+                                .count();
+                
+                // Calculate total revenue from active subscriptions
+                double totalRevenue = allSubscriptions.stream()
+                                .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.ACTIVE)
+                                .mapToDouble(s -> s.getPlan().getPrice().doubleValue())
+                                .sum();
+                
+                java.util.Map<String, Object> stats = new java.util.HashMap<>();
+                stats.put("totalSubscriptions", totalSubscriptions);
+                stats.put("activeSubscriptions", activeSubscriptions);
+                stats.put("expiredSubscriptions", expiredSubscriptions);
+                stats.put("cancelledSubscriptions", cancelledSubscriptions);
+                stats.put("totalRevenue", totalRevenue);
+                
+                return stats;
+        }
+
+        /**
+         * Get user's avatar URL from their profile
+         */
+        private String getUserAvatarUrl(User user) {
+                try {
+                        if (user.getAvatarUrl() != null) {
+                                return user.getAvatarUrl();
+                        }
+                        
+                        // Try to get from UserProfile if exists
+                        if (userProfileService.hasProfile(user.getId())) {
+                                var profile = userProfileService.getProfile(user.getId());
+                                if (profile.getAvatarMediaUrl() != null) {
+                                        return profile.getAvatarMediaUrl();
+                                }
+                        }
+                } catch (Exception e) {
+                        log.warn("Failed to get avatar URL for user {}: {}", user.getId(), e.getMessage());
+                }
+                return null;
         }
 }

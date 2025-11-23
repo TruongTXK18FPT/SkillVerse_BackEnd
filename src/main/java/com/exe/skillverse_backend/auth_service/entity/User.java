@@ -45,6 +45,9 @@ public class User {
     @Column(name = "phone_number")
     private String phoneNumber;
 
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "primary_role", nullable = false)

@@ -10,11 +10,15 @@ import com.exe.skillverse_backend.payment_service.repository.PaymentTransactionR
 import com.exe.skillverse_backend.payment_service.service.PaymentService;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -30,6 +34,7 @@ public class PaymentServiceImpl implements PaymentService {
     private final PayOSGatewayService payOSGatewayService;
     private final PremiumService premiumService;
     private final WalletService walletService;
+    private final UserProfileService userProfileService;
 
     @Override
     @Transactional
@@ -390,9 +395,17 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     private PaymentTransactionResponse convertToResponse(PaymentTransaction transaction) {
+        User user = transaction.getUser();
+        String fullName = (user.getFirstName() != null ? user.getFirstName() : "") + 
+                         " " + 
+                         (user.getLastName() != null ? user.getLastName() : "");
+        
         return PaymentTransactionResponse.builder()
                 .id(transaction.getId())
-                .userId(transaction.getUser().getId())
+                .userId(user.getId())
+                .userName(fullName.trim())
+                .userEmail(user.getEmail())
+                .userAvatarUrl(getUserAvatarUrl(user))
                 .internalReference(transaction.getInternalReference())
                 .referenceId(transaction.getReferenceId())
                 .amount(transaction.getAmount())
@@ -405,5 +418,124 @@ public class PaymentServiceImpl implements PaymentService {
                 .createdAt(transaction.getCreatedAt())
                 .updatedAt(transaction.getUpdatedAt())
                 .build();
+    }
+
+    /**
+     * Get user's avatar URL from their profile
+     */
+    private String getUserAvatarUrl(User user) {
+        try {
+            if (user.getAvatarUrl() != null) {
+                return user.getAvatarUrl();
+            }
+            
+            // Try to get from UserProfile if exists
+            if (userProfileService.hasProfile(user.getId())) {
+                var profile = userProfileService.getProfile(user.getId());
+                if (profile.getAvatarMediaUrl() != null) {
+                    return profile.getAvatarMediaUrl();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get avatar URL for user {}: {}", user.getId(), e.getMessage());
+        }
+        return null;
+    }
+    
+    // ==================== ADMIN METHODS ====================
+    
+    @Override
+    @Transactional(readOnly = true)
+    public Page<PaymentTransactionResponse> getAllTransactionsAdmin(
+            String status,
+            Long userId,
+            LocalDateTime startDate,
+            LocalDateTime endDate,
+            Pageable pageable
+    ) {
+        log.info("Admin fetching all payment transactions - status: {}, userId: {}", status, userId);
+        
+        Page<PaymentTransaction> transactions;
+        
+        // Build query based on filters
+        if (status != null && userId != null) {
+            PaymentTransaction.PaymentStatus paymentStatus = PaymentTransaction.PaymentStatus.valueOf(status);
+            transactions = paymentTransactionRepository.findByStatusAndUserId(paymentStatus, userId, pageable);
+        } else if (status != null) {
+            PaymentTransaction.PaymentStatus paymentStatus = PaymentTransaction.PaymentStatus.valueOf(status);
+            transactions = paymentTransactionRepository.findByStatus(paymentStatus, pageable);
+        } else if (userId != null) {
+            transactions = paymentTransactionRepository.findByUserId(userId, pageable);
+        } else {
+            transactions = paymentTransactionRepository.findAll(pageable);
+        }
+        
+        return transactions.map(this::convertToResponse);
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public PaymentTransactionResponse getTransactionByIdAdmin(Long id) {
+        log.info("Admin fetching payment transaction detail for id: {}", id);
+        
+        PaymentTransaction transaction = paymentTransactionRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Payment transaction not found with id: " + id));
+        
+        return convertToResponse(transaction);
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> getPaymentStatistics(LocalDateTime startDate, LocalDateTime endDate) {
+        log.info("Admin fetching payment statistics");
+        
+        // If no date range provided, use last 30 days
+        if (startDate == null) {
+            startDate = LocalDateTime.now().minusDays(30);
+        }
+        if (endDate == null) {
+            endDate = LocalDateTime.now();
+        }
+        
+        List<PaymentTransaction> transactions = paymentTransactionRepository
+                .findByCreatedAtBetween(startDate, endDate);
+        
+        // Calculate statistics
+        long totalTransactions = transactions.size();
+        long completedCount = transactions.stream()
+                .filter(t -> t.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED)
+                .count();
+        long pendingCount = transactions.stream()
+                .filter(t -> t.getStatus() == PaymentTransaction.PaymentStatus.PENDING)
+                .count();
+        long failedCount = transactions.stream()
+                .filter(t -> t.getStatus() == PaymentTransaction.PaymentStatus.FAILED)
+                .count();
+        
+        double totalRevenueValue = transactions.stream()
+                .filter(t -> t.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED)
+                .map(PaymentTransaction::getAmount)
+                .filter(amount -> amount != null)
+                .mapToDouble(amount -> {
+                    try {
+                        // amount is String, parse it
+                        return Double.parseDouble(String.valueOf(amount));
+                    } catch (Exception e) {
+                        return 0.0;
+                    }
+                })
+                .sum();
+        String totalRevenue = String.valueOf(totalRevenueValue);
+        
+        Map<String, Object> stats = new java.util.HashMap<>();
+        stats.put("totalTransactions", totalTransactions);
+        stats.put("completedCount", completedCount);
+        stats.put("pendingCount", pendingCount);
+        stats.put("failedCount", failedCount);
+        stats.put("totalRevenue", totalRevenue);
+        stats.put("startDate", startDate);
+        stats.put("endDate", endDate);
+        
+        return stats;
     }
 }

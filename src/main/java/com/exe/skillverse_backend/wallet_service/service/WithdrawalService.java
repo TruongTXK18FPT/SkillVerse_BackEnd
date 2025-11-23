@@ -9,6 +9,7 @@ import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.repository.WithdrawalRequestRepository;
 import com.exe.skillverse_backend.wallet_service.dto.response.WithdrawalRequestResponse;
+import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -35,6 +36,7 @@ public class WithdrawalService {
     private final WalletTransactionRepository transactionRepository;
     private final UserRepository userRepository;
     private final WalletService walletService;
+    private final UserProfileService userProfileService;
     
     // Configuration
     private static final BigDecimal MIN_WITHDRAWAL = new BigDecimal("100000"); // 100K VNĐ
@@ -219,7 +221,8 @@ public class WithdrawalService {
         
         // TODO: Send email notification to user
         
-        return WithdrawalRequestResponse.fromEntityForAdmin(approvedRequest);
+        String avatarUrl = getUserAvatarUrl(approvedRequest.getUser());
+        return WithdrawalRequestResponse.fromEntityForAdmin(approvedRequest, avatarUrl);
     }
     
     /**
@@ -260,7 +263,8 @@ public class WithdrawalService {
         
         // TODO: Send email notification to user
         
-        return WithdrawalRequestResponse.fromEntityForAdmin(rejectedRequest);
+        String avatarUrl = getUserAvatarUrl(rejectedRequest.getUser());
+        return WithdrawalRequestResponse.fromEntityForAdmin(rejectedRequest, avatarUrl);
     }
     
     /**
@@ -299,7 +303,8 @@ public class WithdrawalService {
         log.info("✅ Admin {} đã cập nhật mã giao dịch ngân hàng cho withdrawal {}: {}",
                 adminId, request.getRequestCode(), bankTransactionId);
         
-        return WithdrawalRequestResponse.fromEntityForAdmin(updatedRequest);
+        String avatarUrl = getUserAvatarUrl(updatedRequest.getUser());
+        return WithdrawalRequestResponse.fromEntityForAdmin(updatedRequest, avatarUrl);
     }
     
     /**
@@ -385,7 +390,8 @@ public class WithdrawalService {
         log.info("📊 Found {} withdrawal requests (status: {})", requests.getTotalElements(), status);
         return requests.map(request -> {
             try {
-                return WithdrawalRequestResponse.fromEntityForAdmin(request);
+                String avatarUrl = getUserAvatarUrl(request.getUser());
+                return WithdrawalRequestResponse.fromEntityForAdmin(request, avatarUrl);
             } catch (Exception e) {
                 log.error("❌ Error mapping withdrawal request {}: {}", request.getRequestId(), e.getMessage());
                 throw e;
@@ -401,7 +407,10 @@ public class WithdrawalService {
         Page<WithdrawalRequest> requests = withdrawalRequestRepository
                 .findAllPendingRequests(pageable);
         
-        return requests.map(WithdrawalRequestResponse::fromEntityForAdmin);
+        return requests.map(request -> {
+            String avatarUrl = getUserAvatarUrl(request.getUser());
+            return WithdrawalRequestResponse.fromEntityForAdmin(request, avatarUrl);
+        });
     }
     
     /**
@@ -412,7 +421,8 @@ public class WithdrawalService {
         WithdrawalRequest request = withdrawalRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Yêu cầu không tồn tại"));
         
-        return WithdrawalRequestResponse.fromEntityForAdmin(request);
+        String avatarUrl = getUserAvatarUrl(request.getUser());
+        return WithdrawalRequestResponse.fromEntityForAdmin(request, avatarUrl);
     }
     
     /**
@@ -564,5 +574,27 @@ public class WithdrawalService {
         int visibleDigits = 4;
         int maskedLength = accountNumber.length() - visibleDigits;
         return "*".repeat(maskedLength) + accountNumber.substring(maskedLength);
+    }
+    
+    /**
+     * Get user's avatar URL from their profile
+     */
+    private String getUserAvatarUrl(User user) {
+        try {
+            if (user.getAvatarUrl() != null) {
+                return user.getAvatarUrl();
+            }
+            
+            // Try to get from UserProfile if exists
+            if (userProfileService.hasProfile(user.getId())) {
+                var profile = userProfileService.getProfile(user.getId());
+                if (profile.getAvatarMediaUrl() != null) {
+                    return profile.getAvatarMediaUrl();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get avatar URL for user {}: {}", user.getId(), e.getMessage());
+        }
+        return null;
     }
 }

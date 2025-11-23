@@ -175,12 +175,14 @@ public class AuthService {
 
                         // Get user profile information if exists
                         String fullName = getUserFullName(user);
+                        String avatarUrl = getUserAvatarUrl(user);
 
                         // Build user DTO
                         UserDto userDto = new UserDto();
                         userDto.setId(user.getId());
                         userDto.setEmail(user.getEmail());
                         userDto.setFullName(fullName);
+                        userDto.setAvatarUrl(avatarUrl);
                         userDto.setRoles(user.getRoles().stream()
                                         .map(role -> role.getName())
                                         .collect(Collectors.toSet()));
@@ -328,12 +330,14 @@ public class AuthService {
 
                         // Get user profile information
                         String fullName = getUserFullName(user);
+                        String avatarUrl = getUserAvatarUrl(user);
 
                         // Build user DTO
                         UserDto userDto = new UserDto();
                         userDto.setId(user.getId());
                         userDto.setEmail(user.getEmail());
                         userDto.setFullName(fullName);
+                        userDto.setAvatarUrl(avatarUrl);
                         userDto.setRoles(user.getRoles().stream()
                                         .map(role -> role.getName())
                                         .collect(Collectors.toSet()));
@@ -488,6 +492,28 @@ public class AuthService {
         }
 
         /**
+         * Get user's avatar URL from their profile
+         */
+        private String getUserAvatarUrl(User user) {
+                try {
+                        if (user.getAvatarUrl() != null) {
+                                return user.getAvatarUrl();
+                        }
+                        
+                        // Try to get from UserProfile if exists
+                        if (userProfileService.hasProfile(user.getId())) {
+                                var profile = userProfileService.getProfile(user.getId());
+                                if (profile.getAvatarMediaUrl() != null) {
+                                        return profile.getAvatarMediaUrl();
+                                }
+                        }
+                } catch (Exception e) {
+                        log.warn("Failed to get avatar URL for user {}: {}", user.getId(), e.getMessage());
+                }
+                return null;
+        }
+
+        /**
          * Authenticate user with Google OAuth.
          * If user doesn't exist, creates a new USER account.
          * Only USER role can login with Google (MENTOR/BUSINESS must use local auth).
@@ -523,6 +549,7 @@ public class AuthService {
                         Boolean emailVerified = (Boolean) userInfo.get("verified_email");
 
                         log.info("Google user info fetched for email: {}", email);
+                        log.info("📸 Picture URL from Google: {}", picture);
 
                         // ✅ SECURITY: Validate email format from Google
                         if (email == null || email.isEmpty()) {
@@ -554,6 +581,7 @@ public class AuthService {
                                 user = User.builder()
                                                 .email(email)
                                                 .password(null) // No password for Google users
+                                                .avatarUrl(picture) // ✅ Save Google avatar URL
                                                 .primaryRole(PrimaryRole.USER)
                                                 .status(UserStatus.ACTIVE)
                                                 .isEmailVerified(true)
@@ -627,6 +655,12 @@ public class AuthService {
                                                         "Your account is not active. Please contact support.");
                                 }
 
+                                // ✅ Update avatar URL from Google if available
+                                if (picture != null && !picture.isEmpty()) {
+                                        user.setAvatarUrl(picture);
+                                        log.info("Updated avatar URL from Google for user: {}", email);
+                                }
+
                                 // 7. Link Google account if not already linked
                                 if (!user.isGoogleLinked()) {
                                         log.info("Linking Google account to existing {} user: {}",
@@ -658,14 +692,19 @@ public class AuthService {
                         String accessToken = generateToken(user);
                         String refreshToken = generateRefreshToken(user);
 
-                        // 9. Get user full name
+                        // 9. Get user full name and avatar
                         String fullName = isNewUser ? name : getUserFullName(user);
+                        String avatarUrl = getUserAvatarUrl(user);
+                        
+                        log.info("🖼️ Avatar URL for user {}: {}", email, avatarUrl);
+                        log.info("🖼️ User.avatarUrl from entity: {}", user.getAvatarUrl());
 
                         // 10. Build user DTO
                         UserDto userDto = new UserDto();
                         userDto.setId(user.getId());
                         userDto.setEmail(user.getEmail());
                         userDto.setFullName(fullName);
+                        userDto.setAvatarUrl(avatarUrl);
                         userDto.setRoles(user.getRoles().stream()
                                         .map(role -> role.getName())
                                         .collect(Collectors.toSet()));

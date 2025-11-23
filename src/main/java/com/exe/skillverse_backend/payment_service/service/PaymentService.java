@@ -4,8 +4,12 @@ import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentReque
 import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
 import com.exe.skillverse_backend.payment_service.dto.response.PaymentTransactionResponse;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -58,4 +62,27 @@ public interface PaymentService {
      * Verify payment with gateway
      */
     boolean verifyPaymentWithGateway(String internalReference);
+
+    // ==================== ADMIN METHODS ====================
+
+    /**
+     * Admin: Get all payment transactions with filtering
+     */
+    Page<PaymentTransactionResponse> getAllTransactionsAdmin(
+            String status,
+            Long userId,
+            LocalDateTime startDate,
+            LocalDateTime endDate,
+            Pageable pageable
+    );
+
+    /**
+     * Admin: Get payment transaction detail by ID
+     */
+    PaymentTransactionResponse getTransactionByIdAdmin(Long id);
+
+    /**
+     * Admin: Get payment statistics
+     */
+    Map<String, Object> getPaymentStatistics(LocalDateTime startDate, LocalDateTime endDate);
 }
