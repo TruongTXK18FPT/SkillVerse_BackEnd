@@ -2,7 +2,6 @@ package com.exe.skillverse_backend.user_service.service;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
-import com.exe.skillverse_backend.shared.service.AuditService;
 import com.exe.skillverse_backend.user_service.dto.request.AddSkillRequest;
 import com.exe.skillverse_backend.user_service.dto.request.CreateProfileRequest;
 import com.exe.skillverse_backend.user_service.dto.request.UpdateProfileRequest;
@@ -36,7 +35,6 @@ public class UserProfileService {
     private final UserProfileRepository userProfileRepository;
     private final UserSkillRepository userSkillRepository;
     private final UserRepository userRepository;
-    private final AuditService auditService;
     private final CloudinaryService cloudinaryService;
     private final MediaRepository mediaRepository;
 
@@ -90,18 +88,11 @@ public class UserProfileService {
             }
 
             profile = userProfileRepository.save(profile);
-
-            // Log action - get user for email
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new RuntimeException("User not found"));
-            auditService.logAction(userId, "UPDATE", "USER_PROFILE", userId.toString(),
-                    "User profile updated for user: " + user.getEmail());
-
             return mapToProfileResponse(profile);
 
         } catch (Exception e) {
-            auditService.logAction(userId, "UPDATE_PROFILE_FAILED", "USER_PROFILE", userId.toString(),
-                    "Failed to update profile: " + e.getMessage());
             throw e;
         }
     }
@@ -183,17 +174,10 @@ public class UserProfileService {
             // Update profile with new avatar
             profile.setAvatarMediaId(media.getId());
             userProfileRepository.save(profile);
-            
-            // Log action
-            auditService.logAction(userId, "UPLOAD_AVATAR", "USER_PROFILE", userId.toString(),
-                    "Avatar uploaded successfully");
-            
             return avatarUrl;
             
         } catch (IOException e) {
             log.error("Failed to upload avatar", e);
-            auditService.logAction(userId, "UPLOAD_AVATAR_FAILED", "USER_PROFILE", userId.toString(),
-                    "Failed to upload avatar: " + e.getMessage());
             throw new RuntimeException("Failed to upload avatar: " + e.getMessage());
         }
     }
@@ -216,18 +200,9 @@ public class UserProfileService {
             // Create user skill
             UserSkill userSkill = new UserSkill(userId, request.getSkillId(), request.getProficiency());
             userSkill = userSkillRepository.save(userSkill);
-
-            // Log action
-            auditService.logAction(userId, "ADD_SKILL", "USER_SKILL",
-                    userId + ":" + request.getSkillId(),
-                    "Skill added with proficiency: " + request.getProficiency());
-
             return mapToSkillResponse(userSkill);
 
         } catch (Exception e) {
-            auditService.logAction(userId, "ADD_SKILL_FAILED", "USER_SKILL",
-                    userId + ":" + request.getSkillId(),
-                    "Failed to add skill: " + e.getMessage());
             throw e;
         }
     }
@@ -242,18 +217,9 @@ public class UserProfileService {
             userSkill.setProficiency(request.getProficiency());
 
             userSkill = userSkillRepository.save(userSkill);
-
-            // Log action
-            auditService.logAction(userId, "UPDATE_SKILL", "USER_SKILL",
-                    userId + ":" + skillId,
-                    "Skill proficiency updated from " + oldProficiency + " to " + request.getProficiency());
-
             return mapToSkillResponse(userSkill);
 
         } catch (Exception e) {
-            auditService.logAction(userId, "UPDATE_SKILL_FAILED", "USER_SKILL",
-                    userId + ":" + skillId,
-                    "Failed to update skill: " + e.getMessage());
             throw e;
         }
     }
@@ -267,15 +233,7 @@ public class UserProfileService {
 
             userSkillRepository.deleteByIdUserIdAndIdSkillId(userId, skillId);
 
-            // Log action
-            auditService.logAction(userId, "REMOVE_SKILL", "USER_SKILL",
-                    userId + ":" + skillId,
-                    "Skill removed from user");
-
         } catch (Exception e) {
-            auditService.logAction(userId, "REMOVE_SKILL_FAILED", "USER_SKILL",
-                    userId + ":" + skillId,
-                    "Failed to remove skill: " + e.getMessage());
             throw e;
         }
     }
@@ -369,16 +327,9 @@ public class UserProfileService {
                     .build();
 
             profile = userProfileRepository.save(profile);
-
-            // Log action
-            auditService.logAction(userId, "CREATE", "USER_PROFILE", userId.toString(),
-                    "Complete user profile created during registration for user: " + user.getEmail());
-
             return mapToProfileResponse(profile);
 
         } catch (Exception e) {
-            auditService.logAction(userId, "CREATE_COMPLETE_PROFILE_FAILED", "USER_PROFILE", userId.toString(),
-                    "Failed to create complete profile during registration: " + e.getMessage());
             throw e;
         }
     }
@@ -426,11 +377,6 @@ public class UserProfileService {
             userProfileRepository.save(profile);
 
             log.info("User profile created successfully for Google user: {}", email);
-
-            // Log action
-            auditService.logAction(user.getId(), "CREATE", "USER_PROFILE", user.getId().toString(),
-                    "User profile created for Google user: " + email);
-
         } catch (Exception e) {
             log.error("Failed to create user profile for Google user: {}", email, e);
             throw new RuntimeException("Failed to create user profile: " + e.getMessage());

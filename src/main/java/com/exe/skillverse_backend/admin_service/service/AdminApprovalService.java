@@ -14,7 +14,6 @@ import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRe
 import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
-import com.exe.skillverse_backend.shared.service.AuditService;
 import com.exe.skillverse_backend.shared.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,7 +35,6 @@ public class AdminApprovalService {
         private final RecruiterProfileRepository recruiterProfileRepository;
         private final RoleRepository roleRepository;
         private final EmailService emailService;
-        private final AuditService auditService;
 
         public AdminApprovalResponse approveMentor(Long userId, Long adminId) {
                 // Find user and mentor profile
@@ -85,11 +83,6 @@ public class AdminApprovalService {
                 // Send approval email
                 emailService.sendApprovalEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(),
                                 "MENTOR");
-
-                // Log the approval
-                auditService.logAction(adminId, "MENTOR_APPROVED", "USER", userId.toString(),
-                                "Mentor application approved for user: " + user.getEmail());
-
                 return AdminApprovalResponse.builder()
                                 .success(true)
                                 .message("Mentor application approved successfully")
@@ -147,11 +140,6 @@ public class AdminApprovalService {
                 // Send approval email
                 emailService.sendApprovalEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(),
                                 "RECRUITER");
-
-                // Log the approval
-                auditService.logAction(adminId, "RECRUITER_APPROVED", "USER", userId.toString(),
-                                "Recruiter application approved for user: " + user.getEmail());
-
                 return AdminApprovalResponse.builder()
                                 .success(true)
                                 .message("Recruiter application approved successfully")
@@ -198,12 +186,6 @@ public class AdminApprovalService {
                 emailService.sendRejectionEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(),
                                 "MENTOR",
                                 rejectionReason);
-
-                // Log the rejection
-                auditService.logAction(adminId, "MENTOR_REJECTED", "USER", userId.toString(),
-                                "Mentor application rejected for user: " + user.getEmail() + ", reason: "
-                                                + rejectionReason);
-
                 return AdminApprovalResponse.builder()
                                 .success(true)
                                 .message("Mentor application rejected")
@@ -251,12 +233,6 @@ public class AdminApprovalService {
                 emailService.sendRejectionEmail(user.getEmail(), user.getFirstName() + " " + user.getLastName(),
                                 "RECRUITER",
                                 rejectionReason);
-
-                // Log the rejection
-                auditService.logAction(adminId, "RECRUITER_REJECTED", "USER", userId.toString(),
-                                "Recruiter application rejected for user: " + user.getEmail() + ", reason: "
-                                                + rejectionReason);
-
                 return AdminApprovalResponse.builder()
                                 .success(true)
                                 .message("Recruiter application rejected")

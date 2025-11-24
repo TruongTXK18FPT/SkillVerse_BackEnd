@@ -3,9 +3,7 @@ package com.exe.skillverse_backend.user_service.service;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.service.UserCreationService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
-import com.exe.skillverse_backend.shared.service.AuditService;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
-import com.exe.skillverse_backend.shared.util.SecureAuditUtil;
 import com.exe.skillverse_backend.user_service.dto.request.UserRegistrationRequest;
 import com.exe.skillverse_backend.user_service.dto.response.UserRegistrationResponse;
 import com.exe.skillverse_backend.user_service.entity.UserProfile;
@@ -23,7 +21,6 @@ public class UserRegistrationService implements RegistrationService<UserRegistra
 
     private final UserCreationService userCreationService;
     private final UserProfileRepository userProfileRepository;
-    private final AuditService auditService;
     private final PremiumService premiumService;
 
     @Override
@@ -45,14 +42,6 @@ public class UserRegistrationService implements RegistrationService<UserRegistra
 
         // Create user profile
         createUserProfile(user.getId(), request);
-
-        // Secure audit log - NO PII/sensitive data
-        String secureAuditDetails = SecureAuditUtil.createRegistrationAuditDetails(
-                request.getEmail(),
-                "USER");
-        auditService.logAction(user.getId(), "USER_REGISTRATION", "USER", user.getId().toString(),
-                secureAuditDetails);
-
         // Assign Free Tier by default
         premiumService.assignFreeTierIfMissing(user.getId());
 

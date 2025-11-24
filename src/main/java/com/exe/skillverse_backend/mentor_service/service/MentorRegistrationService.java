@@ -7,9 +7,7 @@ import com.exe.skillverse_backend.mentor_service.dto.response.MentorRegistration
 import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
-import com.exe.skillverse_backend.shared.service.AuditService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
-import com.exe.skillverse_backend.shared.util.SecureAuditUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +25,6 @@ public class MentorRegistrationService
 
         private final UserCreationService userCreationService;
         private final MentorProfileRepository mentorProfileRepository;
-        private final AuditService auditService;
 
         @Override
         @Transactional
@@ -50,11 +47,6 @@ public class MentorRegistrationService
                         log.info("Generated OTP for mentor user: {}", request.getEmail());
 
                         // 4. Log successful registration
-                        String auditDetails = SecureAuditUtil.createRegistrationAuditDetails(request.getEmail(),
-                                        "MENTOR");
-                        auditService.logAction(user.getId(), "MENTOR_REGISTRATION", "MENTOR", user.getId().toString(),
-                                        auditDetails);
-
                         return MentorRegistrationResponse.builder()
                                         .success(true)
                                         .message("Mentor registration successful! Your application is pending admin approval.")
@@ -70,9 +62,6 @@ public class MentorRegistrationService
 
                 } catch (Exception e) {
                         log.error("Mentor registration failed for email: {}", request.getEmail(), e);
-                        auditService.logSystemAction("MENTOR_REGISTRATION_FAILED", "MENTOR", null,
-                                        "Mentor registration failed for email: " + request.getEmail() + ", error: "
-                                                        + e.getMessage());
                         throw e;
                 }
         }

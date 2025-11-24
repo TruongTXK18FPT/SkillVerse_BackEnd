@@ -7,9 +7,7 @@ import com.exe.skillverse_backend.business_service.dto.response.BusinessRegistra
 import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
-import com.exe.skillverse_backend.shared.service.AuditService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
-import com.exe.skillverse_backend.shared.util.SecureAuditUtil;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 
 import lombok.RequiredArgsConstructor;
@@ -28,7 +26,6 @@ public class BusinessRegistrationService
 
         private final UserCreationService userCreationService;
         private final RecruiterProfileRepository recruiterProfileRepository;
-        private final AuditService auditService;
         private final CloudinaryService cloudinaryService;
 
         @Override
@@ -52,12 +49,6 @@ public class BusinessRegistrationService
                         log.info("Generated OTP for recruiter user: {}", request.getEmail());
 
                         // 4. Log successful registration
-                        String auditDetails = SecureAuditUtil.createRegistrationAuditDetails(request.getEmail(),
-                                        "RECRUITER");
-                        auditService.logAction(user.getId(), "RECRUITER_REGISTRATION", "RECRUITER",
-                                        user.getId().toString(),
-                                        auditDetails);
-
                         return BusinessRegistrationResponse.builder()
                                         .success(true)
                                         .message("Business registration successful! Your application is pending admin approval.")
@@ -74,9 +65,6 @@ public class BusinessRegistrationService
 
                 } catch (Exception e) {
                         log.error("Business registration failed for email: {}", request.getEmail(), e);
-                        auditService.logSystemAction("RECRUITER_REGISTRATION_FAILED", "RECRUITER", null,
-                                        "Recruiter registration failed for email: " + request.getEmail() + ", error: "
-                                                        + e.getMessage());
                         throw e;
                 }
         }

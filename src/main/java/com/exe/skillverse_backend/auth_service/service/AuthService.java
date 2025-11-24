@@ -14,9 +14,7 @@ import com.exe.skillverse_backend.premium_service.repository.PremiumPlanReposito
 import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
 import com.exe.skillverse_backend.shared.exception.AccountPendingApprovalException;
 import com.exe.skillverse_backend.shared.exception.AuthenticationException;
-import com.exe.skillverse_backend.shared.service.AuditService;
 import com.exe.skillverse_backend.shared.service.EmailService;
-import com.exe.skillverse_backend.shared.util.SecureAuditUtil;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.nimbusds.jose.*;
 import com.nimbusds.jose.crypto.MACSigner;
@@ -46,7 +44,6 @@ public class AuthService {
         private final RefreshTokenRepository refreshTokenRepository;
         private final InvalidatedTokenRepository invalidatedTokenRepository;
         private final PasswordEncoder passwordEncoder;
-        private final AuditService auditService;
         private final UserProfileService userProfileService;
         private final MentorProfileRepository mentorProfileRepository;
         private final RecruiterProfileRepository recruiterProfileRepository;
@@ -94,13 +91,8 @@ public class AuthService {
                                 // No welcome email - they will get approval/rejection email later from admin
                         }
                         user = userRepository.save(user);
-
-                        // Log successful verification
                         String actionType = user.getPrimaryRole() == PrimaryRole.USER ? "EMAIL_VERIFIED_ACTIVATED"
                                         : "EMAIL_VERIFIED_PENDING_APPROVAL";
-                        auditService.logAction(user.getId(), actionType, "USER", user.getId().toString(),
-                                        "Email verified for " + user.getPrimaryRole() + ": " + email);
-
                         String message = user.getPrimaryRole() == PrimaryRole.USER
                                         ? "Email verified successfully! You can now login with your credentials."
                                         : "Email verified successfully! Your "
@@ -120,8 +112,6 @@ public class AuthService {
                                         .build();
 
                 } catch (Exception e) {
-                        auditService.logSystemAction("EMAIL_VERIFICATION_FAILED", "USER", null,
-                                        "Email verification failed for: " + email + ", error: " + e.getMessage());
                         throw e;
                 }
         }
@@ -135,11 +125,6 @@ public class AuthService {
 
                         // Check user status - only ACTIVE users can login
                         if (user.getStatus() != UserStatus.ACTIVE) {
-                                String auditDetails = SecureAuditUtil.createAuthAuditDetails(request.getEmail(),
-                                                "LOGIN_FAILED_INACTIVE", false, null);
-                                auditService.logAction(user.getId(), "LOGIN_FAILED", "USER", user.getId().toString(),
-                                                auditDetails);
-
                                 // Provide specific error messages based on user type
                                 if (!user.isEmailVerified()) {
                                         throw new AuthenticationException(
@@ -156,23 +141,12 @@ public class AuthService {
 
                         // Verify password
                         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-                                String auditDetails = SecureAuditUtil.createAuthAuditDetails(request.getEmail(),
-                                                "LOGIN_FAILED_INVALID_PASSWORD", false, null);
-                                auditService.logAction(user.getId(), "LOGIN_FAILED", "USER", user.getId().toString(),
-                                                auditDetails);
                                 throw new AuthenticationException("Invalid credentials");
                         }
 
                         // Generate tokens
                         String accessToken = generateToken(user);
                         String refreshToken = generateRefreshToken(user);
-
-                        // Log successful login
-                        String auditDetails = SecureAuditUtil.createAuthAuditDetails(request.getEmail(),
-                                        "LOGIN_SUCCESS", true, null);
-                        auditService.logAction(user.getId(), "LOGIN", "USER", user.getId().toString(),
-                                        auditDetails);
-
                         // Get user profile information if exists
                         String fullName = getUserFullName(user);
                         String avatarUrl = getUserAvatarUrl(user);
@@ -198,8 +172,6 @@ public class AuthService {
                                         .build();
 
                 } catch (Exception e) {
-                        auditService.logSystemAction("LOGIN_FAILED", "USER", null,
-                                        "Login failed for email: " + request.getEmail() + ", error: " + e.getMessage());
                         throw e;
                 }
         }
@@ -343,11 +315,6 @@ public class AuthService {
                                         .collect(Collectors.toSet()));
                         userDto.setAuthProvider(user.getAuthProvider().toString());
                         userDto.setGoogleLinked(user.isGoogleLinked());
-
-                        // Log action
-                        auditService.logAction(user.getId(), "TOKEN_REFRESH", "USER", user.getId().toString(),
-                                        "Tokens refreshed for user: " + user.getEmail());
-
                         log.info("Token refresh successful for user: {}", user.getEmail());
 
                         return AuthResponse.builder()
@@ -360,8 +327,6 @@ public class AuthService {
 
                 } catch (Exception e) {
                         log.error("Token refresh failed: {}", e.getMessage(), e);
-                        auditService.logSystemAction("TOKEN_REFRESH_FAILED", "USER", null,
-                                        "Token refresh failed: " + e.getMessage());
                         throw e;
                 }
         }
@@ -379,15 +344,8 @@ public class AuthService {
 
                         // Delete refresh token
                         refreshTokenRepository.deleteByUserId(Long.parseLong(userId));
-
-                        // Log action
-                        auditService.logAction(Long.parseLong(userId), "LOGOUT", "USER", userId,
-                                        "User logged out successfully");
-
                 } catch (Exception e) {
                         log.error("Error during logout", e);
-                        auditService.logSystemAction("LOGOUT_FAILED", "USER", null,
-                                        "Logout failed: " + e.getMessage());
                         throw new RuntimeException("Error during logout");
                 }
         }
@@ -610,11 +568,6 @@ public class AuthService {
                                 log.info("User reloaded with {} roles", user.getRoles().size());
 
                                 isNewUser = true;
-
-                                // Log user creation
-                                auditService.logAction(user.getId(), "GOOGLE_REGISTRATION", "USER",
-                                                user.getId().toString(), "New user registered via Google: " + email);
-
                                 log.info("Created new Google user successfully: {}", email);
 
                                 // ✅ Auto-assign FREE_TIER subscription to new Google user
@@ -673,19 +626,8 @@ public class AuthService {
                                         user.setGoogleLinked(true);
                                         user.setUpdatedAt(java.time.LocalDateTime.now());
                                         userRepository.save(user);
-
-                                        // Log the linking action
-                                        auditService.logAction(user.getId(), "GOOGLE_ACCOUNT_LINKED", "USER",
-                                                        user.getId().toString(),
-                                                        String.format("Google account linked to %s user: %s",
-                                                                        user.getAuthProvider(), email));
-
                                         log.info("Google account linked successfully. User can now login with both methods.");
                                 }
-
-                                // Log login
-                                auditService.logAction(user.getId(), "GOOGLE_LOGIN", "USER",
-                                                user.getId().toString(), "User logged in via Google: " + email);
                         }
 
                         // 8. Generate JWT tokens

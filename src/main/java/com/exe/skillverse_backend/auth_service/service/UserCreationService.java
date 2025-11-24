@@ -10,7 +10,6 @@ import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
 import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
 import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
-import com.exe.skillverse_backend.shared.service.AuditService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -33,7 +32,6 @@ public class UserCreationService {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailVerificationService emailVerificationService;
-    private final AuditService auditService;
     private final PremiumPlanRepository premiumPlanRepository;
     private final UserSubscriptionRepository userSubscriptionRepository;
 
@@ -119,11 +117,6 @@ public class UserCreationService {
             emailVerificationService.generateOtpForUser(email);
             log.info("Generated OTP for user: {}", email);
         }
-
-        // Log action
-        auditService.logAction(user.getId(), primaryRole + "_USER_CREATED", "USER", user.getId().toString(),
-                "User created for " + primaryRole + " registration: " + email);
-
         return user;
     }
 

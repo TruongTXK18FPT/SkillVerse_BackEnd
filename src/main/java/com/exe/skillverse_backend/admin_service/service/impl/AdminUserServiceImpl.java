@@ -14,8 +14,6 @@ import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.entity.Certificate;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
-import com.exe.skillverse_backend.shared.entity.AuditLog;
-import com.exe.skillverse_backend.shared.repository.AuditLogRepository;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +36,6 @@ import java.util.stream.Collectors;
 public class AdminUserServiceImpl implements AdminUserService {
 
     private final UserRepository userRepository;
-    private final AuditLogRepository auditLogRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserProfileService userProfileService;
 
@@ -46,9 +43,9 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Transactional(readOnly = true)
     public AdminUserListResponse getAllUsers(PrimaryRole role, UserStatus status, String search) {
         log.info("Fetching users with filters - role: {}, status: {}, search: {}", role, status, search);
-        
+
         List<User> users;
-        
+
         // Apply filters
         if (search != null && !search.trim().isEmpty()) {
             users = userRepository.findUsersWithFilters(role, status, search.trim());
@@ -61,12 +58,12 @@ public class AdminUserServiceImpl implements AdminUserService {
         } else {
             users = userRepository.findAll();
         }
-        
+
         // Convert to DTOs
         List<AdminUserResponse> userResponses = users.stream()
-            .map(this::convertToAdminUserResponse)
-            .collect(Collectors.toList());
-        
+                .map(this::convertToAdminUserResponse)
+                .collect(Collectors.toList());
+
         // Calculate statistics
         Long totalUsers = (long) users.size();
         Long totalMentors = users.stream().filter(u -> u.getPrimaryRole() == PrimaryRole.MENTOR).count();
@@ -74,26 +71,26 @@ public class AdminUserServiceImpl implements AdminUserService {
         Long totalRegularUsers = users.stream().filter(u -> u.getPrimaryRole() == PrimaryRole.USER).count();
         Long totalActiveUsers = users.stream().filter(u -> u.getStatus() == UserStatus.ACTIVE).count();
         Long totalInactiveUsers = users.stream().filter(u -> u.getStatus() == UserStatus.INACTIVE).count();
-        
+
         return AdminUserListResponse.builder()
-            .users(userResponses)
-            .totalUsers(totalUsers)
-            .totalMentors(totalMentors)
-            .totalRecruiters(totalRecruiters)
-            .totalRegularUsers(totalRegularUsers)
-            .totalActiveUsers(totalActiveUsers)
-            .totalInactiveUsers(totalInactiveUsers)
-            .build();
+                .users(userResponses)
+                .totalUsers(totalUsers)
+                .totalMentors(totalMentors)
+                .totalRecruiters(totalRecruiters)
+                .totalRegularUsers(totalRegularUsers)
+                .totalActiveUsers(totalActiveUsers)
+                .totalInactiveUsers(totalInactiveUsers)
+                .build();
     }
 
     @Override
     @Transactional(readOnly = true)
     public AdminUserResponse getUserById(Long userId) {
         log.info("Fetching user details for userId: {}", userId);
-        
+
         User user = userRepository.findById(userId)
-            .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
-        
+                .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
+
         return convertToAdminUserResponse(user);
     }
 
@@ -101,24 +98,15 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Transactional
     public AdminUserResponse updateUserStatus(UpdateUserStatusRequest request) {
         log.info("Updating user status - userId: {}, newStatus: {}", request.getUserId(), request.getStatus());
-        
+
         User user = userRepository.findById(request.getUserId())
-            .orElseThrow(() -> new RuntimeException("User not found with id: " + request.getUserId()));
-        
-        UserStatus oldStatus = user.getStatus();
+                .orElseThrow(() -> new RuntimeException("User not found with id: " + request.getUserId()));
+
         user.setStatus(request.getStatus());
         user.setUpdatedAt(LocalDateTime.now());
-        
+
         User updatedUser = userRepository.save(user);
-        
-        // Create audit log
-        createAuditLog(
-            "USER_STATUS_UPDATE",
-            "User status updated from " + oldStatus + " to " + request.getStatus() +
-            (request.getReason() != null ? ". Reason: " + request.getReason() : ""),
-            user.getId()
-        );
-        
+
         log.info("Successfully updated user status for userId: {}", request.getUserId());
         return convertToAdminUserResponse(updatedUser);
     }
@@ -127,24 +115,15 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Transactional
     public AdminUserResponse updateUserRole(UpdateUserRoleRequest request) {
         log.info("Updating user role - userId: {}, newRole: {}", request.getUserId(), request.getPrimaryRole());
-        
+
         User user = userRepository.findById(request.getUserId())
-            .orElseThrow(() -> new RuntimeException("User not found with id: " + request.getUserId()));
-        
-        PrimaryRole oldRole = user.getPrimaryRole();
+                .orElseThrow(() -> new RuntimeException("User not found with id: " + request.getUserId()));
+
         user.setPrimaryRole(request.getPrimaryRole());
         user.setUpdatedAt(LocalDateTime.now());
-        
+
         User updatedUser = userRepository.save(user);
-        
-        // Create audit log
-        createAuditLog(
-            "USER_ROLE_UPDATE",
-            "User role updated from " + oldRole + " to " + request.getPrimaryRole() +
-            (request.getReason() != null ? ". Reason: " + request.getReason() : ""),
-            user.getId()
-        );
-        
+
         log.info("Successfully updated user role for userId: {}", request.getUserId());
         return convertToAdminUserResponse(updatedUser);
     }
@@ -153,18 +132,15 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Transactional
     public void deleteUser(Long userId) {
         log.info("Deleting user with userId: {}", userId);
-        
+
         User user = userRepository.findById(userId)
-            .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
-        
+                .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
+
         // Soft delete by setting status to INACTIVE
         user.setStatus(UserStatus.INACTIVE);
         user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
-        
-        // Create audit log
-        createAuditLog("USER_DELETED", "User account deleted (soft delete)", userId);
-        
+
         log.info("Successfully deleted user with userId: {}", userId);
     }
 
@@ -172,95 +148,96 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Transactional(readOnly = true)
     public AdminUserDetailResponse getUserDetailById(Long userId) {
         log.info("Fetching detailed user information for userId: {}", userId);
-        
+
         User user = userRepository.findById(userId)
-            .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
-        
+                .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
+
         // Get recent courses (top 5)
         List<AdminUserDetailResponse.UserCourseInfo> recentCourses = new ArrayList<>();
         if (user.getEnrollments() != null) {
             recentCourses = user.getEnrollments().stream()
-                .sorted(Comparator.comparing(CourseEnrollment::getEnrollDate).reversed())
-                .limit(5)
-                .map(enrollment -> {
-                    String thumbnailUrl = null;
-                    if (enrollment.getCourse().getThumbnail() != null) {
-                        thumbnailUrl = enrollment.getCourse().getThumbnail().getUrl();
-                    }
-                    return AdminUserDetailResponse.UserCourseInfo.builder()
-                        .courseId(enrollment.getCourse().getId())
-                        .courseTitle(enrollment.getCourse().getTitle())
-                        .courseThumbnail(thumbnailUrl)
-                        .enrolledAt(LocalDateTime.ofInstant(enrollment.getEnrollDate(), java.time.ZoneId.systemDefault()))
-                        .progress(enrollment.getProgressPercent())
-                        .build();
-                })
-                .collect(Collectors.toList());
+                    .sorted(Comparator.comparing(CourseEnrollment::getEnrollDate).reversed())
+                    .limit(5)
+                    .map(enrollment -> {
+                        String thumbnailUrl = null;
+                        if (enrollment.getCourse().getThumbnail() != null) {
+                            thumbnailUrl = enrollment.getCourse().getThumbnail().getUrl();
+                        }
+                        return AdminUserDetailResponse.UserCourseInfo.builder()
+                                .courseId(enrollment.getCourse().getId())
+                                .courseTitle(enrollment.getCourse().getTitle())
+                                .courseThumbnail(thumbnailUrl)
+                                .enrolledAt(LocalDateTime.ofInstant(enrollment.getEnrollDate(),
+                                        java.time.ZoneId.systemDefault()))
+                                .progress(enrollment.getProgressPercent())
+                                .build();
+                    })
+                    .collect(Collectors.toList());
         }
-        
+
         // Get recent certificates (top 5)
         List<AdminUserDetailResponse.UserCertificateInfo> recentCertificates = new ArrayList<>();
         if (user.getCertificates() != null) {
             recentCertificates = user.getCertificates().stream()
-                .sorted(Comparator.comparing(Certificate::getIssuedAt).reversed())
-                .limit(5)
-                .map(cert -> AdminUserDetailResponse.UserCertificateInfo.builder()
-                    .certificateId(cert.getId())
-                    .courseName(cert.getCourse().getTitle())
-                    .issuedAt(LocalDateTime.ofInstant(cert.getIssuedAt(), java.time.ZoneId.systemDefault()))
-                    .certificateUrl("/api/certificates/" + cert.getSerial()) // Generate URL from serial
-                    .build())
-                .collect(Collectors.toList());
+                    .sorted(Comparator.comparing(Certificate::getIssuedAt).reversed())
+                    .limit(5)
+                    .map(cert -> AdminUserDetailResponse.UserCertificateInfo.builder()
+                            .certificateId(cert.getId())
+                            .courseName(cert.getCourse().getTitle())
+                            .issuedAt(LocalDateTime.ofInstant(cert.getIssuedAt(), java.time.ZoneId.systemDefault()))
+                            .certificateUrl("/api/certificates/" + cert.getSerial()) // Generate URL from serial
+                            .build())
+                    .collect(Collectors.toList());
         }
-        
-        String fullName = (user.getFirstName() != null ? user.getFirstName() : "") + 
-                         " " + 
-                         (user.getLastName() != null ? user.getLastName() : "");
+
+        String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
+                " " +
+                (user.getLastName() != null ? user.getLastName() : "");
         fullName = fullName.trim();
         if (fullName.isEmpty()) {
             fullName = user.getEmail().split("@")[0];
         }
-        
+
         return AdminUserDetailResponse.builder()
-            .id(user.getId())
-            .email(user.getEmail())
-            .firstName(user.getFirstName())
-            .lastName(user.getLastName())
-            .fullName(fullName)
-            .phoneNumber(user.getPhoneNumber())
-            .primaryRole(user.getPrimaryRole())
-            .status(user.getStatus())
-            .isEmailVerified(user.isEmailVerified())
-            .authProvider(user.getAuthProvider())
-            .googleLinked(user.isGoogleLinked())
-            .createdAt(user.getCreatedAt())
-            .updatedAt(user.getUpdatedAt())
-            .lastActive(user.getUpdatedAt())
-            .avatarUrl(null) // TODO: Get from media service
-            .bio(null) // TODO: Get from user profile
-            .coursesCreated(user.getCourses() != null ? (long) user.getCourses().size() : 0L)
-            .coursesEnrolled(user.getEnrollments() != null ? (long) user.getEnrollments().size() : 0L)
-            .certificatesEarned(user.getCertificates() != null ? (long) user.getCertificates().size() : 0L)
-            .totalSpent(0L) // TODO: Calculate from purchases
-            .totalEarned(0L) // TODO: Calculate from earnings
-            .loginCount(0) // TODO: Track login count
-            .lastLoginAt(user.getUpdatedAt())
-            .lastLoginIp(null) // TODO: Track IP
-            .recentCourses(recentCourses)
-            .recentCertificates(recentCertificates)
-            .build();
+                .id(user.getId())
+                .email(user.getEmail())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .fullName(fullName)
+                .phoneNumber(user.getPhoneNumber())
+                .primaryRole(user.getPrimaryRole())
+                .status(user.getStatus())
+                .isEmailVerified(user.isEmailVerified())
+                .authProvider(user.getAuthProvider())
+                .googleLinked(user.isGoogleLinked())
+                .createdAt(user.getCreatedAt())
+                .updatedAt(user.getUpdatedAt())
+                .lastActive(user.getUpdatedAt())
+                .avatarUrl(null) // TODO: Get from media service
+                .bio(null) // TODO: Get from user profile
+                .coursesCreated(user.getCourses() != null ? (long) user.getCourses().size() : 0L)
+                .coursesEnrolled(user.getEnrollments() != null ? (long) user.getEnrollments().size() : 0L)
+                .certificatesEarned(user.getCertificates() != null ? (long) user.getCertificates().size() : 0L)
+                .totalSpent(0L) // TODO: Calculate from purchases
+                .totalEarned(0L) // TODO: Calculate from earnings
+                .loginCount(0) // TODO: Track login count
+                .lastLoginAt(user.getUpdatedAt())
+                .lastLoginIp(null) // TODO: Track IP
+                .recentCourses(recentCourses)
+                .recentCertificates(recentCertificates)
+                .build();
     }
 
     @Override
     @Transactional
     public AdminUserResponse updateUserProfile(UpdateUserProfileRequest request) {
         log.info("Updating user profile - userId: {}", request.getUserId());
-        
+
         User user = userRepository.findById(request.getUserId())
-            .orElseThrow(() -> new RuntimeException("User not found with id: " + request.getUserId()));
-        
+                .orElseThrow(() -> new RuntimeException("User not found with id: " + request.getUserId()));
+
         StringBuilder changes = new StringBuilder("Profile updated: ");
-        
+
         if (request.getFirstName() != null) {
             user.setFirstName(request.getFirstName());
             changes.append("firstName, ");
@@ -281,17 +258,10 @@ public class AdminUserServiceImpl implements AdminUserService {
             user.setPhoneNumber(request.getPhoneNumber());
             changes.append("phoneNumber, ");
         }
-        
+
         user.setUpdatedAt(LocalDateTime.now());
         User updatedUser = userRepository.save(user);
-        
-        // Create audit log
-        createAuditLog(
-            "USER_PROFILE_UPDATE",
-            changes.toString() + (request.getReason() != null ? ". Reason: " + request.getReason() : ""),
-            user.getId()
-        );
-        
+
         log.info("Successfully updated user profile for userId: {}", request.getUserId());
         return convertToAdminUserResponse(updatedUser);
     }
@@ -300,23 +270,16 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Transactional
     public String resetUserPassword(ResetPasswordRequest request) {
         log.info("Resetting password for userId: {}", request.getUserId());
-        
+
         User user = userRepository.findById(request.getUserId())
-            .orElseThrow(() -> new RuntimeException("User not found with id: " + request.getUserId()));
-        
+                .orElseThrow(() -> new RuntimeException("User not found with id: " + request.getUserId()));
+
         // Encode and set new password
         String encodedPassword = passwordEncoder.encode(request.getNewPassword());
         user.setPassword(encodedPassword);
         user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
-        
-        // Create audit log
-        createAuditLog(
-            "USER_PASSWORD_RESET",
-            "Password reset by admin" + (request.getReason() != null ? ". Reason: " + request.getReason() : ""),
-            user.getId()
-        );
-        
+
         log.info("Successfully reset password for userId: {}", request.getUserId());
         return "Password reset successfully for user: " + user.getEmail();
     }
@@ -325,32 +288,32 @@ public class AdminUserServiceImpl implements AdminUserService {
      * Convert User entity to AdminUserResponse DTO
      */
     private AdminUserResponse convertToAdminUserResponse(User user) {
-        String fullName = (user.getFirstName() != null ? user.getFirstName() : "") + 
-                         " " + 
-                         (user.getLastName() != null ? user.getLastName() : "");
+        String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
+                " " +
+                (user.getLastName() != null ? user.getLastName() : "");
         fullName = fullName.trim();
         if (fullName.isEmpty()) {
             fullName = user.getEmail().split("@")[0]; // Use email prefix if no name
         }
-        
+
         return AdminUserResponse.builder()
-            .id(user.getId())
-            .email(user.getEmail())
-            .firstName(user.getFirstName())
-            .lastName(user.getLastName())
-            .fullName(fullName)
-            .phoneNumber(user.getPhoneNumber())
-            .primaryRole(user.getPrimaryRole())
-            .status(user.getStatus())
-            .isEmailVerified(user.isEmailVerified())
-            .createdAt(user.getCreatedAt())
-            .updatedAt(user.getUpdatedAt())
-            .lastActive(user.getUpdatedAt()) // Use updatedAt as lastActive for now
-            .avatarUrl(getUserAvatarUrl(user))
-            .coursesCreated(user.getCourses() != null ? (long) user.getCourses().size() : 0L)
-            .coursesEnrolled(user.getEnrollments() != null ? (long) user.getEnrollments().size() : 0L)
-            .certificatesEarned(user.getCertificates() != null ? (long) user.getCertificates().size() : 0L)
-            .build();
+                .id(user.getId())
+                .email(user.getEmail())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .fullName(fullName)
+                .phoneNumber(user.getPhoneNumber())
+                .primaryRole(user.getPrimaryRole())
+                .status(user.getStatus())
+                .isEmailVerified(user.isEmailVerified())
+                .createdAt(user.getCreatedAt())
+                .updatedAt(user.getUpdatedAt())
+                .lastActive(user.getUpdatedAt()) // Use updatedAt as lastActive for now
+                .avatarUrl(getUserAvatarUrl(user))
+                .coursesCreated(user.getCourses() != null ? (long) user.getCourses().size() : 0L)
+                .coursesEnrolled(user.getEnrollments() != null ? (long) user.getEnrollments().size() : 0L)
+                .certificatesEarned(user.getCertificates() != null ? (long) user.getCertificates().size() : 0L)
+                .build();
     }
 
     /**
@@ -361,7 +324,7 @@ public class AdminUserServiceImpl implements AdminUserService {
             if (user.getAvatarUrl() != null) {
                 return user.getAvatarUrl();
             }
-            
+
             // Try to get from UserProfile if exists
             if (userProfileService.hasProfile(user.getId())) {
                 var profile = userProfileService.getProfile(user.getId());
@@ -375,22 +338,4 @@ public class AdminUserServiceImpl implements AdminUserService {
         return null;
     }
 
-    /**
-     * Create audit log entry
-     */
-    private void createAuditLog(String action, String description, Long userId) {
-        try {
-            AuditLog auditLog = new AuditLog();
-            auditLog.setAction(action);
-            auditLog.setObjectType("USER");
-            auditLog.setObjectId(userId);
-            auditLog.setUserId(userId);
-            auditLog.setDetails(description);
-            auditLog.setTimestamp(LocalDateTime.now());
-            auditLogRepository.save(auditLog);
-        } catch (Exception e) {
-            log.error("Failed to create audit log: {}", e.getMessage());
-            // Don't fail the main operation if audit logging fails
-        }
-    }
 }
