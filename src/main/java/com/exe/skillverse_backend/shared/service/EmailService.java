@@ -1,11 +1,21 @@
 package com.exe.skillverse_backend.shared.service;
 
+import com.exe.skillverse_backend.auth_service.entity.User;
+import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+
+import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @Slf4j
@@ -372,5 +382,169 @@ public class EmailService {
                 The SkillVerse Team
                 """
                 .formatted(name, jobTitle, reasonText);
+    }
+
+    // ==================== HTML EMAIL SUPPORT ====================
+
+    /**
+     * Send HTML email with rich formatting
+     * Reusable method for premium emails, admin notifications, etc.
+     * 
+     * @param to          Recipient email address
+     * @param subject     Email subject
+     * @param htmlContent HTML content of the email
+     */
+    public void sendHtmlEmail(String to, String subject, String htmlContent) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            try {
+                helper.setFrom(fromEmail, fromName);
+            } catch (UnsupportedEncodingException e) {
+                helper.setFrom(fromEmail);
+            }
+
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(htmlContent, true);
+
+            mailSender.send(message);
+            log.info("✅ HTML email sent successfully to {}", to);
+
+        } catch (Exception e) {
+            log.error("❌ Failed to send HTML email to {}: {}", to, e.getMessage());
+            throw new RuntimeException("Failed to send HTML email: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Send HTML email asynchronously
+     * Used for non-critical emails that don't need immediate confirmation
+     * 
+     * @param to          Recipient email address
+     * @param subject     Email subject
+     * @param htmlContent HTML content of the email
+     */
+    @Async("emailTaskExecutor")
+    public CompletableFuture<Boolean> sendHtmlEmailAsync(String to, String subject, String htmlContent) {
+        try {
+            sendHtmlEmail(to, subject, htmlContent);
+            return CompletableFuture.completedFuture(true);
+        } catch (Exception e) {
+            log.error("❌ Async HTML email failed for {}: {}", to, e.getMessage());
+            return CompletableFuture.completedFuture(false);
+        }
+    }
+
+    // ==================== BULK EMAIL SUPPORT (ADMIN) ====================
+
+    /**
+     * Send bulk emails with batch processing and rate limiting
+     * Prevents server overload by processing emails in batches
+     * 
+     * @param recipients            List of recipient email addresses
+     * @param subject               Email subject
+     * @param htmlContent           HTML content of the email
+     * @param batchSize             Number of emails per batch (default: 50)
+     * @param delayBetweenBatchesMs Delay between batches in milliseconds (default:
+     *                              2000)
+     * @return EmailSendingResult with success/failure counts
+     */
+    @Async("emailTaskExecutor")
+    public CompletableFuture<EmailSendingResult> sendBulkEmailAsync(
+            List<String> recipients,
+            String subject,
+            String htmlContent,
+            int batchSize,
+            long delayBetweenBatchesMs) {
+
+        log.info("📧 Starting bulk email send to {} recipients", recipients.size());
+
+        AtomicInteger successCount = new AtomicInteger(0);
+        List<String> failedEmails = new ArrayList<>();
+
+        // Split recipients into batches
+        int totalBatches = (int) Math.ceil((double) recipients.size() / batchSize);
+
+        for (int i = 0; i < recipients.size(); i += batchSize) {
+            int batchNumber = (i / batchSize) + 1;
+            int endIndex = Math.min(i + batchSize, recipients.size());
+            List<String> batch = recipients.subList(i, endIndex);
+
+            log.info("📨 Processing batch {}/{} ({} emails)", batchNumber, totalBatches, batch.size());
+
+            // Send emails in current batch
+            for (String email : batch) {
+                try {
+                    sendHtmlEmail(email, subject, htmlContent);
+                    successCount.incrementAndGet();
+                } catch (Exception e) {
+                    log.error("❌ Failed to send email to {}: {}", email, e.getMessage());
+                    failedEmails.add(email);
+                }
+            }
+
+            // Delay between batches to prevent overload (except for last batch)
+            if (endIndex < recipients.size()) {
+                try {
+                    Thread.sleep(delayBetweenBatchesMs);
+                    log.info("⏳ Waiting {}ms before next batch...", delayBetweenBatchesMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("⚠️ Batch delay interrupted");
+                }
+            }
+        }
+
+        EmailSendingResult result = new EmailSendingResult(
+                recipients.size(),
+                successCount.get(),
+                failedEmails.size(),
+                failedEmails);
+
+        log.info("✅ Bulk email completed: {}/{} successful, {} failed",
+                successCount.get(), recipients.size(), failedEmails.size());
+
+        return CompletableFuture.completedFuture(result);
+    }
+
+    /**
+     * Send bulk emails to users with batch processing
+     * Extracts email addresses from User objects
+     * 
+     * @param users       List of users to send emails to
+     * @param subject     Email subject
+     * @param htmlContent HTML content of the email
+     * @return EmailSendingResult with success/failure counts
+     */
+    @Async("emailTaskExecutor")
+    public CompletableFuture<EmailSendingResult> sendBulkEmailToUsersAsync(
+            List<User> users,
+            String subject,
+            String htmlContent) {
+
+        List<String> emails = users.stream()
+                .map(User::getEmail)
+                .filter(email -> email != null && !email.isEmpty())
+                .toList();
+
+        log.info("📧 Sending bulk email to {} users", emails.size());
+
+        // Use default batch size of 50 and 2 second delay
+        return sendBulkEmailAsync(emails, subject, htmlContent, 50, 2000);
+    }
+
+    /**
+     * Result object for bulk email operations
+     */
+    public record EmailSendingResult(
+            int totalRecipients,
+            int successCount,
+            int failedCount,
+            List<String> failedEmails) {
+        public double getSuccessRate() {
+            return totalRecipients > 0 ? (double) successCount / totalRecipients * 100 : 0;
+        }
     }
 }

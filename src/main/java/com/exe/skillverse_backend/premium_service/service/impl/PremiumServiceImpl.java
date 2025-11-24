@@ -14,6 +14,7 @@ import com.exe.skillverse_backend.premium_service.repository.PremiumPlanReposito
 import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
 import com.exe.skillverse_backend.premium_service.repository.SubscriptionCancellationRepository;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
+import com.exe.skillverse_backend.premium_service.service.PremiumEmailService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,7 @@ public class PremiumServiceImpl implements PremiumService {
         private final WalletService walletService;
         private final SubscriptionCancellationRepository cancellationRepository;
         private final UserProfileService userProfileService;
+        private final PremiumEmailService premiumEmailService;
 
         private static final List<String> STUDENT_EMAIL_DOMAINS = List.of(
                         ".edu", ".edu.vn", ".ac.uk", "university.", "student.", ".edu.au");
@@ -169,7 +171,16 @@ public class PremiumServiceImpl implements PremiumService {
                 subscription.setStatus(UserSubscription.SubscriptionStatus.ACTIVE);
                 subscription.setPaymentTransaction(paymentTransaction);
 
-                return userSubscriptionRepository.save(subscription);
+                UserSubscription savedSubscription = userSubscriptionRepository.save(subscription);
+
+                // Send premium purchase success email
+                premiumEmailService.sendPremiumPurchaseSuccessEmail(
+                                subscription.getUser(),
+                                savedSubscription,
+                                paymentTransaction.getAmount(),
+                                paymentTransaction.getPaymentMethod().name());
+
+                return savedSubscription;
         }
 
         @Override
@@ -195,80 +206,80 @@ public class PremiumServiceImpl implements PremiumService {
         @Transactional
         public void processAutoRenewals() {
                 log.info("🔄 Starting auto-renewal process...");
-                
+
                 LocalDateTime now = LocalDateTime.now();
                 LocalDateTime renewalWindow = now.plusDays(3); // Renew 3 days before expiry
-                
+
                 List<UserSubscription> subscriptionsToRenew = userSubscriptionRepository
-                        .findSubscriptionsForAutoRenewal(now, renewalWindow);
-                
+                                .findSubscriptionsForAutoRenewal(now, renewalWindow);
+
                 log.info("Found {} subscriptions eligible for auto-renewal", subscriptionsToRenew.size());
-                
+
                 int successCount = 0;
                 int failCount = 0;
-                
+
                 for (UserSubscription subscription : subscriptionsToRenew) {
                         try {
                                 processAutoRenewal(subscription);
                                 successCount++;
                         } catch (Exception e) {
-                                log.error("Failed to auto-renew subscription {} for user {}: {}", 
-                                        subscription.getId(), 
-                                        subscription.getUser().getId(), 
-                                        e.getMessage());
+                                log.error("Failed to auto-renew subscription {} for user {}: {}",
+                                                subscription.getId(),
+                                                subscription.getUser().getId(),
+                                                e.getMessage());
                                 failCount++;
                         }
                 }
-                
+
                 log.info("✅ Auto-renewal process completed. Success: {}, Failed: {}", successCount, failCount);
         }
-        
+
         private void processAutoRenewal(UserSubscription subscription) {
-                log.info("Processing auto-renewal for subscription {} (user: {})", 
-                        subscription.getId(), 
-                        subscription.getUser().getId());
-                
+                log.info("Processing auto-renewal for subscription {} (user: {})",
+                                subscription.getId(),
+                                subscription.getUser().getId());
+
                 User user = subscription.getUser();
                 PremiumPlan currentPlan = subscription.getPlan();
-                
+
                 // Calculate price with student discount if applicable
                 BigDecimal price = currentPlan.getPrice();
                 if (subscription.getIsStudentSubscription()) {
                         price = price.multiply(BigDecimal.valueOf(0.8)); // 20% student discount
                 }
-                
+
                 // Try to deduct from wallet
                 try {
-                        walletService.deductCash(user.getId(), price, 
-                                "Gia hạn tự động gói " + currentPlan.getDisplayName(),
-                                "AUTO_RENEWAL",
-                                subscription.getId().toString());
-                        
+                        walletService.deductCash(user.getId(), price,
+                                        "Gia hạn tự động gói " + currentPlan.getDisplayName(),
+                                        "AUTO_RENEWAL",
+                                        subscription.getId().toString());
+
                         // Calculate new end date
                         LocalDateTime newStartDate = subscription.getEndDate();
                         LocalDateTime newEndDate = calculateEndDate(newStartDate, currentPlan.getDurationMonths());
-                        
+
                         // Update subscription
                         subscription.setStartDate(newStartDate);
                         subscription.setEndDate(newEndDate);
                         subscription.setIsActive(true);
                         subscription.setStatus(UserSubscription.SubscriptionStatus.ACTIVE);
                         // Keep autoRenew = true for next cycle
-                        
+
                         userSubscriptionRepository.save(subscription);
-                        
-                        log.info("✅ Auto-renewed subscription {} until {}", 
-                                subscription.getId(), 
-                                newEndDate);
-                        
+
+                        log.info("✅ Auto-renewed subscription {} until {}",
+                                        subscription.getId(),
+                                        newEndDate);
+
                 } catch (Exception e) {
-                        log.error("❌ Auto-renewal failed for subscription {}: Insufficient balance. Disabling auto-renewal.", 
-                                subscription.getId());
-                        
+                        log.error("❌ Auto-renewal failed for subscription {}: Insufficient balance. Disabling auto-renewal.",
+                                        subscription.getId());
+
                         // Disable auto-renewal if payment fails
                         subscription.setAutoRenew(false);
                         userSubscriptionRepository.save(subscription);
-                        
+
                         // TODO: Send notification to user about failed auto-renewal
                 }
         }
@@ -372,10 +383,10 @@ public class PremiumServiceImpl implements PremiumService {
 
         private UserSubscriptionResponse convertToUserSubscriptionResponse(UserSubscription subscription) {
                 User user = subscription.getUser();
-                String fullName = (user.getFirstName() != null ? user.getFirstName() : "") + 
-                                 " " + 
-                                 (user.getLastName() != null ? user.getLastName() : "");
-                
+                String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
+                                " " +
+                                (user.getLastName() != null ? user.getLastName() : "");
+
                 return UserSubscriptionResponse.builder()
                                 .id(subscription.getId())
                                 .userId(user.getId())
@@ -439,13 +450,13 @@ public class PremiumServiceImpl implements PremiumService {
                 // 5. Deduct cash from wallet using WalletService
                 String purchaseDescription = String.format("Mua gói Premium: %s", plan.getDisplayName());
                 try {
-                        walletService.deductCash(userId, finalPrice, purchaseDescription, 
+                        walletService.deductCash(userId, finalPrice, purchaseDescription,
                                         "PREMIUM_SUBSCRIPTION", planId.toString());
                 } catch (Exception e) {
                         log.error("Failed to deduct wallet balance: {}", e.getMessage());
                         throw new RuntimeException("Insufficient wallet balance or payment failed: " + e.getMessage());
                 }
-                
+
                 log.info("💳 Wallet payment processed successfully");
 
                 // 8. Create and activate subscription immediately
@@ -467,6 +478,13 @@ public class PremiumServiceImpl implements PremiumService {
 
                 log.info("✅ Premium subscription activated for user {} via wallet payment", userId);
 
+                // Send premium purchase success email
+                premiumEmailService.sendPremiumPurchaseSuccessEmail(
+                                user,
+                                subscription,
+                                finalPrice,
+                                "WALLET");
+
                 return convertToUserSubscriptionResponse(subscription);
         }
 
@@ -484,7 +502,7 @@ public class PremiumServiceImpl implements PremiumService {
                 }
 
                 UserSubscription subscription = subscriptionOpt.get();
-                
+
                 // Check if already enabled
                 if (subscription.getAutoRenew()) {
                         throw new RuntimeException("Auto-renewal is already enabled");
@@ -494,8 +512,8 @@ public class PremiumServiceImpl implements PremiumService {
                 subscription.setAutoRenew(true);
                 userSubscriptionRepository.save(subscription);
 
-                log.info("✅ Auto-renewal enabled for user {}. Next renewal before {}", 
-                        userId, subscription.getEndDate());
+                log.info("✅ Auto-renewal enabled for user {}. Next renewal before {}",
+                                userId, subscription.getEndDate());
         }
 
         @Override
@@ -508,7 +526,8 @@ public class PremiumServiceImpl implements PremiumService {
 
                 UserSubscription subscription = userSubscriptionRepository
                                 .findByUserAndIsActiveTrue(user)
-                                .orElseThrow(() -> new RuntimeException("No active subscription found for user: " + userId));
+                                .orElseThrow(() -> new RuntimeException(
+                                                "No active subscription found for user: " + userId));
 
                 if (subscription.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
                         throw new RuntimeException("Free tier does not have auto-renewal");
@@ -518,8 +537,8 @@ public class PremiumServiceImpl implements PremiumService {
                 subscription.setAutoRenew(false);
                 userSubscriptionRepository.save(subscription);
 
-                log.info("✅ Auto-renewal cancelled for user {}. Subscription remains active until {}", 
-                        userId, subscription.getEndDate());
+                log.info("✅ Auto-renewal cancelled for user {}. Subscription remains active until {}",
+                                userId, subscription.getEndDate());
         }
 
         @Override
@@ -533,7 +552,8 @@ public class PremiumServiceImpl implements PremiumService {
 
                 UserSubscription subscription = userSubscriptionRepository
                                 .findByUserAndIsActiveTrue(user)
-                                .orElseThrow(() -> new RuntimeException("No active subscription found for user: " + userId));
+                                .orElseThrow(() -> new RuntimeException(
+                                                "No active subscription found for user: " + userId));
 
                 // 2. Check if Free tier (cannot cancel/refund)
                 if (subscription.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
@@ -542,9 +562,11 @@ public class PremiumServiceImpl implements PremiumService {
 
                 // 2.5. Check cancellation limit (max 1 time per month)
                 String currentMonth = SubscriptionCancellation.getCurrentMonth();
-                Long cancellationsThisMonth = cancellationRepository.countByUserAndCancellationMonth(user, currentMonth);
+                Long cancellationsThisMonth = cancellationRepository.countByUserAndCancellationMonth(user,
+                                currentMonth);
                 if (cancellationsThisMonth >= 1) {
-                        throw new RuntimeException("Bạn đã hủy gói Premium trong tháng này. Chỉ được phép hủy 1 lần/tháng. Vui lòng thử lại vào tháng sau.");
+                        throw new RuntimeException(
+                                        "Bạn đã hủy gói Premium trong tháng này. Chỉ được phép hủy 1 lần/tháng. Vui lòng thử lại vào tháng sau.");
                 }
 
                 // 3. Calculate days since purchase
@@ -558,9 +580,9 @@ public class PremiumServiceImpl implements PremiumService {
                 if (hoursSincePurchase <= 24) {
                         refundPercentage = 100; // Within 24h: 100% refund
                 } else if (daysSincePurchase <= 3) {
-                        refundPercentage = 50;  // 1-3 days: 50% refund
+                        refundPercentage = 50; // 1-3 days: 50% refund
                 } else {
-                        refundPercentage = 0;   // Over 3 days: No refund, just cancel auto-renewal
+                        refundPercentage = 0; // Over 3 days: No refund, just cancel auto-renewal
                 }
 
                 // 5. Calculate actual refund amount
@@ -568,9 +590,9 @@ public class PremiumServiceImpl implements PremiumService {
                 if (subscription.getIsStudentSubscription()) {
                         originalPrice = originalPrice.multiply(BigDecimal.valueOf(0.8)); // 20% student discount
                 }
-                
+
                 BigDecimal refundAmount = originalPrice.multiply(BigDecimal.valueOf(refundPercentage))
-                                                      .divide(BigDecimal.valueOf(100));
+                                .divide(BigDecimal.valueOf(100));
 
                 // 6. Cancel subscription or just turn off auto-renewal
                 if (refundPercentage > 0) {
@@ -578,28 +600,27 @@ public class PremiumServiceImpl implements PremiumService {
                         subscription.setIsActive(false);
                         subscription.setStatus(UserSubscription.SubscriptionStatus.CANCELLED);
                         subscription.setEndDate(now);
-                        
+
                         // Process refund to wallet
                         String refundDescription = String.format(
-                                "Hoàn tiền %d%% hủy gói Premium %s - Lý do: %s", 
-                                refundPercentage,
-                                subscription.getPlan().getPlanType(),
-                                reason != null ? reason : "Không hài lòng"
-                        );
+                                        "Hoàn tiền %d%% hủy gói Premium %s - Lý do: %s",
+                                        refundPercentage,
+                                        subscription.getPlan().getPlanType(),
+                                        reason != null ? reason : "Không hài lòng");
                         String referenceId = "SUB_REFUND_" + subscription.getId() + "_" + System.currentTimeMillis();
-                        
+
                         walletService.processRefund(userId, refundAmount, refundDescription, referenceId);
-                        
+
                         // Assign Free tier back
                         assignFreeTierIfMissing(userId);
-                        
-                        log.info("✅ Subscription cancelled with {}% refund ({} VND) for user {}", 
-                                refundPercentage, refundAmount, userId);
+
+                        log.info("✅ Subscription cancelled with {}% refund ({} VND) for user {}",
+                                        refundPercentage, refundAmount, userId);
                 } else {
                         // No refund, just cancel auto-renewal
                         subscription.setAutoRenew(false);
-                        log.info("⚠️ No refund (over 3 days). Auto-renewal cancelled. Subscription active until {}", 
-                                subscription.getEndDate());
+                        log.info("⚠️ No refund (over 3 days). Auto-renewal cancelled. Subscription active until {}",
+                                        subscription.getEndDate());
                 }
 
                 userSubscriptionRepository.save(subscription);
@@ -613,11 +634,11 @@ public class PremiumServiceImpl implements PremiumService {
                                 .refundAmount(refundAmount)
                                 .daysSincePurchase(daysSincePurchase)
                                 .reason(reason)
-                                .cancellationType(refundPercentage > 0 ? 
-                                        SubscriptionCancellation.CancellationType.CANCEL_WITH_REFUND :
-                                        SubscriptionCancellation.CancellationType.CANCEL_AUTO_RENEWAL)
+                                .cancellationType(refundPercentage > 0
+                                                ? SubscriptionCancellation.CancellationType.CANCEL_WITH_REFUND
+                                                : SubscriptionCancellation.CancellationType.CANCEL_AUTO_RENEWAL)
                                 .build();
-                
+
                 cancellationRepository.save(cancellationRecord);
                 log.info("📝 Recorded cancellation for user {} in month {}", userId, currentMonth);
 
@@ -646,9 +667,11 @@ public class PremiumServiceImpl implements PremiumService {
 
                 // CHECK CANCELLATION LIMIT FIRST
                 String currentMonth = SubscriptionCancellation.getCurrentMonth();
-                Long cancellationsThisMonth = cancellationRepository.countByUserAndCancellationMonth(user, currentMonth);
+                Long cancellationsThisMonth = cancellationRepository.countByUserAndCancellationMonth(user,
+                                currentMonth);
                 if (cancellationsThisMonth >= 1) {
-                        throw new RuntimeException("Bạn đã hủy gói Premium trong tháng này. Chỉ được phép hủy 1 lần/tháng. Vui lòng thử lại vào tháng sau.");
+                        throw new RuntimeException(
+                                        "Bạn đã hủy gói Premium trong tháng này. Chỉ được phép hủy 1 lần/tháng. Vui lòng thử lại vào tháng sau.");
                 }
 
                 // Calculate time since purchase
@@ -676,10 +699,10 @@ public class PremiumServiceImpl implements PremiumService {
                 if (subscription.getIsStudentSubscription()) {
                         originalPrice = originalPrice.multiply(BigDecimal.valueOf(0.8));
                 }
-                
+
                 double refundAmount = originalPrice.multiply(BigDecimal.valueOf(refundPercentage))
-                                                   .divide(BigDecimal.valueOf(100))
-                                                   .doubleValue();
+                                .divide(BigDecimal.valueOf(100))
+                                .doubleValue();
 
                 return new RefundEligibility(true, refundPercentage, refundAmount, daysSincePurchase, message);
         }
@@ -693,90 +716,95 @@ public class PremiumServiceImpl implements PremiumService {
                 }
                 return startDate.plusMonths(durationMonths);
         }
-        
+
         // ==================== ADMIN METHODS ====================
-        
+
         @Override
         @Transactional(readOnly = true)
         public org.springframework.data.domain.Page<UserSubscriptionResponse> getAllSubscriptionsAdmin(
                         String status,
                         Long userId,
                         Long planId,
-                        Pageable pageable
-        ) {
-                log.info("Admin fetching all subscriptions - status: {}, userId: {}, planId: {}", status, userId, planId);
-                
+                        Pageable pageable) {
+                log.info("Admin fetching all subscriptions - status: {}, userId: {}, planId: {}", status, userId,
+                                planId);
+
                 // For now, return all subscriptions with pagination
                 // TODO: Add filtering by status, userId, planId
-                org.springframework.data.domain.Page<UserSubscription> subscriptions = userSubscriptionRepository.findAll(pageable);
-                
+                org.springframework.data.domain.Page<UserSubscription> subscriptions = userSubscriptionRepository
+                                .findAll(pageable);
+
                 return subscriptions.map(sub -> {
-                                PremiumPlanResponse planResponse = PremiumPlanResponse.builder()
-                                                .id(sub.getPlan().getId())
-                                                .name(sub.getPlan().getName())
-                                                .price(sub.getPlan().getPrice())
-                                                .durationMonths(sub.getPlan().getDurationMonths())
-                                                .build();
-                                
-                                String fullName = (sub.getUser().getFirstName() != null ? sub.getUser().getFirstName() : "") + 
-                                                " " + 
-                                                (sub.getUser().getLastName() != null ? sub.getUser().getLastName() : "");
-                                
-                                return UserSubscriptionResponse.builder()
-                                                .id(sub.getId())
-                                                .userId(sub.getUser().getId())
-                                                .userName(fullName.trim())
-                                                .userEmail(sub.getUser().getEmail())
-                                                .userAvatarUrl(getUserAvatarUrl(sub.getUser()))
-                                                .plan(planResponse)
-                                                .status(sub.getStatus())
-                                                .startDate(sub.getStartDate())
-                                                .endDate(sub.getEndDate())
-                                                .isStudentSubscription(sub.getIsStudentSubscription())
-                                                .build();
-                                });
+                        PremiumPlanResponse planResponse = PremiumPlanResponse.builder()
+                                        .id(sub.getPlan().getId())
+                                        .name(sub.getPlan().getName())
+                                        .price(sub.getPlan().getPrice())
+                                        .durationMonths(sub.getPlan().getDurationMonths())
+                                        .build();
+
+                        String fullName = (sub.getUser().getFirstName() != null ? sub.getUser().getFirstName() : "") +
+                                        " " +
+                                        (sub.getUser().getLastName() != null ? sub.getUser().getLastName() : "");
+
+                        return UserSubscriptionResponse.builder()
+                                        .id(sub.getId())
+                                        .userId(sub.getUser().getId())
+                                        .userName(fullName.trim())
+                                        .userEmail(sub.getUser().getEmail())
+                                        .userAvatarUrl(getUserAvatarUrl(sub.getUser()))
+                                        .plan(planResponse)
+                                        .status(sub.getStatus())
+                                        .startDate(sub.getStartDate())
+                                        .endDate(sub.getEndDate())
+                                        .isStudentSubscription(sub.getIsStudentSubscription())
+                                        .build();
+                });
         }
-        
+
         @Override
         @Transactional(readOnly = true)
         public Optional<UserSubscriptionResponse> getSubscriptionByIdAdmin(Long id) {
                 log.info("Admin fetching subscription detail for id: {}", id);
-                
+
                 return userSubscriptionRepository.findById(id)
                                 .map(sub -> {
-                                                PremiumPlanResponse planResponse = PremiumPlanResponse.builder()
-                                                                .id(sub.getPlan().getId())
-                                                                .name(sub.getPlan().getName())
-                                                                .price(sub.getPlan().getPrice())
-                                                                .durationMonths(sub.getPlan().getDurationMonths())
-                                                                .build();
-                                                
-                                                String fullName = (sub.getUser().getFirstName() != null ? sub.getUser().getFirstName() : "") + 
-                                                                " " + 
-                                                                (sub.getUser().getLastName() != null ? sub.getUser().getLastName() : "");
-                                                
-                                                return UserSubscriptionResponse.builder()
-                                                                .id(sub.getId())
-                                                                .userId(sub.getUser().getId())
-                                                                .userName(fullName.trim())
-                                                                .userEmail(sub.getUser().getEmail())
-                                                                .userAvatarUrl(getUserAvatarUrl(sub.getUser()))
-                                                                .plan(planResponse)
-                                                                .status(sub.getStatus())
-                                                                .startDate(sub.getStartDate())
-                                                                .endDate(sub.getEndDate())
-                                                                .isStudentSubscription(sub.getIsStudentSubscription())
-                                                                .build();
-                                                });
+                                        PremiumPlanResponse planResponse = PremiumPlanResponse.builder()
+                                                        .id(sub.getPlan().getId())
+                                                        .name(sub.getPlan().getName())
+                                                        .price(sub.getPlan().getPrice())
+                                                        .durationMonths(sub.getPlan().getDurationMonths())
+                                                        .build();
+
+                                        String fullName = (sub.getUser().getFirstName() != null
+                                                        ? sub.getUser().getFirstName()
+                                                        : "") +
+                                                        " " +
+                                                        (sub.getUser().getLastName() != null
+                                                                        ? sub.getUser().getLastName()
+                                                                        : "");
+
+                                        return UserSubscriptionResponse.builder()
+                                                        .id(sub.getId())
+                                                        .userId(sub.getUser().getId())
+                                                        .userName(fullName.trim())
+                                                        .userEmail(sub.getUser().getEmail())
+                                                        .userAvatarUrl(getUserAvatarUrl(sub.getUser()))
+                                                        .plan(planResponse)
+                                                        .status(sub.getStatus())
+                                                        .startDate(sub.getStartDate())
+                                                        .endDate(sub.getEndDate())
+                                                        .isStudentSubscription(sub.getIsStudentSubscription())
+                                                        .build();
+                                });
         }
-        
+
         @Override
         @Transactional(readOnly = true)
         public java.util.Map<String, Object> getPremiumStatistics() {
                 log.info("Admin fetching premium statistics");
-                
+
                 List<UserSubscription> allSubscriptions = userSubscriptionRepository.findAll();
-                
+
                 long totalSubscriptions = allSubscriptions.size();
                 long activeSubscriptions = allSubscriptions.stream()
                                 .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.ACTIVE)
@@ -787,20 +815,20 @@ public class PremiumServiceImpl implements PremiumService {
                 long cancelledSubscriptions = allSubscriptions.stream()
                                 .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.CANCELLED)
                                 .count();
-                
+
                 // Calculate total revenue from active subscriptions
                 double totalRevenue = allSubscriptions.stream()
                                 .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.ACTIVE)
                                 .mapToDouble(s -> s.getPlan().getPrice().doubleValue())
                                 .sum();
-                
+
                 java.util.Map<String, Object> stats = new java.util.HashMap<>();
                 stats.put("totalSubscriptions", totalSubscriptions);
                 stats.put("activeSubscriptions", activeSubscriptions);
                 stats.put("expiredSubscriptions", expiredSubscriptions);
                 stats.put("cancelledSubscriptions", cancelledSubscriptions);
                 stats.put("totalRevenue", totalRevenue);
-                
+
                 return stats;
         }
 
@@ -812,7 +840,7 @@ public class PremiumServiceImpl implements PremiumService {
                         if (user.getAvatarUrl() != null) {
                                 return user.getAvatarUrl();
                         }
-                        
+
                         // Try to get from UserProfile if exists
                         if (userProfileService.hasProfile(user.getId())) {
                                 var profile = userProfileService.getProfile(user.getId());
