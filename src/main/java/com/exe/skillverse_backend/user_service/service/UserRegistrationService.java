@@ -13,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -45,12 +47,16 @@ public class UserRegistrationService implements RegistrationService<UserRegistra
         // Assign Free Tier by default
         premiumService.assignFreeTierIfMissing(user.getId());
 
+        // Get OTP expiry time
+        LocalDateTime otpExpiryTime = userCreationService.getOtpExpiryTime(request.getEmail());
+
         return UserRegistrationResponse.builder()
                 .success(true)
                 .email(request.getEmail())
                 .userId(user.getId())
                 .requiresVerification(true) // User registration always requires email verification
-                .otpExpiryMinutes(10) // OTP expires in 10 minutes
+                .otpExpiryMinutes(5) // OTP expires in 5 minutes
+                .otpExpiryTime(otpExpiryTime)
                 .message("User registration successful! Please verify your email with the OTP code.")
                 .nextStep("Check your email and verify with the OTP code to activate your account")
                 .build();

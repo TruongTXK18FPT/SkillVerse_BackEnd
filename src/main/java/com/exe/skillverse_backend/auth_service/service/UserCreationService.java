@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 
 /**
  * Service for creating User entities for other services
@@ -71,6 +72,13 @@ public class UserCreationService {
      */
     public String generateOtpForUser(String email) {
         return emailVerificationService.generateOtpForUser(email);
+    }
+
+    /**
+     * Get OTP expiry time for user
+     */
+    public LocalDateTime getOtpExpiryTime(String email) {
+        return emailVerificationService.getOtpExpiryTime(email);
     }
 
     /**
@@ -180,7 +188,7 @@ public class UserCreationService {
         }
         String[] parts = fullName.trim().split("\\s+");
         if (parts.length > 1) {
-            return String.join(" ", java.util.Arrays.copyOfRange(parts, 1, parts.length));
+            return String.join(" ", Arrays.copyOfRange(parts, 1, parts.length));
         }
         return "";
     }

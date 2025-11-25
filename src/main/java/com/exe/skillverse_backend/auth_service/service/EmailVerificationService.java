@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Random;
 
@@ -19,7 +20,7 @@ public class EmailVerificationService {
 
     private final UserRepository userRepository;
     private final EmailService emailService;
-    private static final int OTP_EXPIRY_MINUTES = 10;
+    private static final int OTP_EXPIRY_MINUTES = 5;
     private static final int MAX_OTP_ATTEMPTS = 3;
     private static final int RESEND_COOLDOWN_SECONDS = 60;
 
@@ -33,7 +34,7 @@ public class EmailVerificationService {
 
         // Rate limiting: Check time since last OTP sent
         if (user.getLastOtpSentTime() != null) {
-            long secondsSinceLastOtp = java.time.Duration.between(
+            long secondsSinceLastOtp = Duration.between(
                     user.getLastOtpSentTime(),
                     LocalDateTime.now()).getSeconds();
 
@@ -63,7 +64,8 @@ public class EmailVerificationService {
         // Send OTP via email
         emailService.sendOtpEmail(email, otp);
 
-        log.info("Generated OTP for user: {} (expires in {} minutes)", email, OTP_EXPIRY_MINUTES);
+        // log.info("Generated OTP for user: {} (expires in {} minutes)", email,
+        // OTP_EXPIRY_MINUTES);
         return otp;
     }
 
@@ -76,7 +78,7 @@ public class EmailVerificationService {
 
         // Rate limiting: Check if user requested OTP too recently
         if (user.getLastOtpSentTime() != null) {
-            long secondsSinceLastOtp = java.time.Duration.between(user.getLastOtpSentTime(), LocalDateTime.now())
+            long secondsSinceLastOtp = Duration.between(user.getLastOtpSentTime(), LocalDateTime.now())
                     .getSeconds();
             if (secondsSinceLastOtp < RESEND_COOLDOWN_SECONDS) {
                 long remainingSeconds = RESEND_COOLDOWN_SECONDS - secondsSinceLastOtp;
@@ -99,7 +101,8 @@ public class EmailVerificationService {
         // Send password reset OTP via email (different template)
         emailService.sendPasswordResetOtpEmail(email, otp);
 
-        log.info("Generated password reset OTP for user: {} (expires in {} minutes)", email, OTP_EXPIRY_MINUTES);
+        // log.info("Generated password reset OTP for user: {} (expires in {} minutes)",
+        // email, OTP_EXPIRY_MINUTES);
         return otp;
     }
 

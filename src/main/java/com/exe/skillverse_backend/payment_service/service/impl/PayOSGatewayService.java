@@ -12,11 +12,13 @@ import jakarta.annotation.PostConstruct;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -58,21 +60,21 @@ public class PayOSGatewayService implements PaymentGatewayService {
             String digitsOnly = transaction.getInternalReference().replaceAll("\\D+", "");
             String lastNine = digitsOnly.length() >= 9 ? digitsOnly.substring(digitsOnly.length() - 9) : digitsOnly;
             int orderCode = Integer.parseInt(lastNine);
-            String description = transaction.getDescription() != null 
-                ? transaction.getDescription() 
-                : "Payment for order " + transaction.getInternalReference();
-            
+            String description = transaction.getDescription() != null
+                    ? transaction.getDescription()
+                    : "Payment for order " + transaction.getInternalReference();
+
             paymentRequest.put("orderCode", orderCode);
             paymentRequest.put("amount", transaction.getAmount().intValue());
             paymentRequest.put("description", description);
             paymentRequest.put("items", createPaymentItems(transaction));
-            
+
             // Validate required URLs
             if (successUrl == null || cancelUrl == null) {
                 log.error("Missing required URLs: successUrl={} cancelUrl={}", successUrl, cancelUrl);
                 throw new IllegalArgumentException("successUrl and cancelUrl are required for PayOS payment");
             }
-            
+
             paymentRequest.put("returnUrl", successUrl);
             paymentRequest.put("cancelUrl", cancelUrl);
 
@@ -133,9 +135,11 @@ public class PayOSGatewayService implements PaymentGatewayService {
                 throw new RuntimeException("Failed to create PayOS payment: " + response.getStatusCode());
             }
 
-        } catch (org.springframework.web.client.HttpClientErrorException | org.springframework.web.client.HttpServerErrorException e) {
+        } catch (org.springframework.web.client.HttpClientErrorException
+                | org.springframework.web.client.HttpServerErrorException e) {
             log.error("PayOS API error: status={} body={}", e.getStatusCode(), e.getResponseBodyAsString());
-            throw new RuntimeException("PayOS API error: " + e.getStatusCode() + " - " + e.getResponseBodyAsString(), e);
+            throw new RuntimeException("PayOS API error: " + e.getStatusCode() + " - " + e.getResponseBodyAsString(),
+                    e);
         } catch (Exception e) {
             log.error("Error creating PayOS payment: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to create PayOS payment", e);
@@ -185,7 +189,7 @@ public class PayOSGatewayService implements PaymentGatewayService {
     }
 
     @Override
-    public boolean processRefund(String gatewayReference, java.math.BigDecimal amount, String reason) {
+    public boolean processRefund(String gatewayReference, BigDecimal amount, String reason) {
         log.info("Processing PayOS refund: {}", gatewayReference);
         // Implement refund logic here if needed
         return false;
@@ -213,13 +217,13 @@ public class PayOSGatewayService implements PaymentGatewayService {
         }
     }
 
-    private java.util.List<Map<String, Object>> createPaymentItems(PaymentTransaction transaction) {
+    private List<Map<String, Object>> createPaymentItems(PaymentTransaction transaction) {
         Map<String, Object> item = new HashMap<>();
         item.put("name", transaction.getDescription() != null ? transaction.getDescription() : "Premium");
         item.put("quantity", 1);
         item.put("price", transaction.getAmount().intValue());
 
-        return java.util.List.of(item);
+        return List.of(item);
     }
 
     private String createSignature(Map<String, Object> data) throws NoSuchAlgorithmException, InvalidKeyException {

@@ -44,7 +44,7 @@ public class EmailService {
             mailSender.send(message);
 
             log.info("🔐 EMAIL SERVICE: Registration OTP email sent successfully to {}", email);
-            log.info("📝 OTP Code: {} (expires in 10 minutes)", otp);
+            // log.info("📝 OTP Code: {} (expires in 5 minutes)", otp);
 
         } catch (Exception e) {
             log.error("❌ Failed to send OTP email to {}: {}", email, e.getMessage());
@@ -52,7 +52,7 @@ public class EmailService {
             log.info("🔐 [FALLBACK] EMAIL SERVICE: Sending registration OTP to {}", email);
             log.info("📧 Subject: Verify Your Email - SkillVerse");
             log.info("📝 Message: Your verification code is: {}", otp);
-            log.info("⏰ This code will expire in 10 minutes");
+            log.info("⏰ This code will expire in 5 minutes");
             log.info("✉️  [SIMULATED] Email sent successfully to {}", email);
         }
     }
@@ -71,7 +71,7 @@ public class EmailService {
             mailSender.send(message);
 
             log.info("🔑 EMAIL SERVICE: Password reset OTP email sent successfully to {}", email);
-            log.info("📝 OTP Code: {} (expires in 10 minutes)", otp);
+            // log.info("📝 OTP Code: {} (expires in 5 minutes)", otp);
 
         } catch (Exception e) {
             log.error("❌ Failed to send password reset OTP email to {}: {}", email, e.getMessage());
@@ -79,7 +79,7 @@ public class EmailService {
             log.info("🔑 [FALLBACK] EMAIL SERVICE: Sending password reset OTP to {}", email);
             log.info("📧 Subject: Password Reset Request - SkillVerse");
             log.info("📝 Message: Your password reset code is: {}", otp);
-            log.info("⏰ This code will expire in 10 minutes");
+            log.info("⏰ This code will expire in 5 minutes");
             log.info("✉️  [SIMULATED] Password reset email sent successfully to {}", email);
         }
     }
@@ -168,7 +168,7 @@ public class EmailService {
 
                 Your email verification code is: %s
 
-                This code will expire in 10 minutes. Please enter this code in the verification form to complete your registration.
+                This code will expire in 5 minutes. Please enter this code in the verification form to complete your registration.
 
                 If you didn't request this verification, please ignore this email.
 
@@ -186,7 +186,7 @@ public class EmailService {
 
                 Your password reset verification code is: %s
 
-                This code will expire in 10 minutes. Please enter this code to proceed with resetting your password.
+                This code will expire in 5 minutes. Please enter this code to proceed with resetting your password.
 
                 If you didn't request a password reset, please ignore this email and your password will remain unchanged.
 

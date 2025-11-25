@@ -51,11 +51,11 @@ public class CourseServiceImpl implements CourseService {
     @Transactional
     public CourseDetailDTO createCourse(Long authorId, CourseCreateDTO dto) {
         log.info("Creating course with title '{}' by author {}", dto.getTitle(), authorId);
-        
+
         validateCreateCourseRequest(dto);
 
         User author = User.builder().id(authorId).build(); // Placeholder for now
-        
+
         // Load thumbnail media if provided
         Media thumbnail = null;
         if (dto.getThumbnailMediaId() != null) {
@@ -66,15 +66,15 @@ public class CourseServiceImpl implements CourseService {
             }
             log.info("Loaded thumbnail media: {} - {}", thumbnail.getId(), thumbnail.getUrl());
         }
-        
+
         Course entity = courseMapper.toEntity(dto, author, thumbnail);
         entity.setStatus(CourseStatus.DRAFT);
         entity.setCreatedAt(now());
         entity.setUpdatedAt(now());
-        
+
         Course saved = courseRepository.save(entity);
         log.info("Course created with id={} by author={}", saved.getId(), authorId);
-        
+
         return courseMapper.toDetailDto(saved);
     }
 
@@ -82,17 +82,17 @@ public class CourseServiceImpl implements CourseService {
     @Transactional
     public CourseDetailDTO updateCourse(Long courseId, CourseUpdateDTO dto, Long actorId) {
         log.info("Updating course {} by actor {}", courseId, actorId);
-        
+
         Course course = getCourseOrThrow(courseId);
         ensureAuthorOrAdmin(actorId, course.getAuthor().getId());
-        
+
         // Policy: only allow updates when DRAFT (or create versioning)
         if (course.getStatus() != CourseStatus.DRAFT) {
             throw new ConflictException("COURSE_NOT_EDITABLE_IN_STATUS_" + course.getStatus());
         }
-        
+
         validateUpdateCourseRequest(dto);
-        
+
         // Load new thumbnail if provided
         Media thumbnail = course.getThumbnail(); // Keep existing thumbnail by default
         if (dto.getThumbnailMediaId() != null) {
@@ -103,13 +103,13 @@ public class CourseServiceImpl implements CourseService {
             }
             log.info("Loaded thumbnail media: {} - {}", thumbnail.getId(), thumbnail.getUrl());
         }
-        
+
         courseMapper.updateEntity(course, dto, thumbnail);
         course.setUpdatedAt(now());
-        
+
         Course saved = courseRepository.save(course);
         log.info("Course {} updated by actor {}", courseId, actorId);
-        
+
         return courseMapper.toDetailDto(saved);
     }
 
@@ -117,16 +117,16 @@ public class CourseServiceImpl implements CourseService {
     @Transactional
     public void deleteCourse(Long courseId, Long actorId) {
         log.info("Deleting course {} by actor {}", courseId, actorId);
-        
+
         Course course = getCourseOrThrow(courseId);
         ensureAuthorOrAdmin(actorId, course.getAuthor().getId());
-        
+
         // Check if course has enrollments/purchases
         long enrollmentCount = enrollmentRepository.countByCourseId(courseId);
         long purchaseCount = purchaseRepository.countSuccessfulPurchasesByCourseId(courseId);
-        
+
         if (enrollmentCount > 0 || purchaseCount > 0) {
-            log.warn("Course {} has {} enrollments and {} purchases, marking as ARCHIVED", 
+            log.warn("Course {} has {} enrollments and {} purchases, marking as ARCHIVED",
                     courseId, enrollmentCount, purchaseCount);
             course.setStatus(CourseStatus.ARCHIVED);
             course.setUpdatedAt(now());
@@ -134,7 +134,7 @@ public class CourseServiceImpl implements CourseService {
         } else {
             courseRepository.delete(course);
         }
-        
+
         log.info("Course {} deleted/archived by actor {}", courseId, actorId);
     }
 
@@ -153,9 +153,9 @@ public class CourseServiceImpl implements CourseService {
     @Transactional(readOnly = true)
     public PageResponse<CourseSummaryDTO> listCourses(String q, CourseStatus status, Pageable pageable) {
         log.debug("Listing courses with query '{}', status '{}', page {}", q, status, pageable.getPageNumber());
-        
+
         Page<Course> page;
-        
+
         if (q != null && !q.isBlank()) {
             if (status != null) {
                 page = courseRepository.findByStatusAndTitleContainingIgnoreCase(status, q, pageable);
@@ -171,7 +171,7 @@ public class CourseServiceImpl implements CourseService {
                 page = courseRepository.findAllWithAuthor(pageable);
             }
         }
-        
+
         return PageResponse.<CourseSummaryDTO>builder()
                 .items(page.map(courseMapper::toSummaryDto).getContent())
                 .page(page.getNumber())
@@ -184,10 +184,10 @@ public class CourseServiceImpl implements CourseService {
     @Transactional(readOnly = true)
     public PageResponse<CourseSummaryDTO> listCoursesByAuthor(Long authorId, Pageable pageable) {
         log.debug("Listing courses by author {}, page {}", authorId, pageable.getPageNumber());
-        
+
         // Use query with eager loading to avoid LazyInitializationException
         Page<Course> page = courseRepository.findByAuthorIdWithAuthor(authorId, pageable);
-        
+
         // Map courses and set module counts
         List<CourseSummaryDTO> courseSummaries = page.getContent().stream()
                 .map(course -> {
@@ -197,7 +197,7 @@ public class CourseServiceImpl implements CourseService {
                     return summary;
                 })
                 .toList();
-        
+
         return PageResponse.<CourseSummaryDTO>builder()
                 .items(courseSummaries)
                 .page(page.getNumber())
@@ -210,21 +210,21 @@ public class CourseServiceImpl implements CourseService {
     @Transactional
     public CourseDetailDTO submitCourseForApproval(Long courseId, Long actorId) {
         log.info("Submitting course {} for approval by actor {}", courseId, actorId);
-        
+
         Course course = getCourseOrThrow(courseId);
         ensureAuthorOrAdmin(actorId, course.getAuthor().getId());
-        
+
         // Only DRAFT courses can be submitted for approval
         if (course.getStatus() != CourseStatus.DRAFT) {
             throw new ConflictException("COURSE_CANNOT_BE_SUBMITTED_IN_STATUS_" + course.getStatus());
         }
-        
+
         course.setStatus(CourseStatus.PENDING);
         course.setUpdatedAt(now());
-        
+
         Course saved = courseRepository.save(course);
         log.info("Course {} submitted for approval by actor {}", courseId, actorId);
-        
+
         return courseMapper.toDetailDto(saved);
     }
 
@@ -232,22 +232,22 @@ public class CourseServiceImpl implements CourseService {
     @Transactional
     public CourseDetailDTO approveCourse(Long courseId, Long adminId) {
         log.info("Admin {} approving course {}", adminId, courseId);
-        
+
         Course course = getCourseOrThrow(courseId);
-        
+
         // Only PENDING courses can be approved
         if (course.getStatus() != CourseStatus.PENDING) {
             throw new ConflictException("COURSE_CANNOT_BE_APPROVED_IN_STATUS_" + course.getStatus());
         }
-        
+
         course.setStatus(CourseStatus.PUBLIC);
         course.setUpdatedAt(now());
-        
+
         Course saved = courseRepository.save(course);
         log.info("Course {} approved by admin {}", courseId, adminId);
-        
+
         // TODO: Publish event for course approval notification
-        
+
         return courseMapper.toDetailDto(saved);
     }
 
@@ -255,22 +255,22 @@ public class CourseServiceImpl implements CourseService {
     @Transactional
     public CourseDetailDTO rejectCourse(Long courseId, Long adminId, String reason) {
         log.info("Admin {} rejecting course {} with reason: {}", adminId, courseId, reason);
-        
+
         Course course = getCourseOrThrow(courseId);
-        
+
         // Only PENDING courses can be rejected
         if (course.getStatus() != CourseStatus.PENDING) {
             throw new ConflictException("COURSE_CANNOT_BE_REJECTED_IN_STATUS_" + course.getStatus());
         }
-        
+
         course.setStatus(CourseStatus.DRAFT);
         course.setUpdatedAt(now());
-        
+
         Course saved = courseRepository.save(course);
         log.info("Course {} rejected by admin {} with reason: {}", courseId, adminId, reason);
-        
+
         // TODO: Publish event for course rejection notification with reason
-        
+
         return courseMapper.toDetailDto(saved);
     }
 
@@ -278,10 +278,10 @@ public class CourseServiceImpl implements CourseService {
     @Transactional(readOnly = true)
     public PageResponse<CourseSummaryDTO> listCoursesByStatus(CourseStatus status, Pageable pageable) {
         log.debug("Listing courses with status '{}', page {}", status, pageable.getPageNumber());
-        
+
         // Use query with eager loading to avoid LazyInitializationException
         Page<Course> page = courseRepository.findByStatusWithAuthor(status, pageable);
-        
+
         // Map courses and set module counts
         List<CourseSummaryDTO> courseSummaries = page.getContent().stream()
                 .map(course -> {
@@ -291,7 +291,7 @@ public class CourseServiceImpl implements CourseService {
                     return summary;
                 })
                 .toList();
-        
+
         return PageResponse.<CourseSummaryDTO>builder()
                 .items(courseSummaries)
                 .page(page.getNumber())
@@ -301,7 +301,7 @@ public class CourseServiceImpl implements CourseService {
     }
 
     // ===== Helper Methods =====
-    
+
     private Course getCourseOrThrow(Long id) {
         return courseRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("COURSE_NOT_FOUND"));
@@ -341,7 +341,7 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional(readOnly = true)
-    public java.util.List<java.util.Map<String, Object>> getAllCoursesForDebug() {
+    public List<Map<String, Object>> getAllCoursesForDebug() {
         List<Course> courses = courseRepository.findAll();
         return courses.stream()
                 .map(course -> {

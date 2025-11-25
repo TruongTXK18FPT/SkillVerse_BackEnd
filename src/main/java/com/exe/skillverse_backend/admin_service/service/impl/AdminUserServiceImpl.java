@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -168,7 +169,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                                 .courseTitle(enrollment.getCourse().getTitle())
                                 .courseThumbnail(thumbnailUrl)
                                 .enrolledAt(LocalDateTime.ofInstant(enrollment.getEnrollDate(),
-                                        java.time.ZoneId.systemDefault()))
+                                        ZoneId.systemDefault()))
                                 .progress(enrollment.getProgressPercent())
                                 .build();
                     })
@@ -184,7 +185,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                     .map(cert -> AdminUserDetailResponse.UserCertificateInfo.builder()
                             .certificateId(cert.getId())
                             .courseName(cert.getCourse().getTitle())
-                            .issuedAt(LocalDateTime.ofInstant(cert.getIssuedAt(), java.time.ZoneId.systemDefault()))
+                            .issuedAt(LocalDateTime.ofInstant(cert.getIssuedAt(), ZoneId.systemDefault()))
                             .certificateUrl("/api/certificates/" + cert.getSerial()) // Generate URL from serial
                             .build())
                     .collect(Collectors.toList());

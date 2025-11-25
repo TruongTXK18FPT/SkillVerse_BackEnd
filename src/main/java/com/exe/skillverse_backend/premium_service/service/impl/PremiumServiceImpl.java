@@ -25,8 +25,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -572,7 +575,7 @@ public class PremiumServiceImpl implements PremiumService {
                 // 3. Calculate days since purchase
                 LocalDateTime purchaseDate = subscription.getStartDate();
                 LocalDateTime now = LocalDateTime.now();
-                long hoursSincePurchase = java.time.Duration.between(purchaseDate, now).toHours();
+                long hoursSincePurchase = Duration.between(purchaseDate, now).toHours();
                 long daysSincePurchase = hoursSincePurchase / 24;
 
                 // 4. Calculate refund percentage based on usage time
@@ -677,7 +680,7 @@ public class PremiumServiceImpl implements PremiumService {
                 // Calculate time since purchase
                 LocalDateTime purchaseDate = subscription.getStartDate();
                 LocalDateTime now = LocalDateTime.now();
-                long hoursSincePurchase = java.time.Duration.between(purchaseDate, now).toHours();
+                long hoursSincePurchase = Duration.between(purchaseDate, now).toHours();
                 long daysSincePurchase = hoursSincePurchase / 24;
 
                 // Determine refund percentage
@@ -800,7 +803,7 @@ public class PremiumServiceImpl implements PremiumService {
 
         @Override
         @Transactional(readOnly = true)
-        public java.util.Map<String, Object> getPremiumStatistics() {
+        public Map<String, Object> getPremiumStatistics() {
                 log.info("Admin fetching premium statistics");
 
                 List<UserSubscription> allSubscriptions = userSubscriptionRepository.findAll();
@@ -822,7 +825,7 @@ public class PremiumServiceImpl implements PremiumService {
                                 .mapToDouble(s -> s.getPlan().getPrice().doubleValue())
                                 .sum();
 
-                java.util.Map<String, Object> stats = new java.util.HashMap<>();
+                Map<String, Object> stats = new HashMap<>();
                 stats.put("totalSubscriptions", totalSubscriptions);
                 stats.put("activeSubscriptions", activeSubscriptions);
                 stats.put("expiredSubscriptions", expiredSubscriptions);

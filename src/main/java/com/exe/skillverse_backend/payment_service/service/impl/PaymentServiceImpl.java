@@ -1,5 +1,7 @@
 package com.exe.skillverse_backend.payment_service.service.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
@@ -18,7 +20,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -102,7 +107,7 @@ public class PaymentServiceImpl implements PaymentService {
         if (url == null || url.isEmpty())
             return url;
         String separator = url.contains("?") ? "&" : "?";
-        return url + separator + key + "=" + java.net.URLEncoder.encode(value, java.nio.charset.StandardCharsets.UTF_8);
+        return url + separator + key + "=" + URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     @Override
@@ -161,7 +166,7 @@ public class PaymentServiceImpl implements PaymentService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         return paymentTransactionRepository
-                .findByUserOrderByCreatedAtDesc(user, org.springframework.data.domain.Pageable.unpaged())
+                .findByUserOrderByCreatedAtDesc(user, Pageable.unpaged())
                 .getContent()
                 .stream()
                 .map(this::convertToResponse)
@@ -175,19 +180,21 @@ public class PaymentServiceImpl implements PaymentService {
 
         var transactionOpt = paymentTransactionRepository.findByReferenceId(gatewayReference);
         if (transactionOpt.isEmpty()) {
-            // Check if this is a test webhook from PayOS (orderCode like "123", "456", etc.)
+            // Check if this is a test webhook from PayOS (orderCode like "123", "456",
+            // etc.)
             if (gatewayReference.matches("^\\d{1,3}$")) {
                 log.warn("⚠️ Ignoring test webhook from PayOS - orderCode: {}", gatewayReference);
                 throw new RuntimeException("Test webhook ignored: " + gatewayReference);
             }
-            
-            log.error("❌ Payment transaction not found with referenceId: '{}'. Gateway status: {}", gatewayReference, status);
+
+            log.error("❌ Payment transaction not found with referenceId: '{}'. Gateway status: {}", gatewayReference,
+                    status);
             throw new RuntimeException("Payment transaction not found: " + gatewayReference);
         }
 
         PaymentTransaction transaction = transactionOpt.get();
         log.info("✅ Found payment transaction - ID: {}, User: {}, Current Status: {}, Type: {}",
-            transaction.getId(), transaction.getUser().getId(), transaction.getStatus(), transaction.getType());
+                transaction.getId(), transaction.getUser().getId(), transaction.getStatus(), transaction.getType());
 
         PaymentTransaction.PaymentStatus newStatus = switch (status.toUpperCase()) {
             case "SUCCESS", "COMPLETED", "PAID" -> PaymentTransaction.PaymentStatus.COMPLETED;
@@ -199,8 +206,9 @@ public class PaymentServiceImpl implements PaymentService {
         // Idempotency: Check if already processed with same or better status
         // to prevent duplicate wallet deposits and transaction creation
         if (transaction.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED &&
-            newStatus == PaymentTransaction.PaymentStatus.COMPLETED) {
-            log.warn("⚠️ Callback already processed for payment: {} (status already COMPLETED). Ignoring duplicate.", gatewayReference);
+                newStatus == PaymentTransaction.PaymentStatus.COMPLETED) {
+            log.warn("⚠️ Callback already processed for payment: {} (status already COMPLETED). Ignoring duplicate.",
+                    gatewayReference);
             return transaction;
         }
 
@@ -237,7 +245,7 @@ public class PaymentServiceImpl implements PaymentService {
                 // Don't fail the callback processing if subscription activation fails
             }
         }
-        
+
         // Handle wallet deposit if payment is completed and it's a wallet deposit
         if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED &&
                 transaction.getType() == PaymentTransaction.PaymentType.WALLET_TOPUP) {
@@ -250,10 +258,7 @@ public class PaymentServiceImpl implements PaymentService {
                         transaction.getUser().getId(),
                         transaction.getAmount(),
                         transaction.getInternalReference(),
-                        transaction.getDescription() != null ?
-                                transaction.getDescription() :
-                                "Nạp tiền qua PayOS"
-                );
+                        transaction.getDescription() != null ? transaction.getDescription() : "Nạp tiền qua PayOS");
 
                 log.info("✅ Successfully deposited {} VNĐ to wallet for user {}",
                         transaction.getAmount(), transaction.getUser().getId());
@@ -268,7 +273,7 @@ public class PaymentServiceImpl implements PaymentService {
             }
         } else if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED) {
             log.info("⚠️ Payment completed but not WALLET_TOPUP - Type: {}, User: {}",
-                transaction.getType(), transaction.getUser().getId());
+                    transaction.getType(), transaction.getUser().getId());
         }
 
         return savedTransaction;
@@ -277,9 +282,9 @@ public class PaymentServiceImpl implements PaymentService {
     private String extractSubscriptionIdFromMetadata(String metadata) {
         // Robust JSON parsing using Jackson
         try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            com.fasterxml.jackson.databind.JsonNode node = mapper.readTree(metadata);
-            com.fasterxml.jackson.databind.JsonNode idNode = node.get("subscriptionId");
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode node = mapper.readTree(metadata);
+            JsonNode idNode = node.get("subscriptionId");
             if (idNode != null && !idNode.isNull()) {
                 return idNode.asText();
             }
@@ -360,24 +365,28 @@ public class PaymentServiceImpl implements PaymentService {
             // Verify with PayOS gateway using referenceId (orderCode)
             if (transaction.getReferenceId() != null) {
                 log.info("🔄 Verifying with PayOS - orderCode: {}", transaction.getReferenceId());
-                PaymentTransaction.PaymentStatus gatewayStatus = payOSGatewayService.verifyPayment(transaction.getReferenceId());
+                PaymentTransaction.PaymentStatus gatewayStatus = payOSGatewayService
+                        .verifyPayment(transaction.getReferenceId());
 
                 log.info("📊 PayOS verification result - orderCode: {}, status: {}",
-                    transaction.getReferenceId(), gatewayStatus);
+                        transaction.getReferenceId(), gatewayStatus);
 
-                // If payment is completed on gateway, process it (only if not already processed)
+                // If payment is completed on gateway, process it (only if not already
+                // processed)
                 if (gatewayStatus == PaymentTransaction.PaymentStatus.COMPLETED) {
                     log.info("💰 Payment confirmed by PayOS, processing callback...");
-                    // Call processPaymentCallback only if status is still PENDING (idempotency check)
+                    // Call processPaymentCallback only if status is still PENDING (idempotency
+                    // check)
                     // This prevents duplicate processing from webhook + verification race condition
                     if (transaction.getStatus() == PaymentTransaction.PaymentStatus.PENDING) {
                         processPaymentCallback(transaction.getReferenceId(), "PAID", null);
                     } else {
-                        log.info("⚠️ Payment already processed (status: {}), skipping callback", transaction.getStatus());
+                        log.info("⚠️ Payment already processed (status: {}), skipping callback",
+                                transaction.getStatus());
                     }
                     return true;
                 } else if (gatewayStatus == PaymentTransaction.PaymentStatus.CANCELLED ||
-                           gatewayStatus == PaymentTransaction.PaymentStatus.FAILED) {
+                        gatewayStatus == PaymentTransaction.PaymentStatus.FAILED) {
                     // Update status if cancelled or failed
                     transaction.setStatus(gatewayStatus);
                     paymentTransactionRepository.save(transaction);
@@ -396,10 +405,10 @@ public class PaymentServiceImpl implements PaymentService {
 
     private PaymentTransactionResponse convertToResponse(PaymentTransaction transaction) {
         User user = transaction.getUser();
-        String fullName = (user.getFirstName() != null ? user.getFirstName() : "") + 
-                         " " + 
-                         (user.getLastName() != null ? user.getLastName() : "");
-        
+        String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
+                " " +
+                (user.getLastName() != null ? user.getLastName() : "");
+
         return PaymentTransactionResponse.builder()
                 .id(transaction.getId())
                 .userId(user.getId())
@@ -428,7 +437,7 @@ public class PaymentServiceImpl implements PaymentService {
             if (user.getAvatarUrl() != null) {
                 return user.getAvatarUrl();
             }
-            
+
             // Try to get from UserProfile if exists
             if (userProfileService.hasProfile(user.getId())) {
                 var profile = userProfileService.getProfile(user.getId());
@@ -441,9 +450,9 @@ public class PaymentServiceImpl implements PaymentService {
         }
         return null;
     }
-    
+
     // ==================== ADMIN METHODS ====================
-    
+
     @Override
     @Transactional(readOnly = true)
     public Page<PaymentTransactionResponse> getAllTransactionsAdmin(
@@ -451,12 +460,11 @@ public class PaymentServiceImpl implements PaymentService {
             Long userId,
             LocalDateTime startDate,
             LocalDateTime endDate,
-            Pageable pageable
-    ) {
+            Pageable pageable) {
         log.info("Admin fetching all payment transactions - status: {}, userId: {}", status, userId);
-        
+
         Page<PaymentTransaction> transactions;
-        
+
         // Build query based on filters
         if (status != null && userId != null) {
             PaymentTransaction.PaymentStatus paymentStatus = PaymentTransaction.PaymentStatus.valueOf(status);
@@ -469,26 +477,26 @@ public class PaymentServiceImpl implements PaymentService {
         } else {
             transactions = paymentTransactionRepository.findAll(pageable);
         }
-        
+
         return transactions.map(this::convertToResponse);
     }
-    
+
     @Override
     @Transactional(readOnly = true)
     public PaymentTransactionResponse getTransactionByIdAdmin(Long id) {
         log.info("Admin fetching payment transaction detail for id: {}", id);
-        
+
         PaymentTransaction transaction = paymentTransactionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Payment transaction not found with id: " + id));
-        
+
         return convertToResponse(transaction);
     }
-    
+
     @Override
     @Transactional(readOnly = true)
     public Map<String, Object> getPaymentStatistics(LocalDateTime startDate, LocalDateTime endDate) {
         log.info("Admin fetching payment statistics");
-        
+
         // If no date range provided, use last 30 days
         if (startDate == null) {
             startDate = LocalDateTime.now().minusDays(30);
@@ -496,10 +504,10 @@ public class PaymentServiceImpl implements PaymentService {
         if (endDate == null) {
             endDate = LocalDateTime.now();
         }
-        
+
         List<PaymentTransaction> transactions = paymentTransactionRepository
                 .findByCreatedAtBetween(startDate, endDate);
-        
+
         // Calculate statistics
         long totalTransactions = transactions.size();
         long completedCount = transactions.stream()
@@ -511,7 +519,7 @@ public class PaymentServiceImpl implements PaymentService {
         long failedCount = transactions.stream()
                 .filter(t -> t.getStatus() == PaymentTransaction.PaymentStatus.FAILED)
                 .count();
-        
+
         double totalRevenueValue = transactions.stream()
                 .filter(t -> t.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED)
                 .map(PaymentTransaction::getAmount)
@@ -526,8 +534,8 @@ public class PaymentServiceImpl implements PaymentService {
                 })
                 .sum();
         String totalRevenue = String.valueOf(totalRevenueValue);
-        
-        Map<String, Object> stats = new java.util.HashMap<>();
+
+        Map<String, Object> stats = new HashMap<>();
         stats.put("totalTransactions", totalTransactions);
         stats.put("completedCount", completedCount);
         stats.put("pendingCount", pendingCount);
@@ -535,7 +543,7 @@ public class PaymentServiceImpl implements PaymentService {
         stats.put("totalRevenue", totalRevenue);
         stats.put("startDate", startDate);
         stats.put("endDate", endDate);
-        
+
         return stats;
     }
 }

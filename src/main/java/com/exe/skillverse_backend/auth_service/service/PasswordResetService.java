@@ -11,6 +11,7 @@ import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import java.time.LocalDateTime;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,13 +54,17 @@ public class PasswordResetService {
         // ✅ Generate and send password reset OTP (uses different email template)
         emailVerificationService.generateOtpForPasswordReset(email);
 
+        // Get OTP expiry time from user
+        LocalDateTime otpExpiryTime = emailVerificationService.getOtpExpiryTime(email);
+
         log.info("Forgot password OTP sent successfully to: {}", email);
 
         return ForgotPasswordResponse.builder()
                 .success(true)
                 .message("Password reset OTP has been sent to your email")
                 .email(email)
-                .otpExpiryMinutes(10)
+                .otpExpiryMinutes(5)
+                .otpExpiryTime(otpExpiryTime)
                 .nextStep("Check your email and enter the OTP code to reset your password")
                 .build();
     }

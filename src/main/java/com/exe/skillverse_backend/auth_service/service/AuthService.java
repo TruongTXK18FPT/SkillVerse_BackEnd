@@ -108,6 +108,7 @@ public class AuthService {
                                         .email(email)
                                         .requiresVerification(false)
                                         .otpExpiryMinutes(0)
+                                        .otpExpiryTime(null)
                                         .nextStep(nextStep)
                                         .build();
 
@@ -498,7 +499,7 @@ public class AuthService {
 
                         // 1. Get user info from Google using access token
                         // Note: idToken parameter actually contains access_token from frontend
-                        java.util.Map<String, Object> userInfo = googleTokenVerificationService
+                        Map<String, Object> userInfo = googleTokenVerificationService
                                         .getUserInfoFromAccessToken(idToken);
 
                         String email = (String) userInfo.get("email");
@@ -545,8 +546,8 @@ public class AuthService {
                                                 .isEmailVerified(true)
                                                 .authProvider(AuthProvider.GOOGLE)
                                                 .googleLinked(false) // ❌ NOT linked yet - user hasn't set password
-                                                .createdAt(java.time.LocalDateTime.now())
-                                                .updatedAt(java.time.LocalDateTime.now())
+                                                .createdAt(LocalDateTime.now())
+                                                .updatedAt(LocalDateTime.now())
                                                 .build();
 
                                 user = userRepository.save(user);
