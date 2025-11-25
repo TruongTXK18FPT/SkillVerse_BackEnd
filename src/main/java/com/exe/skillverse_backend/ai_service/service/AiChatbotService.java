@@ -36,16 +36,22 @@ public class AiChatbotService {
   private final ChatMessageRepository chatMessageRepository;
   private final InputValidationService inputValidationService;
   private final UsageLimitService usageLimitService;
+  private final ExpertPromptService expertPromptService;
+  private final com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository expertPromptConfigRepository;
 
   public AiChatbotService(
       @Qualifier("mistralAiChatModel") ChatModel mistralChatModel,
       ChatMessageRepository chatMessageRepository,
       InputValidationService inputValidationService,
-      UsageLimitService usageLimitService) {
+      UsageLimitService usageLimitService,
+      ExpertPromptService expertPromptService,
+      com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository expertPromptConfigRepository) {
     this.mistralChatModel = mistralChatModel;
     this.chatMessageRepository = chatMessageRepository;
     this.inputValidationService = inputValidationService;
     this.usageLimitService = usageLimitService;
+    this.expertPromptService = expertPromptService;
+    this.expertPromptConfigRepository = expertPromptConfigRepository;
   }
 
   // MEOWL AI CAREER ADVISOR - OPTIMIZED VERSION 2025
@@ -252,6 +258,9 @@ public class AiChatbotService {
 
   /**
    * Process a chat message and get AI response
+   * Supports two modes:
+   * 1. GENERAL_CAREER_ADVISOR - General career counseling
+   * 2. EXPERT_MODE - Specialized advice for specific domain/industry/role
    */
   @Transactional
   public ChatResponse chat(ChatRequest request, User user) {
@@ -260,20 +269,24 @@ public class AiChatbotService {
         user.getId(),
         FeatureType.AI_CHATBOT_REQUESTS);
 
-    // 2. Validate user input (profanity only - let AI handle auto-correction)
+    // 2. Validate chat mode and required fields
+    validateChatRequest(request);
+
+    // 3. Validate user input (profanity only - let AI handle auto-correction)
     try {
       inputValidationService.validateTextOrThrow(request.getMessage());
     } catch (IllegalArgumentException ex) {
       log.warn("Input validation failed: {}", ex.getMessage());
       // Don't throw error - let AI handle it with auto-correction
-      // throw new ApiException(ErrorCode.BAD_REQUEST, ex.getMessage());
     }
+    
     Long sessionId = request.getSessionId();
 
     // Generate new session ID if not provided
     if (sessionId == null) {
       sessionId = System.currentTimeMillis();
-      log.info("Starting new chat session {} for user {}", sessionId, user.getId());
+      log.info("Starting new {} chat session {} for user {}", 
+          request.getChatMode(), sessionId, user.getId());
     }
 
     // Build conversation context
@@ -282,11 +295,10 @@ public class AiChatbotService {
 
     // Add correction hints to help AI detect and fix invalid inputs
     String messageWithHints = addCorrectionHints(request.getMessage());
-    log.info("Original message: {}", request.getMessage());
-    log.info("Message with hints: {}", messageWithHints);
+    log.info("Chat mode: {}, Original message: {}", request.getChatMode(), request.getMessage());
 
     // Call AI with automatic provider selection and fallback
-    String aiResponse = callAIWithFallback(messageWithHints, previousMessages);
+    String aiResponse = callAIWithFallback(messageWithHints, previousMessages, request);
     // Sanitize: remove '####' headings from AI response as requested
     aiResponse = sanitizeAIResponse(aiResponse);
 
@@ -301,15 +313,59 @@ public class AiChatbotService {
 
     chatMessageRepository.save(chatMessage);
 
-    log.info("Chat session {} - User: {}, AI response length: {}",
-        sessionId, user.getId(), aiResponse.length());
+    log.info("Chat session {} - Mode: {}, User: {}, AI response length: {}",
+        sessionId, request.getChatMode(), user.getId(), aiResponse.length());
 
-    return ChatResponse.builder()
+    // Build response with mode and expert context
+    ChatResponse.ChatResponseBuilder responseBuilder = ChatResponse.builder()
         .sessionId(sessionId)
         .message(request.getMessage())
         .aiResponse(aiResponse)
         .timestamp(chatMessage.getCreatedAt())
-        .build();
+        .chatMode(request.getChatMode());
+
+    // Add expert context if in EXPERT_MODE
+    if (request.getChatMode() == com.exe.skillverse_backend.ai_service.enums.ChatMode.EXPERT_MODE) {
+      // Try to get mediaUrl from database
+      String mediaUrl = getExpertMediaUrl(request.getDomain(), request.getIndustry(), request.getJobRole());
+      
+      responseBuilder.expertContext(ChatResponse.ExpertContext.builder()
+          .domain(request.getDomain())
+          .industry(request.getIndustry())
+          .jobRole(request.getJobRole())
+          .expertName(buildExpertName(request.getJobRole()))
+          .mediaUrl(mediaUrl)
+          .build());
+    }
+
+    return responseBuilder.build();
+  }
+
+  /**
+   * Validate chat request based on mode
+   */
+  private void validateChatRequest(ChatRequest request) {
+    if (request.getChatMode() == null) {
+      request.setChatMode(com.exe.skillverse_backend.ai_service.enums.ChatMode.GENERAL_CAREER_ADVISOR);
+    }
+
+    // Validate EXPERT_MODE requirements
+    if (request.getChatMode() == com.exe.skillverse_backend.ai_service.enums.ChatMode.EXPERT_MODE) {
+      if (request.getJobRole() == null || request.getJobRole().trim().isEmpty()) {
+        throw new ApiException(ErrorCode.BAD_REQUEST, 
+            "Job role is required for EXPERT_MODE");
+      }
+    }
+  }
+
+  /**
+   * Build expert name for display
+   */
+  private String buildExpertName(String jobRole) {
+    if (jobRole == null || jobRole.isEmpty()) {
+      return "Career Expert";
+    }
+    return jobRole + " Expert";
   }
 
   /**
@@ -349,11 +405,11 @@ public class AiChatbotService {
    * Call Mistral AI for chat using Spring AI
    * Using Mistral AI for latest 2025 career trends and insights
    */
-  private String callAIWithFallback(String userMessage, List<ChatMessage> previousMessages) {
+  private String callAIWithFallback(String userMessage, List<ChatMessage> previousMessages, ChatRequest request) {
     log.info("Calling Mistral AI chatbot using Spring AI");
 
     try {
-      return callMistralForChat(userMessage, previousMessages);
+      return callMistralForChat(userMessage, previousMessages, request);
     } catch (Exception e) {
       log.error("Mistral AI failed: {}", e.getMessage());
 
@@ -366,7 +422,7 @@ public class AiChatbotService {
    * Call Mistral AI for chat conversation with context using Spring AI ChatClient
    * Mistral provides more recent training data for 2025 career trends
    */
-  private String callMistralForChat(String userMessage, List<ChatMessage> previousMessages) {
+  private String callMistralForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request) {
     try {
       // Build conversation history
       StringBuilder contextBuilder = new StringBuilder();
@@ -382,16 +438,43 @@ public class AiChatbotService {
       String conversationHistory = contextBuilder.toString();
       log.debug("Calling Mistral AI with {} previous messages", previousMessages.size());
 
-      // Choose prompt: SIMPLE for first turn, FULL for follow-ups
-      boolean isFirstTurn = previousMessages == null || previousMessages.isEmpty();
-      String chosenSystemPrompt = (isFirstTurn ? SYSTEM_PROMPT : SYSTEM_PROMPT)
-          + "\nCRITICAL: Hãy trả lời bằng đúng ngôn ngữ người dùng đang dùng (ưu tiên Tiếng Việt). Nếu phát hiện yêu cầu vô lý (ví dụ mục tiêu IELTS 10.0), hãy giải thích và đưa gợi ý hợp lệ bằng Tiếng Việt.";
+      // DETERMINE SYSTEM PROMPT based on chat mode
+      String systemPrompt;
+      
+      if (request.getChatMode() == com.exe.skillverse_backend.ai_service.enums.ChatMode.EXPERT_MODE) {
+        // EXPERT_MODE: Try to get specialized prompt
+        systemPrompt = expertPromptService.getSystemPrompt(
+            request.getDomain(), 
+            request.getIndustry(), 
+            request.getJobRole()
+        );
+        
+        // If no expert prompt found, fall back to general prompt
+        if (systemPrompt == null) {
+          log.warn("No expert prompt found for role: {}, falling back to general advisor", 
+              request.getJobRole());
+          systemPrompt = SYSTEM_PROMPT;
+        } else {
+          log.info("Using expert prompt for: {} - {} - {}", 
+              request.getDomain(), request.getIndustry(), request.getJobRole());
+        }
+      } else {
+        // GENERAL_CAREER_ADVISOR: Use default prompt
+        // Use simpler prompt for first message, full prompt for subsequent
+        boolean isFirstTurn = previousMessages == null || previousMessages.isEmpty();
+        systemPrompt = isFirstTurn ? SYSTEM_PROMPT_SIMPLE : SYSTEM_PROMPT;
+        log.info("Using general career advisor prompt (first turn: {})", isFirstTurn);
+      }
+
+      // Append critical instruction
+      String finalSystemPrompt = systemPrompt + 
+          "\nCRITICAL: Hãy trả lời bằng đúng ngôn ngữ người dùng đang dùng (ưu tiên Tiếng Việt). Nếu phát hiện yêu cầu vô lý (ví dụ mục tiêu IELTS 10.0), hãy giải thích và đưa gợi ý hợp lệ bằng Tiếng Việt.";
 
       // Use Spring AI ChatClient for Mistral
       return ChatClient.builder(mistralChatModel)
           .build()
           .prompt()
-          .system(chosenSystemPrompt)
+          .system(finalSystemPrompt)
           .user(conversationHistory)
           .call()
           .content();
@@ -456,7 +539,7 @@ public class AiChatbotService {
               .sessionId(sessionId)
               .title(title)
               .lastMessageAt(messages.get(messages.size() - 1).getCreatedAt())
-              .messageCount(messages.size())
+              .messageCount(messages.size() * 2) // Multiply by 2 because each entity has User + AI message
               .build();
         })
         .filter(summary -> summary != null)
@@ -1005,5 +1088,23 @@ public class AiChatbotService {
 
     // If cleaning removed everything, return original
     return cleaned.isEmpty() ? message : cleaned;
+  }
+
+  /**
+   * Get expert media URL from database
+   * Returns null if not found
+   */
+  private String getExpertMediaUrl(String domain, String industry, String jobRole) {
+    try {
+      // Try exact match first
+      return expertPromptConfigRepository
+          .findByDomainAndIndustryAndJobRoleAndIsActiveTrue(domain, industry, jobRole)
+          .map(config -> config.getMediaUrl())
+          .orElse(null);
+    } catch (Exception e) {
+      log.warn("Failed to get media URL for expert {}/{}/{}: {}", 
+          domain, industry, jobRole, e.getMessage());
+      return null;
+    }
   }
 }
