@@ -21,6 +21,7 @@ public class EmailVerificationService {
     private final EmailService emailService;
     private static final int OTP_EXPIRY_MINUTES = 10;
     private static final int MAX_OTP_ATTEMPTS = 3;
+    private static final int RESEND_COOLDOWN_SECONDS = 60;
 
     /**
      * Generate and store OTP for email verification
@@ -29,6 +30,19 @@ public class EmailVerificationService {
     public String generateOtpForUser(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found with email: " + email));
+
+        // Rate limiting: Check time since last OTP sent
+        if (user.getLastOtpSentTime() != null) {
+            long secondsSinceLastOtp = java.time.Duration.between(
+                    user.getLastOtpSentTime(),
+                    LocalDateTime.now()).getSeconds();
+
+            if (secondsSinceLastOtp < RESEND_COOLDOWN_SECONDS) {
+                long remainingSeconds = RESEND_COOLDOWN_SECONDS - secondsSinceLastOtp;
+                throw new RuntimeException(
+                        "Please wait " + remainingSeconds + " seconds before requesting a new OTP");
+            }
+        }
 
         // Check if user is already verified
         if (user.isEmailVerified()) {
@@ -41,7 +55,8 @@ public class EmailVerificationService {
         // Set OTP and expiry time
         user.setVerificationOtp(otp);
         user.setOtpExpiryTime(LocalDateTime.now().plusMinutes(OTP_EXPIRY_MINUTES));
-        user.setOtpAttempts(0); // Reset attempts when new OTP is generated
+        user.setOtpAttempts(0);
+        user.setLastOtpSentTime(LocalDateTime.now()); // Track last OTP sent time
 
         userRepository.save(user);
 
@@ -49,6 +64,42 @@ public class EmailVerificationService {
         emailService.sendOtpEmail(email, otp);
 
         log.info("Generated OTP for user: {} (expires in {} minutes)", email, OTP_EXPIRY_MINUTES);
+        return otp;
+    }
+
+    /**
+     * Generate OTP for password reset (uses different email template)
+     */
+    public String generateOtpForPasswordReset(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // Rate limiting: Check if user requested OTP too recently
+        if (user.getLastOtpSentTime() != null) {
+            long secondsSinceLastOtp = java.time.Duration.between(user.getLastOtpSentTime(), LocalDateTime.now())
+                    .getSeconds();
+            if (secondsSinceLastOtp < RESEND_COOLDOWN_SECONDS) {
+                long remainingSeconds = RESEND_COOLDOWN_SECONDS - secondsSinceLastOtp;
+                throw new RuntimeException(
+                        "Please wait " + remainingSeconds + " seconds before requesting a new OTP");
+            }
+        }
+
+        // Generate 6-digit OTP
+        String otp = generateRandomOtp();
+
+        // Set OTP and expiry time
+        user.setVerificationOtp(otp);
+        user.setOtpExpiryTime(LocalDateTime.now().plusMinutes(OTP_EXPIRY_MINUTES));
+        user.setOtpAttempts(0);
+        user.setLastOtpSentTime(LocalDateTime.now());
+
+        userRepository.save(user);
+
+        // Send password reset OTP via email (different template)
+        emailService.sendPasswordResetOtpEmail(email, otp);
+
+        log.info("Generated password reset OTP for user: {} (expires in {} minutes)", email, OTP_EXPIRY_MINUTES);
         return otp;
     }
 

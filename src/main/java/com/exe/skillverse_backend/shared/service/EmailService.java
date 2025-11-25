@@ -31,7 +31,7 @@ public class EmailService {
     private String fromName;
 
     /**
-     * Send OTP email
+     * Send OTP email for registration
      */
     public void sendOtpEmail(String email, String otp) {
         try {
@@ -43,17 +43,44 @@ public class EmailService {
 
             mailSender.send(message);
 
-            log.info("🔐 EMAIL SERVICE: OTP email sent successfully to {}", email);
+            log.info("🔐 EMAIL SERVICE: Registration OTP email sent successfully to {}", email);
             log.info("📝 OTP Code: {} (expires in 10 minutes)", otp);
 
         } catch (Exception e) {
             log.error("❌ Failed to send OTP email to {}: {}", email, e.getMessage());
             // Fallback to console logging for development
-            log.info("🔐 [FALLBACK] EMAIL SERVICE: Sending OTP to {}", email);
+            log.info("🔐 [FALLBACK] EMAIL SERVICE: Sending registration OTP to {}", email);
             log.info("📧 Subject: Verify Your Email - SkillVerse");
             log.info("📝 Message: Your verification code is: {}", otp);
             log.info("⏰ This code will expire in 10 minutes");
             log.info("✉️  [SIMULATED] Email sent successfully to {}", email);
+        }
+    }
+
+    /**
+     * Send OTP email for password reset
+     */
+    public void sendPasswordResetOtpEmail(String email, String otp) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(email);
+            message.setSubject("🔐 Password Reset Request - SkillVerse");
+            message.setText(buildPasswordResetOtpContent(otp));
+
+            mailSender.send(message);
+
+            log.info("🔑 EMAIL SERVICE: Password reset OTP email sent successfully to {}", email);
+            log.info("📝 OTP Code: {} (expires in 10 minutes)", otp);
+
+        } catch (Exception e) {
+            log.error("❌ Failed to send password reset OTP email to {}: {}", email, e.getMessage());
+            // Fallback to console logging for development
+            log.info("🔑 [FALLBACK] EMAIL SERVICE: Sending password reset OTP to {}", email);
+            log.info("📧 Subject: Password Reset Request - SkillVerse");
+            log.info("📝 Message: Your password reset code is: {}", otp);
+            log.info("⏰ This code will expire in 10 minutes");
+            log.info("✉️  [SIMULATED] Password reset email sent successfully to {}", email);
         }
     }
 
@@ -144,6 +171,26 @@ public class EmailService {
                 This code will expire in 10 minutes. Please enter this code in the verification form to complete your registration.
 
                 If you didn't request this verification, please ignore this email.
+
+                Best regards,
+                The SkillVerse Team
+                """
+                .formatted(otp);
+    }
+
+    private String buildPasswordResetOtpContent(String otp) {
+        return """
+                Dear User,
+
+                We received a request to reset your password for your SkillVerse account.
+
+                Your password reset verification code is: %s
+
+                This code will expire in 10 minutes. Please enter this code to proceed with resetting your password.
+
+                If you didn't request a password reset, please ignore this email and your password will remain unchanged.
+
+                For security reasons, never share this code with anyone.
 
                 Best regards,
                 The SkillVerse Team

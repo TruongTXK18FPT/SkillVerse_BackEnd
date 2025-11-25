@@ -29,8 +29,8 @@ public class SecurityConfig {
                         "/api/auth/refresh",
                         "/api/auth/verify",
                         // logout should NOT be public; require authentication
-                        "/api/auth/forgot-password/**",
-                        "/api/auth/reset-password/**",
+                        "/api/auth/forgot-password",
+                        "/api/auth/reset-password",
                         "/api/auth/verify-email/**",
                         "/api/auth/resend-verification/**",
                         "/api/auth/resend-otp",

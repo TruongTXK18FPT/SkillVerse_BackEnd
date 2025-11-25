@@ -1,14 +1,20 @@
 package com.exe.skillverse_backend.auth_service.controller;
 
+import com.exe.skillverse_backend.auth_service.dto.request.ChangePasswordRequest;
+import com.exe.skillverse_backend.auth_service.dto.request.ForgotPasswordRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.LoginRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.RefreshTokenRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.ResendOtpRequest;
+import com.exe.skillverse_backend.auth_service.dto.request.ResetPasswordRequest;
+import com.exe.skillverse_backend.auth_service.dto.request.SetPasswordRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.VerifyEmailRequest;
 import com.exe.skillverse_backend.auth_service.dto.response.AuthResponse;
+import com.exe.skillverse_backend.auth_service.dto.response.ForgotPasswordResponse;
 import com.exe.skillverse_backend.auth_service.dto.response.RegistrationResponse;
 import com.exe.skillverse_backend.auth_service.dto.request.GoogleAuthRequest;
 import com.exe.skillverse_backend.auth_service.service.AuthService;
 import com.exe.skillverse_backend.auth_service.service.EmailVerificationService;
+import com.exe.skillverse_backend.auth_service.service.PasswordResetService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -21,6 +27,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -31,6 +39,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
+    private final PasswordResetService passwordResetService;
 
     @PostMapping("/verify-email")
     @Operation(summary = "Verify email and activate account", description = "Verifies email with OTP and activates account for login")
@@ -140,6 +149,86 @@ public class AuthController {
             return ResponseEntity.ok(isValid);
         } catch (Exception e) {
             return ResponseEntity.ok(false);
+        }
+    }
+
+    @PostMapping("/forgot-password")
+    @Operation(summary = "Forgot password - Request OTP", description = "Sends OTP to user's email for password reset")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OTP sent successfully", content = @Content(schema = @Schema(implementation = ForgotPasswordResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request or user not found", content = @Content)
+    })
+    public ResponseEntity<ForgotPasswordResponse> forgotPassword(
+            @Valid @RequestBody ForgotPasswordRequest request) {
+        try {
+            ForgotPasswordResponse response = passwordResetService.initiateForgotPassword(request.getEmail());
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(
+                    ForgotPasswordResponse.builder()
+                            .success(false)
+                            .message(e.getMessage())
+                            .build());
+        }
+    }
+
+    @PostMapping("/reset-password")
+    @Operation(summary = "Reset password with OTP", description = "Resets user password after OTP verification")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Password reset successful", content = @Content(schema = @Schema(implementation = RegistrationResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid OTP or request", content = @Content)
+    })
+    public ResponseEntity<RegistrationResponse> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request) {
+        try {
+            RegistrationResponse response = passwordResetService.resetPassword(request);
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PostMapping("/set-password")
+    @SecurityRequirement(name = "Bearer Authentication")
+    @Operation(summary = "Set password for Google OAuth users", description = "Allows Google OAuth users to set a password for backup login method")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Password set successfully", content = @Content(schema = @Schema(implementation = RegistrationResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request or user already has password", content = @Content),
+            @ApiResponse(responseCode = "401", description = "Unauthorized - Authentication required", content = @Content)
+    })
+    public ResponseEntity<RegistrationResponse> setPasswordForGoogleUser(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody SetPasswordRequest request) {
+        try {
+            // Extract user ID from JWT token
+            Long userId = jwt.getClaim("userId");
+
+            RegistrationResponse response = passwordResetService.setPasswordForGoogleUser(userId, request);
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @PostMapping("/change-password")
+    @SecurityRequirement(name = "Bearer Authentication")
+    @Operation(summary = "Change password for authenticated users", description = "Allows users to change their password by providing current password")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Password changed successfully", content = @Content(schema = @Schema(implementation = RegistrationResponse.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid request or current password incorrect", content = @Content),
+            @ApiResponse(responseCode = "401", description = "Unauthorized - Authentication required", content = @Content)
+    })
+    public ResponseEntity<RegistrationResponse> changePassword(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        try {
+            // Extract user ID from JWT token
+            Long userId = jwt.getClaim("userId");
+
+            RegistrationResponse response = passwordResetService.changePassword(userId, request);
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().build();
         }
     }
 }

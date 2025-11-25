@@ -88,6 +88,9 @@ public class User {
     @Builder.Default
     private Integer otpAttempts = 0;
 
+    @Column(name = "last_otp_sent_time")
+    private LocalDateTime lastOtpSentTime;
+
     @Builder.Default
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

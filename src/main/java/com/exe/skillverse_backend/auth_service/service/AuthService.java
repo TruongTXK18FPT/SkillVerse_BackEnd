@@ -457,7 +457,7 @@ public class AuthService {
                         if (user.getAvatarUrl() != null) {
                                 return user.getAvatarUrl();
                         }
-                        
+
                         // Try to get from UserProfile if exists
                         if (userProfileService.hasProfile(user.getId())) {
                                 var profile = userProfileService.getProfile(user.getId());
@@ -544,7 +544,7 @@ public class AuthService {
                                                 .status(UserStatus.ACTIVE)
                                                 .isEmailVerified(true)
                                                 .authProvider(AuthProvider.GOOGLE)
-                                                .googleLinked(true) // ✅ Mark as Google-linked from start
+                                                .googleLinked(false) // ❌ NOT linked yet - user hasn't set password
                                                 .createdAt(java.time.LocalDateTime.now())
                                                 .updatedAt(java.time.LocalDateTime.now())
                                                 .build();
@@ -637,7 +637,7 @@ public class AuthService {
                         // 9. Get user full name and avatar
                         String fullName = isNewUser ? name : getUserFullName(user);
                         String avatarUrl = getUserAvatarUrl(user);
-                        
+
                         log.info("🖼️ Avatar URL for user {}: {}", email, avatarUrl);
                         log.info("🖼️ User.avatarUrl from entity: {}", user.getAvatarUrl());
 
