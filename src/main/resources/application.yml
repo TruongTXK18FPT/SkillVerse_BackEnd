@@ -82,13 +82,13 @@ spring:
 
     # OpenAI configuration - using Gemini's OpenAI-compatible endpoint
     openai:
-      api-key: ${GEMINI_API_KEY:AIzaSyDHwnFm4uEBMcagNfLjfxFxAXmQh7vO3cY}
+      api-key: ${GEMINI_API_KEY:AIzaSyAFUAWlVHLWLz3WVWHcKPxH4MszFl66glQ}
       base-url: ${GEMINI_OPENAI_BASE_URL:https://generativelanguage.googleapis.com/v1beta/openai/}
       fallback-models: ${GEMINI_FALLBACK_MODELS:gemini-2.0-flash}
       chat:
         enabled: ${GEMINI_ENABLED:true}
         options:
-          model: ${GEMINI_MODEL:gemini-2.5-flash-preview-09-2025}
+          model: ${GEMINI_MODEL:gemini-2.5-flash}
           temperature: ${GEMINI_TEMPERATURE:0.7}
           max-tokens: ${GEMINI_MAX_TOKENS:30000}
 

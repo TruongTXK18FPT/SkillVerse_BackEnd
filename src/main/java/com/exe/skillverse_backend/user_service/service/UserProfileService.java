@@ -266,12 +266,20 @@ public class UserProfileService {
         User user = userRepository.findById(profile.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
+        // Determine avatar URL: Prefer Profile Media > User Avatar URL (Google)
+        String avatarUrl = null;
+        if (profile.getAvatarMedia() != null) {
+            avatarUrl = profile.getAvatarMedia().getUrl();
+        } else if (user.getAvatarUrl() != null && !user.getAvatarUrl().isEmpty()) {
+            avatarUrl = user.getAvatarUrl();
+        }
+
         return UserProfileResponse.builder()
                 .userId(profile.getUserId())
                 .email(user.getEmail())
                 .fullName(profile.getFullName())
                 .avatarMediaId(profile.getAvatarMediaId())
-                .avatarMediaUrl(profile.getAvatarMedia() != null ? profile.getAvatarMedia().getUrl() : null)
+                .avatarMediaUrl(avatarUrl)
                 .avatarPosition(profile.getAvatarPosition())
                 .bio(profile.getBio())
                 .phone(profile.getPhone())
@@ -371,8 +379,27 @@ public class UserProfileService {
             profile.setBio(null);
             profile.setRegion(null);
             profile.setCompanyId(null);
-            profile.setAvatarMediaId(null);
             profile.setSocialLinks(null);
+
+            // ✅ FIX: Create Media entity for Google avatar if available
+            if (picture != null && !picture.isEmpty()) {
+                try {
+                    Media media = Media.builder()
+                            .url(picture)
+                            .type("IMAGE")
+                            .uploadedAt(LocalDateTime.now())
+                            .uploadedBy(user.getId())
+                            .build();
+                    media = mediaRepository.save(media);
+                    profile.setAvatarMediaId(media.getId());
+                    log.info("Created Media entity for Google avatar: {}", picture);
+                } catch (Exception e) {
+                    log.warn("Failed to create Media for Google avatar: {}", e.getMessage());
+                    profile.setAvatarMediaId(null);
+                }
+            } else {
+                profile.setAvatarMediaId(null);
+            }
 
             userProfileRepository.save(profile);
 
