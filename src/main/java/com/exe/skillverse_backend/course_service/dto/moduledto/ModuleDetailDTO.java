@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.List;
 
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSummaryDTO;
 import lombok.*;
 
 @Data
@@ -17,6 +19,6 @@ public class ModuleDetailDTO {
   private Instant createdAt;
   private Instant updatedAt;
   private List<LessonBriefDTO> lessons;
+  private List<QuizSummaryDTO> quizzes;
+  private List<AssignmentSummaryDTO> assignments;
 }
-
-

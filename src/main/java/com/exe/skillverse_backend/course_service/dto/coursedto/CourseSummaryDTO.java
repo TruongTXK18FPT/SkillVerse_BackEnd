@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -20,6 +21,7 @@ public class CourseSummaryDTO {
     private String thumbnailUrl;
     private Integer enrollmentCount;
     private Integer moduleCount;
+    private Integer lessonCount; // Total number of lessons across all modules
     private java.math.BigDecimal price;
     private String currency;
     // Additional timestamps for admin and list views

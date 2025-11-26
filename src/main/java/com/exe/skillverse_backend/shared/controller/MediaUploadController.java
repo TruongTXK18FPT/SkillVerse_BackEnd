@@ -1,6 +1,8 @@
 package com.exe.skillverse_backend.shared.controller;
 
+import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.exe.skillverse_backend.shared.service.MediaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,6 +29,7 @@ import java.util.Map;
 public class MediaUploadController {
 
     private final CloudinaryService cloudinaryService;
+    private final MediaService mediaService;
 
     @PostMapping("/upload/image")
     @PreAuthorize("isAuthenticated()")
@@ -94,6 +97,45 @@ public class MediaUploadController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
                     "message", "Failed to upload video: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/upload/document")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Upload document file", description = "Upload PDF, DOCX, PPTX to Cloudinary for course materials")
+    public ResponseEntity<?> uploadDocument(
+            @Parameter(description = "Document file to upload") @RequestParam("file") MultipartFile file,
+            @Parameter(description = "User ID") @RequestParam("userId") Long userId,
+            @Parameter(description = "Optional folder name") @RequestParam(required = false) String folder) {
+
+        try {
+            log.info("[DOCUMENT_UPLOAD] User {} uploading document: {}", userId, file.getOriginalFilename());
+
+            MediaDTO mediaDTO = mediaService.uploadDocument(file, userId, folder);
+
+            log.info("[DOCUMENT_UPLOAD] Upload successful: mediaId={}, url={}", mediaDTO.getId(), mediaDTO.getUrl());
+
+            // Match frontend UploadResponse interface
+            Map<String, Object> response = new HashMap<>();
+            response.put("mediaId", mediaDTO.getId());
+            response.put("url", mediaDTO.getUrl());
+            response.put("publicId", ""); // Not exposed in DTO
+            response.put("resourceType", "DOCUMENT");
+            response.put("fileSize", mediaDTO.getFileSize());
+            response.put("format", mediaDTO.getType());
+            response.put("originalFilename", mediaDTO.getFileName());
+
+            return ResponseEntity.ok(response);
+        } catch (IllegalArgumentException e) {
+            log.error("[DOCUMENT_UPLOAD] Invalid request: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        } catch (IOException e) {
+            log.error("[DOCUMENT_UPLOAD] Upload failed", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", "Failed to upload document: " + e.getMessage()));
         }
     }
 

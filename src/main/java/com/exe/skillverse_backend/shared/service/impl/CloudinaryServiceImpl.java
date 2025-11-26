@@ -39,81 +39,121 @@ public class CloudinaryServiceImpl implements CloudinaryService {
     @Override
     public Map<String, Object> uploadImage(MultipartFile file, String folder) throws IOException {
         log.info("Uploading image: {} to folder: {}", file.getOriginalFilename(), folder);
-        
+
         validateFile(file, "image");
-        
+
         Map<String, Object> params = buildUploadParams(folder, "image");
         params.put("transformation", new com.cloudinary.Transformation()
                 .quality("auto")
                 .fetchFormat("auto"));
-        
+
         Map<String, Object> result = cloudinary.uploader().upload(file.getBytes(), params);
-        
-        log.info("Image uploaded successfully. Public ID: {}, URL: {}", 
+
+        log.info("Image uploaded successfully. Public ID: {}, URL: {}",
                 result.get("public_id"), result.get("secure_url"));
-        
+
         return result;
     }
 
     @Override
     public Map<String, Object> uploadVideo(MultipartFile file, String folder) throws IOException {
-        log.info("Uploading video: {} to folder: {}", file.getOriginalFilename(), folder);
-        
+        long fileSizeBytes = file.getSize();
+        double fileSizeMB = fileSizeBytes / (1024.0 * 1024.0);
+
+        log.info("[VIDEO_UPLOAD] Starting upload: filename={}, size={}MB ({}bytes), folder={}",
+                file.getOriginalFilename(), String.format("%.2f", fileSizeMB), fileSizeBytes, folder);
+
         validateFile(file, "video");
-        
+        log.debug("[VIDEO_UPLOAD] File validation passed");
+
         Map<String, Object> params = buildUploadParams(folder, "video");
-        params.put("chunk_size", 6000000); // 6MB chunks for large videos
-        
-        Map<String, Object> result = cloudinary.uploader().upload(file.getBytes(), params);
-        
-        log.info("Video uploaded successfully. Public ID: {}, URL: {}", 
-                result.get("public_id"), result.get("secure_url"));
-        
+        params.put("resource_type", "video");
+
+        Map<String, Object> result;
+
+        // ✅ FIX: Use uploadLarge for files > 100MB (Cloudinary API requirement)
+        // uploadLarge uses chunked upload which is mandatory for files > 100MB
+        if (fileSizeBytes > 100 * 1024 * 1024) {
+            log.info("[VIDEO_UPLOAD] Large file detected ({}MB > 100MB), using chunked upload (uploadLarge)",
+                    String.format("%.2f", fileSizeMB));
+            params.put("chunk_size", 6000000); // 6MB chunks
+
+            try {
+                // Use InputStream instead of byte array to avoid OutOfMemoryError
+                result = cloudinary.uploader().uploadLarge(file.getInputStream(), params);
+                log.info("[VIDEO_UPLOAD] Chunked upload completed successfully");
+            } catch (Exception e) {
+                log.error("[VIDEO_UPLOAD] Chunked upload failed: {}", e.getMessage(), e);
+                throw new IOException("Failed to upload large video: " + e.getMessage(), e);
+            }
+        } else {
+            log.info("[VIDEO_UPLOAD] Standard file ({}MB <= 100MB), using direct upload",
+                    String.format("%.2f", fileSizeMB));
+
+            try {
+                result = cloudinary.uploader().upload(file.getBytes(), params);
+                log.info("[VIDEO_UPLOAD] Direct upload completed successfully");
+            } catch (Exception e) {
+                log.error("[VIDEO_UPLOAD] Direct upload failed: {}", e.getMessage(), e);
+                throw new IOException("Failed to upload video: " + e.getMessage(), e);
+            }
+        }
+
+        // Extract and log upload results
+        String publicId = (String) result.get("public_id");
+        String secureUrl = (String) result.get("secure_url");
+        Object duration = result.get("duration");
+        Object format = result.get("format");
+
+        log.info("[VIDEO_UPLOAD] Upload successful! publicId={}, url={}, duration={}s, format={}",
+                publicId, secureUrl, duration, format);
+        log.debug("[VIDEO_UPLOAD] Full result: {}", result);
+
         return result;
     }
 
     @Override
     public Map<String, Object> uploadFile(MultipartFile file, String folder) throws IOException {
         log.info("Uploading file: {} to folder: {}", file.getOriginalFilename(), folder);
-        
+
         if (file.isEmpty()) {
             throw new IllegalArgumentException("File is empty");
         }
-        
+
         Map<String, Object> params = buildUploadParams(folder, "raw");
-        
+
         Map<String, Object> result = cloudinary.uploader().upload(file.getBytes(), params);
-        
-        log.info("File uploaded successfully. Public ID: {}, URL: {}", 
+
+        log.info("File uploaded successfully. Public ID: {}, URL: {}",
                 result.get("public_id"), result.get("secure_url"));
-        
+
         return result;
     }
 
     @Override
     public Map<String, Object> deleteFile(String publicId, String resourceType) throws IOException {
         log.info("Deleting file with public ID: {} and resource type: {}", publicId, resourceType);
-        
+
         if (publicId == null || publicId.trim().isEmpty()) {
             throw new IllegalArgumentException("Public ID cannot be null or empty");
         }
-        
+
         Map<String, Object> params = ObjectUtils.asMap("resource_type", resourceType);
         Map<String, Object> result = cloudinary.uploader().destroy(publicId, params);
-        
+
         log.info("File deletion result: {}", result);
-        
+
         return result;
     }
 
     @Override
     public String generateSignedUrl(String publicId, String resourceType) {
         log.debug("Generating signed URL for public ID: {}", publicId);
-        
+
         if (publicId == null || publicId.trim().isEmpty()) {
             throw new IllegalArgumentException("Public ID cannot be null or empty");
         }
-        
+
         // Generate a signed URL - Note: Basic signed URLs don't expire in Cloudinary
         // For time-limited URLs, use the Advanced URL delivery with expiration tokens
         return cloudinary.url()
@@ -127,21 +167,21 @@ public class CloudinaryServiceImpl implements CloudinaryService {
      */
     private Map<String, Object> buildUploadParams(String folder, String resourceType) {
         Map<String, Object> params = new HashMap<>();
-        
+
         // Set folder path
-        String fullFolder = folder != null && !folder.isEmpty() 
-                ? baseFolder + "/" + folder 
+        String fullFolder = folder != null && !folder.isEmpty()
+                ? baseFolder + "/" + folder
                 : baseFolder;
         params.put("folder", fullFolder);
-        
+
         // Set resource type
         params.put("resource_type", resourceType);
-        
+
         // Set filename options
         params.put("use_filename", useFilename);
         params.put("unique_filename", uniqueFilename);
         params.put("overwrite", overwrite);
-        
+
         return params;
     }
 
@@ -152,12 +192,12 @@ public class CloudinaryServiceImpl implements CloudinaryService {
         if (file.isEmpty()) {
             throw new IllegalArgumentException("File is empty");
         }
-        
+
         String contentType = file.getContentType();
         if (contentType == null) {
             throw new IllegalArgumentException("File content type is null");
         }
-        
+
         if (!contentType.startsWith(expectedType + "/")) {
             throw new IllegalArgumentException(
                     String.format("Invalid file type. Expected %s but got %s", expectedType, contentType));

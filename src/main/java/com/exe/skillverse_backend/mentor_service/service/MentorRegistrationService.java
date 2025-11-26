@@ -56,7 +56,7 @@ public class MentorRegistrationService
                                         .applicationStatus(ApplicationStatus.PENDING.name())
                                         .role("MENTOR")
                                         .requiresVerification(true)
-                                        .otpExpiryMinutes(10)
+                                        .otpExpiryMinutes(5)
                                         .nextStep("Check your email for verification code, then wait for admin approval")
                                         .build();
 

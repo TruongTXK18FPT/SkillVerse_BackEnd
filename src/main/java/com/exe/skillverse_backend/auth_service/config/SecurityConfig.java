@@ -80,6 +80,12 @@ public class SecurityConfig {
         @Bean
         public SecurityFilterChain filterChain(HttpSecurity httpSecurity) throws Exception {
                 httpSecurity.authorizeHttpRequests(request -> request
+                                // Admin endpoints - MUST require authentication (check BEFORE public endpoints)
+                                .requestMatchers("/api/admin/**").authenticated()
+                                .requestMatchers("/api/courses/pending").authenticated()
+                                .requestMatchers("/api/courses/*/approve").authenticated()
+                                .requestMatchers("/api/courses/*/reject").authenticated()
+
                                 // Public authentication endpoints
                                 .requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll()
                                 .requestMatchers(HttpMethod.GET, PUBLIC_ENDPOINTS).permitAll()
