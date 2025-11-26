@@ -76,7 +76,7 @@ spring:
       chat:
         enabled: ${MISTRAL_ENABLED:true}
         options:
-          model: ${MISTRAL_API_MODEL:mistral-small-latest}
+          model: ${MISTRAL_API_MODEL:mistral-large-latest}
           temperature: ${MISTRAL_API_TEMPERATURE:0.7}
           max-tokens: ${MISTRAL_API_MAX_TOKENS:30000}
 
