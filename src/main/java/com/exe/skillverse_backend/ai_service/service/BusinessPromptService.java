@@ -48,7 +48,7 @@ public class BusinessPromptService extends BaseExpertPromptService {
             if (normalizedRole.contains("project manager") || normalizedRole.contains("pm")) return getProjectManagerBusinessPrompt();
             if (normalizedRole.contains("hr") || normalizedRole.contains("human resource")) {
                 if (normalizedRole.contains("recruitment") || normalizedRole.contains("talent acquisition")) return getHrRecruitmentPrompt();
-                if (normalizedRole.contains("training") || normalizedRole.contains("learning") || normalizedRole.contains("development")) return getHrTalentDevelopmentPrompt();
+                if (normalizedRole.contains("training") || normalizedRole.contains("learning") || normalizedRole.contains("development") || normalizedRole.contains("l&d")) return getHrTalentDevelopmentPrompt();
             }
             if (normalizedRole.contains("admin") || normalizedRole.contains("office")) return getOfficeAdminPrompt();
             if (normalizedRole.contains("customer service") || normalizedRole.contains("cskh")) return getCustomerServicePrompt();
