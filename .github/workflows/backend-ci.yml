@@ -585,6 +585,19 @@ jobs:
           SPRINGDOC_SWAGGER_UI_ENABLED=${{ secrets.SPRINGDOC_SWAGGER_UI_ENABLED }}
           EOF
 
+          # Debug: Verify critical secrets are set (without exposing values)
+          echo "🔍 Verifying critical environment variables..."
+          if [ -z "${{ secrets.MISTRAL_API_KEY }}" ]; then
+            echo "❌ WARNING: MISTRAL_API_KEY secret is empty or not set!"
+          else
+            echo "✅ MISTRAL_API_KEY is set (length: ${#MISTRAL_API_KEY})"
+          fi
+          if [ -z "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo "❌ WARNING: GEMINI_API_KEY secret is empty or not set!"
+          else
+            echo "✅ GEMINI_API_KEY is set"
+          fi
+
           echo "📤 Copying .env to VPS..."
           scp -o StrictHostKeyChecking=no .env ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_PROJECT_PATH }}/.env
 

@@ -41,6 +41,29 @@ spring:
     time-zone: ${SPRING_JACKSON_TIME_ZONE:Asia/Ho_Chi_Minh}
     date-format: ${SPRING_JACKSON_DATE_FORMAT:yyyy-MM-dd'T'HH:mm:ss.SSS'Z'}
 
+  # Spring AI Configuration for Docker/Production
+  ai:
+    mistralai:
+      api-key: ${MISTRAL_API_KEY}
+      chat:
+        enabled: ${MISTRAL_ENABLED:true}
+        options:
+          model: ${MISTRAL_API_MODEL:mistral-large-latest}
+          temperature: ${MISTRAL_API_TEMPERATURE:0.7}
+          max-tokens: ${MISTRAL_API_MAX_TOKENS:30000}
+    openai:
+      api-key: ${GEMINI_API_KEY}
+      base-url: ${GEMINI_OPENAI_BASE_URL:https://generativelanguage.googleapis.com/v1beta/openai/}
+      chat:
+        enabled: ${GEMINI_ENABLED:true}
+        options:
+          model: ${GEMINI_MODEL:gemini-2.5-flash}
+          temperature: ${GEMINI_TEMPERATURE:0.7}
+          max-tokens: ${GEMINI_MAX_TOKENS:30000}
+    retry:
+      max-attempts: 1
+      on-client-errors: false
+
   data:
     redis:
       host: redis
@@ -81,6 +104,75 @@ cors:
   allowed-headers: ${CORS_ALLOWED_HEADERS:*}
   allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
   max-age: ${CORS_MAX_AGE:3600}
+
+# Meowl Chat Configuration (cute AI assistant with Gemini)
+meowl:
+  gemini:
+    api-key: ${MEOWL_GEMINI_API_KEY}
+    api-url: ${MEOWL_GEMINI_API_URL:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent}
+    model: ${MEOWL_GEMINI_MODEL:gemini-2.0-flash}
+  reminder:
+    enabled: ${MEOWL_REMINDER_ENABLED:true}
+  notification:
+    enabled: ${MEOWL_NOTIFICATION_ENABLED:true}
+
+# Payment Gateway Configuration
+payment:
+  payos:
+    client-id: ${PAYOS_CLIENT_ID}
+    api-key: ${PAYOS_API_KEY}
+    checksum-key: ${PAYOS_CHECKSUM_KEY}
+    base-url: ${PAYOS_BASE_URL:https://api-merchant.payos.vn}
+    webhook-url: ${PAYOS_WEBHOOK_URL:http://localhost:8080/api/v1/payments/callback/payos}
+
+# Premium Subscription Configuration
+premium:
+  plans:
+    auto-create: ${PREMIUM_AUTO_CREATE_PLANS:true}
+  subscription:
+    default-currency: VND
+    reminder-days-before-expiry: 7
+    grace-period-days: 3
+    student-email-domains:
+      - .edu
+      - .edu.vn
+      - .ac.uk
+      - university.
+      - student.
+
+# Cloudinary Configuration (Media Upload)
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME}
+  api-key: ${CLOUDINARY_API_KEY}
+  api-secret: ${CLOUDINARY_API_SECRET}
+  url: ${CLOUDINARY_URL}
+  upload:
+    folder: skillverse
+    resource-type: auto
+    use-filename: true
+    unique-filename: true
+    overwrite: false
+
+# Portfolio CV Generation AI Configuration
+portfolio:
+  ai:
+    mistral:
+      api-key: ${PORTFOLIO_MISTRAL_API_KEY}
+      api-url: ${PORTFOLIO_MISTRAL_API_BASE_URL:https://api.mistral.ai/v1/chat/completions}
+      model: ${PORTFOLIO_MISTRAL_API_MODEL:mistral-large-latest}
+      enabled: ${PORTFOLIO_MISTRAL_ENABLED:true}
+      timeout: ${PORTFOLIO_MISTRAL_API_TIMEOUT:30000}
+      max-tokens: ${PORTFOLIO_MISTRAL_API_MAX_TOKENS:30000}
+      temperature: ${PORTFOLIO_MISTRAL_API_TEMPERATURE:0.7}
+
+# Swagger/OpenAPI Documentation
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}
+    path: ${SPRINGDOC_API_DOCS_PATH:/v3/api-docs}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:true}
+    path: ${SPRINGDOC_SWAGGER_UI_PATH:/swagger-ui.html}
 
 logging:
   level:
