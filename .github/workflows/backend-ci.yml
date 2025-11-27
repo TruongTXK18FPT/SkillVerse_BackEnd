@@ -597,6 +597,16 @@ jobs:
           else
             echo "✅ GEMINI_API_KEY is set"
           fi
+          if [ -z "${{ secrets.CLOUDINARY_CLOUD_NAME }}" ]; then
+            echo "⚠️ WARNING: CLOUDINARY_CLOUD_NAME not set - will use default"
+          else
+            echo "✅ CLOUDINARY_CLOUD_NAME is set"
+          fi
+          if [ -z "${{ secrets.PAYOS_CLIENT_ID }}" ]; then
+            echo "⚠️ WARNING: PAYOS_CLIENT_ID not set - will use default"
+          else
+            echo "✅ PAYOS_CLIENT_ID is set"
+          fi
 
           echo "📤 Copying .env to VPS..."
           scp -o StrictHostKeyChecking=no .env ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_PROJECT_PATH }}/.env
