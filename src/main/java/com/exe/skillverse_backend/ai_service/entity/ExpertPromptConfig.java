@@ -48,19 +48,34 @@ public class ExpertPromptConfig {
     private String keywords;
 
     /**
-     * The detailed system prompt for this role
+     * Domain-specific rules and guidelines
+     * Will be combined with basePrompt and rolePrompt
+     */
+    @Column(columnDefinition = "TEXT")
+    private String domainRules;
+
+    /**
+     * Role-specific prompt content
+     * Detailed instructions for this specific job role
+     */
+    @Column(columnDefinition = "TEXT")
+    private String rolePrompt;
+
+    /**
+     * The complete system prompt (auto-generated or manually set)
+     * If null, will be built from basePrompt + domainRules + rolePrompt
      */
     @Column(columnDefinition = "TEXT", nullable = false)
     private String systemPrompt;
 
     /**
      * Media URL (icon/image) for this role from Cloudinary
-     * Can be used for displaying visual representation in frontend
      */
     @Column(length = 500)
     private String mediaUrl;
 
     @Builder.Default
+    @Column(name = "is_active")
     private boolean isActive = true;
 
     @CreationTimestamp

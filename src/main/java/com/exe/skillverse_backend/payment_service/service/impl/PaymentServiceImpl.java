@@ -546,4 +546,111 @@ public class PaymentServiceImpl implements PaymentService {
 
         return stats;
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Object> getRevenueBreakdown(String period, int lookbackDays) {
+        log.info("Admin fetching revenue breakdown - period: {}, lookback: {} days", period, lookbackDays);
+        
+        Map<String, Object> result = new HashMap<>();
+        List<Map<String, Object>> data = new java.util.ArrayList<>();
+        
+        LocalDateTime fromDate;
+        
+        switch (period.toLowerCase()) {
+            case "daily":
+                // Last N days
+                fromDate = LocalDateTime.now().minusDays(lookbackDays);
+                List<Object[]> dailyData = paymentTransactionRepository.getDailyRevenue(fromDate);
+                for (Object[] row : dailyData) {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("date", row[0] != null ? row[0].toString() : "");
+                    item.put("revenue", row[1] != null ? Double.parseDouble(row[1].toString()) : 0);
+                    item.put("transactions", row[2] != null ? ((Number) row[2]).longValue() : 0);
+                    data.add(item);
+                }
+                break;
+                
+            case "weekly":
+                // Aggregate by week (last N weeks)
+                fromDate = LocalDateTime.now().minusWeeks(lookbackDays);
+                List<Object[]> weeklyRaw = paymentTransactionRepository.getDailyRevenue(fromDate);
+                // Group by week
+                Map<String, double[]> weeklyAgg = new java.util.LinkedHashMap<>();
+                for (Object[] row : weeklyRaw) {
+                    if (row[0] != null) {
+                        java.time.LocalDate date = (java.time.LocalDate) row[0];
+                        // Get ISO week
+                        String weekKey = date.getYear() + "-W" + String.format("%02d", date.get(java.time.temporal.WeekFields.ISO.weekOfYear()));
+                        double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
+                        long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
+                        weeklyAgg.merge(weekKey, new double[]{revenue, txCount}, 
+                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                    }
+                }
+                for (Map.Entry<String, double[]> entry : weeklyAgg.entrySet()) {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("week", entry.getKey());
+                    item.put("revenue", entry.getValue()[0]);
+                    item.put("transactions", (long) entry.getValue()[1]);
+                    data.add(item);
+                }
+                break;
+                
+            case "monthly":
+                // Last N months
+                fromDate = LocalDateTime.now().minusMonths(lookbackDays);
+                List<Object[]> monthlyData = paymentTransactionRepository.getMonthlyRevenue(fromDate);
+                for (Object[] row : monthlyData) {
+                    Map<String, Object> item = new HashMap<>();
+                    int year = row[0] != null ? ((Number) row[0]).intValue() : 0;
+                    int month = row[1] != null ? ((Number) row[1]).intValue() : 0;
+                    item.put("month", String.format("%d-%02d", year, month));
+                    item.put("revenue", row[2] != null ? Double.parseDouble(row[2].toString()) : 0);
+                    item.put("transactions", row[3] != null ? ((Number) row[3]).longValue() : 0);
+                    data.add(item);
+                }
+                break;
+                
+            case "yearly":
+                // All years
+                List<Object[]> yearlyData = paymentTransactionRepository.getYearlyRevenue();
+                for (Object[] row : yearlyData) {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("year", row[0] != null ? ((Number) row[0]).intValue() : 0);
+                    item.put("revenue", row[1] != null ? Double.parseDouble(row[1].toString()) : 0);
+                    item.put("transactions", row[2] != null ? ((Number) row[2]).longValue() : 0);
+                    data.add(item);
+                }
+                break;
+                
+            default:
+                log.warn("Unknown period: {}, defaulting to daily", period);
+                fromDate = LocalDateTime.now().minusDays(30);
+                List<Object[]> defaultData = paymentTransactionRepository.getDailyRevenue(fromDate);
+                for (Object[] row : defaultData) {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("date", row[0] != null ? row[0].toString() : "");
+                    item.put("revenue", row[1] != null ? Double.parseDouble(row[1].toString()) : 0);
+                    item.put("transactions", row[2] != null ? ((Number) row[2]).longValue() : 0);
+                    data.add(item);
+                }
+        }
+        
+        // Calculate totals
+        double totalRevenue = data.stream()
+            .mapToDouble(d -> (Double) d.getOrDefault("revenue", 0.0))
+            .sum();
+        long totalTransactions = data.stream()
+            .mapToLong(d -> (Long) d.getOrDefault("transactions", 0L))
+            .sum();
+        
+        result.put("period", period);
+        result.put("data", data);
+        result.put("totalRevenue", totalRevenue);
+        result.put("totalTransactions", totalTransactions);
+        result.put("dataPoints", data.size());
+        
+        return result;
+    }
 }

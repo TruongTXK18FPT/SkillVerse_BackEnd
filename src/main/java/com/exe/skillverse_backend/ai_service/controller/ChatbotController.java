@@ -174,4 +174,26 @@ public class ChatbotController {
 
         return ResponseEntity.ok(updated);
     }
+
+    // ==================== ADMIN ENDPOINTS ====================
+
+    /**
+     * Get total chat statistics for admin dashboard
+     * @return Map with totalSessions and totalMessages
+     */
+    @GetMapping("/admin/stats")
+    @Operation(summary = "Get Chat Statistics (Admin)", 
+               description = "Get total chat sessions and messages count for admin dashboard")
+    public ResponseEntity<java.util.Map<String, Long>> getChatStats() {
+        log.info("Admin fetching chat statistics");
+        
+        Long totalSessions = aiChatbotService.getTotalSessionCount();
+        Long totalMessages = aiChatbotService.getTotalMessageCount();
+        
+        java.util.Map<String, Long> stats = new java.util.HashMap<>();
+        stats.put("totalSessions", totalSessions);
+        stats.put("totalMessages", totalMessages);
+        
+        return ResponseEntity.ok(stats);
+    }
 }

@@ -131,4 +131,34 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
      * Admin: Find transactions by date range
      */
     List<PaymentTransaction> findByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
+
+    /**
+     * Admin: Get daily revenue (grouped by date)
+     */
+    @Query("SELECT CAST(pt.createdAt AS LocalDate), COALESCE(SUM(pt.amount), 0), COUNT(pt) " +
+           "FROM PaymentTransaction pt " +
+           "WHERE pt.status = 'COMPLETED' AND pt.createdAt >= :fromDate " +
+           "GROUP BY CAST(pt.createdAt AS LocalDate) " +
+           "ORDER BY CAST(pt.createdAt AS LocalDate)")
+    List<Object[]> getDailyRevenue(@Param("fromDate") LocalDateTime fromDate);
+
+    /**
+     * Admin: Get monthly revenue (grouped by year-month)
+     */
+    @Query("SELECT YEAR(pt.createdAt), MONTH(pt.createdAt), COALESCE(SUM(pt.amount), 0), COUNT(pt) " +
+           "FROM PaymentTransaction pt " +
+           "WHERE pt.status = 'COMPLETED' AND pt.createdAt >= :fromDate " +
+           "GROUP BY YEAR(pt.createdAt), MONTH(pt.createdAt) " +
+           "ORDER BY YEAR(pt.createdAt), MONTH(pt.createdAt)")
+    List<Object[]> getMonthlyRevenue(@Param("fromDate") LocalDateTime fromDate);
+
+    /**
+     * Admin: Get yearly revenue
+     */
+    @Query("SELECT YEAR(pt.createdAt), COALESCE(SUM(pt.amount), 0), COUNT(pt) " +
+           "FROM PaymentTransaction pt " +
+           "WHERE pt.status = 'COMPLETED' " +
+           "GROUP BY YEAR(pt.createdAt) " +
+           "ORDER BY YEAR(pt.createdAt)")
+    List<Object[]> getYearlyRevenue();
 }

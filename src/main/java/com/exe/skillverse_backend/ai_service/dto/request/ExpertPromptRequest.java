@@ -23,11 +23,25 @@ public class ExpertPromptRequest {
     
     private String keywords;
     
-    @NotBlank(message = "System prompt is required")
+    /**
+     * Domain-specific rules (optional)
+     * e.g., "Trong lĩnh vực IT, luôn cập nhật công nghệ mới nhất..."
+     */
+    private String domainRules;
+    
+    /**
+     * Role-specific prompt (optional)  
+     * e.g., "Backend Developer cần nắm vững API design, database..."
+     */
+    private String rolePrompt;
+    
+    /**
+     * Full system prompt (auto-built if domainRules + rolePrompt provided)
+     */
     private String systemPrompt;
     
     /**
-     * Optional media URL (icon/image) for this role
+     * Media URL (icon/image) for this role
      */
     private String mediaUrl;
     

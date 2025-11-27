@@ -1107,4 +1107,22 @@ public class AiChatbotService {
       return null;
     }
   }
+
+  // ==================== ADMIN STATISTICS ====================
+
+  /**
+   * Get total count of distinct chat sessions in the system (Admin only)
+   */
+  @Transactional(readOnly = true)
+  public Long getTotalSessionCount() {
+    return chatMessageRepository.countDistinctSessions();
+  }
+
+  /**
+   * Get total count of messages in the system (Admin only)
+   */
+  @Transactional(readOnly = true)
+  public Long getTotalMessageCount() {
+    return chatMessageRepository.countTotalMessages();
+  }
 }

@@ -85,4 +85,11 @@ public interface PaymentService {
      * Admin: Get payment statistics
      */
     Map<String, Object> getPaymentStatistics(LocalDateTime startDate, LocalDateTime endDate);
+
+    /**
+     * Admin: Get revenue breakdown by time period (daily, weekly, monthly, yearly)
+     * @param period - "daily", "weekly", "monthly", "yearly"
+     * @param days - number of days to look back for daily/weekly, months for monthly
+     */
+    Map<String, Object> getRevenueBreakdown(String period, int days);
 }

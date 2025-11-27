@@ -40,12 +40,21 @@ public class ExpertPromptAdminController {
             throw new ApiException(ErrorCode.BAD_REQUEST, "Prompt config already exists for this role");
         }
 
+        // Build system prompt from components if not provided directly
+        String systemPrompt = request.getSystemPrompt();
+        if ((systemPrompt == null || systemPrompt.isBlank()) && 
+            (request.getDomainRules() != null || request.getRolePrompt() != null)) {
+            systemPrompt = buildSystemPrompt(request.getDomainRules(), request.getRolePrompt(), request.getJobRole());
+        }
+        
         ExpertPromptConfig config = ExpertPromptConfig.builder()
                 .domain(request.getDomain())
                 .industry(request.getIndustry())
                 .jobRole(request.getJobRole())
                 .keywords(request.getKeywords())
-                .systemPrompt(request.getSystemPrompt())
+                .domainRules(request.getDomainRules())
+                .rolePrompt(request.getRolePrompt())
+                .systemPrompt(systemPrompt != null ? systemPrompt : "")
                 .mediaUrl(request.getMediaUrl())
                 .isActive(request.isActive())
                 .build();
@@ -63,15 +72,48 @@ public class ExpertPromptAdminController {
         ExpertPromptConfig config = expertPromptConfigRepository.findById(id)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Prompt config not found"));
 
+        // Build system prompt from components if not provided directly
+        String systemPrompt = request.getSystemPrompt();
+        if ((systemPrompt == null || systemPrompt.isBlank()) && 
+            (request.getDomainRules() != null || request.getRolePrompt() != null)) {
+            systemPrompt = buildSystemPrompt(request.getDomainRules(), request.getRolePrompt(), request.getJobRole());
+        }
+        
         config.setDomain(request.getDomain());
         config.setIndustry(request.getIndustry());
         config.setJobRole(request.getJobRole());
         config.setKeywords(request.getKeywords());
-        config.setSystemPrompt(request.getSystemPrompt());
+        config.setDomainRules(request.getDomainRules());
+        config.setRolePrompt(request.getRolePrompt());
+        config.setSystemPrompt(systemPrompt != null ? systemPrompt : config.getSystemPrompt());
         config.setMediaUrl(request.getMediaUrl());
         config.setActive(request.isActive());
 
         return ResponseEntity.ok(expertPromptConfigRepository.save(config));
+    }
+    
+    /**
+     * Build system prompt from base + domain rules + role-specific prompt
+     */
+    private String buildSystemPrompt(String domainRules, String rolePrompt, String jobRole) {
+        StringBuilder sb = new StringBuilder();
+        
+        // Base prompt header
+        sb.append("# 🌟 MEOWL AI - CHUYÊN GIA ").append(jobRole.toUpperCase()).append("\n\n");
+        
+        // Domain rules section
+        if (domainRules != null && !domainRules.isBlank()) {
+            sb.append("## 📋 QUY TẮC LĨNH VỰC\n");
+            sb.append(domainRules).append("\n\n");
+        }
+        
+        // Role-specific section
+        if (rolePrompt != null && !rolePrompt.isBlank()) {
+            sb.append("## 🎯 CHUYÊN MÔN VAI TRÒ\n");
+            sb.append(rolePrompt).append("\n\n");
+        }
+        
+        return sb.toString();
     }
 
     @GetMapping

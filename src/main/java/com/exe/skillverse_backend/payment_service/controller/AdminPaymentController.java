@@ -112,4 +112,21 @@ public class AdminPaymentController {
         );
         return ResponseEntity.ok(transactions);
     }
+
+    /**
+     * Get revenue breakdown by time period
+     * @param period - "daily", "weekly", "monthly", "yearly"
+     * @param days - lookback period (days for daily/weekly, months for monthly)
+     */
+    @GetMapping("/revenue-breakdown")
+    @Operation(summary = "Get revenue breakdown", 
+               description = "Get revenue breakdown by day/week/month/year for charts")
+    public ResponseEntity<Map<String, Object>> getRevenueBreakdown(
+            @RequestParam(defaultValue = "daily") String period,
+            @RequestParam(defaultValue = "30") int days
+    ) {
+        log.info("Admin fetching revenue breakdown - period: {}, days: {}", period, days);
+        Map<String, Object> breakdown = paymentService.getRevenueBreakdown(period, days);
+        return ResponseEntity.ok(breakdown);
+    }
 }

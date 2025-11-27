@@ -35,4 +35,16 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
      * Delete all messages in a session
      */
     void deleteBySessionId(Long sessionId);
+
+    /**
+     * Count total distinct sessions in the system (Admin)
+     */
+    @Query("SELECT COUNT(DISTINCT cm.sessionId) FROM ChatMessage cm")
+    Long countDistinctSessions();
+
+    /**
+     * Count total messages in the system (Admin)
+     */
+    @Query("SELECT COUNT(cm) FROM ChatMessage cm")
+    Long countTotalMessages();
 }
