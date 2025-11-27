@@ -18,16 +18,28 @@ spring:
         dialect: org.hibernate.dialect.H2Dialect
         format_sql: false
 
-  # Mock AI Configuration for Tests
+  # Mock AI Configuration for Tests - use realistic-looking keys
   ai:
     mistralai:
-      api-key: test-mistral-api-key
+      api-key: test-mistral-api-key-1234567890abcdef
       chat:
-        enabled: false # Disable AI in tests
+        enabled: true # Keep enabled so bean is created
+        options:
+          model: mistral-small-latest
+          temperature: 0.7
+          max-tokens: 100
     openai:
-      api-key: test-gemini-api-key
+      api-key: test-gemini-api-key-1234567890abcdef
+      base-url: https://generativelanguage.googleapis.com/v1beta/openai/
       chat:
-        enabled: false
+        enabled: true # Keep enabled so bean is created
+        options:
+          model: gemini-2.0-flash
+          temperature: 0.7
+          max-tokens: 100
+    retry:
+      max-attempts: 1
+      on-client-errors: false
 
   servlet:
     multipart:
@@ -69,6 +81,67 @@ jwt:
 email:
   from: test@skillverse.com
   from-name: SkillVerse Test
+
+# Mock Google OAuth for tests
+google:
+  client:
+    id: test-google-client-id
+    secret: test-google-client-secret
+
+# Meowl Chat Configuration (mock)
+meowl:
+  gemini:
+    api-key: test-meowl-gemini-api-key-1234567890abcdef
+    api-url: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent
+    model: gemini-2.0-flash
+  reminder:
+    enabled: false
+  notification:
+    enabled: false
+
+# Portfolio CV Generation AI Configuration (mock)
+portfolio:
+  ai:
+    mistral:
+      api-key: test-portfolio-mistral-api-key-1234567890abcdef
+      api-url: https://api.mistral.ai/v1/chat/completions
+      model: mistral-small-latest
+      enabled: false
+      timeout: 5000
+      max-tokens: 100
+      temperature: 0.7
+
+# Payment Gateway Configuration (mock)
+payment:
+  payos:
+    client-id: test-payos-client-id
+    api-key: test-payos-api-key
+    checksum-key: test-payos-checksum-key
+    base-url: https://api-merchant.payos.vn
+    webhook-url: http://localhost:8080/api/v1/payments/callback/payos
+
+# Premium Subscription Configuration
+premium:
+  plans:
+    auto-create: false
+
+# Cloudinary Configuration (mock)
+cloudinary:
+  cloud-name: test-cloud
+  api-key: test-api-key
+  api-secret: test-api-secret
+  url: cloudinary://test-api-key:test-api-secret@test-cloud
+
+# CORS Configuration
+cors:
+  allowed:
+    origins: http://localhost:5173,http://localhost:3000
+    methods: GET,POST,PUT,DELETE,OPTIONS,PATCH
+    headers: "*"
+  allow:
+    credentials: true
+  max:
+    age: 3600
 
 springdoc:
   api-docs:

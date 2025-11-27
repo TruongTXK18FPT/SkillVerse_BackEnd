@@ -117,13 +117,8 @@ jobs:
 
       - name: 🧪 Run Unit Tests
         run: |
-          # Run tests with H2 for unit tests (faster)
-          ./mvnw test \
-            -Dspring.datasource.url=jdbc:h2:mem:testdb \
-            -Dspring.datasource.username=sa \
-            -Dspring.datasource.password=password \
-            -Dspring.datasource.driver-class-name=org.h2.Driver \
-            -Dspring.jpa.hibernate.ddl-auto=create-drop
+          # Run tests with test profile (uses application-test.yml with H2 + mock AI config)
+          ./mvnw test -Dspring.profiles.active=test
 
       - name: 📊 Test Coverage Report
         run: |
@@ -191,7 +186,6 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
-
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
@@ -246,7 +240,7 @@ jobs:
         run: |
           # Start app in background with docker profile and production PostgreSQL
           echo "🚀 Starting application with docker profile..."
-          
+
           # Start application with explicit configuration for CI environment
           java -jar target/*.jar \
             --spring.profiles.active=docker \
@@ -256,7 +250,7 @@ jobs:
             --spring.data.redis.port=6379 \
             --logging.level.root=INFO \
             --logging.level.com.exe.skillverse_backend=DEBUG > app.log 2>&1 &
-          
+
           APP_PID=$!
           echo "📝 Application PID: $APP_PID"
           echo $APP_PID > app.pid
@@ -264,7 +258,7 @@ jobs:
           # Wait for startup with enhanced retry logic
           echo "⏳ Waiting for application startup (up to 3 minutes)..."
           HEALTH_CHECK_PASSED=false
-          
+
           for i in {1..36}; do
             echo "Attempt $i/36: Checking health endpoint..."
             
@@ -311,7 +305,7 @@ jobs:
           else
             echo "⚠️ Failed to download api-docs.json"
           fi
-          
+
           if curl -f -s http://localhost:8080/v3/api-docs.yaml > api-docs.yaml; then
             echo "✅ Downloaded api-docs.yaml ($(wc -c < api-docs.yaml) bytes)"
           else
@@ -375,10 +369,10 @@ jobs:
           docker run -d --name test-redis \
             -p 6379:6379 \
             redis:7-alpine
-          
+
           # Wait for Redis to be ready
           sleep 5
-          
+
           # Start backend container with all environment variables
           echo "🚀 Starting backend container..."
           docker run -d --name test-backend \
