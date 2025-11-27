@@ -9,7 +9,13 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
@@ -43,14 +49,14 @@ public class MeowlChatController {
             
             String language = request.getLanguage() != null ? request.getLanguage() : "en";
             String errorMessage = language.equals("vi")
-                ? "Meo ơi! 🐱 Có lỗi xảy ra. Thử lại sau nhé! ✨"
-                : "Meow! 🐱 Something went wrong. Please try again! ✨";
-            
+                    ? "Meo ơi! 🐱 Có lỗi xảy ra. Thử lại sau nhé! ✨"
+                    : "Meow! 🐱 Something went wrong. Please try again! ✨";
+
             MeowlChatResponse errorResponse = MeowlChatResponse.builder()
-                .message(errorMessage)
-                .success(false)
-                .mood("apologetic")
-                .build();
+                    .message(errorMessage)
+                    .success(false)
+                    .mood("apologetic")
+                    .build();
             
             return ResponseEntity.status(500).body(errorResponse);
         }
@@ -68,8 +74,8 @@ public class MeowlChatController {
         log.info("Getting reminders for user: {}", userId);
         
         try {
-            List<MeowlChatResponse.MeowlReminder> reminders = 
-                reminderService.getRemindersForUser(userId, language);
+            List<MeowlChatResponse.MeowlReminder> reminders =
+                    reminderService.getRemindersForUser(userId, language);
             return ResponseEntity.ok(reminders);
         } catch (Exception e) {
             log.error("Error getting reminders: ", e);
@@ -89,8 +95,8 @@ public class MeowlChatController {
         log.info("Getting notifications for user: {}", userId);
         
         try {
-            List<MeowlChatResponse.MeowlNotification> notifications = 
-                reminderService.getNotifications(userId, language);
+            List<MeowlChatResponse.MeowlNotification> notifications =
+                    reminderService.getNotifications(userId, language);
             return ResponseEntity.ok(notifications);
         } catch (Exception e) {
             log.error("Error getting notifications: ", e);
