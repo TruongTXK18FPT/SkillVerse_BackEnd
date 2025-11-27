@@ -11,7 +11,7 @@ import org.springframework.web.client.RestTemplate;
 @Configuration
 public class MeowlConfig {
 
-    @Value("${meowl.gemini.api-key:AIzaSyCjmasjKHFuFEJYCTQDKL0rBqBy7XoNJXU}")
+    @Value("${meowl.gemini.api-key}")
     private String apiKey;
 
     @Value("${meowl.gemini.api-url:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent}")
