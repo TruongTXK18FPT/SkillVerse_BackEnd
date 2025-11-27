@@ -2,7 +2,7 @@ package com.exe.skillverse_backend.meowl_chat_service.controller;
 
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatRequest;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatResponse;
-import com.exe.skillverse_backend.meowl_chat_service.service.MeowlChatService;
+import com.exe.skillverse_backend.meowl_chat_service.service.IMeowlChatService;
 import com.exe.skillverse_backend.meowl_chat_service.service.MeowlReminderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,7 +30,7 @@ import java.util.List;
 @Tag(name = "Meowl Chat", description = "Cute AI assistant for learning support")
 public class MeowlChatController {
 
-    private final MeowlChatService meowlChatService;
+    private final IMeowlChatService meowlChatService;
     private final MeowlReminderService reminderService;
 
     /**

@@ -31,6 +31,11 @@ public class MeowlChatResponse {
     
     private String mood; // Meowl's mood: "happy", "excited", "encouraging", "playful"
     
+    // Routing and Actions
+    private String actionType; // "NAVIGATE", "LINK", "NONE"
+    private String actionUrl;  // Target URL
+    private String actionLabel; // Button label
+    
     @Data
     @Builder
     @NoArgsConstructor
