@@ -72,7 +72,7 @@ spring:
   # Simple API key authentication - no Google Cloud setup needed!
   ai:
     mistralai:
-      api-key: ${MISTRAL_API_KEY:bmme3URCCoCQUg3JNdO56ARhSkzfOnKZ}
+      api-key: ${MISTRAL_API_KEY}
       chat:
         enabled: ${MISTRAL_ENABLED:true}
         options:
@@ -82,7 +82,7 @@ spring:
 
     # OpenAI configuration - using Gemini's OpenAI-compatible endpoint
     openai:
-      api-key: ${GEMINI_API_KEY:AIzaSyAFUAWlVHLWLz3WVWHcKPxH4MszFl66glQ}
+      api-key: ${GEMINI_API_KEY}
       base-url: ${GEMINI_OPENAI_BASE_URL:https://generativelanguage.googleapis.com/v1beta/openai/}
       fallback-models: ${GEMINI_FALLBACK_MODELS:gemini-2.0-flash}
       chat:
@@ -122,7 +122,7 @@ cors:
 # Meowl Chat Configuration (cute AI assistant with Gemini)
 meowl:
   gemini:
-    api-key: ${MEOWL_GEMINI_API_KEY:AIzaSyCwZQvNhiTU4CUFSVd9jNGylJxxCPAtG7k}
+    api-key: ${MEOWL_GEMINI_API_KEY}
     api-url: ${MEOWL_GEMINI_API_URL:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent}
     model: ${MEOWL_GEMINI_MODEL:gemini-2.0-flash}
   reminder:
@@ -176,7 +176,7 @@ cloudinary:
 portfolio:
   ai:
     mistral:
-      api-key: ${PORTFOLIO_MISTRAL_API_KEY:RyNJ2HEDKf6PCPIyMyqApfn5tWlODkqC}
+      api-key: ${PORTFOLIO_MISTRAL_API_KEY}
       api-url: ${PORTFOLIO_MISTRAL_API_BASE_URL:https://api.mistral.ai/v1/chat/completions}
       model: ${PORTFOLIO_MISTRAL_API_MODEL:mistral-large-latest}
       enabled: ${PORTFOLIO_MISTRAL_ENABLED:true}
