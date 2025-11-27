@@ -4,11 +4,11 @@ spring:
     username: sa
     password: password
     driver-class-name: org.h2.Driver
-    
+
   h2:
     console:
       enabled: true
-      
+
   jpa:
     hibernate:
       ddl-auto: create-drop
@@ -18,6 +18,17 @@ spring:
         dialect: org.hibernate.dialect.H2Dialect
         format_sql: false
 
+  # Mock AI Configuration for Tests
+  ai:
+    mistralai:
+      api-key: test-mistral-api-key
+      chat:
+        enabled: false # Disable AI in tests
+    openai:
+      api-key: test-gemini-api-key
+      chat:
+        enabled: false
+
   servlet:
     multipart:
       enabled: true
@@ -25,7 +36,7 @@ spring:
       max-request-size: 500MB
       file-size-threshold: 2KB
       location: ${java.io.tmpdir}
-        
+
   mail:
     host: localhost
     port: 2525
@@ -37,10 +48,10 @@ spring:
           auth: false
           starttls:
             enable: false
-            
+
 server:
   port: 8080
-  
+
 management:
   endpoints:
     web:
@@ -49,11 +60,11 @@ management:
   endpoint:
     health:
       show-details: always
-      
+
 jwt:
   secret: "test-secret-key-for-junit-tests-only-1234567890123456"
-  access-token-expiration: 300   # 5 minutes for tests
-  refresh-token-expiration: 600  # 10 minutes for tests
+  access-token-expiration: 300 # 5 minutes for tests
+  refresh-token-expiration: 600 # 10 minutes for tests
 
 email:
   from: test@skillverse.com
@@ -66,7 +77,7 @@ springdoc:
   swagger-ui:
     enabled: true
     path: /swagger-ui.html
-    
+
 logging:
   level:
     com.exe.skillverse_backend: DEBUG
