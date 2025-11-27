@@ -611,7 +611,7 @@ jobs:
           echo "📤 Copying .env to VPS..."
           scp -o StrictHostKeyChecking=no .env ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_PROJECT_PATH }}/.env
 
-          echo "🚀 Connecting to VPS to deploy..."
+          echo " Connecting to VPS to deploy..."
           ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
             echo "📂 Navigating to project directory..."
             cd ${{ secrets.VPS_PROJECT_PATH }}
