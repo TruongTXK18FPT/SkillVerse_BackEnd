@@ -471,8 +471,11 @@ jobs:
             echo "📋 Container status:"
             docker ps -a --filter name=test-backend
             echo ""
-            echo "📋 Application logs:"
-            docker logs test-backend --tail 100
+            echo "📋 Application logs (full):"
+            docker logs test-backend || true
+            echo ""
+            echo "📋 Environment variables passed to container:"
+            docker inspect --format='{{json .Config.Env}}' test-backend || true
             echo ""
             echo "📋 Port status:"
             netstat -tlnp 2>/dev/null | grep :8080 || echo "Port 8080 not listening"
