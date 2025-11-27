@@ -7,6 +7,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import com.exe.skillverse_backend.premium_service.exception.UsageLimitExceededException;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -156,9 +157,9 @@ public class GlobalExceptionHandler {
      * @param req the HTTP request
      * @return error response entity with usage details
      */
-    @ExceptionHandler(com.exe.skillverse_backend.premium_service.exception.UsageLimitExceededException.class)
+    @ExceptionHandler(UsageLimitExceededException.class)
     public ResponseEntity<ErrorResponse> handleUsageLimitExceeded(
-            com.exe.skillverse_backend.premium_service.exception.UsageLimitExceededException ex,
+            UsageLimitExceededException ex,
             HttpServletRequest req) {
 
         Map<String, Object> details = new HashMap<>();
