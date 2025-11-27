@@ -159,4 +159,44 @@ public class QuizController {
         List<QuizSummaryDTO> quizzes = quizService.listQuizzesByModule(moduleId);
         return ResponseEntity.ok(quizzes);
     }
+
+    // ========== Quiz Attempt & Submission ==========
+
+    @PostMapping("/{quizId}/submit")
+    @Operation(summary = "Submit quiz answers and get result")
+    public ResponseEntity<?> submitQuiz(
+            @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
+            @Parameter(description = "User ID") @RequestParam @NotNull Long userId,
+            @Parameter(description = "Quiz submission data") @Valid @RequestBody SubmitQuizDTO submitData) {
+
+        log.info("[QUIZ_SUBMIT] User {} submitting quiz {}", userId, quizId);
+
+        try {
+            QuizAttemptDTO attempt = quizService.submitQuiz(quizId, submitData, userId);
+
+            log.info("[QUIZ_SUBMIT] Result: score={}, passed={}", attempt.getScore(), attempt.getPassed());
+
+            return ResponseEntity.ok(java.util.Map.of(
+                    "score", attempt.getScore(),
+                    "passed", attempt.getPassed(),
+                    "correctCount", attempt.getCorrectAnswers(),
+                    "totalQuestions", attempt.getTotalQuestions(),
+                    "attempt", attempt));
+        } catch (Exception e) {
+            log.error("[QUIZ_SUBMIT] Failed: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(java.util.Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/{quizId}/attempts")
+    @Operation(summary = "Get user's quiz attempts")
+    public ResponseEntity<List<QuizAttemptDTO>> getUserAttempts(
+            @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
+            @Parameter(description = "User ID") @RequestParam @NotNull Long userId) {
+
+        log.info("Getting attempts for quiz {} by user {}", quizId, userId);
+        List<QuizAttemptDTO> attempts = quizService.getUserAttempts(quizId, userId);
+        return ResponseEntity.ok(attempts);
+    }
 }

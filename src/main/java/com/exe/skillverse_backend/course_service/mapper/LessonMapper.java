@@ -8,7 +8,7 @@ import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
 import org.mapstruct.*;
 
-@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {MediaMapper.class})
+@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = { MediaMapper.class })
 public interface LessonMapper {
 
     @Mapping(target = "id", source = "id")
@@ -16,6 +16,9 @@ public interface LessonMapper {
     @Mapping(target = "type", source = "type")
     @Mapping(target = "orderIndex", source = "orderIndex")
     @Mapping(target = "durationSec", source = "durationSec")
+    @Mapping(target = "contentText", source = "contentText")
+    @Mapping(target = "videoUrl", source = "videoUrl")
+    @Mapping(target = "videoMediaId", source = "videoMedia.id")
     LessonBriefDTO toBriefDto(Lesson lesson);
 
     @Mapping(target = "id", source = "id")
@@ -39,7 +42,8 @@ public interface LessonMapper {
     @Mapping(target = "module", source = "module")
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
-    Lesson toEntity(LessonCreateDTO createDto, com.exe.skillverse_backend.course_service.entity.Module module, Media videoMedia);
+    Lesson toEntity(LessonCreateDTO createDto, com.exe.skillverse_backend.course_service.entity.Module module,
+            Media videoMedia);
 
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     @Mapping(target = "id", ignore = true)
@@ -67,7 +71,8 @@ public interface LessonMapper {
 
     @Named("mapMediaIdToEntity")
     default Media mapMediaIdToEntity(Long mediaId) {
-        if (mediaId == null) return null;
+        if (mediaId == null)
+            return null;
         return mapIdToMedia(mediaId);
     }
 }

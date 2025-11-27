@@ -6,7 +6,8 @@ import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import org.mapstruct.*;
 
-@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = { LessonMapper.class })
+@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = { LessonMapper.class, QuizMapper.class,
+    AssignmentMapper.class })
 public interface ModuleMapper {
 
   @Mapping(target = "id", source = "id")
@@ -22,6 +23,8 @@ public interface ModuleMapper {
   @Mapping(target = "createdAt", source = "createdAt")
   @Mapping(target = "updatedAt", source = "updatedAt")
   @Mapping(target = "lessons", source = "lessons")
+  @Mapping(target = "quizzes", source = "quizzes")
+  @Mapping(target = "assignments", source = "assignments")
   ModuleDetailDTO toDetailDto(Module module);
 
   @Mapping(target = "id", ignore = true)
@@ -45,5 +48,3 @@ public interface ModuleMapper {
   @Mapping(target = "lessons", ignore = true)
   void updateEntity(@MappingTarget Module module, ModuleUpdateDTO dto);
 }
-
-

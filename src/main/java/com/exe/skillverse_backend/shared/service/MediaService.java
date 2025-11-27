@@ -3,7 +3,9 @@ package com.exe.skillverse_backend.shared.service;
 import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 
@@ -16,11 +18,11 @@ public interface MediaService {
     /**
      * Upload a new media file
      * 
-     * @param actorId ID of the user uploading the file
-     * @param fileName original filename
+     * @param actorId     ID of the user uploading the file
+     * @param fileName    original filename
      * @param contentType MIME type of the file
-     * @param fileSize size of the file in bytes
-     * @param data input stream of file data
+     * @param fileSize    size of the file in bytes
+     * @param data        input stream of file data
      * @return MediaDTO containing metadata of uploaded file
      */
     MediaDTO upload(Long actorId, String fileName, String contentType, long fileSize, InputStream data);
@@ -28,9 +30,9 @@ public interface MediaService {
     /**
      * Attach media to a course (e.g., as thumbnail)
      * 
-     * @param mediaId ID of the media file
+     * @param mediaId  ID of the media file
      * @param courseId ID of the course
-     * @param actorId ID of the user performing the action
+     * @param actorId  ID of the user performing the action
      * @return updated MediaDTO
      */
     MediaDTO attachToCourse(Long mediaId, Long courseId, Long actorId);
@@ -86,4 +88,14 @@ public interface MediaService {
      * Validate if file type and size are allowed
      */
     void validateFile(String contentType, long fileSize);
+
+    /**
+     * Upload document file (PDF, DOCX, etc.) and save to database
+     * 
+     * @param file   MultipartFile to upload
+     * @param userId ID of user uploading
+     * @param folder Optional folder path
+     * @return MediaDTO with real mediaId
+     */
+    MediaDTO uploadDocument(MultipartFile file, Long userId, String folder) throws IOException;
 }

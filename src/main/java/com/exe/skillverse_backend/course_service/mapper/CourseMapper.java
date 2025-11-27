@@ -9,7 +9,7 @@ import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
 import org.mapstruct.*;
 
-@Mapper(config = CustomMapperConfig.class, uses = {UserMapper.class, MediaMapper.class, ModuleMapper.class})
+@Mapper(config = CustomMapperConfig.class, uses = { UserMapper.class, MediaMapper.class, ModuleMapper.class })
 public interface CourseMapper {
 
     @Mapping(target = "id", source = "id")
@@ -41,6 +41,7 @@ public interface CourseMapper {
     @Mapping(target = "thumbnailUrl", source = "thumbnail.url")
     @Mapping(target = "enrollmentCount", expression = "java(getEnrollmentCount(course))")
     @Mapping(target = "moduleCount", expression = "java(getModuleCount(course))")
+    @Mapping(target = "lessonCount", expression = "java(getLessonCount(course))")
     @Mapping(target = "price", source = "price")
     @Mapping(target = "currency", source = "currency")
     @Mapping(target = "submittedDate", expression = "java(toLocalDateTime(course.getSubmittedAt()))")
@@ -48,18 +49,20 @@ public interface CourseMapper {
     @Mapping(target = "createdAt", expression = "java(toLocalDateTime(course.getCreatedAt()))")
     @Mapping(target = "updatedAt", expression = "java(toLocalDateTime(course.getUpdatedAt()))")
     CourseSummaryDTO toSummaryDto(Course course);
-    
+
     // Helper methods for safe null handling
     default String getAuthorFullName(Course course) {
-        if (course == null || course.getAuthor() == null) return "Unknown";
+        if (course == null || course.getAuthor() == null)
+            return "Unknown";
         String firstName = course.getAuthor().getFirstName() != null ? course.getAuthor().getFirstName() : "";
         String lastName = course.getAuthor().getLastName() != null ? course.getAuthor().getLastName() : "";
         String fullName = (firstName + " " + lastName).trim();
         return fullName.isEmpty() ? "Unknown" : fullName;
     }
-    
+
     default Integer getEnrollmentCount(Course course) {
-        if (course == null) return 0;
+        if (course == null)
+            return 0;
         try {
             return course.getEnrollments() != null ? course.getEnrollments().size() : 0;
         } catch (Exception e) {
@@ -67,22 +70,37 @@ public interface CourseMapper {
             return 0;
         }
     }
-    
+
     default Integer getModuleCount(Course course) {
-        if (course == null) return 0;
-        try {
-            // For now, return 0 to avoid lazy initialization issues
-            // TODO: Implement proper module counting via repository query in service layer
+        if (course == null)
             return 0;
+        try {
+            return course.getModules() != null ? course.getModules().size() : 0;
         } catch (Exception e) {
-            // Fallback to 0 if counting fails
+            // Handle lazy initialization exception
+            return 0;
+        }
+    }
+
+    default Integer getLessonCount(Course course) {
+        if (course == null)
+            return 0;
+        try {
+            if (course.getModules() == null)
+                return 0;
+            return course.getModules().stream()
+                    .mapToInt(module -> module.getLessons() != null ? module.getLessons().size() : 0)
+                    .sum();
+        } catch (Exception e) {
+            // Handle lazy initialization exception
             return 0;
         }
     }
 
     // Date conversion helpers
     default java.time.LocalDateTime toLocalDateTime(java.time.Instant instant) {
-        if (instant == null) return null;
+        if (instant == null)
+            return null;
         return java.time.LocalDateTime.ofInstant(instant, java.time.ZoneOffset.UTC);
     }
 
@@ -122,7 +140,8 @@ public interface CourseMapper {
     @Mapping(target = "courseSkills", ignore = true)
     void updateEntity(@MappingTarget Course course, CourseUpdateDTO updateDto, Media thumbnail);
 
-    // Helper method to map from ID to Media entity (for cases where only ID is provided)
+    // Helper method to map from ID to Media entity (for cases where only ID is
+    // provided)
     @Mapping(target = "id", source = "thumbnailMediaId")
     @Mapping(target = "url", ignore = true)
     @Mapping(target = "type", ignore = true)
@@ -134,7 +153,8 @@ public interface CourseMapper {
 
     @Named("mapMediaIdToEntity")
     default Media mapMediaIdToEntity(Long mediaId) {
-        if (mediaId == null) return null;
+        if (mediaId == null)
+            return null;
         return mapIdToMedia(mediaId);
     }
 }

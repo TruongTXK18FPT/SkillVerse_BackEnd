@@ -72,6 +72,14 @@ public class ModuleController {
     return ResponseEntity.ok(moduleService.listModules(courseId));
   }
 
+  @GetMapping("/modules/{moduleId}")
+  @Operation(summary = "Get module detail with lessons, quizzes, and assignments")
+  public ResponseEntity<ModuleDetailDTO> getModuleDetail(
+      @PathVariable @NotNull Long moduleId) {
+    ModuleDetailDTO detail = moduleService.getModuleDetail(moduleId);
+    return ResponseEntity.ok(detail);
+  }
+
   @PostMapping("/modules/{moduleId}/assign-lesson/{lessonId}")
   @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
   @Operation(summary = "Assign a lesson to module")

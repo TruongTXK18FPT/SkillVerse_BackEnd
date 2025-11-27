@@ -12,6 +12,8 @@ public interface ModuleService {
 
   List<ModuleSummaryDTO> listModules(Long courseId);
 
+  ModuleDetailDTO getModuleDetail(Long moduleId);
+
   void assignLesson(Long moduleId, Long lessonId, Long actorId);
 
   ModuleProgressDTO getProgress(Long moduleId, Long userId);

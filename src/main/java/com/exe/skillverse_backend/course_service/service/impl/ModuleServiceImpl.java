@@ -73,6 +73,13 @@ public class ModuleServiceImpl implements ModuleService {
 
   @Override
   @Transactional(readOnly = true)
+  public ModuleDetailDTO getModuleDetail(Long moduleId) {
+    Module module = getModuleOrThrow(moduleId);
+    return moduleMapper.toDetailDto(module);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
   public ModuleProgressDTO getProgress(Long moduleId, Long userId) {
     Module module = getModuleOrThrow(moduleId);
     long total = lessonRepository.countByModuleId(module.getId());
