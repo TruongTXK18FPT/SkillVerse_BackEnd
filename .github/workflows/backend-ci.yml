@@ -517,73 +517,76 @@ jobs:
       - name: 🔧 Deploy to VPS
         run: |
           echo "🔨 Creating complete .env file from secrets..."
-          cat <<EOF > .env
+          # Use proper quoting to handle special characters in secret values
+          cat > .env << 'ENVFILE'
           SPRING_PROFILES_ACTIVE=docker
           SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/skillverse_db
           SPRING_DATASOURCE_USERNAME=skillverse_user
-          SPRING_DATASOURCE_PASSWORD=${{ secrets.DB_PASSWORD }}
           SPRING_JPA_HIBERNATE_DDL_AUTO=update
           SPRING_JPA_SHOW_SQL=false
           REDIS_HOST=redis
           REDIS_PORT=6379
-          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          JWT_ACCESS_TOKEN_EXPIRATION=${{ secrets.JWT_ACCESS_TOKEN_EXPIRATION }}
-          JWT_REFRESH_TOKEN_EXPIRATION=${{ secrets.JWT_REFRESH_TOKEN_EXPIRATION }}
-          JWT_REFRESH_PEPPER=${{ secrets.JWT_REFRESH_PEPPER }}
-          JWT_ISSUER=${{ secrets.JWT_ISSUER }}
-          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
-          SPRING_MAIL_HOST=${{ secrets.SPRING_MAIL_HOST }}
-          SPRING_MAIL_PORT=${{ secrets.SPRING_MAIL_PORT }}
-          SPRING_MAIL_USERNAME=${{ secrets.SPRING_MAIL_USERNAME }}
-          SPRING_MAIL_PASSWORD=${{ secrets.SPRING_MAIL_PASSWORD }}
-          EMAIL_FROM=${{ secrets.EMAIL_FROM }}
-          EMAIL_FROM_NAME=${{ secrets.EMAIL_FROM_NAME }}
-          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-          GEMINI_OPENAI_BASE_URL=${{ secrets.GEMINI_OPENAI_BASE_URL }}
-          GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}
-          GEMINI_FALLBACK_MODELS=${{ secrets.GEMINI_FALLBACK_MODELS }}
-          GEMINI_TEMPERATURE=${{ secrets.GEMINI_TEMPERATURE }}
-          GEMINI_MAX_TOKENS=${{ secrets.GEMINI_MAX_TOKENS }}
-          GEMINI_ENABLED=${{ secrets.GEMINI_ENABLED }}
-          MISTRAL_API_KEY=${{ secrets.MISTRAL_API_KEY }}
-          MISTRAL_API_MODEL=${{ secrets.MISTRAL_API_MODEL }}
-          MISTRAL_ENABLED=${{ secrets.MISTRAL_ENABLED }}
-          MISTRAL_API_MAX_TOKENS=${{ secrets.MISTRAL_API_MAX_TOKENS }}
-          MISTRAL_API_TEMPERATURE=${{ secrets.MISTRAL_API_TEMPERATURE }}
-          MEOWL_GEMINI_API_KEY=${{ secrets.MEOWL_GEMINI_API_KEY }}
-          MEOWL_GEMINI_API_URL=${{ secrets.MEOWL_GEMINI_API_URL }}
-          MEOWL_GEMINI_MODEL=${{ secrets.MEOWL_GEMINI_MODEL }}
-          MEOWL_REMINDER_ENABLED=${{ secrets.MEOWL_REMINDER_ENABLED }}
-          MEOWL_NOTIFICATION_ENABLED=${{ secrets.MEOWL_NOTIFICATION_ENABLED }}
-          PORTFOLIO_MISTRAL_API_KEY=${{ secrets.PORTFOLIO_MISTRAL_API_KEY }}
-          PORTFOLIO_MISTRAL_API_BASE_URL=${{ secrets.PORTFOLIO_MISTRAL_API_BASE_URL }}
-          PORTFOLIO_MISTRAL_API_MODEL=${{ secrets.PORTFOLIO_MISTRAL_API_MODEL }}
-          PORTFOLIO_MISTRAL_ENABLED=${{ secrets.PORTFOLIO_MISTRAL_ENABLED }}
-          PORTFOLIO_MISTRAL_API_TIMEOUT=${{ secrets.PORTFOLIO_MISTRAL_API_TIMEOUT }}
-          PORTFOLIO_MISTRAL_API_MAX_TOKENS=${{ secrets.PORTFOLIO_MISTRAL_API_MAX_TOKENS }}
-          PORTFOLIO_MISTRAL_API_TEMPERATURE=${{ secrets.PORTFOLIO_MISTRAL_API_TEMPERATURE }}
-          PAYOS_CLIENT_ID=${{ secrets.PAYOS_CLIENT_ID }}
-          PAYOS_API_KEY=${{ secrets.PAYOS_API_KEY }}
-          PAYOS_CHECKSUM_KEY=${{ secrets.PAYOS_CHECKSUM_KEY }}
-          PAYOS_BASE_URL=${{ secrets.PAYOS_BASE_URL }}
-          PAYOS_WEBHOOK_URL=${{ secrets.PAYOS_WEBHOOK_URL }}
-          PREMIUM_AUTO_CREATE_PLANS=${{ secrets.PREMIUM_AUTO_CREATE_PLANS }}
-          CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }}
-          CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }}
-          CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }}
-          CLOUDINARY_URL=${{ secrets.CLOUDINARY_URL }}
-          CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
-          CORS_ALLOWED_METHODS=${{ secrets.CORS_ALLOWED_METHODS }}
-          CORS_ALLOWED_HEADERS=${{ secrets.CORS_ALLOWED_HEADERS }}
-          CORS_ALLOW_CREDENTIALS=${{ secrets.CORS_ALLOW_CREDENTIALS }}
-          CORS_MAX_AGE=${{ secrets.CORS_MAX_AGE }}
-          SPRING_JACKSON_TIME_ZONE=${{ secrets.SPRING_JACKSON_TIME_ZONE }}
-          SPRING_JACKSON_DATE_FORMAT=${{ secrets.SPRING_JACKSON_DATE_FORMAT }}
-          SPRINGDOC_API_DOCS_ENABLED=${{ secrets.SPRINGDOC_API_DOCS_ENABLED }}
-          SPRINGDOC_SWAGGER_UI_ENABLED=${{ secrets.SPRINGDOC_SWAGGER_UI_ENABLED }}
-          EOF
+          ENVFILE
+
+          # Append secrets with proper escaping (values may contain special chars)
+          echo "SPRING_DATASOURCE_PASSWORD='${{ secrets.DB_PASSWORD }}'" >> .env
+          echo "REDIS_PASSWORD='${{ secrets.REDIS_PASSWORD }}'" >> .env
+          echo "JWT_SECRET='${{ secrets.JWT_SECRET }}'" >> .env
+          echo "JWT_ACCESS_TOKEN_EXPIRATION='${{ secrets.JWT_ACCESS_TOKEN_EXPIRATION }}'" >> .env
+          echo "JWT_REFRESH_TOKEN_EXPIRATION='${{ secrets.JWT_REFRESH_TOKEN_EXPIRATION }}'" >> .env
+          echo "JWT_REFRESH_PEPPER='${{ secrets.JWT_REFRESH_PEPPER }}'" >> .env
+          echo "JWT_ISSUER='${{ secrets.JWT_ISSUER }}'" >> .env
+          echo "GOOGLE_CLIENT_ID='${{ secrets.GOOGLE_CLIENT_ID }}'" >> .env
+          echo "GOOGLE_CLIENT_SECRET='${{ secrets.GOOGLE_CLIENT_SECRET }}'" >> .env
+          echo "SPRING_MAIL_HOST='${{ secrets.SPRING_MAIL_HOST }}'" >> .env
+          echo "SPRING_MAIL_PORT='${{ secrets.SPRING_MAIL_PORT }}'" >> .env
+          echo "SPRING_MAIL_USERNAME='${{ secrets.SPRING_MAIL_USERNAME }}'" >> .env
+          echo "SPRING_MAIL_PASSWORD='${{ secrets.SPRING_MAIL_PASSWORD }}'" >> .env
+          echo "EMAIL_FROM='${{ secrets.EMAIL_FROM }}'" >> .env
+          echo "EMAIL_FROM_NAME='${{ secrets.EMAIL_FROM_NAME }}'" >> .env
+          echo "GEMINI_API_KEY='${{ secrets.GEMINI_API_KEY }}'" >> .env
+          echo "GEMINI_OPENAI_BASE_URL='${{ secrets.GEMINI_OPENAI_BASE_URL }}'" >> .env
+          echo "GEMINI_MODEL='${{ secrets.GEMINI_MODEL }}'" >> .env
+          echo "GEMINI_FALLBACK_MODELS='${{ secrets.GEMINI_FALLBACK_MODELS }}'" >> .env
+          echo "GEMINI_TEMPERATURE='${{ secrets.GEMINI_TEMPERATURE }}'" >> .env
+          echo "GEMINI_MAX_TOKENS='${{ secrets.GEMINI_MAX_TOKENS }}'" >> .env
+          echo "GEMINI_ENABLED='${{ secrets.GEMINI_ENABLED }}'" >> .env
+          echo "MISTRAL_API_KEY='${{ secrets.MISTRAL_API_KEY }}'" >> .env
+          echo "MISTRAL_API_MODEL='${{ secrets.MISTRAL_API_MODEL }}'" >> .env
+          echo "MISTRAL_ENABLED='${{ secrets.MISTRAL_ENABLED }}'" >> .env
+          echo "MISTRAL_API_MAX_TOKENS='${{ secrets.MISTRAL_API_MAX_TOKENS }}'" >> .env
+          echo "MISTRAL_API_TEMPERATURE='${{ secrets.MISTRAL_API_TEMPERATURE }}'" >> .env
+          echo "MEOWL_GEMINI_API_KEY='${{ secrets.MEOWL_GEMINI_API_KEY }}'" >> .env
+          echo "MEOWL_GEMINI_API_URL='${{ secrets.MEOWL_GEMINI_API_URL }}'" >> .env
+          echo "MEOWL_GEMINI_MODEL='${{ secrets.MEOWL_GEMINI_MODEL }}'" >> .env
+          echo "MEOWL_REMINDER_ENABLED='${{ secrets.MEOWL_REMINDER_ENABLED }}'" >> .env
+          echo "MEOWL_NOTIFICATION_ENABLED='${{ secrets.MEOWL_NOTIFICATION_ENABLED }}'" >> .env
+          echo "PORTFOLIO_MISTRAL_API_KEY='${{ secrets.PORTFOLIO_MISTRAL_API_KEY }}'" >> .env
+          echo "PORTFOLIO_MISTRAL_API_BASE_URL='${{ secrets.PORTFOLIO_MISTRAL_API_BASE_URL }}'" >> .env
+          echo "PORTFOLIO_MISTRAL_API_MODEL='${{ secrets.PORTFOLIO_MISTRAL_API_MODEL }}'" >> .env
+          echo "PORTFOLIO_MISTRAL_ENABLED='${{ secrets.PORTFOLIO_MISTRAL_ENABLED }}'" >> .env
+          echo "PORTFOLIO_MISTRAL_API_TIMEOUT='${{ secrets.PORTFOLIO_MISTRAL_API_TIMEOUT }}'" >> .env
+          echo "PORTFOLIO_MISTRAL_API_MAX_TOKENS='${{ secrets.PORTFOLIO_MISTRAL_API_MAX_TOKENS }}'" >> .env
+          echo "PORTFOLIO_MISTRAL_API_TEMPERATURE='${{ secrets.PORTFOLIO_MISTRAL_API_TEMPERATURE }}'" >> .env
+          echo "PAYOS_CLIENT_ID='${{ secrets.PAYOS_CLIENT_ID }}'" >> .env
+          echo "PAYOS_API_KEY='${{ secrets.PAYOS_API_KEY }}'" >> .env
+          echo "PAYOS_CHECKSUM_KEY='${{ secrets.PAYOS_CHECKSUM_KEY }}'" >> .env
+          echo "PAYOS_BASE_URL='${{ secrets.PAYOS_BASE_URL }}'" >> .env
+          echo "PAYOS_WEBHOOK_URL='${{ secrets.PAYOS_WEBHOOK_URL }}'" >> .env
+          echo "PREMIUM_AUTO_CREATE_PLANS='${{ secrets.PREMIUM_AUTO_CREATE_PLANS }}'" >> .env
+          echo "CLOUDINARY_CLOUD_NAME='${{ secrets.CLOUDINARY_CLOUD_NAME }}'" >> .env
+          echo "CLOUDINARY_API_KEY='${{ secrets.CLOUDINARY_API_KEY }}'" >> .env
+          echo "CLOUDINARY_API_SECRET='${{ secrets.CLOUDINARY_API_SECRET }}'" >> .env
+          echo "CLOUDINARY_URL='${{ secrets.CLOUDINARY_URL }}'" >> .env
+          echo "CORS_ALLOWED_ORIGINS='${{ secrets.CORS_ALLOWED_ORIGINS }}'" >> .env
+          echo "CORS_ALLOWED_METHODS='${{ secrets.CORS_ALLOWED_METHODS }}'" >> .env
+          echo "CORS_ALLOWED_HEADERS='${{ secrets.CORS_ALLOWED_HEADERS }}'" >> .env
+          echo "CORS_ALLOW_CREDENTIALS='${{ secrets.CORS_ALLOW_CREDENTIALS }}'" >> .env
+          echo "CORS_MAX_AGE='${{ secrets.CORS_MAX_AGE }}'" >> .env
+          echo "SPRING_JACKSON_TIME_ZONE='${{ secrets.SPRING_JACKSON_TIME_ZONE }}'" >> .env
+          echo "SPRING_JACKSON_DATE_FORMAT='${{ secrets.SPRING_JACKSON_DATE_FORMAT }}'" >> .env
+          echo "SPRINGDOC_API_DOCS_ENABLED='${{ secrets.SPRINGDOC_API_DOCS_ENABLED }}'" >> .env
+          echo "SPRINGDOC_SWAGGER_UI_ENABLED='${{ secrets.SPRINGDOC_SWAGGER_UI_ENABLED }}'" >> .env
 
           # Debug: Verify critical secrets are set (without exposing values)
           echo "🔍 Verifying critical environment variables..."
@@ -698,15 +701,36 @@ jobs:
               skillverse-backend:v1
             
             echo "⏳ Waiting for backend to start..."
-            sleep 60
+            sleep 30
             
-            # Check backend health
+            # Check backend health with retries
             echo "🏥 Checking backend health..."
-            curl -f http://localhost:8080/actuator/health || {
-              echo "❌ Backend health check failed! Logs:"
-              docker logs skillverse-backend --tail=100
+            MAX_RETRIES=6
+            RETRY_COUNT=0
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              if curl -sf http://localhost:8080/actuator/health > /dev/null 2>&1; then
+                echo "✅ Backend is healthy!"
+                break
+              fi
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "⏳ Health check attempt $RETRY_COUNT/$MAX_RETRIES failed, waiting 10s..."
+              sleep 10
+            done
+            
+            # Final check
+            if ! curl -sf http://localhost:8080/actuator/health; then
+              echo "❌ Backend health check failed after $MAX_RETRIES attempts!"
+              echo ""
+              echo "📋 Container status:"
+              docker ps -a | grep skillverse-backend || true
+              echo ""
+              echo "📋 Full startup logs:"
+              docker logs skillverse-backend 2>&1 | head -200
+              echo ""
+              echo "📋 Last 50 lines:"
+              docker logs skillverse-backend --tail=50 2>&1
               exit 1
-            }
+            fi
             
             echo "✅ Backend deployed successfully and healthy!"
             
