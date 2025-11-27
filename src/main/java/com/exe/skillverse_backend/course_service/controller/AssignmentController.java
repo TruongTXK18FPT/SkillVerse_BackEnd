@@ -1,6 +1,10 @@
 package com.exe.skillverse_backend.course_service.controller;
 
-import com.exe.skillverse_backend.course_service.dto.assignmentdto.*;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentUpdateDTO;
 import com.exe.skillverse_backend.course_service.service.AssignmentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -12,7 +16,15 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.access.prepost.PreAuthorize;
 
 import jakarta.validation.Valid;
