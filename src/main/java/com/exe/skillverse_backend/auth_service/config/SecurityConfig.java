@@ -58,7 +58,12 @@ public class SecurityConfig {
                         "/api/jobs/public",
                         "/api/jobs/public/**",
                         // Public premium plans listing
-                        "/api/premium/plans"
+                        "/api/premium/plans",
+                        // Support tickets (public create/track)
+                        "/api/v1/support/tickets",
+                        "/api/v1/support/tickets/code/**",
+                        "/api/v1/support/tickets/email/**",
+                        "/api/v1/support/chat/**"
         };
 
         private static final String[] SWAGGER_ENDPOINTS = {

@@ -118,10 +118,16 @@ public class SupportTicketController {
     @Operation(summary = "Close ticket", 
             description = "Close a ticket. Only the ticket owner can close it.")
     public ResponseEntity<TicketResponse> closeTicket(@PathVariable Long id) {
-        log.info("User closing ticket: {}", id);
-        TicketResponse ticket = ticketService.updateTicket(id, 
-                UpdateTicketRequest.builder().status("CLOSED").build());
-        return ResponseEntity.ok(ticket);
+        log.info("User closing ticket with ID: {}", id);
+        try {
+            TicketResponse ticket = ticketService.updateTicket(id, 
+                    UpdateTicketRequest.builder().status("CLOSED").build());
+            log.info("Successfully closed ticket: {}", ticket.getTicketCode());
+            return ResponseEntity.ok(ticket);
+        } catch (Exception e) {
+            log.error("Error closing ticket {}: {}", id, e.getMessage(), e);
+            throw e;
+        }
     }
 
     // ==================== Admin Endpoints ====================
