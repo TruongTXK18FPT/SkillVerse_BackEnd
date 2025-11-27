@@ -8,12 +8,15 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.util.StringUtils;
 
 /**
  * Spring AI Configuration for multiple AI providers
  * - Mistral AI: For chatbot (auto-configured by
  * spring-ai-mistral-ai-spring-boot-starter)
  * - Gemini: For roadmap generation (using OpenAI-compatible API)
+ *
+ * Note: Requires GEMINI_API_KEY environment variable or spring.ai.openai.api-key property.
  */
 @Configuration
 public class SpringAiConfig {
@@ -41,10 +44,14 @@ public class SpringAiConfig {
      * This bean will be used by AiRoadmapService for roadmap generation
      *
      * @return ChatModel configured for Gemini primary model
+     * @throws IllegalArgumentException if API key is missing
      */
     @Bean
     @Qualifier("geminiChatModel")
     public ChatModel geminiChatModel() {
+        if (!StringUtils.hasText(geminiApiKey)) {
+            throw new IllegalArgumentException("Gemini API Key is missing. Please set GEMINI_API_KEY environment variable.");
+        }
         return createGeminiChatModel(geminiModel);
     }
 
