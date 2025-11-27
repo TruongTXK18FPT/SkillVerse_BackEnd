@@ -620,11 +620,25 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             
-            echo "🐳 Docker Compose Deployment..."
+            echo "🐳 Docker Deployment..."
             
-            # Stop and remove old backend container only
+            # Source .env file to load environment variables
+            echo "📋 Loading environment variables from .env..."
+            set -a
+            source .env
+            set +a
+            
+            # Debug: Verify critical variables are loaded
+            echo "🔍 Verifying loaded environment variables..."
+            [ -n "$MISTRAL_API_KEY" ] && echo "✅ MISTRAL_API_KEY loaded" || echo "❌ MISTRAL_API_KEY missing"
+            [ -n "$GEMINI_API_KEY" ] && echo "✅ GEMINI_API_KEY loaded" || echo "❌ GEMINI_API_KEY missing"
+            [ -n "$CLOUDINARY_CLOUD_NAME" ] && echo "✅ CLOUDINARY_CLOUD_NAME loaded" || echo "❌ CLOUDINARY_CLOUD_NAME missing"
+            
+            # Stop and remove old backend container (both compose and standalone)
             docker compose stop backend 2>/dev/null || true
             docker compose rm -f backend 2>/dev/null || true
+            docker stop skillverse-backend 2>/dev/null || true
+            docker rm -f skillverse-backend 2>/dev/null || true
             
             # Remove old backend images to force rebuild/update
             docker images | grep backend | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
@@ -632,9 +646,56 @@ jobs:
             # Build new backend image
             docker build -t skillverse-backend:v1 .
             
-            # Start backend with new .env configuration
-            # --compatibility for v2/v3 support, --no-recreate to avoid touching other services if unchanged
-            docker compose --compatibility up -d --no-recreate backend
+            # Get the docker compose network name
+            NETWORK_NAME=$(docker network ls --filter name=skillverse -q | head -1)
+            if [ -z "$NETWORK_NAME" ]; then
+              echo "Creating network..."
+              docker network create skillverse_default || true
+              NETWORK_NAME="skillverse_default"
+            else
+              NETWORK_NAME=$(docker network ls --filter name=skillverse --format '{{.Name}}' | head -1)
+            fi
+            echo "Using network: $NETWORK_NAME"
+            
+            # Start backend with explicit environment variables using docker run
+            # This guarantees env vars are passed to the container
+            echo "🚀 Starting backend container with explicit env vars..."
+            docker run -d \
+              --name skillverse-backend \
+              --network $NETWORK_NAME \
+              -p 8080:8080 \
+              --restart unless-stopped \
+              -e SPRING_PROFILES_ACTIVE=docker \
+              -e SPRING_DATASOURCE_URL="$SPRING_DATASOURCE_URL" \
+              -e SPRING_DATASOURCE_USERNAME="$SPRING_DATASOURCE_USERNAME" \
+              -e SPRING_DATASOURCE_PASSWORD="$SPRING_DATASOURCE_PASSWORD" \
+              -e SPRING_DATA_REDIS_HOST=redis \
+              -e SPRING_DATA_REDIS_PORT=6379 \
+              -e REDIS_PASSWORD="$REDIS_PASSWORD" \
+              -e JWT_SECRET="$JWT_SECRET" \
+              -e JWT_ACCESS_TOKEN_EXPIRATION="$JWT_ACCESS_TOKEN_EXPIRATION" \
+              -e JWT_REFRESH_TOKEN_EXPIRATION="$JWT_REFRESH_TOKEN_EXPIRATION" \
+              -e GOOGLE_CLIENT_ID="$GOOGLE_CLIENT_ID" \
+              -e GOOGLE_CLIENT_SECRET="$GOOGLE_CLIENT_SECRET" \
+              -e SPRING_MAIL_HOST="$SPRING_MAIL_HOST" \
+              -e SPRING_MAIL_PORT="$SPRING_MAIL_PORT" \
+              -e SPRING_MAIL_USERNAME="$SPRING_MAIL_USERNAME" \
+              -e SPRING_MAIL_PASSWORD="$SPRING_MAIL_PASSWORD" \
+              -e EMAIL_FROM="$EMAIL_FROM" \
+              -e EMAIL_FROM_NAME="$EMAIL_FROM_NAME" \
+              -e MISTRAL_API_KEY="$MISTRAL_API_KEY" \
+              -e GEMINI_API_KEY="$GEMINI_API_KEY" \
+              -e MEOWL_GEMINI_API_KEY="$MEOWL_GEMINI_API_KEY" \
+              -e PORTFOLIO_MISTRAL_API_KEY="$PORTFOLIO_MISTRAL_API_KEY" \
+              -e CLOUDINARY_CLOUD_NAME="$CLOUDINARY_CLOUD_NAME" \
+              -e CLOUDINARY_API_KEY="$CLOUDINARY_API_KEY" \
+              -e CLOUDINARY_API_SECRET="$CLOUDINARY_API_SECRET" \
+              -e CLOUDINARY_URL="$CLOUDINARY_URL" \
+              -e PAYOS_CLIENT_ID="$PAYOS_CLIENT_ID" \
+              -e PAYOS_API_KEY="$PAYOS_API_KEY" \
+              -e PAYOS_CHECKSUM_KEY="$PAYOS_CHECKSUM_KEY" \
+              -e CORS_ALLOWED_ORIGINS="$CORS_ALLOWED_ORIGINS" \
+              skillverse-backend:v1
             
             echo "⏳ Waiting for backend to start..."
             sleep 60
@@ -643,7 +704,7 @@ jobs:
             echo "🏥 Checking backend health..."
             curl -f http://localhost:8080/actuator/health || {
               echo "❌ Backend health check failed! Logs:"
-              docker compose logs --tail=100 backend
+              docker logs skillverse-backend --tail=100
               exit 1
             }
             
