@@ -524,6 +524,14 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             
+            # Update .env with new secrets if missing
+            echo "🔧 Updating .env with required secrets..."
+            grep -q "MEOWL_GEMINI_API_KEY" .env || echo "MEOWL_GEMINI_API_KEY=${{ secrets.MEOWL_GEMINI_API_KEY }}" >> .env
+            grep -q "PORTFOLIO_MISTRAL_API_KEY" .env || echo "PORTFOLIO_MISTRAL_API_KEY=${{ secrets.PORTFOLIO_MISTRAL_API_KEY }}" >> .env
+            grep -q "PORTFOLIO_MISTRAL_API_BASE_URL" .env || echo "PORTFOLIO_MISTRAL_API_BASE_URL=${{ secrets.PORTFOLIO_MISTRAL_API_BASE_URL }}" >> .env
+            grep -q "PORTFOLIO_MISTRAL_API_MODEL" .env || echo "PORTFOLIO_MISTRAL_API_MODEL=${{ secrets.PORTFOLIO_MISTRAL_API_MODEL }}" >> .env
+            grep -q "PORTFOLIO_MISTRAL_ENABLED" .env || echo "PORTFOLIO_MISTRAL_ENABLED=${{ secrets.PORTFOLIO_MISTRAL_ENABLED }}" >> .env
+            
             # Stop and remove old backend container only
             docker compose stop backend 2>/dev/null || true
             docker compose rm -f backend 2>/dev/null || true
