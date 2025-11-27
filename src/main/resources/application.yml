@@ -72,7 +72,7 @@ spring:
   # Simple API key authentication - no Google Cloud setup needed!
   ai:
     mistralai:
-      api-key: ${MISTRAL_API_KEY}
+      api-key: ${MISTRAL_API_KEY:}
       chat:
         enabled: ${MISTRAL_ENABLED:true}
         options:
@@ -82,7 +82,7 @@ spring:
 
     # OpenAI configuration - using Gemini's OpenAI-compatible endpoint
     openai:
-      api-key: ${GEMINI_API_KEY}
+      api-key: ${GEMINI_API_KEY:}
       base-url: ${GEMINI_OPENAI_BASE_URL:https://generativelanguage.googleapis.com/v1beta/openai/}
       fallback-models: ${GEMINI_FALLBACK_MODELS:gemini-2.0-flash}
       chat:
