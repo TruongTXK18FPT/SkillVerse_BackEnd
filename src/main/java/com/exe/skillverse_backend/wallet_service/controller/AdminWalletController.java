@@ -163,6 +163,19 @@ public class AdminWalletController {
     }
     
     /**
+     * Get ALL wallet transactions (admin view for transaction management)
+     */
+    @GetMapping("/transactions")
+    @Operation(summary = "Get all transactions", description = "View all wallet transactions system-wide")
+    public ResponseEntity<Page<WalletTransactionResponse>> getAllTransactions(
+            @RequestParam(required = false) String type,
+            Pageable pageable
+    ) {
+        Page<WalletTransactionResponse> transactions = walletService.getAllTransactionsAdmin(type, pageable);
+        return ResponseEntity.ok(transactions);
+    }
+    
+    /**
      * Get global wallet statistics
      */
     @GetMapping("/statistics/overview")

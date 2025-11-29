@@ -108,6 +108,18 @@ public class AdminUserController {
         return ResponseEntity.noContent().build();
     }
 
+    @DeleteMapping("/{userId}/permanent")
+    @Operation(summary = "Permanently delete user",
+        description = "Permanently delete user from database. Only works for INACTIVE users.")
+    public ResponseEntity<Void> permanentlyDeleteUser(
+        @Parameter(description = "User ID", required = true)
+        @PathVariable Long userId
+    ) {
+        log.info("DELETE /api/admin/users/{}/permanent", userId);
+        adminUserService.permanentlyDeleteUser(userId);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/{userId}/ban")
     @Operation(summary = "Ban user", description = "Ban a user account")
     public ResponseEntity<AdminUserResponse> banUser(

@@ -186,20 +186,24 @@ public class CoinService {
             description = String.format("Mua %d SkillCoin", coinAmount);
         }
         
-        // 3. Create payment request
+        // 3. Create payment request with COIN_PURCHASE type
+        // Store metadata as JSON for proper parsing in callback
+        String metadataJson = String.format(
+            "{\"coinAmount\":\"%s\",\"packageId\":\"%s\",\"totalCoins\":\"%s\",\"bonusCoins\":\"%s\"}",
+            coinAmount.toString(),
+            packageId != null ? packageId : "custom",
+            totalCoins.toString(),
+            bonusCoins.toString()
+        );
+        
         CreatePaymentRequest paymentRequest = CreatePaymentRequest.builder()
                 .amount(price)
-                .type(PaymentTransaction.PaymentType.WALLET_TOPUP)  // Use WALLET_TOPUP for coins
+                .type(PaymentTransaction.PaymentType.COIN_PURCHASE)  // Use COIN_PURCHASE for coins
                 .paymentMethod(PaymentTransaction.PaymentMethod.PAYOS)
                 .description(description)
                 .successUrl(returnUrl)
                 .cancelUrl(cancelUrl)
-                .metadata(Map.of(
-                    "coinAmount", coinAmount.toString(),
-                    "packageId", packageId != null ? packageId : "custom",
-                    "totalCoins", totalCoins.toString(),
-                    "bonusCoins", bonusCoins.toString()
-                ).toString())
+                .metadata(metadataJson)
                 .build();
         
         CreatePaymentResponse paymentResponse = paymentService.createPayment(userId, paymentRequest);

@@ -37,6 +37,7 @@ public class WithdrawalService {
     private final UserRepository userRepository;
     private final WalletService walletService;
     private final UserProfileService userProfileService;
+    private final WalletEmailService walletEmailService;
 
     // Configuration
     private static final BigDecimal MIN_WITHDRAWAL = new BigDecimal("100000"); // 100K VNĐ
@@ -215,7 +216,12 @@ public class WithdrawalService {
         log.info("✅ Admin {} đã duyệt và hoàn tất yêu cầu rút tiền: {} - Amount: {} VNĐ",
                 adminId, request.getRequestCode(), request.getAmount());
 
-        // TODO: Send email notification to user
+        // Send email notification to user (approved)
+        try {
+            walletEmailService.sendWithdrawalApprovedEmail(approvedRequest.getUser(), approvedRequest);
+        } catch (Exception e) {
+            log.error("❌ Failed to send withdrawal approved email for {}: {}", approvedRequest.getRequestCode(), e.getMessage());
+        }
 
         String avatarUrl = getUserAvatarUrl(approvedRequest.getUser());
         return WithdrawalRequestResponse.fromEntityForAdmin(approvedRequest, avatarUrl);

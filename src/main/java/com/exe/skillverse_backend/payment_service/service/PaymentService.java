@@ -92,4 +92,14 @@ public interface PaymentService {
      * @param days - number of days to look back for daily/weekly, months for monthly
      */
     Map<String, Object> getRevenueBreakdown(String period, int days);
+
+    /**
+     * Admin: Generate PDF invoice for a payment transaction
+     */
+    byte[] generatePaymentInvoicePdf(Long paymentId);
+
+    /**
+     * Admin: Generate PDF invoice for a wallet transaction
+     */
+    byte[] generateWalletTransactionInvoicePdf(Long transactionId);
 }

@@ -2,19 +2,21 @@ package com.exe.skillverse_backend.payment_service.controller;
 
 import com.exe.skillverse_backend.payment_service.dto.response.PaymentTransactionResponse;
 import com.exe.skillverse_backend.payment_service.service.PaymentService;
+import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -29,6 +31,7 @@ import java.util.Map;
 public class AdminPaymentController {
     
     private final PaymentService paymentService;
+    private final WalletService walletService;
     
     /**
      * Get all payment transactions with filtering
@@ -128,5 +131,56 @@ public class AdminPaymentController {
         log.info("Admin fetching revenue breakdown - period: {}, days: {}", period, days);
         Map<String, Object> breakdown = paymentService.getRevenueBreakdown(period, days);
         return ResponseEntity.ok(breakdown);
+    }
+    
+    /**
+     * Get system-wide wallet statistics
+     * Returns total cash balance, total coin balance across all users
+     */
+    @GetMapping("/wallet-stats")
+    @Operation(summary = "Get wallet statistics", 
+               description = "Get total cash and coin balance across all user wallets")
+    public ResponseEntity<Map<String, Object>> getWalletStatistics() {
+        log.info("Admin fetching wallet statistics");
+        Map<String, Object> stats = walletService.getSystemWalletStats();
+        return ResponseEntity.ok(stats);
+    }
+    
+    /**
+     * Download invoice PDF for a payment transaction
+     */
+    @GetMapping("/transactions/{id}/invoice")
+    @Operation(summary = "Download payment invoice", 
+               description = "Generate and download PDF invoice for a payment transaction")
+    public ResponseEntity<byte[]> downloadPaymentInvoice(@PathVariable Long id) {
+        log.info("Admin downloading invoice for payment: {}", id);
+        
+        byte[] pdfBytes = paymentService.generatePaymentInvoicePdf(id);
+        
+        String filename = "invoice-" + id + ".pdf";
+        
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+            .contentType(MediaType.APPLICATION_PDF)
+            .body(pdfBytes);
+    }
+    
+    /**
+     * Download invoice PDF for a wallet transaction
+     */
+    @GetMapping("/wallet-transactions/{id}/invoice")
+    @Operation(summary = "Download wallet transaction invoice", 
+               description = "Generate and download PDF invoice for a wallet transaction")
+    public ResponseEntity<byte[]> downloadWalletTransactionInvoice(@PathVariable Long id) {
+        log.info("Admin downloading invoice for wallet transaction: {}", id);
+        
+        byte[] pdfBytes = paymentService.generateWalletTransactionInvoicePdf(id);
+        
+        String filename = "wallet-invoice-" + id + ".pdf";
+        
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+            .contentType(MediaType.APPLICATION_PDF)
+            .body(pdfBytes);
     }
 }

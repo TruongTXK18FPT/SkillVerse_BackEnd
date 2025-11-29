@@ -133,31 +133,34 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     List<PaymentTransaction> findByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
 
     /**
-     * Admin: Get daily revenue (grouped by date)
+     * Admin: Get daily revenue (grouped by date) - ONLY PURCHASES (exclude wallet topup)
      */
     @Query("SELECT CAST(pt.createdAt AS LocalDate), COALESCE(SUM(pt.amount), 0), COUNT(pt) " +
            "FROM PaymentTransaction pt " +
            "WHERE pt.status = 'COMPLETED' AND pt.createdAt >= :fromDate " +
+           "AND pt.type IN ('PREMIUM_SUBSCRIPTION', 'COURSE_PURCHASE', 'COIN_PURCHASE') " +
            "GROUP BY CAST(pt.createdAt AS LocalDate) " +
            "ORDER BY CAST(pt.createdAt AS LocalDate)")
     List<Object[]> getDailyRevenue(@Param("fromDate") LocalDateTime fromDate);
 
     /**
-     * Admin: Get monthly revenue (grouped by year-month)
+     * Admin: Get monthly revenue (grouped by year-month) - ONLY PURCHASES
      */
     @Query("SELECT YEAR(pt.createdAt), MONTH(pt.createdAt), COALESCE(SUM(pt.amount), 0), COUNT(pt) " +
            "FROM PaymentTransaction pt " +
            "WHERE pt.status = 'COMPLETED' AND pt.createdAt >= :fromDate " +
+           "AND pt.type IN ('PREMIUM_SUBSCRIPTION', 'COURSE_PURCHASE', 'COIN_PURCHASE') " +
            "GROUP BY YEAR(pt.createdAt), MONTH(pt.createdAt) " +
            "ORDER BY YEAR(pt.createdAt), MONTH(pt.createdAt)")
     List<Object[]> getMonthlyRevenue(@Param("fromDate") LocalDateTime fromDate);
 
     /**
-     * Admin: Get yearly revenue
+     * Admin: Get yearly revenue - ONLY PURCHASES
      */
     @Query("SELECT YEAR(pt.createdAt), COALESCE(SUM(pt.amount), 0), COUNT(pt) " +
            "FROM PaymentTransaction pt " +
            "WHERE pt.status = 'COMPLETED' " +
+           "AND pt.type IN ('PREMIUM_SUBSCRIPTION', 'COURSE_PURCHASE', 'COIN_PURCHASE') " +
            "GROUP BY YEAR(pt.createdAt) " +
            "ORDER BY YEAR(pt.createdAt)")
     List<Object[]> getYearlyRevenue();

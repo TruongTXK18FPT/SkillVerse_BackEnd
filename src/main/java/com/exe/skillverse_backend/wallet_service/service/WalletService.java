@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.wallet_service.service;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
+import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.wallet_service.dto.response.WalletResponse;
 import com.exe.skillverse_backend.wallet_service.dto.response.WalletTransactionResponse;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
@@ -32,6 +33,7 @@ public class WalletService {
         private final WalletRepository walletRepository;
         private final WalletTransactionRepository transactionRepository;
         private final UserRepository userRepository;
+        private final UserProfileRepository userProfileRepository;
         private final PasswordEncoder passwordEncoder;
 
         /**
@@ -497,5 +499,68 @@ public class WalletService {
                 log.info("✅ Processed refund of {} VND to user {}", cashAmount, userId);
 
                 return savedTransaction;
+        }
+        
+        /**
+         * Admin: Get system-wide wallet statistics
+         * @return Map with total cash, total coins, and wallet count
+         */
+        @Transactional(readOnly = true)
+        public java.util.Map<String, Object> getSystemWalletStats() {
+                java.math.BigDecimal totalCash = walletRepository.getTotalCashBalance();
+                Long totalCoins = walletRepository.getTotalCoinBalance();
+                Long walletCount = walletRepository.countActiveWallets();
+                
+                java.util.Map<String, Object> stats = new java.util.HashMap<>();
+                stats.put("totalCashBalance", totalCash != null ? totalCash.toString() : "0");
+                stats.put("totalCoinBalance", totalCoins != null ? totalCoins : 0L);
+                stats.put("activeWalletCount", walletCount != null ? walletCount : 0L);
+                
+                log.info("Admin fetched system wallet stats - Cash: {}, Coins: {}, Wallets: {}",
+                        totalCash, totalCoins, walletCount);
+                
+                return stats;
+        }
+        
+        /**
+         * Admin: Get all wallet transactions with optional type filter
+         */
+        @Transactional(readOnly = true)
+        public org.springframework.data.domain.Page<WalletTransactionResponse> getAllTransactionsAdmin(
+                        String type, 
+                        org.springframework.data.domain.Pageable pageable) {
+                org.springframework.data.domain.Page<WalletTransaction> transactions;
+                
+                if (type != null && !type.isEmpty()) {
+                        try {
+                                WalletTransaction.TransactionType transactionType = 
+                                        WalletTransaction.TransactionType.valueOf(type.toUpperCase());
+                                transactions = transactionRepository.findByTransactionTypeOrderByCreatedAtDesc(
+                                        transactionType, pageable);
+                        } catch (IllegalArgumentException e) {
+                                log.warn("Invalid transaction type: {}", type);
+                                transactions = transactionRepository.findAllByOrderByCreatedAtDesc(pageable);
+                        }
+                } else {
+                        transactions = transactionRepository.findAllByOrderByCreatedAtDesc(pageable);
+                }
+                
+                return transactions.map(tx -> {
+                        WalletTransactionResponse response = WalletTransactionResponse.fromEntity(tx);
+                        // Override userName with fullName from UserProfile if available
+                        if (response.getUserId() != null) {
+                                try {
+                                        userProfileRepository.findByUserId(response.getUserId())
+                                                .ifPresent(profile -> {
+                                                        if (profile.getFullName() != null && !profile.getFullName().isBlank()) {
+                                                                response.setUserName(profile.getFullName());
+                                                        }
+                                                });
+                                } catch (Exception e) {
+                                        log.warn("Could not fetch user profile for userId {}: {}", response.getUserId(), e.getMessage());
+                                }
+                        }
+                        return response;
+                });
         }
 }

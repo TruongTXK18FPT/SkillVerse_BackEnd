@@ -20,23 +20,28 @@ spring:
       location: ${java.io.tmpdir}
 
   mail:
-    host: ${SPRING_MAIL_HOST:smtp.gmail.com}
-    port: ${SPRING_MAIL_PORT:587}
-    username: ${SPRING_MAIL_USERNAME:skillverseexe@gmail.com}
-    password: ${SPRING_MAIL_PASSWORD:fgbx gygh iglz dcou} # Gmail App Password
+    host: ${SMTP_HOST:${SPRING_MAIL_HOST:mail49.vietnix.vn}}
+    port: ${SMTP_PORT:${SPRING_MAIL_PORT:465}}
+    username: ${SMTP_USERNAME:${SPRING_MAIL_USERNAME:noreply@skillverse.vn}}
+    password: ${SMTP_PASSWORD:${SPRING_MAIL_PASSWORD:}}
     properties:
       mail:
         smtp:
-          auth: true
+          auth: ${SMTP_AUTH:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH:true}}
+          ssl:
+            enable: ${SMTP_SSL_ENABLE:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE:true}}
+            trust: ${SMTP_SSL_TRUST:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_TRUST:mail49.vietnix.vn}}
+            checkserveridentity: ${SMTP_SSL_CHECKSERVERIDENTITY:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_CHECKSERVERIDENTITY:true}}
           starttls:
-            enable: true
-          connectiontimeout: 5000
-          timeout: 3000
-          writetimeout: 5000
+            enable: ${SMTP_STARTTLS_ENABLE:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE:false}}
+            required: ${SMTP_STARTTLS_REQUIRED:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED:false}}
+          connectiontimeout: ${SMTP_CONNECTION_TIMEOUT:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT:10000}}
+          timeout: ${SMTP_TIMEOUT:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT:10000}}
+          writetimeout: ${SMTP_WRITE_TIMEOUT:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT:10000}}
 
   jackson:
     # Thời gian, ngày tháng
-    date-format: ${SPRING_JACKSON_DATE_FORMAT:yyyy-MM-dd'T'HH:mm:ss.SSS'Z'}
+    date-format: ${SPRING_JACKSON_DATE_FORMAT:yyyy-MM-dd'T'HH:mm:ss.SSSXXX}
     time-zone: ${SPRING_JACKSON_TIME_ZONE:Asia/Ho_Chi_Minh}
 
     # Cách hiển thị
@@ -104,7 +109,7 @@ jwt:
   refresh-pepper: ${JWT_REFRESH_PEPPER:skillverse-refresh-pepper}
 
 email:
-  from: ${EMAIL_FROM:skillverseexe@gmail.com}
+  from: ${EMAIL_FROM:noreply@skillverse.vn}
   from-name: ${EMAIL_FROM_NAME:SkillVerse}
 
 cors:

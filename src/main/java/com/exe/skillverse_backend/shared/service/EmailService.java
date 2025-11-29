@@ -24,7 +24,7 @@ public class EmailService {
 
     private final JavaMailSender mailSender;
 
-    @Value("${email.from:skillverseexe@gmail.com}")
+    @Value("${email.from:noreply@skillverse.vn}")
     private String fromEmail;
 
     @Value("${email.from-name:SkillVerse}")
@@ -35,25 +35,20 @@ public class EmailService {
      */
     public void sendOtpEmail(String email, String otp) {
         try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail);
-            message.setTo(email);
-            message.setSubject("Verify Your Email - SkillVerse");
-            message.setText(buildOtpEmailContent(otp));
+            String subject = "Xác thực email - SkillVerse";
+            String htmlContent = buildOtpEmailHtmlContent(otp);
+            sendHtmlEmail(email, subject, htmlContent);
 
-            mailSender.send(message);
-
-            log.info("🔐 EMAIL SERVICE: Registration OTP email sent successfully to {}", email);
-            // log.info("📝 OTP Code: {} (expires in 5 minutes)", otp);
+            log.info("🔐 EMAIL SERVICE: Đã gửi email OTP xác thực tới {}", email);
 
         } catch (Exception e) {
-            log.error("❌ Failed to send OTP email to {}: {}", email, e.getMessage());
-            // Fallback to console logging for development
-            log.info("🔐 [FALLBACK] EMAIL SERVICE: Sending registration OTP to {}", email);
-            log.info("📧 Subject: Verify Your Email - SkillVerse");
-            log.info("📝 Message: Your verification code is: {}", otp);
-            log.info("⏰ This code will expire in 5 minutes");
-            log.info("✉️  [SIMULATED] Email sent successfully to {}", email);
+            log.error("❌ Gửi email OTP xác thực thất bại tới {}", email, e);
+            // Fallback (dev): log ra console
+            log.info("🔐 [FALLBACK] EMAIL SERVICE: Gửi OTP xác thực tới {}", email);
+            log.info("📧 Tiêu đề: Xác thực email - SkillVerse");
+            log.info("📝 Mã xác thực của bạn: {}", otp);
+            log.info("⏰ Mã sẽ hết hạn sau 5 phút");
+            log.info("✉️  [MÔ PHỎNG] Đã gửi email tới {}", email);
         }
     }
 
@@ -62,25 +57,20 @@ public class EmailService {
      */
     public void sendPasswordResetOtpEmail(String email, String otp) {
         try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail);
-            message.setTo(email);
-            message.setSubject("🔐 Password Reset Request - SkillVerse");
-            message.setText(buildPasswordResetOtpContent(otp));
+            String subject = "Mã xác thực đặt lại mật khẩu - SkillVerse";
+            String htmlContent = buildPasswordResetOtpHtmlContent(otp);
+            sendHtmlEmail(email, subject, htmlContent);
 
-            mailSender.send(message);
-
-            log.info("🔑 EMAIL SERVICE: Password reset OTP email sent successfully to {}", email);
-            // log.info("📝 OTP Code: {} (expires in 5 minutes)", otp);
+            log.info("🔑 EMAIL SERVICE: Đã gửi email OTP đặt lại mật khẩu tới {}", email);
 
         } catch (Exception e) {
-            log.error("❌ Failed to send password reset OTP email to {}: {}", email, e.getMessage());
-            // Fallback to console logging for development
-            log.info("🔑 [FALLBACK] EMAIL SERVICE: Sending password reset OTP to {}", email);
-            log.info("📧 Subject: Password Reset Request - SkillVerse");
-            log.info("📝 Message: Your password reset code is: {}", otp);
-            log.info("⏰ This code will expire in 5 minutes");
-            log.info("✉️  [SIMULATED] Password reset email sent successfully to {}", email);
+            log.error("❌ Gửi email OTP đặt lại mật khẩu thất bại tới {}", email, e);
+            // Fallback (dev): log ra console
+            log.info("🔑 [FALLBACK] EMAIL SERVICE: Gửi OTP đặt lại mật khẩu tới {}", email);
+            log.info("📧 Tiêu đề: Mã xác thực đặt lại mật khẩu - SkillVerse");
+            log.info("📝 Mã xác thực của bạn: {}", otp);
+            log.info("⏰ Mã sẽ hết hạn sau 5 phút");
+            log.info("✉️  [MÔ PHỎNG] Đã gửi email tới {}", email);
         }
     }
 
@@ -89,18 +79,14 @@ public class EmailService {
      */
     public void sendWelcomeEmail(String email, String fullName) {
         try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail);
-            message.setTo(email);
-            message.setSubject("Welcome to SkillVerse!");
-            message.setText(buildWelcomeEmailContent(fullName != null ? fullName : email));
+            String subject = "🎉 Chào mừng đến với SkillVerse";
+            String htmlContent = buildWelcomeEmailHtmlContent(fullName != null ? fullName : email);
+            sendHtmlEmail(email, subject, htmlContent);
 
-            mailSender.send(message);
-
-            log.info("🎉 EMAIL SERVICE: Welcome email sent successfully to {}", email);
+            log.info("🎉 EMAIL SERVICE: Welcome HTML email sent successfully to {}", email);
 
         } catch (Exception e) {
-            log.error("❌ Failed to send welcome email to {}: {}", email, e.getMessage());
+            log.error("❌ Failed to send welcome email to {}", email, e);
             // Fallback to console logging
             log.info("🎉 [FALLBACK] EMAIL SERVICE: Sending welcome email to {}", email);
             log.info("📧 Subject: Welcome to SkillVerse!");
@@ -160,42 +146,108 @@ public class EmailService {
         }
     }
 
-    private String buildOtpEmailContent(String otp) {
+    private String buildOtpEmailHtmlContent(String otp) {
         return """
-                Dear User,
-
-                Thank you for registering with SkillVerse!
-
-                Your email verification code is: %s
-
-                This code will expire in 5 minutes. Please enter this code in the verification form to complete your registration.
-
-                If you didn't request this verification, please ignore this email.
-
-                Best regards,
-                The SkillVerse Team
-                """
-                .formatted(otp);
+                <!doctype html>
+                <html lang=\"vi\">
+                <head>
+                  <meta charset=\"UTF-8\" />
+                  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+                  <title>Xác thực email - SkillVerse</title>
+                  <style>
+                    body { margin:0; padding:0; background:#f5f7fb; font-family:Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#1f2937; }
+                    .container { max-width:600px; margin:24px auto; padding:0 16px; }
+                    .card { background:#ffffff; border-radius:12px; box-shadow:0 6px 20px rgba(31,41,55,0.08); overflow:hidden; }
+                    .header { background:linear-gradient(90deg,#4f46e5,#6366f1); color:#fff; padding:20px 24px; }
+                    .brand { font-size:18px; font-weight:600; letter-spacing:0.3px; }
+                    .chip { display:inline-block; margin-top:6px; padding:4px 10px; background:rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.35); border-radius:999px; font-size:12px; }
+                    .content { padding:24px; }
+                    h1 { margin:0 0 8px 0; font-size:20px; color:#111827; }
+                    p { margin:8px 0; line-height:1.6; }
+                    .otp-block { margin:18px 0 12px; padding:18px; background:#f9fafb; border:1px dashed #d1d5db; border-radius:10px; text-align:center; }
+                    .otp { font-size:32px; font-weight:700; letter-spacing:6px; color:#111827; }
+                    .muted { color:#6b7280; font-size:13px; }
+                    .footer { padding:16px 24px 22px; border-top:1px solid #eef2f7; background:#fafafa; }
+                    .note { font-size:12px; color:#6b7280; }
+                  </style>
+                </head>
+                <body>
+                  <div class=\"container\">
+                    <div class=\"card\">
+                      <div class=\"header\">
+                        <div class=\"brand\">SkillVerse</div>
+                        <div class=\"chip\">Mã xác thực email</div>
+                      </div>
+                      <div class=\"content\">
+                        <h1>Xin chào,</h1>
+                        <p>Cảm ơn bạn đã đăng ký tài khoản tại SkillVerse.</p>
+                        <p>Để hoàn tất xác thực email, vui lòng nhập mã OTP dưới đây:</p>
+                        <div class=\"otp-block\">
+                          <div class=\"otp\">%s</div>
+                        </div>
+                        <p class=\"muted\">Mã sẽ hết hạn sau <strong>5 phút</strong>. Vui lòng không chia sẻ mã này cho bất kỳ ai.</p>
+                        <p>Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email.</p>
+                      </div>
+                      <div class=\"footer\">
+                        <div class=\"note\">© SkillVerse — Hành trình học tập và nghề nghiệp của bạn.</div>
+                      </div>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(otp);
     }
 
-    private String buildPasswordResetOtpContent(String otp) {
+    private String buildPasswordResetOtpHtmlContent(String otp) {
         return """
-                Dear User,
-
-                We received a request to reset your password for your SkillVerse account.
-
-                Your password reset verification code is: %s
-
-                This code will expire in 5 minutes. Please enter this code to proceed with resetting your password.
-
-                If you didn't request a password reset, please ignore this email and your password will remain unchanged.
-
-                For security reasons, never share this code with anyone.
-
-                Best regards,
-                The SkillVerse Team
-                """
-                .formatted(otp);
+                <!doctype html>
+                <html lang=\"vi\">
+                <head>
+                  <meta charset=\"UTF-8\" />
+                  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+                  <title>Mã xác thực đặt lại mật khẩu - SkillVerse</title>
+                  <style>
+                    body { margin:0; padding:0; background:#f5f7fb; font-family:Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#1f2937; }
+                    .container { max-width:600px; margin:24px auto; padding:0 16px; }
+                    .card { background:#ffffff; border-radius:12px; box-shadow:0 6px 20px rgba(31,41,55,0.08); overflow:hidden; }
+                    .header { background:linear-gradient(90deg,#ef4444,#f59e0b); color:#fff; padding:20px 24px; }
+                    .brand { font-size:18px; font-weight:600; letter-spacing:0.3px; }
+                    .chip { display:inline-block; margin-top:6px; padding:4px 10px; background:rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.35); border-radius:999px; font-size:12px; }
+                    .content { padding:24px; }
+                    h1 { margin:0 0 8px 0; font-size:20px; color:#111827; }
+                    p { margin:8px 0; line-height:1.6; }
+                    .otp-block { margin:18px 0 12px; padding:18px; background:#fff7ed; border:1px dashed #fdba74; border-radius:10px; text-align:center; }
+                    .otp { font-size:32px; font-weight:700; letter-spacing:6px; color:#111827; }
+                    .muted { color:#6b7280; font-size:13px; }
+                    .footer { padding:16px 24px 22px; border-top:1px solid #eef2f7; background:#fafafa; }
+                    .note { font-size:12px; color:#6b7280; }
+                  </style>
+                </head>
+                <body>
+                  <div class=\"container\">
+                    <div class=\"card\">
+                      <div class=\"header\">
+                        <div class=\"brand\">SkillVerse</div>
+                        <div class=\"chip\">Mã xác thực đặt lại mật khẩu</div>
+                      </div>
+                      <div class=\"content\">
+                        <h1>Xin chào,</h1>
+                        <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản SkillVerse của bạn.</p>
+                        <p>Vui lòng dùng mã OTP dưới đây để tiếp tục:</p>
+                        <div class=\"otp-block\">
+                          <div class=\"otp\">%s</div>
+                        </div>
+                        <p class=\"muted\">Mã sẽ hết hạn sau <strong>5 phút</strong>. Tuyệt đối không chia sẻ mã này với bất kỳ ai.</p>
+                        <p>Nếu bạn không gửi yêu cầu này, vui lòng bỏ qua email và mật khẩu của bạn vẫn giữ nguyên.</p>
+                      </div>
+                      <div class=\"footer\">
+                        <div class=\"note\">© SkillVerse — Bảo mật tài khoản của bạn là ưu tiên hàng đầu.</div>
+                      </div>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(otp);
     }
 
     private String buildWelcomeEmailContent(String name) {
@@ -216,6 +268,66 @@ public class EmailService {
 
                 Best regards,
                 The SkillVerse Team
+                """.formatted(name);
+    }
+
+    /**
+     * Build modern Vietnamese HTML for Welcome email
+     */
+    private String buildWelcomeEmailHtmlContent(String name) {
+        return """
+                <!DOCTYPE html>
+                <html lang=\"vi\">
+                <head>
+                    <meta charset=\"UTF-8\" />
+                    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+                    <title>Chào mừng đến với SkillVerse</title>
+                    <style>
+                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f7; margin: 0; padding: 20px; color:#111827; }
+                        .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 24px rgba(17,24,39,0.08); }
+                        .header { background: linear-gradient(135deg, #4f46e5 0%%, #6366f1 100%%); padding: 36px 30px; color: #ffffff; text-align: center; }
+                        .header h1 { margin: 0; font-size: 28px; }
+                        .brand { font-weight: 600; opacity: 0.92; margin-top: 6px; }
+                        .content { padding: 26px 30px; }
+                        p { line-height: 1.7; margin: 10px 0; color:#1f2937; }
+                        .highlight { background: #eef2ff; border-left: 4px solid #4f46e5; padding: 14px; border-radius: 8px; margin: 16px 0; }
+                        .features { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px; }
+                        .features ul { margin: 0; padding-left: 18px; }
+                        .cta { text-align: center; margin: 24px 0; }
+                        .button { display: inline-block; background: #4f46e5; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; }
+                        .footer { background: #f9fafb; padding: 18px 22px; text-align: center; color: #6b7280; font-size: 13px; }
+                    </style>
+                </head>
+                <body>
+                    <div class=\"container\">
+                        <div class=\"header\">
+                            <h1>🎉 Chào mừng, %s!</h1>
+                            <div class=\"brand\">SkillVerse</div>
+                        </div>
+                        <div class=\"content\">
+                            <p>Cảm ơn bạn đã xác thực email thành công. Tài khoản của bạn đã sẵn sàng để bắt đầu hành trình học tập và phát triển sự nghiệp.</p>
+                            <div class=\"highlight\">
+                                <strong>Bạn có thể:</strong>
+                                <div class=\"features\">
+                                    <ul>
+                                        <li>Hoàn thiện hồ sơ cá nhân</li>
+                                        <li>Khám phá khóa học và mentor</li>
+                                        <li>Ứng tuyển trở thành Mentor hoặc Recruiter</li>
+                                        <li>Bắt đầu lộ trình học tập phù hợp</li>
+                                    </ul>
+                                </div>
+                            </div>
+                            <div class=\"cta\">
+                                <a class=\"button\" href=\"https://skillverse.vn\">Khám phá SkillVerse</a>
+                            </div>
+                            <p style=\"font-size:13px; color:#6b7280\">Nếu bạn không thực hiện hành động này, hãy bỏ qua email.</p>
+                        </div>
+                        <div class=\"footer\">
+                            © SkillVerse — Cộng đồng học tập và nghề nghiệp.
+                        </div>
+                    </div>
+                </body>
+                </html>
                 """.formatted(name);
     }
 

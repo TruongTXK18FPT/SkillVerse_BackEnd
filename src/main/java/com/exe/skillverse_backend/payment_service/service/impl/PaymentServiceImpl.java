@@ -10,8 +10,11 @@ import com.exe.skillverse_backend.payment_service.dto.response.PaymentTransactio
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.repository.PaymentTransactionRepository;
 import com.exe.skillverse_backend.payment_service.service.PaymentService;
+import com.exe.skillverse_backend.payment_service.service.InvoiceService;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
+import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +43,8 @@ public class PaymentServiceImpl implements PaymentService {
     private final PremiumService premiumService;
     private final WalletService walletService;
     private final UserProfileService userProfileService;
+    private final WalletTransactionRepository walletTransactionRepository;
+    private final InvoiceService invoiceService;
 
     @Override
     @Transactional
@@ -211,6 +216,14 @@ public class PaymentServiceImpl implements PaymentService {
                     gatewayReference);
             return transaction;
         }
+        
+        // Fix race condition: Don't process SUCCESS if payment was already CANCELLED
+        if (transaction.getStatus() == PaymentTransaction.PaymentStatus.CANCELLED &&
+                newStatus == PaymentTransaction.PaymentStatus.COMPLETED) {
+            log.warn("⚠️ Payment {} was already CANCELLED by user. Ignoring SUCCESS callback.",
+                    gatewayReference);
+            return transaction;
+        }
 
         transaction.setStatus(newStatus);
         // Preserve original metadata that contains subscriptionId; don't overwrite with
@@ -271,9 +284,49 @@ public class PaymentServiceImpl implements PaymentService {
                 paymentTransactionRepository.save(transaction);
                 throw new RuntimeException("Wallet deposit failed", e);
             }
-        } else if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED) {
-            log.info("⚠️ Payment completed but not WALLET_TOPUP - Type: {}, User: {}",
-                    transaction.getType(), transaction.getUser().getId());
+        }
+        
+        // Handle coin purchase if payment is completed and it's a coin purchase
+        if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED &&
+                transaction.getType() == PaymentTransaction.PaymentType.COIN_PURCHASE) {
+
+            try {
+                log.info("🪙 Processing coin purchase - User: {}, Reference: {}",
+                        transaction.getUser().getId(), transaction.getInternalReference());
+
+                // Parse metadata to get coin info
+                Map<String, String> coinMetadata = extractCoinMetadataFromJson(transaction.getMetadata());
+                Long totalCoins = Long.parseLong(coinMetadata.getOrDefault("totalCoins", "0"));
+                Long bonusCoins = Long.parseLong(coinMetadata.getOrDefault("bonusCoins", "0"));
+                
+                if (totalCoins > 0) {
+                    walletService.addCoins(
+                            transaction.getUser().getId(),
+                            totalCoins,
+                            bonusCoins > 0 ?
+                                WalletTransaction.TransactionType.BONUS_COINS :
+                                WalletTransaction.TransactionType.PURCHASE_COINS,
+                            String.format("Mua %d SkillCoin qua PayOS%s",
+                                totalCoins,
+                                bonusCoins > 0 ? " (+" + bonusCoins + " bonus)" : ""),
+                            "PAYMENT",
+                            transaction.getInternalReference()
+                    );
+                    
+                    log.info("✅ Successfully added {} Coins to wallet for user {}",
+                            totalCoins, transaction.getUser().getId());
+                } else {
+                    log.error("❌ Invalid coin purchase - totalCoins = 0");
+                }
+            } catch (Exception e) {
+                log.error("❌ Failed to add coins for payment {}: {}",
+                        transaction.getInternalReference(), e.getMessage(), e);
+                // Mark transaction as failed if coin deposit fails
+                transaction.setStatus(PaymentTransaction.PaymentStatus.FAILED);
+                transaction.setFailureReason("Coin deposit failed: " + e.getMessage());
+                paymentTransactionRepository.save(transaction);
+                throw new RuntimeException("Coin deposit failed", e);
+            }
         }
 
         return savedTransaction;
@@ -292,6 +345,30 @@ public class PaymentServiceImpl implements PaymentService {
             log.warn("Failed to parse subscriptionId from metadata JSON: {}", metadata);
         }
         return null;
+    }
+    
+    private Map<String, String> extractCoinMetadataFromJson(String metadata) {
+        Map<String, String> result = new HashMap<>();
+        if (metadata == null || metadata.isEmpty()) {
+            return result;
+        }
+        
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode node = mapper.readTree(metadata);
+            
+            String[] keys = {"coinAmount", "packageId", "totalCoins", "bonusCoins"};
+            for (String key : keys) {
+                JsonNode valueNode = node.get(key);
+                if (valueNode != null && !valueNode.isNull()) {
+                    result.put(key, valueNode.asText());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse coin metadata from JSON: {}", metadata);
+        }
+        
+        return result;
     }
 
     @Override
@@ -315,13 +392,17 @@ public class PaymentServiceImpl implements PaymentService {
         PaymentTransaction transaction = paymentTransactionRepository.findByInternalReference(internalReference)
                 .orElseThrow(() -> new RuntimeException("Payment transaction not found: " + internalReference));
 
+        // If already completed, cancelled, or failed - don't change status
         if (transaction.getStatus() != PaymentTransaction.PaymentStatus.PENDING) {
-            throw new RuntimeException("Cannot cancel payment that is not pending");
+            log.warn("⚠️ Cannot cancel payment {} - already in status: {}", 
+                    internalReference, transaction.getStatus());
+            return; // Silently return instead of throwing, for better UX
         }
 
         transaction.setStatus(PaymentTransaction.PaymentStatus.CANCELLED);
         transaction.setFailureReason(reason);
         paymentTransactionRepository.save(transaction);
+        log.info("✅ Payment {} cancelled successfully", internalReference);
     }
 
     @Override
@@ -520,20 +601,47 @@ public class PaymentServiceImpl implements PaymentService {
                 .filter(t -> t.getStatus() == PaymentTransaction.PaymentStatus.FAILED)
                 .count();
 
-        double totalRevenueValue = transactions.stream()
+        // Calculate total revenue from WalletTransactions (purchases made via wallet)
+        // This includes: PURCHASE_PREMIUM, PURCHASE_COURSE, PURCHASE_COINS
+        java.math.BigDecimal walletPurchaseRevenue = walletTransactionRepository
+                .calculateTotalPurchaseRevenueInRange(startDate, endDate);
+        
+        // Also add PayOS payments for premium/course/coins (if any paid directly via PayOS)
+        double payosRevenueValue = transactions.stream()
                 .filter(t -> t.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED)
+                .filter(t -> t.getType() == PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION ||
+                            t.getType() == PaymentTransaction.PaymentType.COURSE_PURCHASE ||
+                            t.getType() == PaymentTransaction.PaymentType.COIN_PURCHASE)
                 .map(PaymentTransaction::getAmount)
                 .filter(amount -> amount != null)
                 .mapToDouble(amount -> {
                     try {
-                        // amount is String, parse it
                         return Double.parseDouble(String.valueOf(amount));
                     } catch (Exception e) {
                         return 0.0;
                     }
                 })
                 .sum();
+        
+        // Total revenue = wallet purchases + PayOS purchases
+        double totalRevenueValue = (walletPurchaseRevenue != null ? walletPurchaseRevenue.doubleValue() : 0.0) 
+                                 + payosRevenueValue;
         String totalRevenue = String.valueOf(totalRevenueValue);
+        
+        // Calculate total wallet deposits separately (nạp tiền vào ví)
+        double totalWalletDeposits = transactions.stream()
+                .filter(t -> t.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED)
+                .filter(t -> t.getType() == PaymentTransaction.PaymentType.WALLET_TOPUP)
+                .map(PaymentTransaction::getAmount)
+                .filter(amount -> amount != null)
+                .mapToDouble(amount -> {
+                    try {
+                        return Double.parseDouble(String.valueOf(amount));
+                    } catch (Exception e) {
+                        return 0.0;
+                    }
+                })
+                .sum();
 
         Map<String, Object> stats = new HashMap<>();
         stats.put("totalTransactions", totalTransactions);
@@ -541,6 +649,7 @@ public class PaymentServiceImpl implements PaymentService {
         stats.put("pendingCount", pendingCount);
         stats.put("failedCount", failedCount);
         stats.put("totalRevenue", totalRevenue);
+        stats.put("totalWalletDeposits", String.valueOf(totalWalletDeposits));
         stats.put("startDate", startDate);
         stats.put("endDate", endDate);
 
@@ -559,28 +668,54 @@ public class PaymentServiceImpl implements PaymentService {
         
         switch (period.toLowerCase()) {
             case "daily":
-                // Last N days
+                // Last N days - combine PaymentTransactions + WalletTransactions
                 fromDate = LocalDateTime.now().minusDays(lookbackDays);
-                List<Object[]> dailyData = paymentTransactionRepository.getDailyRevenue(fromDate);
-                for (Object[] row : dailyData) {
+                Map<String, double[]> dailyAgg = new java.util.LinkedHashMap<>();
+                
+                // Get PayOS purchases
+                List<Object[]> dailyPayOS = paymentTransactionRepository.getDailyRevenue(fromDate);
+                for (Object[] row : dailyPayOS) {
+                    if (row[0] != null) {
+                        String dateKey = row[0].toString();
+                        double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
+                        long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
+                        dailyAgg.merge(dateKey, new double[]{revenue, txCount}, 
+                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                    }
+                }
+                
+                // Get wallet purchases
+                List<Object[]> dailyWallet = walletTransactionRepository.getDailyPurchaseRevenue(fromDate);
+                for (Object[] row : dailyWallet) {
+                    if (row[0] != null) {
+                        String dateKey = row[0].toString();
+                        double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
+                        long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
+                        dailyAgg.merge(dateKey, new double[]{revenue, txCount}, 
+                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                    }
+                }
+                
+                // Convert to list
+                for (Map.Entry<String, double[]> entry : dailyAgg.entrySet()) {
                     Map<String, Object> item = new HashMap<>();
-                    item.put("date", row[0] != null ? row[0].toString() : "");
-                    item.put("revenue", row[1] != null ? Double.parseDouble(row[1].toString()) : 0);
-                    item.put("transactions", row[2] != null ? ((Number) row[2]).longValue() : 0);
+                    item.put("date", entry.getKey());
+                    item.put("revenue", entry.getValue()[0]);
+                    item.put("transactions", (long) entry.getValue()[1]);
                     data.add(item);
                 }
                 break;
                 
             case "weekly":
-                // Aggregate by week (last N weeks)
+                // Aggregate by week (last N weeks) - combine PayOS + wallet
                 fromDate = LocalDateTime.now().minusWeeks(lookbackDays);
-                List<Object[]> weeklyRaw = paymentTransactionRepository.getDailyRevenue(fromDate);
-                // Group by week
                 Map<String, double[]> weeklyAgg = new java.util.LinkedHashMap<>();
-                for (Object[] row : weeklyRaw) {
+                
+                // PayOS purchases
+                List<Object[]> weeklyPayOS = paymentTransactionRepository.getDailyRevenue(fromDate);
+                for (Object[] row : weeklyPayOS) {
                     if (row[0] != null) {
                         java.time.LocalDate date = (java.time.LocalDate) row[0];
-                        // Get ISO week
                         String weekKey = date.getYear() + "-W" + String.format("%02d", date.get(java.time.temporal.WeekFields.ISO.weekOfYear()));
                         double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
                         long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
@@ -588,6 +723,20 @@ public class PaymentServiceImpl implements PaymentService {
                             (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
                     }
                 }
+                
+                // Wallet purchases
+                List<Object[]> weeklyWallet = walletTransactionRepository.getDailyPurchaseRevenue(fromDate);
+                for (Object[] row : weeklyWallet) {
+                    if (row[0] != null) {
+                        java.time.LocalDate date = (java.time.LocalDate) row[0];
+                        String weekKey = date.getYear() + "-W" + String.format("%02d", date.get(java.time.temporal.WeekFields.ISO.weekOfYear()));
+                        double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
+                        long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
+                        weeklyAgg.merge(weekKey, new double[]{revenue, txCount}, 
+                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                    }
+                }
+                
                 for (Map.Entry<String, double[]> entry : weeklyAgg.entrySet()) {
                     Map<String, Object> item = new HashMap<>();
                     item.put("week", entry.getKey());
@@ -598,28 +747,72 @@ public class PaymentServiceImpl implements PaymentService {
                 break;
                 
             case "monthly":
-                // Last N months
+                // Last N months - combine PayOS + wallet
                 fromDate = LocalDateTime.now().minusMonths(lookbackDays);
-                List<Object[]> monthlyData = paymentTransactionRepository.getMonthlyRevenue(fromDate);
-                for (Object[] row : monthlyData) {
-                    Map<String, Object> item = new HashMap<>();
+                Map<String, double[]> monthlyAgg = new java.util.LinkedHashMap<>();
+                
+                // PayOS purchases
+                List<Object[]> monthlyPayOS = paymentTransactionRepository.getMonthlyRevenue(fromDate);
+                for (Object[] row : monthlyPayOS) {
                     int year = row[0] != null ? ((Number) row[0]).intValue() : 0;
                     int month = row[1] != null ? ((Number) row[1]).intValue() : 0;
-                    item.put("month", String.format("%d-%02d", year, month));
-                    item.put("revenue", row[2] != null ? Double.parseDouble(row[2].toString()) : 0);
-                    item.put("transactions", row[3] != null ? ((Number) row[3]).longValue() : 0);
+                    String monthKey = String.format("%d-%02d", year, month);
+                    double revenue = row[2] != null ? Double.parseDouble(row[2].toString()) : 0;
+                    long txCount = row[3] != null ? ((Number) row[3]).longValue() : 0;
+                    monthlyAgg.merge(monthKey, new double[]{revenue, txCount}, 
+                        (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                }
+                
+                // Wallet purchases
+                List<Object[]> monthlyWallet = walletTransactionRepository.getMonthlyPurchaseRevenue(fromDate);
+                for (Object[] row : monthlyWallet) {
+                    int year = row[0] != null ? ((Number) row[0]).intValue() : 0;
+                    int month = row[1] != null ? ((Number) row[1]).intValue() : 0;
+                    String monthKey = String.format("%d-%02d", year, month);
+                    double revenue = row[2] != null ? Double.parseDouble(row[2].toString()) : 0;
+                    long txCount = row[3] != null ? ((Number) row[3]).longValue() : 0;
+                    monthlyAgg.merge(monthKey, new double[]{revenue, txCount}, 
+                        (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                }
+                
+                for (Map.Entry<String, double[]> entry : monthlyAgg.entrySet()) {
+                    Map<String, Object> item = new HashMap<>();
+                    item.put("month", entry.getKey());
+                    item.put("revenue", entry.getValue()[0]);
+                    item.put("transactions", (long) entry.getValue()[1]);
                     data.add(item);
                 }
                 break;
                 
             case "yearly":
-                // All years
-                List<Object[]> yearlyData = paymentTransactionRepository.getYearlyRevenue();
-                for (Object[] row : yearlyData) {
+                // All years - combine PayOS + wallet
+                Map<Integer, double[]> yearlyAgg = new java.util.LinkedHashMap<>();
+                
+                // PayOS purchases
+                List<Object[]> yearlyPayOS = paymentTransactionRepository.getYearlyRevenue();
+                for (Object[] row : yearlyPayOS) {
+                    int year = row[0] != null ? ((Number) row[0]).intValue() : 0;
+                    double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
+                    long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
+                    yearlyAgg.merge(year, new double[]{revenue, txCount}, 
+                        (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                }
+                
+                // Wallet purchases
+                List<Object[]> yearlyWallet = walletTransactionRepository.getYearlyPurchaseRevenue();
+                for (Object[] row : yearlyWallet) {
+                    int year = row[0] != null ? ((Number) row[0]).intValue() : 0;
+                    double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
+                    long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
+                    yearlyAgg.merge(year, new double[]{revenue, txCount}, 
+                        (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                }
+                
+                for (Map.Entry<Integer, double[]> entry : yearlyAgg.entrySet()) {
                     Map<String, Object> item = new HashMap<>();
-                    item.put("year", row[0] != null ? ((Number) row[0]).intValue() : 0);
-                    item.put("revenue", row[1] != null ? Double.parseDouble(row[1].toString()) : 0);
-                    item.put("transactions", row[2] != null ? ((Number) row[2]).longValue() : 0);
+                    item.put("year", entry.getKey());
+                    item.put("revenue", entry.getValue()[0]);
+                    item.put("transactions", (long) entry.getValue()[1]);
                     data.add(item);
                 }
                 break;
@@ -627,12 +820,35 @@ public class PaymentServiceImpl implements PaymentService {
             default:
                 log.warn("Unknown period: {}, defaulting to daily", period);
                 fromDate = LocalDateTime.now().minusDays(30);
-                List<Object[]> defaultData = paymentTransactionRepository.getDailyRevenue(fromDate);
-                for (Object[] row : defaultData) {
+                Map<String, double[]> defaultAgg = new java.util.LinkedHashMap<>();
+                
+                List<Object[]> defaultPayOS = paymentTransactionRepository.getDailyRevenue(fromDate);
+                for (Object[] row : defaultPayOS) {
+                    if (row[0] != null) {
+                        String dateKey = row[0].toString();
+                        double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
+                        long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
+                        defaultAgg.merge(dateKey, new double[]{revenue, txCount}, 
+                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                    }
+                }
+                
+                List<Object[]> defaultWallet = walletTransactionRepository.getDailyPurchaseRevenue(fromDate);
+                for (Object[] row : defaultWallet) {
+                    if (row[0] != null) {
+                        String dateKey = row[0].toString();
+                        double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
+                        long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
+                        defaultAgg.merge(dateKey, new double[]{revenue, txCount}, 
+                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                    }
+                }
+                
+                for (Map.Entry<String, double[]> entry : defaultAgg.entrySet()) {
                     Map<String, Object> item = new HashMap<>();
-                    item.put("date", row[0] != null ? row[0].toString() : "");
-                    item.put("revenue", row[1] != null ? Double.parseDouble(row[1].toString()) : 0);
-                    item.put("transactions", row[2] != null ? ((Number) row[2]).longValue() : 0);
+                    item.put("date", entry.getKey());
+                    item.put("revenue", entry.getValue()[0]);
+                    item.put("transactions", (long) entry.getValue()[1]);
                     data.add(item);
                 }
         }
@@ -652,5 +868,27 @@ public class PaymentServiceImpl implements PaymentService {
         result.put("dataPoints", data.size());
         
         return result;
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] generatePaymentInvoicePdf(Long paymentId) {
+        log.info("Generating PDF invoice for payment: {}", paymentId);
+        
+        PaymentTransaction payment = paymentTransactionRepository.findById(paymentId)
+            .orElseThrow(() -> new RuntimeException("Payment not found with ID: " + paymentId));
+        
+        return invoiceService.generatePaymentInvoice(payment);
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] generateWalletTransactionInvoicePdf(Long transactionId) {
+        log.info("Generating PDF invoice for wallet transaction: {}", transactionId);
+        
+        WalletTransaction transaction = walletTransactionRepository.findById(transactionId)
+            .orElseThrow(() -> new RuntimeException("Wallet transaction not found with ID: " + transactionId));
+        
+        return invoiceService.generateWalletTransactionInvoice(transaction);
     }
 }

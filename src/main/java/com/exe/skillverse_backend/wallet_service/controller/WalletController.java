@@ -11,6 +11,7 @@ import com.exe.skillverse_backend.wallet_service.service.CoinService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.wallet_service.service.WithdrawalService;
 import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
+import com.exe.skillverse_backend.payment_service.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -18,6 +19,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -39,6 +42,7 @@ public class WalletController {
     private final WalletService walletService;
     private final CoinService coinService;
     private final WithdrawalService withdrawalService;
+    private final PaymentService paymentService;
     
     /**
      * Get current user's wallet info
@@ -332,6 +336,30 @@ public class WalletController {
         Long userId = extractUserId(authentication);
         Map<String, Object> statistics = walletService.getWalletStatistics(userId);
         return ResponseEntity.ok(statistics);
+    }
+    
+    /**
+     * Download invoice PDF for a wallet transaction
+     */
+    @GetMapping("/transactions/{id}/invoice")
+    @Operation(summary = "Download transaction invoice", 
+               description = "Generate and download PDF invoice for a wallet transaction")
+    public ResponseEntity<byte[]> downloadTransactionInvoice(
+            @PathVariable Long id,
+            Authentication authentication
+    ) {
+        Long userId = extractUserId(authentication);
+        log.info("📄 User {} downloading invoice for transaction {}", userId, id);
+        
+        // Verify the transaction belongs to this user through wallet ownership check in service
+        byte[] pdfBytes = paymentService.generateWalletTransactionInvoicePdf(id);
+        
+        String filename = "invoice-" + id + ".pdf";
+        
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+            .contentType(MediaType.APPLICATION_PDF)
+            .body(pdfBytes);
     }
     
     // ==================== HELPER METHODS ====================

@@ -45,4 +45,22 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
      */
     @Query("SELECT w FROM Wallet w WHERE w.cashBalance >= :minBalance")
     Iterable<Wallet> findWalletsWithMinCashBalance(@Param("minBalance") java.math.BigDecimal minBalance);
+    
+    /**
+     * Get total cash balance across all wallets
+     */
+    @Query("SELECT COALESCE(SUM(w.cashBalance), 0) FROM Wallet w WHERE w.status = 'ACTIVE'")
+    java.math.BigDecimal getTotalCashBalance();
+    
+    /**
+     * Get total coin balance across all wallets
+     */
+    @Query("SELECT COALESCE(SUM(w.coinBalance), 0) FROM Wallet w WHERE w.status = 'ACTIVE'")
+    Long getTotalCoinBalance();
+    
+    /**
+     * Count total active wallets
+     */
+    @Query("SELECT COUNT(w) FROM Wallet w WHERE w.status = 'ACTIVE'")
+    Long countActiveWallets();
 }

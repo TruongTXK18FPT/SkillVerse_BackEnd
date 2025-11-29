@@ -159,7 +159,7 @@ public class PremiumEmailService {
                                     </div>
 
                                     <p style="text-align: center;">
-                                        <a href="http://localhost:5173/premium" class="button">Khám Phá Tính Năng Premium</a>
+                                        <a href="https://skillverse.vn/premium" class="button">Khám Phá Tính Năng Premium</a>
                                     </p>
 
                                     <p style="color: #6b7280; font-size: 14px; margin-top: 30px; text-align: center;">

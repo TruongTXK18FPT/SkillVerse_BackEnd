@@ -103,6 +103,7 @@ public class PaymentTransaction {
         PREMIUM_SUBSCRIPTION,
         COURSE_PURCHASE,
         WALLET_TOPUP,
+        COIN_PURCHASE,
         REFUND
     }
 

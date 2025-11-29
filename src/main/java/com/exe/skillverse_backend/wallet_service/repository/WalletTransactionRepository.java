@@ -113,4 +113,79 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
            "AND t.transactionType IN ('SPEND_COINS', 'PURCHASE_COURSE', 'TIP_MENTOR') " +
            "AND t.status = 'COMPLETED'")
     Long calculateTotalCoinsSpent(@Param("walletId") Long walletId);
+    
+    /**
+     * Calculate total revenue from purchases (Premium, Course, Coins) across ALL wallets
+     * This is for admin dashboard statistics
+     */
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType IN ('PURCHASE_PREMIUM', 'PURCHASE_COURSE', 'PURCHASE_COINS') " +
+           "AND t.status = 'COMPLETED'")
+    java.math.BigDecimal calculateTotalPurchaseRevenue();
+    
+    /**
+     * Calculate total revenue from purchases within a date range
+     */
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType IN ('PURCHASE_PREMIUM', 'PURCHASE_COURSE', 'PURCHASE_COINS') " +
+           "AND t.status = 'COMPLETED' " +
+           "AND t.createdAt BETWEEN :startDate AND :endDate")
+    java.math.BigDecimal calculateTotalPurchaseRevenueInRange(
+        @Param("startDate") LocalDateTime startDate, 
+        @Param("endDate") LocalDateTime endDate
+    );
+    
+    /**
+     * Count total purchase transactions
+     */
+    @Query("SELECT COUNT(t) FROM WalletTransaction t " +
+           "WHERE t.transactionType IN ('PURCHASE_PREMIUM', 'PURCHASE_COURSE', 'PURCHASE_COINS') " +
+           "AND t.status = 'COMPLETED'")
+    Long countTotalPurchaseTransactions();
+    
+    /**
+     * Get daily purchase revenue for charts (grouped by date)
+     */
+    @Query("SELECT CAST(t.createdAt AS LocalDate), COALESCE(SUM(t.cashAmount), 0), COUNT(t) " +
+           "FROM WalletTransaction t " +
+           "WHERE t.transactionType IN ('PURCHASE_PREMIUM', 'PURCHASE_COURSE', 'PURCHASE_COINS') " +
+           "AND t.status = 'COMPLETED' AND t.createdAt >= :fromDate " +
+           "GROUP BY CAST(t.createdAt AS LocalDate) " +
+           "ORDER BY CAST(t.createdAt AS LocalDate)")
+    List<Object[]> getDailyPurchaseRevenue(@Param("fromDate") LocalDateTime fromDate);
+    
+    /**
+     * Get monthly purchase revenue for charts (grouped by year-month)
+     */
+    @Query("SELECT YEAR(t.createdAt), MONTH(t.createdAt), COALESCE(SUM(t.cashAmount), 0), COUNT(t) " +
+           "FROM WalletTransaction t " +
+           "WHERE t.transactionType IN ('PURCHASE_PREMIUM', 'PURCHASE_COURSE', 'PURCHASE_COINS') " +
+           "AND t.status = 'COMPLETED' AND t.createdAt >= :fromDate " +
+           "GROUP BY YEAR(t.createdAt), MONTH(t.createdAt) " +
+           "ORDER BY YEAR(t.createdAt), MONTH(t.createdAt)")
+    List<Object[]> getMonthlyPurchaseRevenue(@Param("fromDate") LocalDateTime fromDate);
+    
+    /**
+     * Get yearly purchase revenue for charts
+     */
+    @Query("SELECT YEAR(t.createdAt), COALESCE(SUM(t.cashAmount), 0), COUNT(t) " +
+           "FROM WalletTransaction t " +
+           "WHERE t.transactionType IN ('PURCHASE_PREMIUM', 'PURCHASE_COURSE', 'PURCHASE_COINS') " +
+           "AND t.status = 'COMPLETED' " +
+           "GROUP BY YEAR(t.createdAt) " +
+           "ORDER BY YEAR(t.createdAt)")
+    List<Object[]> getYearlyPurchaseRevenue();
+    
+    /**
+     * Admin: Get all transactions ordered by date
+     */
+    Page<WalletTransaction> findAllByOrderByCreatedAtDesc(Pageable pageable);
+    
+    /**
+     * Admin: Get transactions by type ordered by date
+     */
+    Page<WalletTransaction> findByTransactionTypeOrderByCreatedAtDesc(
+        WalletTransaction.TransactionType transactionType, 
+        Pageable pageable
+    );
 }

@@ -15,6 +15,7 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.entity.Certificate;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -39,6 +40,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserProfileService userProfileService;
+    private final EntityManager entityManager;
 
     @Override
     @Transactional(readOnly = true)
@@ -58,6 +60,13 @@ public class AdminUserServiceImpl implements AdminUserService {
             users = userRepository.findByStatus(status);
         } else {
             users = userRepository.findAll();
+        }
+
+        // Hide ADMIN accounts by default when no explicit role filter is provided
+        if (role == null) {
+            users = users.stream()
+                    .filter(u -> u.getPrimaryRole() != PrimaryRole.ADMIN)
+                    .collect(Collectors.toList());
         }
 
         // Convert to DTOs
@@ -315,6 +324,129 @@ public class AdminUserServiceImpl implements AdminUserService {
                 .coursesEnrolled(user.getEnrollments() != null ? (long) user.getEnrollments().size() : 0L)
                 .certificatesEarned(user.getCertificates() != null ? (long) user.getCertificates().size() : 0L)
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public void permanentlyDeleteUser(Long userId) {
+        log.info("Permanently deleting user with userId: {}", userId);
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
+
+        // Only allow permanent deletion for INACTIVE users
+        if (user.getStatus() == UserStatus.ACTIVE) {
+            throw new RuntimeException(
+                "Cannot permanently delete an ACTIVE user. Please deactivate the account first.");
+        }
+
+        try {
+            // Use native SQL to delete all related data and the user itself
+            // Delete in order of FK dependencies (children first, then parent)
+
+            // Support Service
+            entityManager.createNativeQuery("DELETE FROM ticket_messages WHERE sender_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM support_tickets WHERE user_id = ?1 OR assigned_to = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // AI Service
+            entityManager.createNativeQuery("DELETE FROM chat_messages WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM roadmap_sessions WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // Premium Service
+            entityManager.createNativeQuery("DELETE FROM user_usage_tracking WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM subscription_cancellations WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM user_subscriptions WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // Payment Service
+            entityManager.createNativeQuery("DELETE FROM payment_transactions WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // Wallet Service
+            entityManager.createNativeQuery("DELETE FROM withdrawal_requests WHERE user_id = ?1 OR approved_by = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM wallet_transactions WHERE wallet_id IN (SELECT wallet_id FROM wallets WHERE user_id = ?1)")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM wallets WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // Portfolio Service
+            entityManager.createNativeQuery("DELETE FROM mentor_reviews WHERE user_id = ?1 OR mentor_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM generated_cvs WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM external_certificates WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM portfolio_projects WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM portfolio_extended_profiles WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // Mentor Service
+            entityManager.createNativeQuery("DELETE FROM mentor_profiles WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // Business Service
+            entityManager.createNativeQuery("DELETE FROM job_applications WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM recruiter_profiles WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // Shared Service
+            entityManager.createNativeQuery("DELETE FROM file_uploads WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM user_history WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM audit_logs WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM media WHERE uploaded_by = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // User Service
+            entityManager.createNativeQuery("DELETE FROM user_skills WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM user_profiles WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // Course Service
+            entityManager.createNativeQuery("DELETE FROM lesson_progress WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM module_progress WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM certificates WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM course_purchase WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM course_enrollment WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM assignment_submissions WHERE user_id = ?1 OR graded_by = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM coding_submissions WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM courses WHERE author_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // Auth Service
+            entityManager.createNativeQuery("DELETE FROM refresh_tokens WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM user_roles WHERE user_id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            // Finally delete the user itself
+            entityManager.createNativeQuery("DELETE FROM users WHERE id = ?1")
+                    .setParameter(1, userId).executeUpdate();
+
+            log.info("Successfully permanently deleted user with userId: {} and all related data", userId);
+        } catch (Exception e) {
+            log.error("Error permanently deleting user with userId: {}", userId, e);
+            throw new RuntimeException("Failed to permanently delete user: " + e.getMessage(), e);
+        }
     }
 
     /**
