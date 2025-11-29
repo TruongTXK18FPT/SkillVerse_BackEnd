@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.admin_service.dto.request.ApplicationActionReq
 import com.exe.skillverse_backend.admin_service.dto.response.AdminApprovalResponse;
 import com.exe.skillverse_backend.admin_service.dto.response.ApplicationsResponse;
 import com.exe.skillverse_backend.admin_service.service.AdminApprovalService;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -30,6 +31,7 @@ import org.springframework.web.bind.annotation.*;
 public class AdminApplicationController {
 
     private final AdminApprovalService adminApprovalService;
+    private final CloudinaryService cloudinaryService;
 
     @PostMapping("/applications/process")
     @Operation(summary = "Process Application (Unified)", description = "Unified API to approve or reject mentor/recruiter applications with a single endpoint")
@@ -93,6 +95,65 @@ public class AdminApplicationController {
             return ResponseEntity.badRequest().build();
         } catch (Exception e) {
             log.error("Error retrieving applications", e);
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @GetMapping("/media/signed-url")
+    @Operation(summary = "Generate signed URL for media", description = "Generate Cloudinary signed URL for private media by publicId and resourceType")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Signed URL generated successfully", content = @Content(schema = @Schema(implementation = String.class))),
+            @ApiResponse(responseCode = "400", description = "Invalid parameters", content = @Content),
+            @ApiResponse(responseCode = "403", description = "Access denied - admin role required", content = @Content)
+    })
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<String> generateSignedUrl(
+            @Parameter(description = "Cloudinary public ID", example = "skillverse/company-documents/xyz123") @RequestParam String publicId,
+            @Parameter(description = "Resource type (image, video, raw)", example = "raw") @RequestParam String resourceType) {
+        try {
+            String signedUrl = cloudinaryService.generateSignedUrl(publicId, resourceType);
+            return ResponseEntity.ok(signedUrl);
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid signed URL request: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        } catch (Exception e) {
+            log.error("Error generating signed URL: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    @GetMapping("/media/stream-pdf")
+    @Operation(summary = "Stream PDF for preview", description = "Proxy stream Cloudinary file bytes as application/pdf for inline preview")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "PDF streamed successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid parameters"),
+            @ApiResponse(responseCode = "404", description = "File not found"),
+            @ApiResponse(responseCode = "403", description = "Access denied - admin role required")
+    })
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<byte[]> streamPdf(
+            @Parameter(description = "Cloudinary public ID", example = "skillverse/mentor-cv/file_abc123") @RequestParam String publicId,
+            @Parameter(description = "Resource type (image, video, raw)", example = "raw") @RequestParam(defaultValue = "raw") String resourceType) {
+        try {
+            byte[] bytes = cloudinaryService.fetchFile(publicId, resourceType);
+            String baseName = publicId;
+            int idx = publicId.lastIndexOf('/');
+            if (idx >= 0 && idx < publicId.length() - 1) {
+                baseName = publicId.substring(idx + 1);
+            }
+            String safeName = baseName.replaceAll("[^a-zA-Z0-9_\\-]", "_") + ".pdf";
+            return ResponseEntity.ok()
+                    .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                    .header("Content-Disposition", "inline; filename=" + safeName)
+                    .body(bytes);
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid stream request: {}", e.getMessage());
+            return ResponseEntity.badRequest().build();
+        } catch (java.io.IOException e) {
+            log.error("Error streaming PDF: {}", e.getMessage(), e);
+            return ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND).build();
+        } catch (Exception e) {
+            log.error("Unexpected error streaming PDF: {}", e.getMessage(), e);
             return ResponseEntity.badRequest().build();
         }
     }

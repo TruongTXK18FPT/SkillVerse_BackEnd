@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.shared.service.impl;
 
 import com.cloudinary.Cloudinary;
 import com.cloudinary.utils.ObjectUtils;
+import com.cloudinary.Transformation;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,7 +44,7 @@ public class CloudinaryServiceImpl implements CloudinaryService {
         validateFile(file, "image");
 
         Map<String, Object> params = buildUploadParams(folder, "image");
-        params.put("transformation", new com.cloudinary.Transformation()
+        params.put("transformation", new Transformation()
                 .quality("auto")
                 .fetchFormat("auto"));
 
@@ -118,6 +119,28 @@ public class CloudinaryServiceImpl implements CloudinaryService {
 
         if (file.isEmpty()) {
             throw new IllegalArgumentException("File is empty");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null) {
+            throw new IllegalArgumentException("File content type is null");
+        }
+
+        long maxSizeBytes = 20 * 1024 * 1024;
+        if (file.getSize() > maxSizeBytes) {
+            throw new IllegalArgumentException("File too large. Max 20MB");
+        }
+
+        java.util.Set<String> allowedTypes = new java.util.HashSet<>();
+        allowedTypes.add("application/pdf");
+        allowedTypes.add("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        allowedTypes.add("application/vnd.openxmlformats-officedocument.presentationml.presentation");
+        allowedTypes.add("image/jpeg");
+        allowedTypes.add("image/png");
+        allowedTypes.add("image/webp");
+
+        if (!allowedTypes.contains(contentType)) {
+            throw new IllegalArgumentException("Invalid file type: " + contentType);
         }
 
         Map<String, Object> params = buildUploadParams(folder, "raw");

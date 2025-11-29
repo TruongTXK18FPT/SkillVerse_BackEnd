@@ -372,19 +372,29 @@ public class AdminApprovalService {
          * Convert MentorProfile to DTO for admin review
          */
         private MentorApplicationDto convertToMentorDto(MentorProfile mentor) {
-                // Simple email masking for admin view
-                String maskedEmail = mentor.getEmail() != null ? mentor.getEmail().replaceAll("(?<=.{2}).(?=.*@)", "*")
-                                : "N/A";
+                String plainEmail = mentor.getEmail() != null ? mentor.getEmail() : "N/A";
 
                 // Get user information for email verification status
                 User user = mentor.getUser();
                 Boolean isEmailVerified = user != null ? user.isEmailVerified() : false;
                 String userStatus = user != null ? user.getStatus().name() : "UNKNOWN";
 
+                java.util.List<String> certUrls = null;
+                if (mentor.getCertifications() != null && !mentor.getCertifications().isBlank()) {
+                        try {
+                                certUrls = new com.fasterxml.jackson.databind.ObjectMapper()
+                                                .readValue(mentor.getCertifications(),
+                                                                new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {
+                                                                });
+                        } catch (Exception e) {
+                                log.warn("Failed to parse certifications JSON for mentor {}", mentor.getUserId(), e);
+                        }
+                }
+
                 return MentorApplicationDto.builder()
                                 .userId(mentor.getUserId())
                                 .fullName(mentor.getFullName())
-                                .email(maskedEmail) // Simple masked email
+                                .email(plainEmail)
                                 .mainExpertiseArea(mentor.getMainExpertiseAreas())
                                 .yearsOfExperience(mentor.getYearsOfExperience())
                                 .personalProfile(mentor.getPersonalProfile() != null
@@ -394,6 +404,7 @@ public class AdminApprovalService {
                                 .linkedinProfile(mentor.getLinkedinProfile())
                                 .cvPortfolioUrl(mentor.getCvPortfolioUrl())
                                 .certificatesUrl(mentor.getCertificatesUrl())
+                                .certificateUrls(certUrls)
                                 .applicationStatus(mentor.getApplicationStatus())
                                 .isEmailVerified(isEmailVerified)
                                 .userStatus(userStatus)
@@ -415,14 +426,11 @@ public class AdminApprovalService {
 
                 // Use company email from user (now single email approach)
                 String companyEmail = user != null ? user.getEmail() : "N/A";
-                String maskedEmail = companyEmail != null && !companyEmail.equals("N/A")
-                                ? companyEmail.replaceAll("(?<=.{2}).(?=.*@)", "*")
-                                : "N/A";
 
                 return RecruiterApplicationDto.builder()
                                 .userId(recruiter.getUserId())
                                 .fullName(fullName)
-                                .email(maskedEmail)
+                                .email(companyEmail)
                                 .companyName(recruiter.getCompanyName() != null ? recruiter.getCompanyName() : "N/A")
                                 .companyWebsite(recruiter.getCompanyWebsite() != null ? recruiter.getCompanyWebsite()
                                                 : "N/A")

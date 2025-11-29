@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +26,7 @@ public class MentorRegistrationService
 
         private final UserCreationService userCreationService;
         private final MentorProfileRepository mentorProfileRepository;
+        private final CloudinaryService cloudinaryService;
 
         @Override
         @Transactional
@@ -84,7 +86,9 @@ public class MentorRegistrationService
                         Integer yearsOfExperience,
                         String personalProfile,
                         MultipartFile cvPortfolioFile,
-                        MultipartFile certificatesFile) {
+                        MultipartFile certificatesFile,
+                        MultipartFile[] certificatesFiles,
+                        Boolean mergeCertificates) {
 
                 try {
                         log.info("Starting mentor registration for email: {}", email);
@@ -93,7 +97,7 @@ public class MentorRegistrationService
                         MentorRegistrationRequest request = createMentorRegistrationRequest(
                                         email, password, confirmPassword, fullName, phone, bio, address, region,
                                         linkedinProfile, mainExpertiseArea, yearsOfExperience, personalProfile,
-                                        cvPortfolioFile, certificatesFile);
+                                        cvPortfolioFile, certificatesFile, certificatesFiles, mergeCertificates);
 
                         // 2. Process registration using existing logic
                         return register(request);
@@ -121,7 +125,9 @@ public class MentorRegistrationService
                         Integer yearsOfExperience,
                         String personalProfile,
                         MultipartFile cvPortfolioFile,
-                        MultipartFile certificatesFile) {
+                        MultipartFile certificatesFile,
+                        MultipartFile[] certificatesFiles,
+                        Boolean mergeCertificates) {
 
                 MentorRegistrationRequest request = new MentorRegistrationRequest();
                 request.setEmail(email);
@@ -137,24 +143,141 @@ public class MentorRegistrationService
                 request.setYearsOfExperience(yearsOfExperience);
                 request.setPersonalProfile(personalProfile);
 
-                // Handle file uploads (business logic)
                 if (cvPortfolioFile != null && !cvPortfolioFile.isEmpty()) {
-                        String cvUrl = "uploads/mentor/cv/" + email + "_" + cvPortfolioFile.getOriginalFilename();
-                        request.setCvPortfolioUrl(cvUrl);
-                        log.info("CV file received: {} (size: {} bytes)", cvPortfolioFile.getOriginalFilename(),
-                                        cvPortfolioFile.getSize());
+                        try {
+                                log.info("Uploading mentor CV/Portfolio to Cloudinary for: {}", email);
+                                String nameSlug = slugify(fullName);
+                                String timestamp = java.time.LocalDateTime.now()
+                                                .format(java.time.format.DateTimeFormatter
+                                                                .ofPattern("yyyyMMdd_HHmmss"));
+                                String publicId = "CV_Portfolio_" + nameSlug + "_" + timestamp;
+                                var uploadResult = cloudinaryService.uploadFileNamed(cvPortfolioFile, "mentor-cv",
+                                                publicId);
+                                String cloudinaryUrl = (String) uploadResult.get("secure_url");
+                                request.setCvPortfolioUrl(cloudinaryUrl);
+                                log.info("CV/Portfolio uploaded successfully: {}", cloudinaryUrl);
+                        } catch (Exception e) {
+                                log.error("Failed to upload mentor CV/Portfolio for: {}", email, e);
+                                throw new RuntimeException("Failed to upload CV/Portfolio: " + e.getMessage());
+                        }
                 }
 
-                if (certificatesFile != null && !certificatesFile.isEmpty()) {
-                        String certUrl = "uploads/mentor/certificates/" + email + "_"
-                                        + certificatesFile.getOriginalFilename();
-                        request.setCertificatesUrl(certUrl);
-                        log.info("Certificates file received: {} (size: {} bytes)",
-                                        certificatesFile.getOriginalFilename(),
-                                        certificatesFile.getSize());
+                // Prefer array if provided; fallback to single file
+                if (certificatesFiles != null && certificatesFiles.length > 0) {
+                        try {
+                                log.info("Uploading {} mentor certificate files for: {}", certificatesFiles.length,
+                                                email);
+                                String nameSlug = slugify(fullName);
+                                String timestamp = java.time.LocalDateTime.now()
+                                                .format(java.time.format.DateTimeFormatter
+                                                                .ofPattern("yyyyMMdd_HHmmss"));
+                                String basePublicId = "ChungChi_" + nameSlug + "_" + timestamp;
+
+                                boolean shouldMerge = mergeCertificates != null ? mergeCertificates
+                                                : certificatesFiles.length > 3;
+
+                                java.util.List<String> uploadedUrls = new java.util.ArrayList<>();
+                                for (MultipartFile cf : certificatesFiles) {
+                                        if (cf == null || cf.isEmpty())
+                                                continue;
+                                        String subId = basePublicId + "_" + (uploadedUrls.size() + 1);
+                                        var r = cloudinaryService.uploadFileNamed(cf, "mentor-certificates", subId);
+                                        uploadedUrls.add((String) r.get("secure_url"));
+                                }
+
+                                if (shouldMerge && !uploadedUrls.isEmpty()) {
+                                        byte[] combined = combineCertificatesToPdf(certificatesFiles);
+                                        String mergedId = basePublicId + "_MERGED";
+                                        // Wrap bytes as MultipartFile with application/pdf
+                                        MultipartFile pdfFile = new org.springframework.web.multipart.MultipartFile() {
+                                                @Override
+                                                public String getName() {
+                                                        return "combined";
+                                                }
+
+                                                @Override
+                                                public String getOriginalFilename() {
+                                                        return "combined.pdf";
+                                                }
+
+                                                @Override
+                                                public String getContentType() {
+                                                        return "application/pdf";
+                                                }
+
+                                                @Override
+                                                public boolean isEmpty() {
+                                                        return combined.length == 0;
+                                                }
+
+                                                @Override
+                                                public long getSize() {
+                                                        return combined.length;
+                                                }
+
+                                                @Override
+                                                public byte[] getBytes() {
+                                                        return combined;
+                                                }
+
+                                                @Override
+                                                public java.io.InputStream getInputStream() {
+                                                        return new java.io.ByteArrayInputStream(combined);
+                                                }
+
+                                                @Override
+                                                public void transferTo(java.io.File dest) throws java.io.IOException {
+                                                        try (var out = new java.io.FileOutputStream(dest)) {
+                                                                out.write(combined);
+                                                        }
+                                                }
+                                        };
+                                        var uploadResult = cloudinaryService.uploadFileNamed(pdfFile,
+                                                        "mentor-certificates", mergedId);
+                                        String mergedUrl = (String) uploadResult.get("secure_url");
+                                        request.setCertificatesUrl(mergedUrl);
+                                } else if (!uploadedUrls.isEmpty()) {
+                                        request.setCertificatesUrl(uploadedUrls.get(0));
+                                }
+
+                                request.setCertificateUrls(uploadedUrls);
+                                log.info("Certificates uploaded ({} files). Merge? {}", uploadedUrls.size(),
+                                                shouldMerge);
+                        } catch (Exception e) {
+                                log.error("Failed to upload mentor certificates array for: {}", email, e);
+                                throw new RuntimeException("Failed to upload certificates: " + e.getMessage());
+                        }
+                } else if (certificatesFile != null && !certificatesFile.isEmpty()) {
+                        try {
+                                log.info("Uploading mentor certificates to Cloudinary for: {}", email);
+                                String nameSlug = slugify(fullName);
+                                String timestamp = java.time.LocalDateTime.now()
+                                                .format(java.time.format.DateTimeFormatter
+                                                                .ofPattern("yyyyMMdd_HHmmss"));
+                                String publicId = "ChungChi_" + nameSlug + "_" + timestamp;
+                                var uploadResult = cloudinaryService.uploadFileNamed(certificatesFile,
+                                                "mentor-certificates", publicId);
+                                String cloudinaryUrl = (String) uploadResult.get("secure_url");
+                                request.setCertificatesUrl(cloudinaryUrl);
+                                log.info("Certificates uploaded successfully: {}", cloudinaryUrl);
+                        } catch (Exception e) {
+                                log.error("Failed to upload mentor certificates for: {}", email, e);
+                                throw new RuntimeException("Failed to upload certificates: " + e.getMessage());
+                        }
                 }
 
                 return request;
+        }
+
+        private String slugify(String input) {
+                if (input == null)
+                        return "unknown";
+                String normalized = java.text.Normalizer.normalize(input, java.text.Normalizer.Form.NFD)
+                                .replaceAll("[\\p{InCombiningDiacriticalMarks}]", "");
+                normalized = normalized.replaceAll("[^a-zA-Z0-9]+", "_");
+                normalized = normalized.replaceAll("_+", "_");
+                normalized = normalized.replaceAll("^_|_$", "");
+                return normalized;
         }
 
         /**
@@ -172,6 +295,9 @@ public class MentorRegistrationService
                                 .personalProfile(request.getPersonalProfile())
                                 .cvPortfolioUrl(request.getCvPortfolioUrl())
                                 .certificatesUrl(request.getCertificatesUrl())
+                                .certifications(request.getCertificateUrls() != null
+                                                ? toJson(request.getCertificateUrls())
+                                                : null)
                                 // Application status
                                 .applicationStatus(ApplicationStatus.PENDING)
                                 .applicationDate(LocalDateTime.now())
@@ -179,5 +305,89 @@ public class MentorRegistrationService
 
                 mentorProfileRepository.save(mentorProfile);
                 log.info("Created mentor profile for user: {} with full name: {}", user.getId(), request.getFullName());
+        }
+
+        private String toJson(java.util.List<String> urls) {
+                try {
+                        return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(urls);
+                } catch (Exception e) {
+                        log.warn("Failed to serialize certificate URLs", e);
+                        return null;
+                }
+        }
+
+        private byte[] combineCertificatesToPdf(MultipartFile[] files) throws Exception {
+                java.util.List<MultipartFile> list = new java.util.ArrayList<>();
+                for (MultipartFile f : files) {
+                        if (f != null && !f.isEmpty())
+                                list.add(f);
+                }
+                if (list.isEmpty())
+                        return new byte[0];
+
+                java.util.List<MultipartFile> pdfs = new java.util.ArrayList<>();
+                java.util.List<MultipartFile> images = new java.util.ArrayList<>();
+                for (MultipartFile f : list) {
+                        String ct = f.getContentType();
+                        boolean isPdf = ct != null && (ct.equalsIgnoreCase("application/pdf")
+                                        || ct.equalsIgnoreCase("application/x-pdf")
+                                        || ct.equalsIgnoreCase("application/acrobat"));
+                        boolean isImg = ct != null && ct.startsWith("image/");
+                        if (isPdf)
+                                pdfs.add(f);
+                        else if (isImg)
+                                images.add(f);
+                }
+
+                byte[] imagesPdfBytes = null;
+                if (!images.isEmpty()) {
+                        org.apache.pdfbox.pdmodel.PDDocument doc = new org.apache.pdfbox.pdmodel.PDDocument();
+                        for (MultipartFile img : images) {
+                                java.awt.image.BufferedImage bi = javax.imageio.ImageIO.read(img.getInputStream());
+                                if (bi == null)
+                                        continue;
+                                org.apache.pdfbox.pdmodel.common.PDRectangle pageSize = org.apache.pdfbox.pdmodel.common.PDRectangle.A4;
+                                org.apache.pdfbox.pdmodel.PDPage page = new org.apache.pdfbox.pdmodel.PDPage(pageSize);
+                                doc.addPage(page);
+                                org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject pdImage = org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory
+                                                .createFromImage(doc, bi);
+                                float margin = 36f;
+                                float maxW = pageSize.getWidth() - 2 * margin;
+                                float maxH = pageSize.getHeight() - 2 * margin;
+                                float imgW = pdImage.getWidth();
+                                float imgH = pdImage.getHeight();
+                                float scale = Math.min(maxW / imgW, maxH / imgH);
+                                float drawW = imgW * scale;
+                                float drawH = imgH * scale;
+                                float x = (pageSize.getWidth() - drawW) / 2f;
+                                float y = (pageSize.getHeight() - drawH) / 2f;
+                                try (org.apache.pdfbox.pdmodel.PDPageContentStream cs = new org.apache.pdfbox.pdmodel.PDPageContentStream(
+                                                doc, page)) {
+                                        cs.drawImage(pdImage, x, y, drawW, drawH);
+                                }
+                        }
+                        try (java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream()) {
+                                doc.save(baos);
+                                imagesPdfBytes = baos.toByteArray();
+                        } finally {
+                                doc.close();
+                        }
+                }
+
+                if (pdfs.isEmpty()) {
+                        return imagesPdfBytes != null ? imagesPdfBytes : new byte[0];
+                }
+
+                org.apache.pdfbox.multipdf.PDFMergerUtility merger = new org.apache.pdfbox.multipdf.PDFMergerUtility();
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                merger.setDestinationStream(out);
+                if (imagesPdfBytes != null && imagesPdfBytes.length > 0) {
+                        merger.addSource(new java.io.ByteArrayInputStream(imagesPdfBytes));
+                }
+                for (MultipartFile pdf : pdfs) {
+                        merger.addSource(pdf.getInputStream());
+                }
+                merger.mergeDocuments(org.apache.pdfbox.io.MemoryUsageSetting.setupMainMemoryOnly());
+                return out.toByteArray();
         }
 }

@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
@@ -21,6 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Mentor Registration", description = "Mentor registration and management endpoints")
+@Validated
 public class MentorRegistrationController {
 
     private final MentorRegistrationService mentorRegistrationService;
@@ -49,7 +51,9 @@ public class MentorRegistrationController {
             @RequestParam("yearsOfExperience") Integer yearsOfExperience,
             @RequestParam("personalProfile") String personalProfile,
             @RequestParam(value = "cvPortfolioFile", required = false) MultipartFile cvPortfolioFile,
-            @RequestParam(value = "certificatesFile", required = false) MultipartFile certificatesFile) {
+            @RequestParam(value = "certificatesFile", required = false) MultipartFile certificatesFile,
+            @RequestParam(value = "certificatesFiles", required = false) MultipartFile[] certificatesFiles,
+            @RequestParam(value = "mergeCertificates", required = false) Boolean mergeCertificates) {
         try {
             log.info("Processing mentor registration for email: {}", email);
 
@@ -57,7 +61,7 @@ public class MentorRegistrationController {
             MentorRegistrationResponse response = mentorRegistrationService.registerMentor(
                     email, password, confirmPassword, fullName, phone, bio, address, region,
                     linkedinProfile, mainExpertiseArea, yearsOfExperience, personalProfile,
-                    cvPortfolioFile, certificatesFile);
+                    cvPortfolioFile, certificatesFile, certificatesFiles, mergeCertificates);
 
             log.info("Mentor registration successful for email: {}", email);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);

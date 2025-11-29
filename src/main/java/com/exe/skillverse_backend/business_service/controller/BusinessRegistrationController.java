@@ -14,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
@@ -21,6 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Business Registration", description = "Business/Recruiter registration and management endpoints")
+@Validated
 public class BusinessRegistrationController {
 
     private final BusinessRegistrationService businessRegistrationService;
@@ -52,7 +54,8 @@ public class BusinessRegistrationController {
             @RequestParam("contactPersonPosition") String contactPersonPosition,
             @RequestParam("companySize") String companySize,
             @RequestParam("industry") String industry,
-            @RequestParam(value = "companyDocumentsFile", required = false) MultipartFile companyDocumentsFile) {
+            @RequestParam(value = "companyDocumentsFile", required = false) MultipartFile companyDocumentsFile,
+            @RequestParam(value = "companyDocumentsFiles", required = false) java.util.List<MultipartFile> companyDocumentsFiles) {
         try {
             log.info("Processing business registration for email: {}", email);
 
@@ -61,7 +64,8 @@ public class BusinessRegistrationController {
                     email, password, confirmPassword, fullName, phone, bio, address, region,
                     companyName, companyWebsite, companyAddress, taxCodeOrBusinessRegistrationNumber,
                     contactPersonPhone, contactPersonPosition, companySize, industry,
-                    companyDocumentsFile);
+                    companyDocumentsFile,
+                    companyDocumentsFiles);
 
             log.info("Business registration successful for email: {}", email);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);

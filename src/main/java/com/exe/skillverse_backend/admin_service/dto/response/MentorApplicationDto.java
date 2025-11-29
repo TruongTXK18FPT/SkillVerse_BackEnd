@@ -42,6 +42,9 @@ public class MentorApplicationDto {
     @Schema(description = "Certificates URL")
     private String certificatesUrl;
 
+    @Schema(description = "List of certificate URLs when uploaded separately")
+    private java.util.List<String> certificateUrls;
+
     @Schema(description = "Application status", example = "PENDING")
     private ApplicationStatus applicationStatus;
 

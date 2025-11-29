@@ -91,7 +91,8 @@ public class BusinessRegistrationService
                         String contactPersonPosition,
                         String companySize,
                         String industry,
-                        MultipartFile companyDocumentsFile) {
+                        MultipartFile companyDocumentsFile,
+                        java.util.List<MultipartFile> companyDocumentsFiles) {
 
                 try {
                         log.info("Starting business registration for email: {}", email);
@@ -102,7 +103,8 @@ public class BusinessRegistrationService
                                         companyName, companyWebsite, companyAddress,
                                         taxCodeOrBusinessRegistrationNumber,
                                         contactPersonPhone, contactPersonPosition, companySize, industry,
-                                        companyDocumentsFile);
+                                        companyDocumentsFile,
+                                        companyDocumentsFiles);
 
                         // 2. Process registration using existing logic
                         return register(request);
@@ -134,7 +136,8 @@ public class BusinessRegistrationService
                         String contactPersonPosition,
                         String companySize,
                         String industry,
-                        MultipartFile companyDocumentsFile) {
+                        MultipartFile companyDocumentsFile,
+                        java.util.List<MultipartFile> companyDocumentsFiles) {
 
                 BusinessRegistrationRequest request = new BusinessRegistrationRequest();
                 request.setEmail(email);
@@ -154,21 +157,39 @@ public class BusinessRegistrationService
                 request.setCompanySize(companySize);
                 request.setIndustry(industry);
 
-                // Handle file upload using Cloudinary
+                java.util.List<MultipartFile> allFiles = new java.util.ArrayList<>();
                 if (companyDocumentsFile != null && !companyDocumentsFile.isEmpty()) {
-                        try {
-                                log.info("Uploading company documents to Cloudinary for: {}", email);
-                                var uploadResult = cloudinaryService.uploadFile(companyDocumentsFile,
-                                                "company-documents");
-                                String cloudinaryUrl = (String) uploadResult.get("secure_url");
-                                request.setCompanyDocumentsUrl(cloudinaryUrl);
-                                log.info("Company documents uploaded successfully: {}", cloudinaryUrl);
-                        } catch (Exception e) {
-                                log.error("Failed to upload company documents to Cloudinary for: {}", email, e);
-                                throw new RuntimeException("Failed to upload company documents: " + e.getMessage());
+                        allFiles.add(companyDocumentsFile);
+                }
+                if (companyDocumentsFiles != null && !companyDocumentsFiles.isEmpty()) {
+                        for (MultipartFile f : companyDocumentsFiles) {
+                                if (f != null && !f.isEmpty()) allFiles.add(f);
                         }
-                } else {
+                }
+
+                if (allFiles.isEmpty()) {
                         throw new RuntimeException("Company documents file is required");
+                }
+
+                MultipartFile pdfFile = null;
+                for (MultipartFile f : allFiles) {
+                        String ct = f.getContentType();
+                        if (ct != null && ct.equalsIgnoreCase("application/pdf")) { pdfFile = f; break; }
+                }
+
+                if (pdfFile == null) {
+                        throw new RuntimeException("At least one PDF of business license is required");
+                }
+
+                try {
+                        log.info("Uploading company documents (PDF) to Cloudinary for: {}", email);
+                        var uploadResult = cloudinaryService.uploadFile(pdfFile, "company-documents");
+                        String cloudinaryUrl = (String) uploadResult.get("secure_url");
+                        request.setCompanyDocumentsUrl(cloudinaryUrl);
+                        log.info("Company documents uploaded successfully: {}", cloudinaryUrl);
+                } catch (Exception e) {
+                        log.error("Failed to upload company documents to Cloudinary for: {}", email, e);
+                        throw new RuntimeException("Failed to upload company documents: " + e.getMessage());
                 }
 
                 return request;
