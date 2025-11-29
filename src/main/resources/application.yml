@@ -197,5 +197,17 @@ springdoc:
     enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:true}
     path: ${SPRINGDOC_SWAGGER_UI_PATH:/swagger-ui.html}
 
+# FPT.AI Speech Configuration (STT/TTS)
+ai:
+  fpt:
+    # API key for FPT.AI (picked from env FPT_AI_KEY if set)
+    api-key: ${FPT_AI_KEY:}
+    stt:
+      # Speech-to-Text endpoint
+      endpoint: ${AI_FPT_STT_ENDPOINT:https://api.fpt.ai/hmi/asr/general}
+    tts:
+      # Text-to-Speech endpoint
+      endpoint: ${AI_FPT_TTS_ENDPOINT:https://api.fpt.ai/hmi/tts/v5}
+
 server:
   port: ${SERVER_PORT:8080}

@@ -737,31 +737,7 @@ public class PremiumServiceImpl implements PremiumService {
                 org.springframework.data.domain.Page<UserSubscription> subscriptions = userSubscriptionRepository
                                 .findAll(pageable);
 
-                return subscriptions.map(sub -> {
-                        PremiumPlanResponse planResponse = PremiumPlanResponse.builder()
-                                        .id(sub.getPlan().getId())
-                                        .name(sub.getPlan().getName())
-                                        .price(sub.getPlan().getPrice())
-                                        .durationMonths(sub.getPlan().getDurationMonths())
-                                        .build();
-
-                        String fullName = (sub.getUser().getFirstName() != null ? sub.getUser().getFirstName() : "") +
-                                        " " +
-                                        (sub.getUser().getLastName() != null ? sub.getUser().getLastName() : "");
-
-                        return UserSubscriptionResponse.builder()
-                                        .id(sub.getId())
-                                        .userId(sub.getUser().getId())
-                                        .userName(fullName.trim())
-                                        .userEmail(sub.getUser().getEmail())
-                                        .userAvatarUrl(getUserAvatarUrl(sub.getUser()))
-                                        .plan(planResponse)
-                                        .status(sub.getStatus())
-                                        .startDate(sub.getStartDate())
-                                        .endDate(sub.getEndDate())
-                                        .isStudentSubscription(sub.getIsStudentSubscription())
-                                        .build();
-                });
+                return subscriptions.map(this::convertToUserSubscriptionResponse);
         }
 
         @Override
@@ -770,35 +746,7 @@ public class PremiumServiceImpl implements PremiumService {
                 log.info("Admin fetching subscription detail for id: {}", id);
 
                 return userSubscriptionRepository.findById(id)
-                                .map(sub -> {
-                                        PremiumPlanResponse planResponse = PremiumPlanResponse.builder()
-                                                        .id(sub.getPlan().getId())
-                                                        .name(sub.getPlan().getName())
-                                                        .price(sub.getPlan().getPrice())
-                                                        .durationMonths(sub.getPlan().getDurationMonths())
-                                                        .build();
-
-                                        String fullName = (sub.getUser().getFirstName() != null
-                                                        ? sub.getUser().getFirstName()
-                                                        : "") +
-                                                        " " +
-                                                        (sub.getUser().getLastName() != null
-                                                                        ? sub.getUser().getLastName()
-                                                                        : "");
-
-                                        return UserSubscriptionResponse.builder()
-                                                        .id(sub.getId())
-                                                        .userId(sub.getUser().getId())
-                                                        .userName(fullName.trim())
-                                                        .userEmail(sub.getUser().getEmail())
-                                                        .userAvatarUrl(getUserAvatarUrl(sub.getUser()))
-                                                        .plan(planResponse)
-                                                        .status(sub.getStatus())
-                                                        .startDate(sub.getStartDate())
-                                                        .endDate(sub.getEndDate())
-                                                        .isStudentSubscription(sub.getIsStudentSubscription())
-                                                        .build();
-                                });
+                                .map(this::convertToUserSubscriptionResponse);
         }
 
         @Override

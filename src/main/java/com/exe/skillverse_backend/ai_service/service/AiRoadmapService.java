@@ -136,6 +136,7 @@ public class AiRoadmapService {
 
             // Step 3: Call Gemini API with comprehensive prompt
             String roadmapJson = callGeminiAPI(request);
+            String storedJson = sanitizeJson(roadmapJson);
 
             // Step 4: Parse and validate JSON (Schema V2)
             ParsedRoadmap parsed = validateAndParseRoadmapV2(roadmapJson);
@@ -164,7 +165,7 @@ public class AiRoadmapService {
                     // Premium tracking
                     .isPremiumGenerated(false) // TODO: Check user premium status
                     // Full JSON
-                    .roadmapJson(roadmapJson)
+                    .roadmapJson(storedJson)
                     .build();
 
             session = roadmapSessionRepository.save(session);
@@ -530,7 +531,24 @@ public class AiRoadmapService {
      */
     private ParsedRoadmap validateAndParseRoadmapV2(String roadmapJson) {
         try {
-            JsonNode root = objectMapper.readTree(roadmapJson);
+            String sanitized = sanitizeJson(roadmapJson);
+            try {
+                objectMapper.getFactory().enable(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_JAVA_COMMENTS.mappedFeature());
+                objectMapper.getFactory().enable(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_TRAILING_COMMA.mappedFeature());
+                objectMapper.getFactory().enable(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_UNQUOTED_FIELD_NAMES.mappedFeature());
+                objectMapper.getFactory().enable(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_SINGLE_QUOTES.mappedFeature());
+                objectMapper.getFactory().enable(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_NON_NUMERIC_NUMBERS.mappedFeature());
+            } catch (Throwable t) {
+                try {
+                    objectMapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_COMMENTS, true);
+                    objectMapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_TRAILING_COMMA, true);
+                    objectMapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES, true);
+                    objectMapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_SINGLE_QUOTES, true);
+                    objectMapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_NON_NUMERIC_NUMBERS, true);
+                } catch (Throwable ignored) {}
+            }
+
+            JsonNode root = objectMapper.readTree(sanitized);
 
             // Parse metadata
             JsonNode metadataNode = root.path("roadmap_metadata");
@@ -572,6 +590,33 @@ public class AiRoadmapService {
             throw new ApiException(ErrorCode.BAD_REQUEST,
                     "AI generation failed: invalid JSON format. Please retry.");
         }
+    }
+
+    private String sanitizeJson(String text) {
+        if (text == null) return "";
+        String s = text.replace("\uFEFF", "").trim();
+        int objStart = s.indexOf('{');
+        int arrStart = s.indexOf('[');
+        int start = -1;
+        int end = -1;
+        if (objStart >= 0) {
+            start = objStart;
+            end = s.lastIndexOf('}');
+        } else if (arrStart >= 0) {
+            start = arrStart;
+            end = s.lastIndexOf(']');
+        }
+        if (start >= 0 && end > start) {
+            s = s.substring(start, end + 1);
+        }
+        s = s.replaceAll("(?s)/\\*.*?\\*/", "");
+        s = s.replaceAll("(?m)^\\s*//.*$", "");
+        s = s.replaceAll(",\\s*([}\\]])", "$1");
+        // If the JSON uses single quotes globally, convert them to double quotes
+        if (!s.contains("\"") && s.contains("'")) {
+            s = s.replace('\'', '"');
+        }
+        return s.trim();
     }
 
     /**

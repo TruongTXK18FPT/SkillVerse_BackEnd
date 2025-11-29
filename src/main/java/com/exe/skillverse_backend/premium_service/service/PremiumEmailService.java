@@ -99,7 +99,7 @@ public class PremiumEmailService {
                             <style>
                                 body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; margin: 0; padding: 20px; }
                                 .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                                .header { background: %s; padding: 40px 30px; text-align: center; color: white; }
+                                .header { background: %s; padding: 32px 30px; text-align: center; color: white; }
                                 .header h1 { margin: 0; font-size: 32px; font-weight: bold; }
                                 .header .plan-name { font-size: 24px; margin-top: 10px; opacity: 0.95; }
                                 .content { padding: 30px; }
@@ -122,6 +122,7 @@ public class PremiumEmailService {
                         <body>
                             <div class="container">
                                 <div class="header">
+                                    <img src="cid:skillverse-logo" alt="SkillVerse" style="height:40px; display:block; margin:0 auto 12px;" />
                                     <h1>🎉 Chúc Mừng!</h1>
                                     <div class="plan-name">%s</div>
                                 </div>

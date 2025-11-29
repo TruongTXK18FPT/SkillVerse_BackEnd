@@ -29,6 +29,7 @@ public class InvoiceService {
     private static final String COMPANY_NAME = "SkillVerse";
     private static final String COMPANY_ADDRESS = "Đại học FPT Hồ Chí Minh, Việt Nam";
     private static final String COMPANY_EMAIL = "support@skillverse.vn";
+    private static final String LOGO_PATH = "c:/WorkSpace/EXE201/SkillVerse_BackEnd/src/assets/skillverse.png";
 
     /**
      * Generate PDF invoice for PaymentTransaction (Premium, Coin Purchase via PayOS)
@@ -63,7 +64,9 @@ public class InvoiceService {
             addTotal(document, payment.getAmount());
 
             // Payment Status
-            addPaymentStatus(document, payment.getStatus().name(), payment.getPaymentMethod().name());
+            String status = payment.getStatus() != null ? payment.getStatus().name() : "UNKNOWN";
+            String method = payment.getPaymentMethod() != null ? payment.getPaymentMethod().name() : "UNKNOWN";
+            addPaymentStatus(document, status, method);
 
             // Footer
             addFooter(document);
@@ -103,8 +106,9 @@ public class InvoiceService {
             PdfPTable table = createTransactionTable();
             BigDecimal amount = transaction.getCashAmount() != null ? 
                 transaction.getCashAmount() : BigDecimal.ZERO;
+            String typeDisplay = transaction.getTransactionType() != null ? transaction.getTransactionType().getDisplayName() : "Giao dịch ví";
             addTableRow(table, 
-                transaction.getTransactionType().getDisplayName(), 
+                typeDisplay, 
                 transaction.getDescription() != null ? transaction.getDescription() : "-",
                 amount
             );
@@ -130,10 +134,12 @@ public class InvoiceService {
     }
 
     private void addHeader(Document document) throws DocumentException {
-        Font titleFont = new Font(Font.HELVETICA, 24, Font.BOLD, new Color(0, 102, 204));
-        Paragraph title = new Paragraph(COMPANY_NAME, titleFont);
-        title.setAlignment(Element.ALIGN_CENTER);
-        document.add(title);
+        try {
+            Image logo = Image.getInstance(LOGO_PATH);
+            logo.scaleToFit(160, 64);
+            logo.setAlignment(Image.ALIGN_CENTER);
+            document.add(logo);
+        } catch (Exception ignored) {}
 
         Font subFont = new Font(Font.HELVETICA, 10, Font.NORMAL, Color.GRAY);
         Paragraph address = new Paragraph(COMPANY_ADDRESS + "\n" + COMPANY_EMAIL, subFont);
@@ -295,6 +301,7 @@ public class InvoiceService {
     }
 
     private String getPaymentTypeDescription(PaymentTransaction.PaymentType type) {
+        if (type == null) return "Giao dịch";
         return switch (type) {
             case PREMIUM_SUBSCRIPTION -> "Đăng ký Premium";
             case COURSE_PURCHASE -> "Mua khóa học";

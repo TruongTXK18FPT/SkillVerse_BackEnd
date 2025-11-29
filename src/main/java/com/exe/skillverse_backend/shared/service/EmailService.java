@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.shared.service;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import jakarta.mail.internet.MimeMessage;
+import org.springframework.core.io.FileSystemResource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,6 +13,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.io.UnsupportedEncodingException;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -29,6 +31,8 @@ public class EmailService {
 
     @Value("${email.from-name:SkillVerse}")
     private String fromName;
+
+    private static final String LOGO_PATH = "c:/WorkSpace/EXE201/SkillVerse_BackEnd/src/assets/skillverse.png";
 
     /**
      * Send OTP email for registration
@@ -301,8 +305,8 @@ public class EmailService {
                 <body>
                     <div class=\"container\">
                         <div class=\"header\">
+                            <img src=\"cid:skillverse-logo\" alt=\"SkillVerse\" style=\"height:40px; display:block; margin:0 auto 10px;\" />
                             <h1>🎉 Chào mừng, %s!</h1>
-                            <div class=\"brand\">SkillVerse</div>
                         </div>
                         <div class=\"content\">
                             <p>Cảm ơn bạn đã xác thực email thành công. Tài khoản của bạn đã sẵn sàng để bắt đầu hành trình học tập và phát triển sự nghiệp.</p>
@@ -567,6 +571,17 @@ public class EmailService {
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(htmlContent, true);
+
+            try {
+                if (htmlContent != null && htmlContent.contains("cid:skillverse-logo")) {
+                    FileSystemResource logo = new FileSystemResource(new File(LOGO_PATH));
+                    if (logo.exists()) {
+                        helper.addInline("skillverse-logo", logo);
+                    }
+                }
+            } catch (Exception inlineEx) {
+                log.warn("⚠️ Inline logo attachment failed: {}", inlineEx.getMessage());
+            }
 
             mailSender.send(message);
             log.info("✅ HTML email sent successfully to {}", to);

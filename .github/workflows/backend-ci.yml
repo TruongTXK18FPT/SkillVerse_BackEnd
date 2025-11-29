@@ -114,6 +114,11 @@ env:
   SPRINGDOC_API_DOCS_PATH: ${{ secrets.SPRINGDOC_API_DOCS_PATH }}
   SPRINGDOC_SWAGGER_UI_PATH: ${{ secrets.SPRINGDOC_SWAGGER_UI_PATH }}
 
+  # FPT.AI Speech Configuration
+  FPT_AI_KEY: ${{ secrets.FPT_AI_KEY }}
+  AI_FPT_STT_ENDPOINT: ${{ secrets.AI_FPT_STT_ENDPOINT }}
+  AI_FPT_TTS_ENDPOINT: ${{ secrets.AI_FPT_TTS_ENDPOINT }}
+
 jobs:
   # Job 1: Code Quality & Testing
   quality-check:
@@ -409,6 +414,9 @@ jobs:
             -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
             -e SPRING_DATA_REDIS_HOST=redis \
             -e SPRING_DATA_REDIS_PORT=6379 \
+            -e FPT_AI_KEY="${FPT_AI_KEY}" \
+            -e AI_FPT_STT_ENDPOINT="${AI_FPT_STT_ENDPOINT}" \
+            -e AI_FPT_TTS_ENDPOINT="${AI_FPT_TTS_ENDPOINT}" \
             -e JWT_SECRET="${JWT_SECRET}" \
             -e JWT_ACCESS_TOKEN_EXPIRATION="${JWT_ACCESS_TOKEN_EXPIRATION}" \
             -e JWT_REFRESH_TOKEN_EXPIRATION="${JWT_REFRESH_TOKEN_EXPIRATION}" \
@@ -599,6 +607,11 @@ jobs:
           echo "SMTP_CONNECTION_TIMEOUT='${{ secrets.SMTP_CONNECTION_TIMEOUT }}'" >> .env
           echo "SMTP_TIMEOUT='${{ secrets.SMTP_TIMEOUT }}'" >> .env
           echo "SMTP_WRITE_TIMEOUT='${{ secrets.SMTP_WRITE_TIMEOUT }}'" >> .env
+
+          # FPT.AI Speech Configuration
+          echo "FPT_AI_KEY='${{ secrets.FPT_AI_KEY }}'" >> .env
+          echo "AI_FPT_STT_ENDPOINT='${{ secrets.AI_FPT_STT_ENDPOINT }}'" >> .env
+          echo "AI_FPT_TTS_ENDPOINT='${{ secrets.AI_FPT_TTS_ENDPOINT }}'" >> .env
 
           echo "SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH='${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH }}'" >> .env
           echo "SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE='${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE }}'" >> .env
