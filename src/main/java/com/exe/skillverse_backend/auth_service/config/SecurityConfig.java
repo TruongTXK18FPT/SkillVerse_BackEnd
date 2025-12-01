@@ -95,6 +95,9 @@ public class SecurityConfig {
                                 .requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll()
                                 .requestMatchers(HttpMethod.GET, PUBLIC_ENDPOINTS).permitAll()
 
+                                // Community posts: allow public GET only
+                                .requestMatchers(HttpMethod.GET, "/api/posts", "/api/posts/**").permitAll()
+
                                 // Allow all preflight CORS requests
                                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 

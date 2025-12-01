@@ -58,4 +58,14 @@ public class UserProfileController {
             return ResponseEntity.notFound().build();
         }
     }
+
+    @GetMapping("/public/{id}")
+    public ResponseEntity<UserProfileResponse> getPublicProfile(@PathVariable Long id) {
+        try {
+            UserProfileResponse response = userProfileService.getProfile(id);
+            return ResponseEntity.ok(response);
+        } catch (RuntimeException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
 }
