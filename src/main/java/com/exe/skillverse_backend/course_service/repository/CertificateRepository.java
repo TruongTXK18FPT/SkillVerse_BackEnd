@@ -31,7 +31,7 @@ public interface CertificateRepository extends JpaRepository<Certificate, Long> 
      */
     @Transactional(readOnly = true)
     @Query("SELECT CASE WHEN COUNT(c) > 0 THEN true ELSE false END " +
-           "FROM Certificate c WHERE c.course.id = :courseId AND c.user.id = :userId")
+            "FROM Certificate c WHERE c.course.id = :courseId AND c.user.id = :userId")
     boolean existsByCourseIdAndUserId(@Param("courseId") Long courseId, @Param("userId") Long userId);
 
     /**
@@ -68,4 +68,8 @@ public interface CertificateRepository extends JpaRepository<Certificate, Long> 
     @Transactional(readOnly = true)
     @Query("SELECT c FROM Certificate c WHERE c.revokedAt IS NOT NULL")
     List<Certificate> findRevokedCertificates();
+
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(c) FROM Certificate c WHERE c.user.id = :userId")
+    long countByUserId(@Param("userId") Long userId);
 }

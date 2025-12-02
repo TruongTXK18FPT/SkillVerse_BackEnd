@@ -756,29 +756,47 @@ public class PremiumServiceImpl implements PremiumService {
 
                 List<UserSubscription> allSubscriptions = userSubscriptionRepository.findAll();
 
-                long totalSubscriptions = allSubscriptions.size();
-                long activeSubscriptions = allSubscriptions.stream()
+                // Count Free Tier subscribers separately
+                long freeSubscribers = allSubscriptions.stream()
                                 .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.ACTIVE)
-                                .count();
-                long expiredSubscriptions = allSubscriptions.stream()
-                                .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.EXPIRED)
-                                .count();
-                long cancelledSubscriptions = allSubscriptions.stream()
-                                .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.CANCELLED)
+                                .filter(s -> s.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER)
                                 .count();
 
-                // Calculate total revenue from active subscriptions
+                // Filter out FREE_TIER for Premium statistics to reflect actual business
+                // performance
+                long totalPremiumSubscriptions = allSubscriptions.stream()
+                                .filter(s -> s.getPlan().getPlanType() != PremiumPlan.PlanType.FREE_TIER)
+                                .count();
+
+                long activePremiumSubscriptions = allSubscriptions.stream()
+                                .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.ACTIVE)
+                                .filter(s -> s.getPlan().getPlanType() != PremiumPlan.PlanType.FREE_TIER)
+                                .count();
+
+                long expiredPremiumSubscriptions = allSubscriptions.stream()
+                                .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.EXPIRED)
+                                .filter(s -> s.getPlan().getPlanType() != PremiumPlan.PlanType.FREE_TIER)
+                                .count();
+
+                long cancelledPremiumSubscriptions = allSubscriptions.stream()
+                                .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.CANCELLED)
+                                .filter(s -> s.getPlan().getPlanType() != PremiumPlan.PlanType.FREE_TIER)
+                                .count();
+
+                // Calculate total revenue from active subscriptions (Free Tier has price 0 so
+                // it doesn't affect sum, but good to be explicit)
                 double totalRevenue = allSubscriptions.stream()
                                 .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.ACTIVE)
                                 .mapToDouble(s -> s.getPlan().getPrice().doubleValue())
                                 .sum();
 
                 Map<String, Object> stats = new HashMap<>();
-                stats.put("totalSubscriptions", totalSubscriptions);
-                stats.put("activeSubscriptions", activeSubscriptions);
-                stats.put("expiredSubscriptions", expiredSubscriptions);
-                stats.put("cancelledSubscriptions", cancelledSubscriptions);
+                stats.put("totalSubscriptions", totalPremiumSubscriptions);
+                stats.put("activeSubscriptions", activePremiumSubscriptions);
+                stats.put("expiredSubscriptions", expiredPremiumSubscriptions);
+                stats.put("cancelledSubscriptions", cancelledPremiumSubscriptions);
                 stats.put("totalRevenue", totalRevenue);
+                stats.put("freeSubscribers", freeSubscribers); // Add extra field for clarity
 
                 return stats;
         }

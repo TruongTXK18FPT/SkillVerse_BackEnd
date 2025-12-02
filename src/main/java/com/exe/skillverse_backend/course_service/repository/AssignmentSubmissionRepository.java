@@ -28,7 +28,8 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
      */
     @Transactional(readOnly = true)
     @Query("SELECT asub FROM AssignmentSubmission asub WHERE asub.assignment.id = :assignmentId AND asub.user.id = :userId")
-    Optional<AssignmentSubmission> findByAssignmentIdAndUserId(@Param("assignmentId") Long assignmentId, @Param("userId") Long userId);
+    Optional<AssignmentSubmission> findByAssignmentIdAndUserId(@Param("assignmentId") Long assignmentId,
+            @Param("userId") Long userId);
 
     /**
      * Calculate average score for an assignment
@@ -84,6 +85,10 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
      */
     @Transactional(readOnly = true)
     @Query("SELECT CASE WHEN COUNT(asub) > 0 THEN true ELSE false END " +
-           "FROM AssignmentSubmission asub WHERE asub.assignment.id = :assignmentId AND asub.user.id = :userId")
+            "FROM AssignmentSubmission asub WHERE asub.assignment.id = :assignmentId AND asub.user.id = :userId")
     boolean hasUserSubmitted(@Param("assignmentId") Long assignmentId, @Param("userId") Long userId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub WHERE asub.user.id = :userId AND asub.score IS NOT NULL")
+    long countCompletedProjectsByUserId(@Param("userId") Long userId);
 }

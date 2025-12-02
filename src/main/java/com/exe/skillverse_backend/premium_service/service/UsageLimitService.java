@@ -82,4 +82,13 @@ public interface UsageLimitService {
      * @param featureType Feature type
      */
     void resetUserUsage(Long userId, FeatureType featureType);
+
+    /**
+     * Get cycle statistics for the user
+     * Includes enrollments, completions, etc. in the current billing cycle
+     * 
+     * @param userId User ID
+     * @return Cycle statistics
+     */
+    com.exe.skillverse_backend.premium_service.dto.response.UserCycleStatsDTO getUserCycleStats(Long userId);
 }

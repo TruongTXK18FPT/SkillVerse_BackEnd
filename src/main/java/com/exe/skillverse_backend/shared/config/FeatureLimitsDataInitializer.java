@@ -67,15 +67,15 @@ public class FeatureLimitsDataInitializer implements CommandLineRunner {
                                 "10 chat requests per 8-hour window (resets 8 hours after first request)",
                                 true);
 
-                // AI Roadmap: 3 generations per day (prevent abuse while allowing testing)
+                // AI Roadmap: 1 generation per day (as per user request)
                 createOrUpdateLimit(
                                 freeTier,
                                 FeatureType.AI_ROADMAP_GENERATION,
-                                3,
+                                1,
                                 ResetPeriod.DAILY,
                                 false,
                                 null,
-                                "3 roadmap generations per day",
+                                "1 roadmap generation per day",
                                 true);
 
                 // Mentor Booking: Not available in free tier (set to 1 with isActive=false)

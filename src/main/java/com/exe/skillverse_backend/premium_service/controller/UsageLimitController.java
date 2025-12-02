@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.premium_service.controller;
 
 import com.exe.skillverse_backend.premium_service.dto.response.FeatureLimitInfo;
 import com.exe.skillverse_backend.premium_service.dto.response.UsageCheckResult;
+import com.exe.skillverse_backend.premium_service.dto.response.UserCycleStatsDTO;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
 import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -39,6 +40,19 @@ public class UsageLimitController {
 
         List<FeatureLimitInfo> usage = usageLimitService.getUserPlanLimits(userId);
         return ResponseEntity.ok(usage);
+    }
+
+    /**
+     * Get user cycle statistics
+     */
+    @GetMapping("/stats")
+    @Operation(summary = "Get cycle stats", description = "Get statistics for the current billing cycle (enrollments, etc.)")
+    public ResponseEntity<UserCycleStatsDTO> getCycleStats(Authentication authentication) {
+        Long userId = getUserIdFromAuth(authentication);
+        log.info("User {} fetching cycle stats", userId);
+
+        UserCycleStatsDTO stats = usageLimitService.getUserCycleStats(userId);
+        return ResponseEntity.ok(stats);
     }
 
     /**
