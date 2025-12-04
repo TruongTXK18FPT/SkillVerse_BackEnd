@@ -18,10 +18,10 @@ public interface LessonProgressRepository extends JpaRepository<LessonProgress, 
     @Query("SELECT COUNT(lp) FROM LessonProgress lp WHERE lp.user.id = :userId AND lp.lesson.module.id = :moduleId AND lp.completed = true")
     long countCompletedInModule(@Param("userId") Long userId, @Param("moduleId") Long moduleId);
 
-    @Query("SELECT DISTINCT CAST(lp.completedAt AS LocalDate) FROM LessonProgress lp WHERE lp.user.id = :userId AND lp.completed = true ORDER BY CAST(lp.completedAt AS LocalDate) DESC")
-    List<java.time.LocalDate> findDistinctCompletionDatesByUserId(@Param("userId") Long userId);
+    @Query("SELECT lp.completedAt FROM LessonProgress lp WHERE lp.user.id = :userId AND lp.completed = true ORDER BY lp.completedAt DESC")
+    List<java.time.Instant> findCompletionInstantsByUserId(@Param("userId") Long userId);
 
-    @Query("SELECT DISTINCT CAST(lp.completedAt AS LocalDate) FROM LessonProgress lp WHERE lp.user.id = :userId AND lp.completed = true AND lp.completedAt >= :startOfWeek")
-    List<java.time.LocalDate> findCompletionDatesSince(@Param("userId") Long userId,
+    @Query("SELECT lp.completedAt FROM LessonProgress lp WHERE lp.user.id = :userId AND lp.completed = true AND lp.completedAt >= :startOfWeek")
+    List<java.time.Instant> findCompletionInstantsSince(@Param("userId") Long userId,
             @Param("startOfWeek") java.time.Instant startOfWeek);
 }

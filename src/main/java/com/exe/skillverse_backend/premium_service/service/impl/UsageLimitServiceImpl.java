@@ -33,6 +33,8 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.Comparator;
 
 /**
  * Implementation of UsageLimitService
@@ -368,7 +370,12 @@ public class UsageLimitServiceImpl implements UsageLimitService {
         Integer totalHours = (int) (courseEnrollmentRepository.sumTotalCourseDurationByUserId(userId) / 3600);
 
         // Calculate Streak
-        List<LocalDate> activityDates = lessonProgressRepository.findDistinctCompletionDatesByUserId(userId);
+        List<Instant> activityInstants = lessonProgressRepository.findCompletionInstantsByUserId(userId);
+        List<LocalDate> activityDates = activityInstants.stream()
+                .map(instant -> instant.atZone(ZoneId.systemDefault()).toLocalDate())
+                .distinct()
+                .sorted(Comparator.reverseOrder())
+                .collect(Collectors.toList());
         int currentStreak = 0;
         int longestStreak = 0;
         int tempStreak = 0;
@@ -416,7 +423,11 @@ public class UsageLimitServiceImpl implements UsageLimitService {
         LocalDateTime startOfWeek = now.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
                 .withHour(0).withMinute(0).withSecond(0).withNano(0);
         Instant startOfWeekInstant = startOfWeek.atZone(ZoneId.systemDefault()).toInstant();
-        List<LocalDate> weeklyDates = lessonProgressRepository.findCompletionDatesSince(userId, startOfWeekInstant);
+        List<Instant> weeklyInstants = lessonProgressRepository.findCompletionInstantsSince(userId, startOfWeekInstant);
+        List<LocalDate> weeklyDates = weeklyInstants.stream()
+                .map(instant -> instant.atZone(ZoneId.systemDefault()).toLocalDate())
+                .distinct()
+                .collect(Collectors.toList());
 
         List<Boolean> weeklyActivity = new ArrayList<>();
         for (int i = 0; i < 7; i++) {
