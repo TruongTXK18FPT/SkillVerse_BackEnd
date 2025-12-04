@@ -454,16 +454,17 @@ public class AdminUserServiceImpl implements AdminUserService {
      */
     private String getUserAvatarUrl(User user) {
         try {
-            if (user.getAvatarUrl() != null) {
-                return user.getAvatarUrl();
-            }
-
-            // Try to get from UserProfile if exists
             if (userProfileService.hasProfile(user.getId())) {
                 var profile = userProfileService.getProfile(user.getId());
-                if (profile.getAvatarMediaUrl() != null) {
-                    return profile.getAvatarMediaUrl();
+                String profileAvatar = profile.getAvatarMediaUrl();
+                if (profileAvatar != null && !profileAvatar.isBlank()) {
+                    return profileAvatar;
                 }
+            }
+
+            String entityAvatar = user.getAvatarUrl();
+            if (entityAvatar != null && !entityAvatar.isBlank()) {
+                return entityAvatar;
             }
         } catch (Exception e) {
             log.warn("Failed to get avatar URL for user {}: {}", user.getId(), e.getMessage());

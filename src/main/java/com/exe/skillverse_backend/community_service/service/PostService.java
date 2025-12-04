@@ -18,6 +18,9 @@ import com.exe.skillverse_backend.community_service.repository.PostLikeRepositor
 import com.exe.skillverse_backend.community_service.repository.PostDislikeRepository;
 import com.exe.skillverse_backend.community_service.repository.PostRepository;
 import com.exe.skillverse_backend.community_service.repository.SavedPostRepository;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -41,6 +44,8 @@ public class PostService {
     private final CommentRepository commentRepository;
     private final SavedPostRepository savedPostRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
+    private final UserProfileService userProfileService;
 
     @Transactional
     public PostResponse createPost(Long userId, PostCreateRequest req) {
@@ -194,6 +199,19 @@ public class PostService {
             PostLike like = PostLike.builder().post(post).user(user).build();
             postLikeRepository.save(like);
             post.setLikeCount(post.getLikeCount() + 1);
+
+            if (!post.getUser().getId().equals(userId)) {
+                String likerName = getUserName(user);
+
+                notificationService.createNotification(
+                        post.getUser().getId(),
+                        "Lượt thích mới",
+                        likerName + " đã thích bài viết của bạn.",
+                        NotificationType.LIKE,
+                        String.valueOf(post.getId()),
+                        userId
+                );
+            }
         }
         postRepository.save(post);
         return toResponse(post);
@@ -241,6 +259,25 @@ public class PostService {
         Comment saved = commentRepository.save(comment);
         post.setCommentCount(post.getCommentCount() + 1);
         postRepository.save(post);
+
+        if (!post.getUser().getId().equals(userId)) {
+            String commenterName = getUserName(user);
+            
+            String commentContent = req.getContent();
+            if (commentContent.length() > 50) {
+                commentContent = commentContent.substring(0, 47) + "...";
+            }
+
+            notificationService.createNotification(
+                    post.getUser().getId(),
+                    "Bình luận mới",
+                    commenterName + " đã bình luận: \"" + commentContent + "\"",
+                    NotificationType.COMMENT,
+                    String.valueOf(post.getId()),
+                    userId
+            );
+        }
+
         return toResponse(saved);
     }
 
@@ -343,16 +380,11 @@ public class PostService {
                 ? java.util.Arrays.asList(p.getTags().split(",")) 
                 : new java.util.ArrayList<>();
         
-        String fullName = (p.getUser().getFirstName() != null ? p.getUser().getFirstName() : "") + 
-                          (p.getUser().getLastName() != null ? " " + p.getUser().getLastName() : "");
-        fullName = fullName.trim();
-        if (fullName.isEmpty()) fullName = "User #" + p.getUser().getId();
-
         return PostResponse.builder()
                 .id(p.getId())
                 .userId(p.getUser().getId())
-                .userFullName(fullName)
-                .userAvatar(p.getUser().getAvatarUrl())
+                .userFullName(getUserName(p.getUser()))
+                .userAvatar(getUserAvatar(p.getUser()))
                 .title(p.getTitle())
                 .content(p.getContent())
                 .thumbnailUrl(p.getThumbnailUrl())
@@ -369,17 +401,12 @@ public class PostService {
     }
 
     private CommentResponse toResponse(Comment c) {
-        String fullName = (c.getUser().getFirstName() != null ? c.getUser().getFirstName() : "") + 
-                          (c.getUser().getLastName() != null ? " " + c.getUser().getLastName() : "");
-        fullName = fullName.trim();
-        if (fullName.isEmpty()) fullName = "User #" + c.getUser().getId();
-
         return CommentResponse.builder()
                 .id(c.getId())
                 .postId(c.getPost().getId())
                 .userId(c.getUser().getId())
-                .userFullName(fullName)
-                .userAvatar(c.getUser().getAvatarUrl())
+                .userFullName(getUserName(c.getUser()))
+                .userAvatar(getUserAvatar(c.getUser()))
                 .content(c.getContent())
                 .parentId(c.getParent() != null ? c.getParent().getId() : null)
                 .createdAt(c.getCreatedAt())
@@ -387,5 +414,35 @@ public class PostService {
                 .reportCount(c.getReportCount())
                 .moderationNote(c.getModerationNote())
                 .build();
+    }
+
+    private String getUserAvatar(User user) {
+        try {
+            if (userProfileService.hasProfile(user.getId())) {
+                String profileAvatar = userProfileService.getProfile(user.getId()).getAvatarMediaUrl();
+                if (profileAvatar != null && !profileAvatar.isEmpty()) return profileAvatar;
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+        if (user.getAvatarUrl() != null) return user.getAvatarUrl();
+        return null;
+    }
+
+    private String getUserName(User user) {
+        try {
+            if (userProfileService.hasProfile(user.getId())) {
+                String profileName = userProfileService.getProfile(user.getId()).getFullName();
+                if (profileName != null && !profileName.isEmpty()) return profileName;
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+        
+        String fullName = (user.getFirstName() != null ? user.getFirstName() : "") + 
+                          (user.getLastName() != null ? " " + user.getLastName() : "");
+        fullName = fullName.trim();
+        if (fullName.isEmpty()) fullName = "User #" + user.getId();
+        return fullName;
     }
 }

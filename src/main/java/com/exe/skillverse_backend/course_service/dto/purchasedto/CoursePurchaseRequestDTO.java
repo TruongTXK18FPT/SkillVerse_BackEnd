@@ -6,16 +6,17 @@ import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 public class CoursePurchaseRequestDTO {
-    //{ @NotNull Long courseId, @NotNull BigDecimal price, String currency, String couponCode
     @NotNull
     private Long courseId;
-    @NotNull
-    private BigDecimal price;
+    
+    private BigDecimal price; // Optional, price is fetched from DB
     private String currency;
     private String couponCode;
-
+    private String returnUrl;
+    private String cancelUrl;
 }

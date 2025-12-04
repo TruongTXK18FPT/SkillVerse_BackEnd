@@ -7,8 +7,6 @@ import com.exe.skillverse_backend.portfolio_service.entity.*;
 import com.exe.skillverse_backend.portfolio_service.repository.*;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
-import com.exe.skillverse_backend.user_service.entity.UserProfile;
-import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,9 +23,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PortfolioService {
 
-    // Basic profile from user_service
-    private final UserProfileRepository userProfileRepository;
-    
     // Extended portfolio profile
     private final PortfolioExtendedProfileRepository extendedProfileRepository;
     
@@ -164,6 +159,13 @@ public class PortfolioService {
         }
 
         // Update extended profile fields (only if not null)
+        if (dto.getFullName() != null) extendedProfile.setFullName(dto.getFullName());
+        if (dto.getBasicBio() != null) extendedProfile.setBio(dto.getBasicBio());
+        if (dto.getPhone() != null) extendedProfile.setPhone(dto.getPhone());
+        if (dto.getAddress() != null) extendedProfile.setAddress(dto.getAddress());
+        if (dto.getRegion() != null) extendedProfile.setRegion(dto.getRegion());
+        if (dto.getCompanyId() != null) extendedProfile.setCompanyId(dto.getCompanyId());
+        if (dto.getSocialLinks() != null) extendedProfile.setSocialLinks(dto.getSocialLinks());
         if (dto.getProfessionalTitle() != null) extendedProfile.setProfessionalTitle(dto.getProfessionalTitle());
         if (dto.getCareerGoals() != null) extendedProfile.setCareerGoals(dto.getCareerGoals());
         if (dto.getYearsOfExperience() != null) extendedProfile.setYearsOfExperience(dto.getYearsOfExperience());
@@ -262,20 +264,25 @@ public class PortfolioService {
     }
 
     /**
+     * Get all public portfolios
+     */
+    @Transactional(readOnly = true)
+    public List<UserProfileDTO> getAllPublicPortfolios() {
+        return extendedProfileRepository.findByIsPublicTrue()
+                .stream()
+                .map(profile -> getCombinedProfile(profile.getUserId()))
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Get combined profile from both user_service and portfolio_service
      */
     private UserProfileDTO getCombinedProfile(Long userId) {
-        // Get basic profile from user_service (may not exist for new users)
-        UserProfile basicProfile = userProfileRepository.findByUserId(userId).orElse(null);
-        
-        // Get extended portfolio profile (may not exist yet)
         PortfolioExtendedProfile extendedProfile = extendedProfileRepository.findByUserId(userId).orElse(null);
-        
-        if (basicProfile == null && extendedProfile == null) {
+        if (extendedProfile == null) {
             throw new NotFoundException("No profile found for user: " + userId);
         }
-        
-        return mapToCombinedProfileDTO(basicProfile, extendedProfile);
+        return mapToCombinedProfileDTO(extendedProfile);
     }
 
     // ==================== PROJECTS ====================
@@ -376,6 +383,12 @@ public class PortfolioService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public List<PortfolioProjectDTO> getPublicUserProjects(Long userId) {
+        // For now, return all projects. In future, might filter by isPublic if projects have that flag.
+        return getUserProjects(userId);
+    }
+
     @Transactional
     public void deleteProject(Long projectId, Long userId) {
         PortfolioProject project = projectRepository.findById(projectId)
@@ -447,6 +460,11 @@ public class PortfolioService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public List<ExternalCertificateDTO> getPublicUserCertificates(Long userId) {
+        return getUserCertificates(userId);
+    }
+
     @Transactional
     public void deleteCertificate(Long certificateId, Long userId) {
         ExternalCertificate certificate = certificateRepository.findById(certificateId)
@@ -471,14 +489,17 @@ public class PortfolioService {
         updateExtendedProfileCertificateCount(userId);
     }
 
-    // ==================== MENTOR REVIEWS ====================
-
     @Transactional(readOnly = true)
     public List<MentorReviewDTO> getUserReviews(Long userId) {
         return reviewRepository.findByUserIdAndIsPublicTrueOrderByCreatedAtDesc(userId)
                 .stream()
                 .map(this::mapToReviewDTO)
                 .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public List<MentorReviewDTO> getPublicUserReviews(Long userId) {
+        return getUserReviews(userId);
     }
 
     // ==================== CV GENERATION ====================
@@ -595,32 +616,20 @@ public class PortfolioService {
     /**
      * Map combined profile from basic UserProfile and PortfolioExtendedProfile
      */
-    private UserProfileDTO mapToCombinedProfileDTO(UserProfile basicProfile, PortfolioExtendedProfile extendedProfile) {
+    private UserProfileDTO mapToCombinedProfileDTO(PortfolioExtendedProfile extendedProfile) {
         UserProfileDTO.UserProfileDTOBuilder builder = UserProfileDTO.builder();
-        
-        // Map basic profile data (from user_service)
-        if (basicProfile != null) {
-            builder.userId(basicProfile.getUserId())
-                   .fullName(basicProfile.getFullName())
-                   .basicBio(basicProfile.getBio())
-                   .phone(basicProfile.getPhone())
-                   .address(basicProfile.getAddress())
-                   .region(basicProfile.getRegion())
-                   .avatarMediaId(basicProfile.getAvatarMediaId())
-                   .companyId(basicProfile.getCompanyId())
-                   .socialLinks(basicProfile.getSocialLinks());
-            
-            // Get avatar URL from Media entity if avatarMediaId exists
-            if (basicProfile.getAvatarMedia() != null) {
-                builder.basicAvatarUrl(basicProfile.getAvatarMedia().getUrl());
-            }
-        }
         
         // Map extended profile data (from portfolio_service)
         if (extendedProfile != null) {
-            if (basicProfile == null) {
-                builder.userId(extendedProfile.getUserId());
-            }
+            builder.userId(extendedProfile.getUserId());
+            builder.fullName(extendedProfile.getFullName());
+            builder.basicBio(extendedProfile.getBio());
+            builder.phone(extendedProfile.getPhone());
+            builder.address(extendedProfile.getAddress());
+            builder.region(extendedProfile.getRegion());
+            builder.companyId(extendedProfile.getCompanyId());
+            builder.socialLinks(extendedProfile.getSocialLinks());
+            builder.basicAvatarUrl(extendedProfile.getAvatarUrl());
             
             builder.professionalTitle(extendedProfile.getProfessionalTitle())
                    .careerGoals(extendedProfile.getCareerGoals())

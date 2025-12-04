@@ -10,6 +10,8 @@ import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRep
 import com.exe.skillverse_backend.wallet_service.repository.WithdrawalRequestRepository;
 import com.exe.skillverse_backend.wallet_service.dto.response.WithdrawalRequestResponse;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -38,6 +40,7 @@ public class WithdrawalService {
     private final WalletService walletService;
     private final UserProfileService userProfileService;
     private final WalletEmailService walletEmailService;
+    private final NotificationService notificationService;
 
     // Configuration
     private static final BigDecimal MIN_WITHDRAWAL = new BigDecimal("100000"); // 100K VNĐ
@@ -219,8 +222,18 @@ public class WithdrawalService {
         // Send email notification to user (approved)
         try {
             walletEmailService.sendWithdrawalApprovedEmail(approvedRequest.getUser(), approvedRequest);
+            
+            // Send in-app notification
+            notificationService.createNotification(
+                approvedRequest.getUser().getId(),
+                "Rút tiền thành công",
+                String.format("Yêu cầu rút %s VNĐ của bạn đã được duyệt và chuyển khoản thành công.", 
+                    approvedRequest.getAmount().toBigInteger().toString()),
+                NotificationType.WITHDRAWAL_APPROVED,
+                approvedRequest.getRequestId().toString()
+            );
         } catch (Exception e) {
-            log.error("❌ Failed to send withdrawal approved email for {}: {}", approvedRequest.getRequestCode(), e.getMessage());
+            log.error("❌ Failed to send withdrawal approved email/notification for {}: {}", approvedRequest.getRequestCode(), e.getMessage());
         }
 
         String avatarUrl = getUserAvatarUrl(approvedRequest.getUser());
@@ -262,7 +275,19 @@ public class WithdrawalService {
         log.info("❌ Admin {} đã từ chối yêu cầu rút tiền: {} - Lý do: {}",
                 adminId, request.getRequestCode(), rejectionReason);
 
-        // TODO: Send email notification to user
+        // Send notification to user
+        try {
+            notificationService.createNotification(
+                rejectedRequest.getUser().getId(),
+                "Yêu cầu rút tiền bị từ chối",
+                String.format("Yêu cầu rút %s VNĐ của bạn đã bị từ chối. Lý do: %s", 
+                    rejectedRequest.getAmount().toBigInteger().toString(), rejectionReason),
+                NotificationType.WITHDRAWAL_REJECTED,
+                rejectedRequest.getRequestId().toString()
+            );
+        } catch (Exception e) {
+            log.error("Failed to send rejection notification", e);
+        }
 
         String avatarUrl = getUserAvatarUrl(rejectedRequest.getUser());
         return WithdrawalRequestResponse.fromEntityForAdmin(rejectedRequest, avatarUrl);

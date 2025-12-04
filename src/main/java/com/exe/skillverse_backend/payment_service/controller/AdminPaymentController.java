@@ -152,10 +152,11 @@ public class AdminPaymentController {
     @GetMapping("/transactions/{id}/invoice")
     @Operation(summary = "Download payment invoice", 
                description = "Generate and download PDF invoice for a payment transaction")
-    public ResponseEntity<byte[]> downloadPaymentInvoice(@PathVariable Long id) {
-        log.info("Admin downloading invoice for payment: {}", id);
+    public ResponseEntity<byte[]> downloadPaymentInvoice(@PathVariable Long id,
+                                                         @RequestParam(name = "role", defaultValue = "ADMIN") String role) {
+        log.info("Admin downloading invoice for payment: {} (role={})", id, role);
         
-        byte[] pdfBytes = paymentService.generatePaymentInvoicePdf(id);
+        byte[] pdfBytes = paymentService.generatePaymentInvoicePdf(id, role);
         
         String filename = "invoice-" + id + ".pdf";
         
@@ -171,10 +172,11 @@ public class AdminPaymentController {
     @GetMapping("/wallet-transactions/{id}/invoice")
     @Operation(summary = "Download wallet transaction invoice", 
                description = "Generate and download PDF invoice for a wallet transaction")
-    public ResponseEntity<byte[]> downloadWalletTransactionInvoice(@PathVariable Long id) {
-        log.info("Admin downloading invoice for wallet transaction: {}", id);
+    public ResponseEntity<byte[]> downloadWalletTransactionInvoice(@PathVariable Long id,
+                                                                   @RequestParam(name = "role", defaultValue = "ADMIN") String role) {
+        log.info("Admin downloading invoice for wallet transaction: {} (role={})", id, role);
         
-        byte[] pdfBytes = paymentService.generateWalletTransactionInvoicePdf(id);
+        byte[] pdfBytes = paymentService.generateWalletTransactionInvoicePdf(id, role);
         
         String filename = "wallet-invoice-" + id + ".pdf";
         

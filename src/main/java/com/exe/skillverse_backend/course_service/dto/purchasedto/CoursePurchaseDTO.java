@@ -20,4 +20,7 @@ public class CoursePurchaseDTO {
     // private String paymentId;
     private Instant purchasedAt;
     private String couponCode;
+    private String buyerName;
+    private String buyerAvatarUrl;
+    private String courseTitle;
 }

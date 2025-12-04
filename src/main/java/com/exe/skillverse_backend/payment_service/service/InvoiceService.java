@@ -2,7 +2,10 @@ package com.exe.skillverse_backend.payment_service.service;
 
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
+import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
+import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
+import com.exe.skillverse_backend.mentor_booking_service.repository.BookingReviewRepository;
 import com.lowagie.text.*;
 import com.lowagie.text.pdf.*;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +27,8 @@ import java.time.format.DateTimeFormatter;
 public class InvoiceService {
     
     private final UserProfileRepository userProfileRepository;
+    private final BookingReviewRepository bookingReviewRepository;
+    private final WalletTransactionRepository walletTransactionRepository;
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
     private static final String COMPANY_NAME = "SkillVerse";
@@ -35,44 +40,62 @@ public class InvoiceService {
      * Generate PDF invoice for PaymentTransaction (Premium, Coin Purchase via PayOS)
      */
     public byte[] generatePaymentInvoice(PaymentTransaction payment) {
+        return generatePaymentInvoice(payment, "USER");
+    }
+
+    /**
+     * Generate payment invoice with role-based template
+     */
+    public byte[] generatePaymentInvoice(PaymentTransaction payment, String role) {
+        String roleUpper = normalizeRole(role);
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             Document document = new Document(PageSize.A4);
             PdfWriter.getInstance(document, baos);
             document.open();
 
-            // Header
             addHeader(document);
-
-            // Invoice Info
             addInvoiceInfo(document, payment.getInternalReference(), payment.getCreatedAt());
 
-            // Customer Info
             String customerName = getUserDisplayName(payment.getUser());
             String customerEmail = payment.getUser() != null ? payment.getUser().getEmail() : "N/A";
             addCustomerInfo(document, customerName, customerEmail);
 
-            // Transaction Details Table
             PdfPTable table = createTransactionTable();
-            addTableRow(table, 
-                getPaymentTypeDescription(payment.getType()), 
+            addTableRow(table,
+                getPaymentTypeDescription(payment.getType()),
                 payment.getDescription() != null ? payment.getDescription() : "-",
                 payment.getAmount()
             );
             document.add(table);
 
-            // Total
             addTotal(document, payment.getAmount());
 
-            // Payment Status
             String status = payment.getStatus() != null ? payment.getStatus().name() : "UNKNOWN";
             String method = payment.getPaymentMethod() != null ? payment.getPaymentMethod().name() : "UNKNOWN";
             addPaymentStatus(document, status, method);
 
-            // Footer
-            addFooter(document);
+            if ("ADMIN".equals(roleUpper)) {
+                Font labelFont = new Font(Font.HELVETICA, 10, Font.BOLD);
+                Font valueFont = new Font(Font.HELVETICA, 10, Font.NORMAL);
+                Paragraph adminHeader = new Paragraph("THÔNG TIN QUẢN TRỊ", labelFont);
+                document.add(adminHeader);
 
+                PdfPTable adminTable = new PdfPTable(2);
+                adminTable.setWidthPercentage(100);
+                adminTable.setWidths(new float[]{1, 2});
+
+                addInfoRow(adminTable, "Mã giao dịch:", String.valueOf(payment.getId()), labelFont, valueFont);
+                addInfoRow(adminTable, "Mã nội bộ:", payment.getInternalReference(), labelFont, valueFont);
+                addInfoRow(adminTable, "Mã cổng thanh toán:", payment.getReferenceId() != null ? payment.getReferenceId() : "-", labelFont, valueFont);
+                addInfoRow(adminTable, "User ID:", payment.getUser() != null ? String.valueOf(payment.getUser().getId()) : "-", labelFont, valueFont);
+                addInfoRow(adminTable, "Loại:", getPaymentTypeDescription(payment.getType()), labelFont, valueFont);
+
+                document.add(adminTable);
+            }
+
+            addFooter(document);
             document.close();
-            log.info("Generated PDF invoice for payment: {}", payment.getInternalReference());
+            log.info("Generated PDF invoice for payment: {} (role={})", payment.getInternalReference(), roleUpper);
             return baos.toByteArray();
         } catch (Exception e) {
             log.error("Error generating PDF invoice for payment {}: {}", payment.getId(), e.getMessage());
@@ -84,62 +107,224 @@ public class InvoiceService {
      * Generate PDF invoice for WalletTransaction (Premium, Coin, Course via Wallet)
      */
     public byte[] generateWalletTransactionInvoice(WalletTransaction transaction) {
+        return generateWalletTransactionInvoice(transaction, "USER");
+    }
+
+    /**
+     * Generate wallet transaction invoice with role-based template
+     */
+    public byte[] generateWalletTransactionInvoice(WalletTransaction transaction, String role) {
+        String roleUpper = normalizeRole(role);
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             Document document = new Document(PageSize.A4);
             PdfWriter.getInstance(document, baos);
             document.open();
 
-            // Header
             addHeader(document);
 
-            // Invoice Info
             String invoiceNo = "WAL-" + transaction.getTransactionId();
             addInvoiceInfo(document, invoiceNo, transaction.getCreatedAt());
 
-            // Customer Info
             var user = transaction.getWallet().getUser();
             String customerName = getUserDisplayName(user);
             String customerEmail = user != null ? user.getEmail() : "N/A";
             addCustomerInfo(document, customerName, customerEmail);
 
-            // Transaction Details Table
             PdfPTable table = createTransactionTable();
-            BigDecimal amount = transaction.getCashAmount() != null ? 
-                transaction.getCashAmount() : BigDecimal.ZERO;
+            BigDecimal amount = transaction.getCashAmount() != null ? transaction.getCashAmount() : BigDecimal.ZERO;
             String typeDisplay = transaction.getTransactionType() != null ? transaction.getTransactionType().getDisplayName() : "Giao dịch ví";
-            addTableRow(table, 
-                typeDisplay, 
-                transaction.getDescription() != null ? transaction.getDescription() : "-",
-                amount
-            );
+            addTableRow(table, typeDisplay, transaction.getDescription() != null ? transaction.getDescription() : "-", amount);
             document.add(table);
 
-            // Total
             addTotal(document, amount);
 
-            // Payment Status
             addPaymentStatus(document, transaction.getStatus().name(), "Wallet Balance");
 
-            // Footer
-            addFooter(document);
+            if ("ADMIN".equals(roleUpper) || "MENTOR".equals(roleUpper)) {
+                Font labelFont = new Font(Font.HELVETICA, 10, Font.BOLD);
+                Font valueFont = new Font(Font.HELVETICA, 10, Font.NORMAL);
 
+                Paragraph breakdownHeader = new Paragraph("CHI TIẾT PHÍ/HOA HỒNG", labelFont);
+                document.add(breakdownHeader);
+
+                PdfPTable breakdownTable = new PdfPTable(2);
+                breakdownTable.setWidthPercentage(100);
+                breakdownTable.setWidths(new float[]{1, 2});
+
+                BigDecimal fee = transaction.getFee() != null ? transaction.getFee() : BigDecimal.ZERO;
+                BigDecimal netAmount = amount.subtract(fee);
+
+                addInfoRow(breakdownTable, "Giá gốc người dùng:", formatCurrency(amount), labelFont, valueFont);
+                addInfoRow(breakdownTable, "Phí hệ thống:", formatCurrency(fee), labelFont, valueFont);
+                addInfoRow(breakdownTable, "Thực nhận:", formatCurrency(netAmount), labelFont, valueFont);
+
+                document.add(breakdownTable);
+            }
+
+            addFooter(document);
             document.close();
-            log.info("Generated PDF invoice for wallet transaction: {}", invoiceNo);
+            log.info("Generated PDF invoice for wallet transaction: {} (role={})", invoiceNo, roleUpper);
             return baos.toByteArray();
         } catch (Exception e) {
-            log.error("Error generating PDF invoice for wallet transaction {}: {}", 
-                transaction.getTransactionId(), e.getMessage());
+            log.error("Error generating PDF invoice for wallet transaction {}: {}", transaction.getTransactionId(), e.getMessage());
+            throw new RuntimeException("Failed to generate invoice PDF", e);
+        }
+    }
+
+    /**
+     * Generate PDF invoice for Mentor Booking
+     */
+    public byte[] generateBookingInvoice(Booking booking) {
+        return generateBookingInvoice(booking, "USER");
+    }
+
+    /**
+     * Generate booking invoice with role-based template
+     */
+    public byte[] generateBookingInvoice(Booking booking, String role) {
+        String roleUpper = normalizeRole(role);
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            Document document = new Document(PageSize.A4);
+            PdfWriter.getInstance(document, baos);
+            document.open();
+
+            addHeader(document);
+
+            String invoiceNo = "BOOK-" + booking.getId();
+            addInvoiceInfo(document, invoiceNo, booking.getStartTime());
+
+            String customerName = getUserDisplayName(booking.getLearner());
+            String customerEmail = booking.getLearner() != null ? booking.getLearner().getEmail() : "N/A";
+            addCustomerInfo(document, customerName, customerEmail);
+
+            PdfPTable table = createTransactionTable();
+            BigDecimal amount = booking.getPriceVnd() != null ? booking.getPriceVnd() : BigDecimal.ZERO;
+            String desc = String.format("Mentoring với %s (%d phút)",
+                    getUserDisplayName(booking.getMentor()),
+                    booking.getDurationMinutes() != null ? booking.getDurationMinutes() : 0);
+            addTableRow(table, "Đặt lịch mentor", desc, amount);
+            document.add(table);
+
+            addTotal(document, amount);
+
+            String status = booking.getStatus() != null ? booking.getStatus().name() : "UNKNOWN";
+            addPaymentStatus(document, status, "Wallet/Payment");
+
+            Font labelFont = new Font(Font.HELVETICA, 10, Font.BOLD);
+            Font valueFont = new Font(Font.HELVETICA, 10, Font.NORMAL);
+
+            Paragraph sectionHeader = new Paragraph("CHI TIẾT BUỔI MENTORING", labelFont);
+            document.add(sectionHeader);
+
+            PdfPTable detailTable = new PdfPTable(2);
+            detailTable.setWidthPercentage(100);
+            detailTable.setWidths(new float[]{1, 2});
+
+            String mentorName = getUserDisplayName(booking.getMentor());
+            String link = booking.getMeetingLink() != null ? booking.getMeetingLink() : "-";
+            String duration = (booking.getDurationMinutes() != null ? booking.getDurationMinutes() : 0) + " phút";
+
+            addInfoRow(detailTable, "Mentor:", mentorName, labelFont, valueFont);
+            addInfoRow(detailTable, "Link phòng:", link, labelFont, valueFont);
+            addInfoRow(detailTable, "Thời lượng:", duration, labelFont, valueFont);
+
+            try {
+                var reviewOpt = bookingReviewRepository.findByBookingId(booking.getId());
+                if (reviewOpt.isPresent()) {
+                    var review = reviewOpt.get();
+                    String ratingStr = review.getRating() != null ? review.getRating() + "/5" : "-";
+                    addInfoRow(detailTable, "Đánh giá:", ratingStr, labelFont, valueFont);
+                    if (review.getComment() != null && !review.getComment().isBlank()) {
+                        addInfoRow(detailTable, "Nhận xét:", review.getComment(), labelFont, valueFont);
+                    }
+                    if (review.getReply() != null && !review.getReply().isBlank()) {
+                        addInfoRow(detailTable, "Phản hồi mentor:", review.getReply(), labelFont, valueFont);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Không thể tải đánh giá cho booking {}: {}", booking.getId(), e.getMessage());
+            }
+
+            document.add(detailTable);
+
+            if ("ADMIN".equals(roleUpper) || "MENTOR".equals(roleUpper)) {
+                Paragraph breakdownHeader = new Paragraph("CHI TIẾT DOANH THU/HOA HỒNG", labelFont);
+                document.add(breakdownHeader);
+
+                PdfPTable breakdownTable = new PdfPTable(2);
+                breakdownTable.setWidthPercentage(100);
+                breakdownTable.setWidths(new float[]{1, 2});
+
+                BigDecimal original = amount != null ? amount : BigDecimal.ZERO;
+                BigDecimal mentorReceive = null;
+                try {
+                    String refId = "BOOKING_" + booking.getId();
+                    var payouts = walletTransactionRepository.findByReferenceTypeAndReferenceId("BOOKING_PAYOUT", refId);
+                    if (payouts != null && !payouts.isEmpty()) {
+                        for (var tx : payouts) {
+                            if (tx.getCurrencyType() == WalletTransaction.CurrencyType.CASH && tx.getCashAmount() != null) {
+                                mentorReceive = tx.getCashAmount();
+                                break;
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Không thể tải giao dịch payout cho booking {}: {}", booking.getId(), e.getMessage());
+                }
+                if (mentorReceive == null) {
+                    mentorReceive = original.multiply(new BigDecimal("0.80"));
+                }
+                BigDecimal platformFee = original.subtract(mentorReceive);
+
+                addInfoRow(breakdownTable, "Giá gốc người dùng:", formatCurrency(original), labelFont, valueFont);
+                addInfoRow(breakdownTable, "Phí hệ thống:", formatCurrency(platformFee), labelFont, valueFont);
+                addInfoRow(breakdownTable, "Thực nhận mentor:", formatCurrency(mentorReceive), labelFont, valueFont);
+
+                document.add(breakdownTable);
+            }
+
+            addFooter(document);
+            document.close();
+            log.info("Generated PDF invoice for booking: {} (role={})", invoiceNo, roleUpper);
+            return baos.toByteArray();
+        } catch (Exception e) {
+            log.error("Error generating PDF invoice for booking {}: {}", booking.getId(), e.getMessage());
             throw new RuntimeException("Failed to generate invoice PDF", e);
         }
     }
 
     private void addHeader(Document document) throws DocumentException {
+        Image logo = null;
         try {
-            Image logo = Image.getInstance(LOGO_PATH);
+            var resource = getClass().getClassLoader().getResource("assets/skillverse.png");
+            if (resource != null) {
+                logo = Image.getInstance(resource);
+            }
+        } catch (Exception e) {
+            log.warn("Không thể tải logo từ classpath: {}", e.getMessage());
+        }
+
+        if (logo == null) {
+            try {
+                java.io.File file = new java.io.File(LOGO_PATH);
+                if (!file.exists()) {
+                    file = new java.io.File("src/assets/skillverse.png");
+                }
+                if (file.exists()) {
+                    logo = Image.getInstance(file.getAbsolutePath());
+                }
+            } catch (Exception e) {
+                log.warn("Không thể tải logo từ file hệ thống: {}", e.getMessage());
+            }
+        }
+
+        if (logo != null) {
             logo.scaleToFit(160, 64);
             logo.setAlignment(Image.ALIGN_CENTER);
             document.add(logo);
-        } catch (Exception ignored) {}
+        } else {
+            log.warn("Logo hóa đơn không tìm thấy. Bỏ qua hiển thị logo.");
+        }
 
         Font subFont = new Font(Font.HELVETICA, 10, Font.NORMAL, Color.GRAY);
         Paragraph address = new Paragraph(COMPANY_ADDRESS + "\n" + COMPANY_EMAIL, subFont);
@@ -307,6 +492,7 @@ public class InvoiceService {
             case COURSE_PURCHASE -> "Mua khóa học";
             case COIN_PURCHASE -> "Mua SkillCoin";
             case WALLET_TOPUP -> "Nạp tiền vào ví";
+            case MENTOR_BOOKING -> "Đặt lịch mentor";
             case REFUND -> "Hoàn tiền";
         };
     }
@@ -318,6 +504,15 @@ public class InvoiceService {
             case "FAILED" -> "Thất bại";
             case "CANCELLED" -> "Đã hủy";
             default -> status;
+        };
+    }
+
+    private String normalizeRole(String role) {
+        if (role == null || role.isBlank()) return "USER";
+        String r = role.trim().toUpperCase();
+        return switch (r) {
+            case "ADMIN", "USER", "MENTOR" -> r;
+            default -> "USER";
         };
     }
     

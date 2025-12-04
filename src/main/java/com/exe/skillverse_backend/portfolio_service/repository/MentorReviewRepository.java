@@ -18,4 +18,5 @@ public interface MentorReviewRepository extends JpaRepository<MentorReview, Long
     long countByUserId(Long userId);
     
     long countByUserIdAndIsVerifiedTrue(Long userId);
+    long countByMentorIdAndRating(Long mentorId, Integer rating);
 }

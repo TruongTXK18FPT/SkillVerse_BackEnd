@@ -148,6 +148,7 @@ public class WalletTransaction {
         WITHDRAWAL_CASH("Rút tiền về tài khoản"),            // Rút tiền về ngân hàng
         PURCHASE_COINS("Mua SkillCoin"),                     // Dùng Cash mua Coin
         REFUND_CASH("Hoàn tiền"),                            // Hoàn tiền khi hủy giao dịch
+        MENTOR_BOOKING("Thu nhập từ booking mentor"),        // Thu nhập từ buổi mentoring
         
         // Coin transactions
         EARN_COINS("Kiếm Coin"),                             // Kiếm Coin từ học tập
@@ -229,6 +230,7 @@ public class WalletTransaction {
      */
     public boolean isCredit() {
         return transactionType == TransactionType.DEPOSIT_CASH ||
+               transactionType == TransactionType.MENTOR_BOOKING ||
                transactionType == TransactionType.EARN_COINS ||
                transactionType == TransactionType.RECEIVE_TIP ||
                transactionType == TransactionType.BONUS_COINS ||

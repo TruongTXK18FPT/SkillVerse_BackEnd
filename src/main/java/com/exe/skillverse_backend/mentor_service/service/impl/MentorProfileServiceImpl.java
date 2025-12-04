@@ -2,17 +2,27 @@ package com.exe.skillverse_backend.mentor_service.service.impl;
 
 import com.exe.skillverse_backend.mentor_service.dto.request.MentorProfileUpdateRequest;
 import com.exe.skillverse_backend.mentor_service.dto.response.MentorProfileResponse;
+import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.mentor_service.service.MentorProfileService;
+import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
+import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import com.exe.skillverse_backend.shared.service.MediaService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayInputStream;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -22,6 +32,35 @@ public class MentorProfileServiceImpl implements MentorProfileService {
     private static final String MENTOR_PROFILE_NOT_FOUND = "MENTOR_PROFILE_NOT_FOUND";
     
     private final MentorProfileRepository mentorProfileRepository;
+    private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+    private final MediaService mediaService;
+    private final ObjectMapper objectMapper;
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MentorProfileResponse> getAllMentors() {
+        return mentorProfileRepository.findByApplicationStatus(ApplicationStatus.APPROVED)
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MentorProfileResponse> getLeaderboard(int size) {
+        List<MentorProfile> approved = mentorProfileRepository.findByApplicationStatus(ApplicationStatus.APPROVED);
+        return approved.stream()
+                .sorted((a, b) -> {
+                    int cmpLevel = Integer.compare(b.getCurrentLevel() != null ? b.getCurrentLevel() : 0, a.getCurrentLevel() != null ? a.getCurrentLevel() : 0);
+                    if (cmpLevel != 0) return cmpLevel;
+                    int cmpPoints = Integer.compare(b.getSkillPoints() != null ? b.getSkillPoints() : 0, a.getSkillPoints() != null ? a.getSkillPoints() : 0);
+                    if (cmpPoints != 0) return cmpPoints;
+                    return Double.compare(b.getRatingAverage() != null ? b.getRatingAverage() : 0.0, a.getRatingAverage() != null ? a.getRatingAverage() : 0.0);
+                })
+                .limit(size)
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
 
     @Override
     @Transactional(readOnly = true)
@@ -101,6 +140,25 @@ public class MentorProfileServiceImpl implements MentorProfileService {
                 profile.setWebsiteUrl(request.getSocialLinks().getWebsite());
             }
         }
+        if (request.getHourlyRate() != null) {
+            profile.setHourlyRate(request.getHourlyRate());
+        }
+
+        if (request.getSkills() != null) {
+            try {
+                profile.setSkills(objectMapper.writeValueAsString(request.getSkills()));
+            } catch (JsonProcessingException e) {
+                log.error("Error serializing skills for user {}", userId, e);
+            }
+        }
+
+        if (request.getAchievements() != null) {
+            try {
+                profile.setAchievements(objectMapper.writeValueAsString(request.getAchievements()));
+            } catch (JsonProcessingException e) {
+                log.error("Error serializing achievements for user {}", userId, e);
+            }
+        }
         
         profile.setUpdatedAt(LocalDateTime.now());
         
@@ -112,19 +170,22 @@ public class MentorProfileServiceImpl implements MentorProfileService {
 
     @Override
     @Transactional
-    public String uploadMentorAvatar(Long userId, byte[] fileData, String fileName) {
+    public String uploadMentorAvatar(Long userId, byte[] fileData, String fileName, String contentType) {
         log.info("Uploading avatar for mentor user ID: {}", userId);
         
         MentorProfile profile = mentorProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new NotFoundException(MENTOR_PROFILE_NOT_FOUND));
         
-        // Generate unique filename
-        String fileExtension = fileName.substring(fileName.lastIndexOf("."));
-        String uniqueFileName = "mentor_" + userId + "_" + UUID.randomUUID().toString() + fileExtension;
+        // Upload using MediaService
+        MediaDTO mediaDto = mediaService.upload(
+                userId,
+                fileName,
+                contentType,
+                fileData.length,
+                new ByteArrayInputStream(fileData)
+        );
         
-        // In a real implementation, you would upload to cloud storage (AWS S3, etc.)
-        // For now, we'll just store a placeholder URL
-        String avatarUrl = "/uploads/avatars/" + uniqueFileName;
+        String avatarUrl = mediaDto.getUrl();
         
         // Update profile with avatar URL
         profile.setAvatarUrl(avatarUrl);
@@ -133,6 +194,41 @@ public class MentorProfileServiceImpl implements MentorProfileService {
         
         log.info("Avatar uploaded successfully for mentor user ID: {}", userId);
         return avatarUrl;
+    }
+
+    @Override
+    @Transactional
+    public void setPreChatEnabled(Long userId, boolean enabled) {
+        MentorProfile profile = mentorProfileRepository.findByUserId(userId)
+                .orElseThrow(() -> new NotFoundException(MENTOR_PROFILE_NOT_FOUND));
+        profile.setPreChatEnabled(enabled);
+        profile.setUpdatedAt(LocalDateTime.now());
+        mentorProfileRepository.save(profile);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> getAllSkills() {
+        List<MentorProfile> profiles = mentorProfileRepository.findByApplicationStatus(ApplicationStatus.APPROVED);
+        return profiles.stream()
+                .flatMap(profile -> {
+                    try {
+                        if (profile.getSkills() != null) {
+                            return java.util.Arrays.stream(objectMapper.readValue(profile.getSkills(), String[].class));
+                        } else if (profile.getMainExpertiseAreas() != null) {
+                            return java.util.Arrays.stream(profile.getMainExpertiseAreas().split(","));
+                        }
+                        return java.util.stream.Stream.empty();
+                    } catch (JsonProcessingException e) {
+                        log.error("Error parsing skills for user {}", profile.getUserId(), e);
+                        return java.util.stream.Stream.empty();
+                    }
+                })
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .sorted()
+                .collect(Collectors.toList());
     }
 
     private MentorProfileResponse mapToResponse(MentorProfile profile) {
@@ -157,10 +253,40 @@ public class MentorProfileServiceImpl implements MentorProfileService {
         // Parse skills and achievements from text fields (you might want to store these as JSON or separate tables)
         String[] skills = {};
         String[] achievements = {};
+        String[] badges = {};
         
-        if (profile.getMainExpertiseAreas() != null) {
-            skills = profile.getMainExpertiseAreas().split(",");
+        try {
+            if (profile.getSkills() != null) {
+                skills = objectMapper.readValue(profile.getSkills(), String[].class);
+            } else if (profile.getMainExpertiseAreas() != null) {
+                // Fallback to old behavior if new field is empty
+                skills = profile.getMainExpertiseAreas().split(",");
+            }
+            
+            if (profile.getAchievements() != null) {
+                achievements = objectMapper.readValue(profile.getAchievements(), String[].class);
+            }
+            if (profile.getBadges() != null) {
+                badges = objectMapper.readValue(profile.getBadges(), String[].class);
+            }
+        } catch (JsonProcessingException e) {
+            log.error("Error deserializing profile data for user {}", profile.getUserId(), e);
+            // Fallback for skills if JSON parsing fails
+            if (profile.getMainExpertiseAreas() != null) {
+                skills = profile.getMainExpertiseAreas().split(",");
+            }
         }
+
+        // Fetch Portfolio Extended Profile to get hourlyRate and slug
+        var portfolioProfile = portfolioExtendedProfileRepository.findByUserId(profile.getUserId());
+        
+        String slug = portfolioProfile
+                .map(PortfolioExtendedProfile::getCustomUrlSlug)
+                .orElse(null);
+
+        Double hourlyRate = profile.getHourlyRate() != null
+                ? profile.getHourlyRate()
+                : portfolioProfile.map(PortfolioExtendedProfile::getHourlyRate).orElse(null);
         
         return MentorProfileResponse.builder()
                 .id(profile.getUserId())
@@ -174,8 +300,16 @@ public class MentorProfileServiceImpl implements MentorProfileService {
                 .socialLinks(socialLinks)
                 .skills(skills)
                 .achievements(achievements)
+                .ratingAverage(profile.getRatingAverage())
+                .ratingCount(profile.getRatingCount())
+                .hourlyRate(hourlyRate)
+                .preChatEnabled(profile.getPreChatEnabled())
+                .slug(slug)
                 .createdAt(profile.getCreatedAt())
                 .updatedAt(profile.getUpdatedAt())
+                .skillPoints(profile.getSkillPoints())
+                .currentLevel(profile.getCurrentLevel())
+                .badges(badges)
                 .build();
     }
 }

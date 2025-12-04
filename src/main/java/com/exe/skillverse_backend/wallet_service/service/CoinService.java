@@ -8,6 +8,8 @@ import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
 import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
 import com.exe.skillverse_backend.payment_service.service.PaymentService;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,6 +31,7 @@ public class CoinService {
     private final PaymentService paymentService;
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository transactionRepository;
+    private final NotificationService notificationService;
     
     // Configuration
     public static final BigDecimal COIN_PRICE_VND = new BigDecimal("100"); // 1 Coin = 100 VNĐ (made public for controller)
@@ -142,6 +145,20 @@ public class CoinService {
         log.info("✅ User {} đã mua {} Coins (bonus: {}) bằng Cash: {} VNĐ",
                 userId, coinAmount, bonusCoins, price);
         
+        // Send notification
+        try {
+            notificationService.createNotification(
+                userId,
+                "Mua Coin thành công",
+                String.format("Bạn đã mua thành công %d SkillCoin%s bằng số dư ví.", 
+                    totalCoins, bonusCoins > 0 ? " (+" + bonusCoins + " bonus)" : ""),
+                NotificationType.COIN_PURCHASE,
+                packageId != null ? packageId : "custom"
+            );
+        } catch (Exception e) {
+            log.error("Failed to send coin purchase notification", e);
+        }
+
         return Map.of(
             "success", true,
             "coinsReceived", totalCoins,
@@ -248,6 +265,20 @@ public class CoinService {
         
         log.info("✅ Đã cộng {} Coins cho user {} từ PayOS payment: {}",
                 totalCoins, userId, paymentReferenceId);
+
+        // Send notification
+        try {
+            notificationService.createNotification(
+                userId,
+                "Nạp Coin thành công",
+                String.format("Bạn đã nạp thành công %d SkillCoin%s qua cổng thanh toán.", 
+                    totalCoins, bonusCoins > 0 ? " (+" + bonusCoins + " bonus)" : ""),
+                NotificationType.COIN_PURCHASE,
+                paymentReferenceId
+            );
+        } catch (Exception e) {
+            log.error("Failed to send coin purchase callback notification", e);
+        }
     }
     
     /**

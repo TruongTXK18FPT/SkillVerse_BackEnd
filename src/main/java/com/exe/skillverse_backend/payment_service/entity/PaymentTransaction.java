@@ -104,6 +104,7 @@ public class PaymentTransaction {
         COURSE_PURCHASE,
         WALLET_TOPUP,
         COIN_PURCHASE,
+        MENTOR_BOOKING,
         REFUND
     }
 

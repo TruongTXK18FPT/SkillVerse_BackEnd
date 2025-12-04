@@ -12,7 +12,8 @@ import java.util.Optional;
 @Repository
 public interface UserProfileRepository extends JpaRepository<UserProfile, Long> {
 
-    Optional<UserProfile> findByUserId(Long userId);
+    @Query("SELECT up FROM UserProfile up LEFT JOIN FETCH up.avatarMedia WHERE up.userId = :userId")
+    Optional<UserProfile> findByUserId(@Param("userId") Long userId);
 
     boolean existsByUserId(Long userId);
 
@@ -25,6 +26,6 @@ public interface UserProfileRepository extends JpaRepository<UserProfile, Long> 
     @Query("SELECT up FROM UserProfile up WHERE up.fullName LIKE %:name%")
     List<UserProfile> findByFullNameContaining(@Param("name") String name);
 
-    @Query("SELECT up FROM UserProfile up WHERE up.user.email = :email")
+    @Query("SELECT up FROM UserProfile up LEFT JOIN FETCH up.avatarMedia WHERE up.user.email = :email")
     Optional<UserProfile> findByUserEmail(@Param("email") String email);
 }

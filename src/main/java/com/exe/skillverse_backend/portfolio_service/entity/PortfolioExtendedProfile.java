@@ -29,6 +29,26 @@ public class PortfolioExtendedProfile {
     private User user;
 
     // Portfolio-specific professional information
+    @Column(name = "full_name", length = 200)
+    private String fullName;
+
+    @Column(name = "bio", columnDefinition = "TEXT")
+    private String bio;
+
+    @Column(name = "phone", length = 50)
+    private String phone;
+
+    @Column(name = "address", length = 300)
+    private String address;
+
+    @Column(name = "region", length = 100)
+    private String region;
+
+    @Column(name = "company_id")
+    private Long companyId;
+
+    @Column(name = "social_links", columnDefinition = "TEXT")
+    private String socialLinks;
     @Column(name = "professional_title", length = 200)
     private String professionalTitle; // e.g., "Full Stack Developer", "UI/UX Designer"
 

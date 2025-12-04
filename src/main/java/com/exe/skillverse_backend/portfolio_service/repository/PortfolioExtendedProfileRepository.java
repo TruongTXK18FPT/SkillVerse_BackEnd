@@ -31,4 +31,6 @@ public interface PortfolioExtendedProfileRepository extends JpaRepository<Portfo
 
     @Query("SELECT COUNT(p) FROM PortfolioExtendedProfile p WHERE p.userId = :userId")
     long countByUserId(@Param("userId") Long userId);
+
+    List<PortfolioExtendedProfile> findByIsPublicTrue();
 }

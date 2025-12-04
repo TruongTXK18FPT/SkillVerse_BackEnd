@@ -2,6 +2,8 @@ package com.exe.skillverse_backend.premium_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.repository.PaymentTransactionRepository;
 import com.exe.skillverse_backend.premium_service.dto.request.CreateSubscriptionRequest;
@@ -46,6 +48,7 @@ public class PremiumServiceImpl implements PremiumService {
         private final SubscriptionCancellationRepository cancellationRepository;
         private final UserProfileService userProfileService;
         private final PremiumEmailService premiumEmailService;
+        private final NotificationService notificationService;
 
         private static final List<String> STUDENT_EMAIL_DOMAINS = List.of(
                         ".edu", ".edu.vn", ".ac.uk", "university.", "student.", ".edu.au");
@@ -202,6 +205,26 @@ public class PremiumServiceImpl implements PremiumService {
                 String lowerEmail = email.toLowerCase();
                 return STUDENT_EMAIL_DOMAINS.stream()
                                 .anyMatch(lowerEmail::contains);
+        }
+
+        @Scheduled(cron = "0 0 9 * * ?") // Run at 9 AM daily
+        @Transactional
+        public void notifyExpiringSubscriptions() {
+                LocalDateTime now = LocalDateTime.now();
+                LocalDateTime start = now.plusDays(3).withHour(0).withMinute(0).withSecond(0);
+                LocalDateTime end = now.plusDays(3).withHour(23).withMinute(59).withSecond(59);
+
+                List<UserSubscription> expiring = userSubscriptionRepository.findSubscriptionsExpiringSoon(start, end);
+
+                for (UserSubscription sub : expiring) {
+                        notificationService.createNotification(
+                                        sub.getUser().getId(),
+                                        "Gói Premium sắp hết hạn",
+                                        "Gói Premium của bạn sẽ hết hạn vào ngày " + sub.getEndDate().toLocalDate()
+                                                        + ". Hãy gia hạn để không bị gián đoạn.",
+                                        NotificationType.PREMIUM_EXPIRATION,
+                                        String.valueOf(sub.getId()));
+                }
         }
 
         @Override
@@ -488,6 +511,17 @@ public class PremiumServiceImpl implements PremiumService {
                                 finalPrice,
                                 "WALLET");
 
+                try {
+                        notificationService.createNotification(
+                                        user.getId(),
+                                        "Đăng ký Premium thành công",
+                                        "Bạn đã đăng ký gói Premium " + plan.getDisplayName() + " thành công bằng ví.",
+                                        NotificationType.PREMIUM_PURCHASE,
+                                        String.valueOf(subscription.getId()));
+                } catch (Exception e) {
+                        log.error("Failed to create notification for premium purchase: {}", e.getMessage());
+                }
+
                 return convertToUserSubscriptionResponse(subscription);
         }
 
@@ -542,6 +576,14 @@ public class PremiumServiceImpl implements PremiumService {
 
                 log.info("✅ Auto-renewal cancelled for user {}. Subscription remains active until {}",
                                 userId, subscription.getEndDate());
+
+                notificationService.createNotification(
+                                userId,
+                                "Hủy gia hạn tự động",
+                                "Bạn đã hủy gia hạn tự động gói Premium thành công. Gói của bạn vẫn có hiệu lực đến "
+                                                + subscription.getEndDate().toLocalDate(),
+                                NotificationType.PREMIUM_CANCEL,
+                                String.valueOf(subscription.getId()));
         }
 
         @Override
@@ -644,6 +686,15 @@ public class PremiumServiceImpl implements PremiumService {
 
                 cancellationRepository.save(cancellationRecord);
                 log.info("📝 Recorded cancellation for user {} in month {}", userId, currentMonth);
+
+                notificationService.createNotification(
+                                userId,
+                                "Hủy gói Premium",
+                                "Bạn đã hủy gói Premium thành công. " + (refundPercentage > 0
+                                                ? "Số tiền hoàn lại: " + refundAmount + " VNĐ"
+                                                : "Gói của bạn sẽ hết hạn vào " + subscription.getEndDate().toLocalDate()),
+                                NotificationType.PREMIUM_CANCEL,
+                                String.valueOf(subscription.getId()));
 
                 return refundAmount.doubleValue();
         }

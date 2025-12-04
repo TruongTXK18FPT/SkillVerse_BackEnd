@@ -1,6 +1,9 @@
 package com.exe.skillverse_backend.portfolio_service.controller;
 
 import com.exe.skillverse_backend.portfolio_service.dto.*;
+import com.exe.skillverse_backend.portfolio_service.entity.MentorReview;
+import com.exe.skillverse_backend.portfolio_service.repository.MentorReviewRepository;
+import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.portfolio_service.service.PortfolioService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -26,6 +29,7 @@ import java.util.Map;
 public class PortfolioController {
 
     private final PortfolioService portfolioService;
+    private final MentorReviewRepository reviewRepository;
 
     // ==================== USER PROFILE ====================
 
@@ -205,6 +209,78 @@ public class PortfolioController {
         } catch (Exception e) {
             log.error("Error retrieving public profile", e);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/public")
+    @Operation(summary = "Get all public portfolios", description = "Retrieve all public portfolios for the mentorship page")
+    public ResponseEntity<?> getAllPublicPortfolios() {
+        try {
+            List<UserProfileDTO> profiles = portfolioService.getAllPublicPortfolios();
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", profiles
+            ));
+        } catch (Exception e) {
+            log.error("Error retrieving public portfolios", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/public/{userId}/projects")
+    @Operation(summary = "Get public user projects", description = "Retrieve all projects of a specific user (public)")
+    public ResponseEntity<?> getPublicUserProjects(@PathVariable Long userId) {
+        try {
+            List<PortfolioProjectDTO> projects = portfolioService.getPublicUserProjects(userId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", projects
+            ));
+        } catch (Exception e) {
+            log.error("Error retrieving public projects", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/public/{userId}/certificates")
+    @Operation(summary = "Get public user certificates", description = "Retrieve all certificates of a specific user (public)")
+    public ResponseEntity<?> getPublicUserCertificates(@PathVariable Long userId) {
+        try {
+            List<ExternalCertificateDTO> certificates = portfolioService.getPublicUserCertificates(userId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", certificates
+            ));
+        } catch (Exception e) {
+            log.error("Error retrieving public certificates", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/public/{userId}/reviews")
+    @Operation(summary = "Get public user reviews", description = "Retrieve all reviews of a specific user (public)")
+    public ResponseEntity<?> getPublicUserReviews(@PathVariable Long userId) {
+        try {
+            List<MentorReviewDTO> reviews = portfolioService.getPublicUserReviews(userId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", reviews
+            ));
+        } catch (Exception e) {
+            log.error("Error retrieving public reviews", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
                     "message", e.getMessage()
             ));
@@ -396,6 +472,24 @@ public class PortfolioController {
         } catch (Exception e) {
             log.error("Error retrieving reviews", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()
+            ));
+        }
+    }
+
+    @PutMapping("/reviews/{id}/verify")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Verify mentor review (Admin)")
+    public ResponseEntity<?> verifyReview(@PathVariable Long id, @RequestParam boolean verified) {
+        try {
+            MentorReview review = reviewRepository.findById(id)
+                    .orElseThrow(() -> new NotFoundException("Review not found: " + id));
+            review.setIsVerified(verified);
+            reviewRepository.save(review);
+            return ResponseEntity.ok(java.util.Map.of("success", true));
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(java.util.Map.of(
                     "success", false,
                     "message", e.getMessage()
             ));

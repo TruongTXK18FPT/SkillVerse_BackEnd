@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.mentor_service.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -45,6 +46,10 @@ public class MentorProfileUpdateRequest {
 
     @Schema(description = "Achievements list")
     private String[] achievements;
+
+    @Schema(description = "Hourly rate")
+    @jakarta.validation.constraints.PositiveOrZero(message = "Hourly rate must be non-negative")
+    private Double hourlyRate;
 
     @Data
     @Schema(description = "Social links")

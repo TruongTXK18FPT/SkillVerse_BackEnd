@@ -88,7 +88,9 @@ public class PremiumEmailService {
                 ? "<div class=\"discount-badge\">🎓 Giảm giá sinh viên đã áp dụng</div>"
                 : "";
 
-        String gradient = getPlanGradient(planType);
+        String brandGradient = "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)";
+        String brandColor = "#4f46e5";
+        String brandSoft = "#eef2ff";
 
         return String.format(
                 """
@@ -97,26 +99,26 @@ public class PremiumEmailService {
                         <head>
                             <meta charset="UTF-8">
                             <style>
-                                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; margin: 0; padding: 20px; }
-                                .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+                                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background-color: #f5f5f7; margin: 0; padding: 20px; }
+                                .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 24px rgba(17,24,39,0.08); }
                                 .header { background: %s; padding: 32px 30px; text-align: center; color: white; }
                                 .header h1 { margin: 0; font-size: 32px; font-weight: bold; }
                                 .header .plan-name { font-size: 24px; margin-top: 10px; opacity: 0.95; }
                                 .content { padding: 30px; }
                                 .success-icon { font-size: 64px; text-align: center; margin: 20px 0; }
-                                .discount-badge { background: #10b981; color: white; padding: 8px 16px; border-radius: 20px; display: inline-block; margin: 15px 0; font-weight: bold; }
-                                .info-box { background: #f9fafb; border-left: 4px solid #667eea; padding: 20px; margin: 20px 0; border-radius: 4px; }
+                                .discount-badge { background: %s; color: white; padding: 8px 16px; border-radius: 20px; display: inline-block; margin: 15px 0; font-weight: bold; }
+                                .info-box { background: #f9fafb; border-left: 4px solid %s; padding: 20px; margin: 20px 0; border-radius: 8px; }
                                 .info-row { display: flex; justify-content: space-between; margin: 10px 0; }
                                 .info-label { font-weight: 600; color: #374151; }
                                 .info-value { color: #6b7280; }
-                                .features-box { background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); color: white; padding: 25px; border-radius: 8px; margin: 25px 0; }
+                                .features-box { background: %s; color: white; padding: 25px; border-radius: 8px; margin: 25px 0; }
                                 .features-box h3 { margin-top: 0; font-size: 20px; }
                                 .features-list { list-style: none; padding: 0; margin: 15px 0; }
                                 .features-list li { padding: 8px 0; padding-left: 25px; position: relative; }
-                                .features-list li:before { content: "✓"; position: absolute; left: 0; font-weight: bold; color: #10b981; }
-                                .button { display: inline-block; background: #667eea; color: white; padding: 14px 32px; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: bold; }
+                                .features-list li:before { content: "✓"; position: absolute; left: 0; font-weight: bold; color: #a5b4fc; }
+                                .button { display: inline-block; background: %s; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: 600; }
                                 .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
-                                .price { font-size: 36px; color: #667eea; font-weight: bold; text-align: center; margin: 20px 0; }
+                                .price { font-size: 36px; color: %s; font-weight: bold; text-align: center; margin: 20px 0; }
                             </style>
                         </head>
                         <body>
@@ -175,7 +177,8 @@ public class PremiumEmailService {
                         </body>
                         </html>
                         """,
-                gradient, planName, userName, discountBadge, paidAmount,
+                brandGradient, planName, userName, discountBadge, brandColor,
+                brandColor, brandGradient, brandColor, brandColor,
                 planName, paymentMethod, startDate, endDate, features);
     }
 

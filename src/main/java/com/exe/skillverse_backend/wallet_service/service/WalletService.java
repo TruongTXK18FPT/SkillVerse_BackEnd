@@ -415,12 +415,12 @@ public class WalletService {
          * Deduct cash from wallet (for premium purchase, etc.)
          */
         @Transactional
-        public WalletTransaction deductCash(
-                        Long userId,
-                        BigDecimal cashAmount,
-                        String description,
-                        String referenceType,
-                        String referenceId) {
+    public WalletTransaction deductCash(
+                    Long userId,
+                    BigDecimal cashAmount,
+                    String description,
+                    String referenceType,
+                    String referenceId) {
                 if (cashAmount.compareTo(BigDecimal.ZERO) <= 0) {
                         throw new IllegalArgumentException("Deduct amount must be greater than 0");
                 }
@@ -457,8 +457,100 @@ public class WalletService {
                 WalletTransaction savedTransaction = transactionRepository.save(transaction);
                 log.info("✅ Deducted {} VND from user {} wallet", cashAmount, userId);
 
-                return savedTransaction;
+        return savedTransaction;
+    }
+
+    /**
+     * Freeze cash for a booking (reserve funds until completion/cancellation)
+     */
+    @Transactional
+    public WalletTransaction freezeCashForBooking(Long userId, BigDecimal amount, Long bookingId) {
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Số tiền đóng băng phải lớn hơn 0");
         }
+        Wallet wallet = walletRepository.findByUserIdWithLock(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+
+        if (!wallet.hasAvailableCash(amount)) {
+            throw new IllegalArgumentException("Số dư khả dụng không đủ");
+        }
+
+        wallet.freezeCash(amount);
+        walletRepository.save(wallet);
+
+        WalletTransaction transaction = WalletTransaction.builder()
+                .wallet(wallet)
+                .transactionType(WalletTransaction.TransactionType.WITHDRAWAL_CASH)
+                .currencyType(WalletTransaction.CurrencyType.CASH)
+                .cashAmount(amount)
+                .cashBalanceAfter(wallet.getCashBalance())
+                .description("Đóng băng số tiền cho booking")
+                .referenceType("BOOKING")
+                .referenceId("BOOKING_" + bookingId)
+                .status(WalletTransaction.TransactionStatus.PENDING)
+                .build();
+
+        return transactionRepository.save(transaction);
+    }
+
+    /**
+     * Charge from frozen cash for booking (complete payment)
+     */
+    @Transactional
+    public WalletTransaction chargeFrozenForBooking(Long userId, BigDecimal amount, Long bookingId) {
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Số tiền thanh toán phải lớn hơn 0");
+        }
+        Wallet wallet = walletRepository.findByUserIdWithLock(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+
+        // Deduct from cash and unfreeze corresponding amount
+        wallet.completeWithdrawal(amount);
+        walletRepository.save(wallet);
+
+        WalletTransaction transaction = WalletTransaction.builder()
+                .wallet(wallet)
+                .transactionType(WalletTransaction.TransactionType.WITHDRAWAL_CASH)
+                .currencyType(WalletTransaction.CurrencyType.CASH)
+                .cashAmount(amount)
+                .cashBalanceAfter(wallet.getCashBalance())
+                .description("Thanh toán booking từ số tiền đóng băng")
+                .referenceType("BOOKING")
+                .referenceId("BOOKING_" + bookingId)
+                .status(WalletTransaction.TransactionStatus.COMPLETED)
+                .build();
+
+        return transactionRepository.save(transaction);
+    }
+
+    /**
+     * Unfreeze reserved cash for booking (refund before deadline)
+     */
+    @Transactional
+    public WalletTransaction unfreezeForBooking(Long userId, BigDecimal amount, Long bookingId) {
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Số tiền phải lớn hơn 0");
+        }
+        Wallet wallet = walletRepository.findByUserIdWithLock(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+
+        wallet.unfreezeCash(amount);
+        walletRepository.save(wallet);
+
+        WalletTransaction transaction = WalletTransaction.builder()
+                .wallet(wallet)
+                .transactionType(WalletTransaction.TransactionType.REFUND_CASH)
+                .currencyType(WalletTransaction.CurrencyType.CASH)
+                .cashAmount(amount)
+                .cashBalanceAfter(wallet.getCashBalance())
+                .description("Hoàn tiền (giải phóng đóng băng) cho booking")
+                .referenceType("BOOKING")
+                .referenceId("BOOKING_" + bookingId)
+                .status(WalletTransaction.TransactionStatus.REVERSED)
+                .build();
+
+        return transactionRepository.save(transaction);
+    }
 
         /**
          * Process refund to wallet (for subscription cancellation, etc.)
@@ -499,6 +591,85 @@ public class WalletService {
                 log.info("✅ Processed refund of {} VND to user {}", cashAmount, userId);
 
                 return savedTransaction;
+        }
+        
+        /**
+         * Credit earning to mentor wallet for booking payout (80%)
+         */
+        @Transactional
+        public WalletTransaction payMentorForBooking(Long mentorId, BigDecimal amount, Long bookingId) {
+                if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                        throw new IllegalArgumentException("Số tiền phải lớn hơn 0");
+                }
+
+                String referenceType = "BOOKING_PAYOUT";
+                String referenceId = "BOOKING_" + bookingId;
+
+                boolean alreadyProcessed = transactionRepository.existsByReferenceIdAndReferenceTypeAndStatus(
+                                referenceId,
+                                referenceType,
+                                WalletTransaction.TransactionStatus.COMPLETED);
+                if (alreadyProcessed) {
+                        return transactionRepository.findByReferenceIdAndReferenceType(referenceId, referenceType)
+                                .orElse(null);
+                }
+
+                Wallet wallet = walletRepository.findByUserIdWithLock(mentorId)
+                                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+
+                wallet.depositCash(amount);
+                walletRepository.save(wallet);
+
+                WalletTransaction transaction = WalletTransaction.builder()
+                                .wallet(wallet)
+                                .transactionType(WalletTransaction.TransactionType.MENTOR_BOOKING)
+                                .currencyType(WalletTransaction.CurrencyType.CASH)
+                                .cashAmount(amount)
+                                .cashBalanceAfter(wallet.getCashBalance())
+                                .description("Thu nhập mentoring (80%)")
+                                .referenceType(referenceType)
+                                .referenceId(referenceId)
+                                .status(WalletTransaction.TransactionStatus.COMPLETED)
+                                .build();
+
+                return transactionRepository.save(transaction);
+        }
+
+        /**
+         * Credit earning to mentor wallet for course purchase (80%)
+         */
+        @Transactional
+        public WalletTransaction payMentorForCourse(Long mentorId, BigDecimal amount, Long courseId) {
+                if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                        throw new IllegalArgumentException("Số tiền phải lớn hơn 0");
+                }
+
+                String referenceType = "COURSE_PAYOUT";
+                String referenceId = "COURSE_" + courseId + "_" + System.currentTimeMillis(); // Unique per payout instance if needed, or just COURSE_PURCHASE_ID
+
+                Wallet wallet = walletRepository.findByUserIdWithLock(mentorId)
+                                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+
+                wallet.depositCash(amount);
+                walletRepository.save(wallet);
+
+                WalletTransaction transaction = WalletTransaction.builder()
+                                .wallet(wallet)
+                                .transactionType(WalletTransaction.TransactionType.EARN_COINS) // Using EARN_COINS as placeholder or add new type if possible. 
+                                // Actually let's check TransactionType enum. It has MENTOR_BOOKING. I should probably add COURSE_SALE or similar.
+                                // For now I will use MENTOR_BOOKING or just generic DEPOSIT_CASH but with description.
+                                // Let's use MENTOR_BOOKING as it's closest "Income from mentoring/teaching".
+                                .transactionType(WalletTransaction.TransactionType.MENTOR_BOOKING) 
+                                .currencyType(WalletTransaction.CurrencyType.CASH)
+                                .cashAmount(amount)
+                                .cashBalanceAfter(wallet.getCashBalance())
+                                .description("Thu nhập bán khóa học (80%)")
+                                .referenceType(referenceType)
+                                .referenceId(referenceId)
+                                .status(WalletTransaction.TransactionStatus.COMPLETED)
+                                .build();
+
+                return transactionRepository.save(transaction);
         }
         
         /**

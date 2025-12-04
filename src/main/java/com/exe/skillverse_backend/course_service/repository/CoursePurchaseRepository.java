@@ -28,7 +28,7 @@ public interface CoursePurchaseRepository extends JpaRepository<CoursePurchase, 
      * Sum captured/completed purchases for a course
      */
     @Transactional(readOnly = true)
-    @Query("SELECT SUM(cp.price) FROM CoursePurchase cp WHERE cp.course.id = :courseId AND cp.status = 'COMPLETED'")
+    @Query("SELECT SUM(cp.price) FROM CoursePurchase cp WHERE cp.course.id = :courseId AND cp.status = 'PAID'")
     Optional<BigDecimal> sumCapturedByCourse(@Param("courseId") Long courseId);
 
     /**
@@ -57,15 +57,23 @@ public interface CoursePurchaseRepository extends JpaRepository<CoursePurchase, 
      */
     @Transactional(readOnly = true)
     @Query("SELECT CASE WHEN COUNT(cp) > 0 THEN true ELSE false END " +
-           "FROM CoursePurchase cp WHERE cp.user.id = :userId AND cp.course.id = :courseId AND cp.status = 'COMPLETED'")
+           "FROM CoursePurchase cp WHERE cp.user.id = :userId AND cp.course.id = :courseId AND cp.status = 'PAID'")
     boolean hasUserPurchasedCourse(@Param("userId") Long userId, @Param("courseId") Long courseId);
 
     /**
      * Count successful purchases for course
      */
     @Transactional(readOnly = true)
-    @Query("SELECT COUNT(cp) FROM CoursePurchase cp WHERE cp.course.id = :courseId AND cp.status = 'COMPLETED'")
+    @Query("SELECT COUNT(cp) FROM CoursePurchase cp WHERE cp.course.id = :courseId AND cp.status = 'PAID'")
     long countSuccessfulPurchasesByCourseId(@Param("courseId") Long courseId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(cp) FROM CoursePurchase cp WHERE cp.course.author.id = :mentorId AND cp.status = 'PAID'")
+    long countSuccessfulPurchasesByMentorId(@Param("mentorId") Long mentorId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT SUM(cp.price) FROM CoursePurchase cp WHERE cp.course.author.id = :mentorId AND cp.status = 'PAID'")
+    Optional<java.math.BigDecimal> sumCapturedByMentor(@Param("mentorId") Long mentorId);
 
     /**
      * Find recent purchases (last 30 days)
@@ -73,4 +81,10 @@ public interface CoursePurchaseRepository extends JpaRepository<CoursePurchase, 
     @Transactional(readOnly = true)
     @Query("SELECT cp FROM CoursePurchase cp WHERE cp.purchasedAt >= :since ORDER BY cp.purchasedAt DESC")
     List<CoursePurchase> findRecentPurchases(@Param("since") java.time.Instant since);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT cp FROM CoursePurchase cp WHERE cp.course.author.id = :mentorId ORDER BY cp.purchasedAt DESC")
+    Page<CoursePurchase> findByCourse_Author_Id(@Param("mentorId") Long mentorId, Pageable pageable);
+
+    boolean existsByUserIdAndCourseIdAndStatus(Long userId, Long courseId, PurchaseStatus status);
 }

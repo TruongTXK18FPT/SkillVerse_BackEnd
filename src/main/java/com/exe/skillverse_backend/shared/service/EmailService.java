@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.shared.service;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import jakarta.mail.internet.MimeMessage;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.ClassPathResource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -105,22 +106,17 @@ public class EmailService {
      */
     public void sendApprovalEmail(String email, String fullName, String role) {
         try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail);
-            message.setTo(email);
-            message.setSubject("🎉 Application Approved - SkillVerse");
-            message.setText(buildApprovalEmailContent(fullName, role));
+            String subject = "🎉 Phê duyệt thành công - SkillVerse";
+            String htmlContent = buildApprovalEmailHtmlContent(fullName != null ? fullName : email, role);
+            sendHtmlEmail(email, subject, htmlContent);
 
-            mailSender.send(message);
-
-            log.info("🎉 EMAIL SERVICE: Approval email sent successfully to {} for role: {}", email, role);
+            log.info("🎉 EMAIL SERVICE: Approval HTML email sent successfully to {} for role: {}", email, role);
 
         } catch (Exception e) {
             log.error("❌ Failed to send approval email to {}: {}", email, e.getMessage());
-            // Fallback to console logging
             log.info("🎉 [FALLBACK] EMAIL SERVICE: Sending approval email to {} for role: {}", email, role);
-            log.info("📧 Subject: Application Approved - SkillVerse");
-            log.info("📝 Your {} application has been approved!", role.toLowerCase());
+            log.info("📧 Subject: Phê duyệt thành công - SkillVerse");
+            log.info("📝 {} đã được phê duyệt!", role);
             log.info("✉️  [SIMULATED] Approval email sent successfully to {}", email);
         }
     }
@@ -159,7 +155,7 @@ public class EmailService {
                   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
                   <title>Xác thực email - SkillVerse</title>
                   <style>
-                    body { margin:0; padding:0; background:#f5f7fb; font-family:Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#1f2937; }
+                    body { margin:0; padding:0; background:#f5f7fb; font-family:Inter, Roboto, Helvetica, Arial, sans-serif; color:#1f2937; }
                     .container { max-width:600px; margin:24px auto; padding:0 16px; }
                     .card { background:#ffffff; border-radius:12px; box-shadow:0 6px 20px rgba(31,41,55,0.08); overflow:hidden; }
                     .header { background:linear-gradient(90deg,#4f46e5,#6366f1); color:#fff; padding:20px 24px; }
@@ -211,7 +207,7 @@ public class EmailService {
                   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
                   <title>Mã xác thực đặt lại mật khẩu - SkillVerse</title>
                   <style>
-                    body { margin:0; padding:0; background:#f5f7fb; font-family:Segoe UI, Roboto, Helvetica, Arial, sans-serif; color:#1f2937; }
+                    body { margin:0; padding:0; background:#f5f7fb; font-family:Inter, Roboto, Helvetica, Arial, sans-serif; color:#1f2937; }
                     .container { max-width:600px; margin:24px auto; padding:0 16px; }
                     .card { background:#ffffff; border-radius:12px; box-shadow:0 6px 20px rgba(31,41,55,0.08); overflow:hidden; }
                     .header { background:linear-gradient(90deg,#ef4444,#f59e0b); color:#fff; padding:20px 24px; }
@@ -287,7 +283,7 @@ public class EmailService {
                     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
                     <title>Chào mừng đến với SkillVerse</title>
                     <style>
-                        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f7; margin: 0; padding: 20px; color:#111827; }
+                        body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background-color: #f5f5f7; margin: 0; padding: 20px; color:#111827; }
                         .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 24px rgba(17,24,39,0.08); }
                         .header { background: linear-gradient(135deg, #4f46e5 0%%, #6366f1 100%%); padding: 36px 30px; color: #ffffff; text-align: center; }
                         .header h1 { margin: 0; font-size: 28px; }
@@ -332,7 +328,70 @@ public class EmailService {
                     </div>
                 </body>
                 </html>
-                """.formatted(name);
+        """.formatted(name);
+    }
+
+    private String buildApprovalEmailHtmlContent(String name, String role) {
+        String roleTitle = switch (role == null ? "" : role.toUpperCase()) {
+            case "MENTOR" -> "Mentor";
+            case "BUSINESS" -> "Business";
+            default -> role != null ? role : "Role";
+        };
+        String intro = switch (role == null ? "" : role.toUpperCase()) {
+            case "MENTOR" -> "Tài khoản của bạn đã được phê duyệt trở thành Mentor trên SkillVerse.";
+            case "BUSINESS" -> "Tài khoản của bạn đã được phê duyệt trở thành Business/Recruiter trên SkillVerse.";
+            default -> "Tài khoản của bạn đã được phê duyệt.";
+        };
+        String nextSteps = switch (role == null ? "" : role.toUpperCase()) {
+            case "MENTOR" -> "Bạn có thể cập nhật hồ sơ mentor, tạo buổi mentoring và kết nối với học viên.";
+            case "BUSINESS" -> "Bạn có thể đăng bài tuyển dụng, quản lý ứng viên và kết nối với cộng đồng.";
+            default -> "Bạn có thể đăng nhập và khám phá các tính năng phù hợp.";
+        };
+        return String.format(
+                """
+                <!DOCTYPE html>
+                <html lang=\"vi\">
+                <head>
+                    <meta charset=\"UTF-8\" />
+                    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+                    <title>Phê duyệt thành công</title>
+                    <style>
+                        body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background-color: #f5f5f7; margin: 0; padding: 20px; color:#111827; }
+                        .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 24px rgba(17,24,39,0.08); }
+                        .header { background: linear-gradient(135deg, #10b981 0%%, #22c55e 100%%); padding: 32px 30px; color: #ffffff; text-align: center; }
+                        .header h1 { margin: 0; font-size: 26px; }
+                        .badge { display:inline-block; margin-top:10px; background: rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.35); border-radius:999px; padding:6px 12px; font-size:13px; }
+                        .content { padding: 26px 30px; }
+                        p { line-height: 1.7; margin: 10px 0; color:#1f2937; }
+                        .highlight { background: #ecfeff; border-left: 4px solid #06b6d4; padding: 14px; border-radius: 8px; margin: 16px 0; }
+                        .cta { text-align: center; margin: 24px 0; }
+                        .button { display: inline-block; background: #10b981; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; }
+                        .footer { background: #f9fafb; padding: 18px 22px; text-align: center; color: #6b7280; font-size: 13px; }
+                    </style>
+                </head>
+                <body>
+                    <div class=\"container\">
+                        <div class=\"header\">
+                            <img src=\"cid:skillverse-logo\" alt=\"SkillVerse\" style=\"height:40px; display:block; margin:0 auto 12px;\" />
+                            <h1>🎉 Chúc mừng, %s!</h1>
+                            <div class=\"badge\">Phê duyệt %s thành công</div>
+                        </div>
+                        <div class=\"content\">
+                            <p>%s</p>
+                            <div class=\"highlight\">
+                                %s
+                            </div>
+                            <div class=\"cta\">
+                                <a class=\"button\" href=\"https://skillverse.vn\">Đăng nhập và bắt đầu</a>
+                            </div>
+                            <p style=\"font-size:13px; color:#6b7280\">Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
+                        </div>
+                        <div class=\"footer\">© SkillVerse — Cộng đồng học tập và nghề nghiệp.</div>
+                    </div>
+                </body>
+                </html>
+                """,
+                name, roleTitle, intro, nextSteps);
     }
 
     private String buildApprovalEmailContent(String name, String role) {
@@ -574,9 +633,18 @@ public class EmailService {
 
             try {
                 if (htmlContent != null && htmlContent.contains("cid:skillverse-logo")) {
-                    FileSystemResource logo = new FileSystemResource(new File(LOGO_PATH));
-                    if (logo.exists()) {
-                        helper.addInline("skillverse-logo", logo);
+                    ClassPathResource classpathLogo = new ClassPathResource("assets/skillverse.png");
+                    if (classpathLogo.exists()) {
+                        helper.addInline("skillverse-logo", classpathLogo);
+                    } else {
+                        File file = new File(LOGO_PATH);
+                        FileSystemResource fsLogo = file.exists() ? new FileSystemResource(file)
+                                : new FileSystemResource(new File("src/assets/skillverse.png"));
+                        if (fsLogo.exists()) {
+                            helper.addInline("skillverse-logo", fsLogo);
+                        } else {
+                            log.warn("⚠️ Logo not found at classpath:assets/skillverse.png or {}", LOGO_PATH);
+                        }
                     }
                 }
             } catch (Exception inlineEx) {
@@ -589,6 +657,61 @@ public class EmailService {
         } catch (Exception e) {
             log.error("❌ Failed to send HTML email to {}: {}", to, e.getMessage());
             throw new RuntimeException("Failed to send HTML email: " + e.getMessage(), e);
+        }
+    }
+
+    public void sendHtmlEmailWithAttachment(String to, String subject, String htmlContent,
+                                            String attachmentFilename, byte[] attachmentBytes, String contentType) {
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            try {
+                helper.setFrom(fromEmail, fromName);
+            } catch (UnsupportedEncodingException e) {
+                helper.setFrom(fromEmail);
+            }
+
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(htmlContent, true);
+
+            if (attachmentBytes != null && attachmentBytes.length > 0 && attachmentFilename != null) {
+                helper.addAttachment(attachmentFilename, new org.springframework.core.io.ByteArrayResource(attachmentBytes) {
+                    @Override
+                    public String getFilename() {
+                        return attachmentFilename;
+                    }
+                    @Override
+                    public String getDescription() {
+                        return contentType != null ? contentType : "application/octet-stream";
+                    }
+                });
+            }
+
+            try {
+                if (htmlContent != null && htmlContent.contains("cid:skillverse-logo")) {
+                    ClassPathResource classpathLogo = new ClassPathResource("assets/skillverse.png");
+                    if (classpathLogo.exists()) {
+                        helper.addInline("skillverse-logo", classpathLogo);
+                    } else {
+                        File file = new File(LOGO_PATH);
+                        FileSystemResource fsLogo = file.exists() ? new FileSystemResource(file)
+                                : new FileSystemResource(new File("src/assets/skillverse.png"));
+                        if (fsLogo.exists()) {
+                            helper.addInline("skillverse-logo", fsLogo);
+                        }
+                    }
+                }
+            } catch (Exception inlineEx) {
+            }
+
+            mailSender.send(message);
+            log.info("✅ HTML email with attachment sent to {}: {}", to, attachmentFilename);
+
+        } catch (Exception e) {
+            log.error("❌ Failed to send HTML email with attachment to {}: {}", to, e.getMessage());
+            throw new RuntimeException("Failed to send HTML email with attachment: " + e.getMessage(), e);
         }
     }
 

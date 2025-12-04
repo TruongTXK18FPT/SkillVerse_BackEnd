@@ -4,20 +4,34 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
 import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
 import com.exe.skillverse_backend.payment_service.dto.response.PaymentTransactionResponse;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
+import com.exe.skillverse_backend.payment_service.event.PaymentSuccessEvent;
 import com.exe.skillverse_backend.payment_service.repository.PaymentTransactionRepository;
 import com.exe.skillverse_backend.payment_service.service.PaymentService;
 import com.exe.skillverse_backend.payment_service.service.InvoiceService;
+import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.entity.CoursePurchase;
+import com.exe.skillverse_backend.course_service.entity.enums.PurchaseStatus;
+import com.exe.skillverse_backend.course_service.repository.CourseRepository;
+import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
+import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollRequestDTO;
+import com.exe.skillverse_backend.course_service.service.EnrollmentService;
+import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
+import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.exe.skillverse_backend.shared.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -45,6 +59,13 @@ public class PaymentServiceImpl implements PaymentService {
     private final UserProfileService userProfileService;
     private final WalletTransactionRepository walletTransactionRepository;
     private final InvoiceService invoiceService;
+    private final NotificationService notificationService;
+    private final ApplicationEventPublisher eventPublisher;
+    private final EmailService emailService;
+    private final CourseRepository courseRepository;
+    private final CoursePurchaseRepository coursePurchaseRepository;
+    private final EnrollmentService enrollmentService;
+    private final MentorProfileRepository mentorProfileRepository;
 
     @Override
     @Transactional
@@ -61,7 +82,9 @@ public class PaymentServiceImpl implements PaymentService {
                 .type(request.getType())
                 .paymentMethod(request.getPaymentMethod())
                 .description(request.getDescription())
-                .metadata(request.getMetadata())
+                .metadata(request.getType() == PaymentTransaction.PaymentType.COURSE_PURCHASE
+                        ? buildCourseMetadata(request)
+                        : request.getMetadata())
                 .status(PaymentTransaction.PaymentStatus.PENDING)
                 .build();
 
@@ -250,12 +273,121 @@ public class PaymentServiceImpl implements PaymentService {
                         premiumService.activateSubscription(subscriptionId, transaction.getInternalReference());
                         log.info("Auto-activated subscription {} for payment {}", subscriptionId,
                                 transaction.getInternalReference());
+                        
+                        notificationService.createNotification(
+                                transaction.getUser().getId(),
+                                "Đăng ký Premium thành công",
+                                "Bạn đã đăng ký gói Premium thành công. Tận hưởng các tính năng độc quyền ngay!",
+                                NotificationType.PREMIUM_PURCHASE,
+                                transaction.getInternalReference()
+                        );
                     }
                 }
             } catch (Exception e) {
                 log.error("Failed to auto-activate subscription for payment {}: {}", transaction.getInternalReference(),
                         e.getMessage(), e);
                 // Don't fail the callback processing if subscription activation fails
+            }
+        }
+
+        // Create mentor booking if payment completed
+        if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED &&
+                transaction.getType() == PaymentTransaction.PaymentType.MENTOR_BOOKING) {
+
+            try {
+                eventPublisher.publishEvent(new PaymentSuccessEvent(this, transaction));
+                log.info("✅ Published PaymentSuccessEvent for mentor booking payment {}", transaction.getInternalReference());
+            } catch (Exception e) {
+                log.error("❌ Failed to publish PaymentSuccessEvent for payment {}: {}",
+                        transaction.getInternalReference(), e.getMessage(), e);
+            }
+        }
+
+        if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED &&
+                transaction.getType() == PaymentTransaction.PaymentType.COURSE_PURCHASE) {
+
+            try {
+                Map<String, String> courseMetadata = extractCourseMetadataFromJson(transaction.getMetadata());
+                Long courseId = Long.parseLong(courseMetadata.getOrDefault("courseId", "0"));
+                if (courseId != null && courseId > 0) {
+                    Course course = courseRepository.findById(courseId)
+                            .orElseThrow(() -> new RuntimeException("Course not found: " + courseId));
+
+                    boolean alreadyPurchased = coursePurchaseRepository.hasUserPurchasedCourse(
+                            transaction.getUser().getId(), courseId);
+                    if (!alreadyPurchased) {
+                        CoursePurchase purchase = CoursePurchase.builder()
+                                .user(transaction.getUser())
+                                .course(course)
+                                .price(transaction.getAmount())
+                                .currency(transaction.getCurrency())
+                                .status(PurchaseStatus.PAID)
+                                .couponCode(null)
+                                .build();
+                        coursePurchaseRepository.save(purchase);
+                    }
+
+                    notificationService.createNotification(
+                            transaction.getUser().getId(),
+                            "Mua khóa học thành công",
+                            "Bạn đã mua khóa học '" + course.getTitle() + "'",
+                            NotificationType.SYSTEM,
+                            transaction.getInternalReference()
+                    );
+
+                    try {
+                        byte[] pdf = invoiceService.generatePaymentInvoice(savedTransaction);
+                        String subject = "🎉 Mua khóa học thành công - " + course.getTitle();
+                        String html = buildCoursePurchaseSuccessHtml(getUserDisplayName(transaction.getUser()), course.getTitle(),
+                                transaction.getAmount(), transaction.getInternalReference());
+                        emailService.sendHtmlEmailWithAttachment(transaction.getUser().getEmail(), subject, html,
+                                "Hoa_don_" + transaction.getInternalReference() + ".pdf", pdf, "application/pdf");
+                    } catch (Exception e) {
+                    }
+
+                    try {
+                        EnrollRequestDTO enrollRequestDTO = EnrollRequestDTO.builder().courseId(courseId).build();
+                        enrollmentService.enrollUser(enrollRequestDTO, transaction.getUser().getId());
+                    } catch (Exception e) {
+                    }
+
+                    mentorProfileRepository.findByUserId(course.getAuthor().getId()).ifPresent(profile -> {
+                        int points = profile.getSkillPoints() != null ? profile.getSkillPoints() : 0;
+                        points += 10;
+                        profile.setSkillPoints(points);
+
+                        long saleCount = coursePurchaseRepository.countSuccessfulPurchasesByCourseId(courseId);
+                        java.util.Set<String> badges = parseBadges(profile.getBadges());
+                        if (saleCount == 1 && !badges.contains("FIRST_COURSE_SALE")) {
+                            badges.add("FIRST_COURSE_SALE");
+                            profile.setSkillPoints(profile.getSkillPoints() + 50);
+                            notificationService.createNotification(course.getAuthor().getId(), "Nhận huy hiệu", "Bán khóa học đầu tiên", NotificationType.MENTOR_BADGE_AWARDED, "BADGE_FIRST_COURSE_SALE", transaction.getUser().getId());
+                        }
+                        if (saleCount == 10 && !badges.contains("TEN_COURSE_SALES")) {
+                            badges.add("TEN_COURSE_SALES");
+                            profile.setSkillPoints(profile.getSkillPoints() + 100);
+                            notificationService.createNotification(course.getAuthor().getId(), "Nhận huy hiệu", "Bán 10 khóa học", NotificationType.MENTOR_BADGE_AWARDED, "BADGE_TEN_COURSE_SALES", transaction.getUser().getId());
+                        }
+                        if (saleCount == 100 && !badges.contains("HUNDRED_COURSE_SALES")) {
+                            badges.add("HUNDRED_COURSE_SALES");
+                            profile.setSkillPoints(profile.getSkillPoints() + 500);
+                            notificationService.createNotification(course.getAuthor().getId(), "Nhận huy hiệu", "Bán 100 khóa học", NotificationType.MENTOR_BADGE_AWARDED, "BADGE_HUNDRED_COURSE_SALES", transaction.getUser().getId());
+                        }
+                        profile.setBadges(toBadgesJson(badges));
+                        int newLevel = calculateLevel(profile.getSkillPoints());
+                        if (newLevel > (profile.getCurrentLevel() != null ? profile.getCurrentLevel() : 0)) {
+                            profile.setCurrentLevel(newLevel);
+                            String t = getLevelTitle(newLevel);
+                            String msg = t != null ? ("Bạn đã lên level " + newLevel + " - " + t) : ("Bạn đã lên level " + newLevel);
+                            notificationService.createNotification(course.getAuthor().getId(), "Lên level", msg, NotificationType.MENTOR_LEVEL_UP, "LEVEL_" + newLevel, transaction.getUser().getId());
+                        }
+                        profile.setUpdatedAt(java.time.LocalDateTime.now());
+                        mentorProfileRepository.save(profile);
+                    });
+                }
+            } catch (Exception e) {
+                log.error("❌ Failed to process course purchase for payment {}: {}",
+                        transaction.getInternalReference(), e.getMessage(), e);
             }
         }
 
@@ -275,6 +407,14 @@ public class PaymentServiceImpl implements PaymentService {
 
                 log.info("✅ Successfully deposited {} VNĐ to wallet for user {}",
                         transaction.getAmount(), transaction.getUser().getId());
+
+                notificationService.createNotification(
+                        transaction.getUser().getId(),
+                        "Nạp tiền thành công",
+                        "Bạn đã nạp " + transaction.getAmount() + " VNĐ vào ví thành công.",
+                        NotificationType.WALLET_DEPOSIT,
+                        transaction.getInternalReference()
+                );
             } catch (Exception e) {
                 log.error("❌ Failed to deposit to wallet for payment {}: {}",
                         transaction.getInternalReference(), e.getMessage(), e);
@@ -315,6 +455,14 @@ public class PaymentServiceImpl implements PaymentService {
                     
                     log.info("✅ Successfully added {} Coins to wallet for user {}",
                             totalCoins, transaction.getUser().getId());
+
+                    notificationService.createNotification(
+                            transaction.getUser().getId(),
+                            "Mua xu thành công",
+                            "Bạn đã mua " + totalCoins + " SkillCoin thành công.",
+                            NotificationType.COIN_PURCHASE,
+                            transaction.getInternalReference()
+                    );
                 } else {
                     log.error("❌ Invalid coin purchase - totalCoins = 0");
                 }
@@ -369,6 +517,133 @@ public class PaymentServiceImpl implements PaymentService {
         }
         
         return result;
+    }
+
+    private String buildCoursePurchaseSuccessHtml(String name, String courseTitle, java.math.BigDecimal amount, String ref) {
+        String amountStr = amount != null ? amount.toPlainString() + " VND" : "-";
+        return """
+                <html>
+                <head>
+                    <meta charset=\"UTF-8\" />
+                    <style>
+                        body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;padding:0}
+                        .container{max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(2,6,23,0.08);overflow:hidden}
+                        .header{background:linear-gradient(135deg,#4f46e5,#0ea5e9);padding:24px;display:flex;justify-content:center;align-items:center}
+                        .logo{width:44px;height:44px;border-radius:10px;overflow:hidden}
+                        .content{padding:24px;color:#111827}
+                        .pill{display:inline-block;background:#ecfeff;color:#0ea5e9;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;margin-bottom:12px}
+                        .card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-top:12px}
+                        .row{display:flex;justify-content:space-between;margin:6px 0}
+                        .label{color:#6b7280}
+                        .value{font-weight:600}
+                        .cta{margin-top:20px}
+                        .button{background:#4f46e5;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700}
+                        .footer{padding:16px;text-align:center;color:#6b7280;font-size:12px}
+                    </style>
+                </head>
+                <body>
+                    <div class=\"container\">
+                        <div class=\"header\"><img class=\"logo\" src=\"cid:skillverse-logo\" /></div>
+                        <div class=\"content\">
+                            <div class=\"pill\">Mua khóa học thành công</div>
+                            <h2>Chúc mừng, %s!</h2>
+                            <p>Bạn đã mua khóa học <strong>%s</strong>. Hóa đơn PDF được đính kèm.</p>
+                            <div class=\"card\">
+                                <div class=\"row\"><div class=\"label\">Khóa học</div><div class=\"value\">%s</div></div>
+                                <div class=\"row\"><div class=\"label\">Số tiền</div><div class=\"value\">%s</div></div>
+                                <div class=\"row\"><div class=\"label\">Mã giao dịch</div><div class=\"value\">%s</div></div>
+                            </div>
+                            <div class=\"cta\"><a class=\"button\" href=\"https://skillverse.vn/dashboard\">Bắt đầu học</a></div>
+                        </div>
+                        <div class=\"footer\">© 2025</div>
+                    </div>
+                </body>
+                </html>
+                """.formatted(name, courseTitle, courseTitle, amountStr, ref);
+    }
+
+    private String getUserDisplayName(User user) {
+        String fn = user.getFirstName();
+        String ln = user.getLastName();
+        String built = ((fn != null ? fn : "") + (ln != null ? " " + ln : "")).trim();
+        return built.isEmpty() ? ("User #" + user.getId()) : built;
+    }
+
+    private Map<String, String> extractCourseMetadataFromJson(String metadata) {
+        Map<String, String> result = new HashMap<>();
+        if (metadata == null || metadata.isEmpty()) {
+            return result;
+        }
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode node = mapper.readTree(metadata);
+            String[] keys = {"courseId", "price", "couponCode"};
+            for (String key : keys) {
+                JsonNode valueNode = node.get(key);
+                if (valueNode != null && !valueNode.isNull()) {
+                    result.put(key, valueNode.asText());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse course metadata from JSON: {}", metadata);
+        }
+        return result;
+    }
+
+    private String buildCourseMetadata(CreatePaymentRequest request) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, Object> map = new HashMap<>();
+            if (request.getCourseId() != null) map.put("courseId", request.getCourseId());
+            if (request.getAmount() != null) map.put("price", request.getAmount());
+            if (request.getMetadata() != null && !request.getMetadata().isEmpty()) {
+                JsonNode node = mapper.readTree(request.getMetadata());
+                node.fields().forEachRemaining(entry -> map.put(entry.getKey(), entry.getValue().asText()));
+            }
+            return mapper.writeValueAsString(map);
+        } catch (Exception e) {
+            return request.getMetadata();
+        }
+    }
+
+    private java.util.Set<String> parseBadges(String badgesJson) {
+        java.util.Set<String> set = new java.util.HashSet<>();
+        try {
+            if (badgesJson != null && !badgesJson.isEmpty()) {
+                ObjectMapper mapper = new ObjectMapper();
+                String[] arr = mapper.readValue(badgesJson, String[].class);
+                if (arr != null) {
+                    for (String s : arr) {
+                        if (s != null && !s.isEmpty()) set.add(s);
+                    }
+                }
+            }
+        } catch (Exception e) {
+        }
+        return set;
+    }
+
+    private String toBadgesJson(java.util.Set<String> badges) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            return mapper.writeValueAsString(badges.toArray(new String[0]));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private int calculateLevel(int points) {
+        if (points < 0) return 0;
+        return points / 100;
+    }
+
+    private String getLevelTitle(int level) {
+        if (level == 1) return "Mentor mới nổi";
+        if (level == 5) return "Mentor ngôi sao";
+        if (level == 10) return "Mentor kỳ cựu";
+        if (level == 15) return "Mentor cao thủ";
+        if (level == 20) return "Mentor siêu cấp";
+        return null;
     }
 
     @Override
@@ -486,14 +761,26 @@ public class PaymentServiceImpl implements PaymentService {
 
     private PaymentTransactionResponse convertToResponse(PaymentTransaction transaction) {
         User user = transaction.getUser();
-        String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
-                " " +
-                (user.getLastName() != null ? user.getLastName() : "");
+        String displayName = null;
+        try {
+            if (userProfileService.hasProfile(user.getId())) {
+                var profile = userProfileService.getProfile(user.getId());
+                if (profile.getFullName() != null && !profile.getFullName().isBlank()) {
+                    displayName = profile.getFullName();
+                }
+            }
+        } catch (Exception e) {
+        }
+        if (displayName == null) {
+            String first = user.getFirstName() != null ? user.getFirstName() : "";
+            String last = user.getLastName() != null ? user.getLastName() : "";
+            displayName = (first + " " + last).trim();
+        }
 
         return PaymentTransactionResponse.builder()
                 .id(transaction.getId())
                 .userId(user.getId())
-                .userName(fullName.trim())
+                .userName(displayName)
                 .userEmail(user.getEmail())
                 .userAvatarUrl(getUserAvatarUrl(user))
                 .internalReference(transaction.getInternalReference())
@@ -880,7 +1167,16 @@ public class PaymentServiceImpl implements PaymentService {
         
         return invoiceService.generatePaymentInvoice(payment);
     }
-    
+
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] generatePaymentInvoicePdf(Long paymentId, String role) {
+        log.info("Generating PDF invoice for payment: {} with role {}", paymentId, role);
+        PaymentTransaction payment = paymentTransactionRepository.findById(paymentId)
+            .orElseThrow(() -> new RuntimeException("Payment not found with ID: " + paymentId));
+        return invoiceService.generatePaymentInvoice(payment, role);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public byte[] generateWalletTransactionInvoicePdf(Long transactionId) {
@@ -890,5 +1186,14 @@ public class PaymentServiceImpl implements PaymentService {
             .orElseThrow(() -> new RuntimeException("Wallet transaction not found with ID: " + transactionId));
         
         return invoiceService.generateWalletTransactionInvoice(transaction);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public byte[] generateWalletTransactionInvoicePdf(Long transactionId, String role) {
+        log.info("Generating PDF invoice for wallet transaction: {} with role {}", transactionId, role);
+        WalletTransaction transaction = walletTransactionRepository.findById(transactionId)
+            .orElseThrow(() -> new RuntimeException("Wallet transaction not found with ID: " + transactionId));
+        return invoiceService.generateWalletTransactionInvoice(transaction, role);
     }
 }

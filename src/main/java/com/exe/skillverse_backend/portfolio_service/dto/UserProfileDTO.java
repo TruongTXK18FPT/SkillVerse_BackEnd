@@ -1,5 +1,7 @@
 package com.exe.skillverse_backend.portfolio_service.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.*;
 import java.time.LocalDateTime;
 
@@ -13,11 +15,13 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class UserProfileDTO {
     // Primary key
     private Long userId;
     
     // ===== BASIC PROFILE INFO (from user_service.UserProfile) =====
+    @JsonAlias({"displayName"})
     private String fullName; // From basic profile
     private String basicBio; // Bio from basic profile
     private String phone; // From basic profile

@@ -6,6 +6,8 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
 import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
@@ -35,6 +37,7 @@ public class UserCreationService {
     private final EmailVerificationService emailVerificationService;
     private final PremiumPlanRepository premiumPlanRepository;
     private final UserSubscriptionRepository userSubscriptionRepository;
+    private final NotificationService notificationService;
 
     /**
      * Create a new user for mentor registration
@@ -116,6 +119,18 @@ public class UserCreationService {
 
         user = userRepository.save(user);
         log.info("Created user with ID: {} for role: {}", user.getId(), primaryRole);
+
+        try {
+            notificationService.createNotification(
+                    user.getId(),
+                    "Chào mừng đến với SkillVerse!",
+                    "Chào mừng bạn gia nhập cộng đồng SkillVerse. Hãy bắt đầu hành trình học tập của bạn ngay hôm nay!",
+                    NotificationType.WELCOME,
+                    null
+            );
+        } catch (Exception e) {
+            log.error("Failed to create welcome notification for user {}", user.getId(), e);
+        }
 
         // Auto-assign FREE_TIER subscription to new users
         assignFreeTierSubscription(user);

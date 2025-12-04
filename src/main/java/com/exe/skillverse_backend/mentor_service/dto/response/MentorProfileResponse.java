@@ -48,11 +48,36 @@ public class MentorProfileResponse {
     @Schema(description = "Achievements list")
     private String[] achievements;
 
+    @Schema(description = "Average rating")
+    private Double ratingAverage;
+
+    @Schema(description = "Total ratings")
+    private Integer ratingCount;
+
+    @Schema(description = "Hourly Rate")
+    private Double hourlyRate;
+
+
+    @Schema(description = "Is pre-chat/booking enabled")
+    private Boolean preChatEnabled;
+
+    @Schema(description = "Portfolio Slug")
+    private String slug;
+
     @Schema(description = "Creation timestamp")
     private LocalDateTime createdAt;
 
     @Schema(description = "Last update timestamp")
     private LocalDateTime updatedAt;
+
+    @Schema(description = "Skill points")
+    private Integer skillPoints;
+
+    @Schema(description = "Current level")
+    private Integer currentLevel;
+
+    @Schema(description = "Awarded badges")
+    private String[] badges;
 
     @Data
     @Builder

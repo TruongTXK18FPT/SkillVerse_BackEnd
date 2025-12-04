@@ -63,11 +63,42 @@ public class MentorProfile {
     @Column(name = "website_url")
     private String websiteUrl; // Personal website URL
 
+    @Column(name = "skills", columnDefinition = "TEXT")
+    private String skills; // JSON array of skills
+
+    @Column(name = "achievements", columnDefinition = "TEXT")
+    private String achievements; // JSON array of achievements
+
+    // Gamification fields
+    @Builder.Default
+    @Column(name = "skill_points", nullable = false, columnDefinition = "integer default 0")
+    private Integer skillPoints = 0;
+
+    @Builder.Default
+    @Column(name = "current_level", nullable = false, columnDefinition = "integer default 0")
+    private Integer currentLevel = 0;
+
+    @Column(name = "badges", columnDefinition = "TEXT")
+    private String badges; // JSON array of awarded badges
+
+
     // Application Status & Admin Fields
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "application_status", nullable = false)
     private ApplicationStatus applicationStatus = ApplicationStatus.PENDING;
+
+    @Builder.Default
+    @Column(name = "pre_chat_enabled")
+    private Boolean preChatEnabled = true;
+
+    @Builder.Default
+    @Column(name = "rating_average", nullable = false, columnDefinition = "float default 0.0")
+    private Double ratingAverage = 0.0;
+
+    @Builder.Default
+    @Column(name = "rating_count", nullable = false, columnDefinition = "integer default 0")
+    private Integer ratingCount = 0;
 
     @Column(name = "application_date", nullable = false)
     @Builder.Default

@@ -203,7 +203,7 @@ public class WalletEmailService {
             <head>
                 <meta charset="UTF-8">
                 <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; margin: 0; padding: 20px; }
+                    body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background-color: #f5f5f5; margin: 0; padding: 20px; }
                     .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
                     .header { background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); padding: 30px; text-align: center; color: white; }
                     .header h1 { margin: 0; font-size: 28px; }
@@ -262,7 +262,7 @@ public class WalletEmailService {
             <head>
                 <meta charset="UTF-8">
                 <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5; margin: 0; padding: 20px; }
+                    body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background-color: #f5f5f5; margin: 0; padding: 20px; }
                     .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
                     .header { background: linear-gradient(135deg, #f59e0b 0%%, #d97706 100%%); padding: 30px; text-align: center; color: white; }
                     .header h1 { margin: 0; font-size: 28px; }
@@ -315,7 +315,7 @@ public class WalletEmailService {
             <html>
             <head><meta charset="UTF-8">
             <style>
-                body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
+                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
                 .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
                 .header { background: linear-gradient(135deg, #3b82f6, #2563eb); padding: 30px; text-align: center; color: white; }
                 .content { padding: 30px; }
@@ -353,7 +353,7 @@ public class WalletEmailService {
             <html>
             <head><meta charset="UTF-8">
             <style>
-                body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
+                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
                 .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
                 .header { background: linear-gradient(135deg, #10b981, #059669); padding: 30px; text-align: center; color: white; }
                 .content { padding: 30px; }
@@ -387,7 +387,7 @@ public class WalletEmailService {
             <html>
             <head><meta charset="UTF-8">
             <style>
-                body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
+                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
                 .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
                 .header { background: linear-gradient(135deg, #ef4444, #dc2626); padding: 30px; text-align: center; color: white; }
                 .content { padding: 30px; }
@@ -420,7 +420,7 @@ public class WalletEmailService {
             <html>
             <head><meta charset="UTF-8">
             <style>
-                body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
+                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
                 .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
                 .header { background: linear-gradient(135deg, #8b5cf6, #7c3aed); padding: 30px; text-align: center; color: white; }
                 .content { padding: 30px; }
@@ -454,7 +454,7 @@ public class WalletEmailService {
             <html>
             <head><meta charset="UTF-8">
             <style>
-                body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
+                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
                 .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
                 .header { background: linear-gradient(135deg, #f59e0b, #d97706); padding: 30px; text-align: center; color: white; }
                 .content { padding: 30px; }

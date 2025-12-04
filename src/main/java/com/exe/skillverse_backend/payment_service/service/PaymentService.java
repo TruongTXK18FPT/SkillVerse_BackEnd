@@ -94,12 +94,26 @@ public interface PaymentService {
     Map<String, Object> getRevenueBreakdown(String period, int days);
 
     /**
-     * Admin: Generate PDF invoice for a payment transaction
+     * Admin: Generate PDF invoice for a payment transaction (default role = USER)
      */
     byte[] generatePaymentInvoicePdf(Long paymentId);
 
     /**
-     * Admin: Generate PDF invoice for a wallet transaction
+     * Generate PDF invoice for a payment transaction with role-based template
+     * @param paymentId payment id
+     * @param role one of ADMIN, USER, MENTOR
+     */
+    byte[] generatePaymentInvoicePdf(Long paymentId, String role);
+
+    /**
+     * Admin: Generate PDF invoice for a wallet transaction (default role = USER)
      */
     byte[] generateWalletTransactionInvoicePdf(Long transactionId);
+
+    /**
+     * Generate PDF invoice for a wallet transaction with role-based template
+     * @param transactionId wallet transaction id
+     * @param role one of ADMIN, USER, MENTOR
+     */
+    byte[] generateWalletTransactionInvoicePdf(Long transactionId, String role);
 }
