@@ -349,8 +349,11 @@ public class InvoiceService {
         infoTable.setWidthPercentage(100);
         infoTable.setWidths(new float[]{1, 2});
 
+        // Convert to Vietnam Time (UTC+7)
+        LocalDateTime vietnamTime = date.plusHours(7);
+
         addInfoRow(infoTable, "Số hóa đơn:", invoiceNo, labelFont, valueFont);
-        addInfoRow(infoTable, "Ngày tạo:", date.format(DATE_FORMAT), labelFont, valueFont);
+        addInfoRow(infoTable, "Ngày tạo:", vietnamTime.format(DATE_FORMAT), labelFont, valueFont);
 
         document.add(infoTable);
         document.add(new Paragraph("\n"));
