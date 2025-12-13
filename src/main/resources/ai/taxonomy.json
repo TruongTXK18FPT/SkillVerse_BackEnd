@@ -1,0 +1,24 @@
+{
+  "domains": {
+    "IT": ["developer", "backend", "frontend", "software", "data", "cloud", "security", "devops", "ai", "ml", "nlp", "mobile", "android", "ios", "web"],
+    "Design": ["design", "ui", "ux", "graphic", "video", "motion", "illustration", "branding", "visual", "product", "interaction", "animator", "vfx", "3d", "photography"],
+    "Business": ["marketing", "sales", "business", "seo", "brand", "content", "finance", "accounting", "product manager", "project manager", "operations"],
+    "Engineering": ["engineer", "manufacturing", "cnc", "mechanical", "mechatronics", "maintenance", "industrial"],
+    "Healthcare": ["health", "medical", "nurse", "clinics", "hospital"],
+    "Education": ["education", "teacher", "training", "edtech"],
+    "Logistics": ["logistics", "supply chain", "warehouse", "shipping", "trade", "import", "export"],
+    "Legal": ["legal", "law", "paralegal", "compliance", "regulation"],
+    "Arts": ["art", "artist", "vfx", "3d", "photography", "painter", "concept", "digital art"],
+    "Service": ["service", "hospitality", "restaurant", "hotel", "f&b", "food", "beverage"],
+    "SocialCommunity": ["social", "community", "ngo", "nonprofit", "charity"],
+    "AgricultureEnvironment": ["agriculture", "environment", "soil", "crop", "horticulture", "plant"]
+  },
+  "roles": {
+    "Backend Developer": ["backend", "spring", "node", "api", "server", "java", "golang", "dotnet"],
+    "Frontend Developer": ["frontend", "react", "vue", "angular", "web", "ui"],
+    "Data Analyst": ["data analyst", "excel", "power bi", "tableau", "analytics"],
+    "UX Designer": ["ux", "user experience", "research", "wireframe"],
+    "UI Designer": ["ui", "interface", "visual", "figma"],
+    "Digital Marketer": ["marketing", "seo", "sem", "content", "social"]
+  }
+}

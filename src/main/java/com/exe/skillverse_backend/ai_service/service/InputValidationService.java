@@ -79,7 +79,156 @@ public class InputValidationService {
         // Check experience vs goal mismatch
         results.addAll(checkExperienceGoalMismatch(request.getGoal(), request.getExperience()));
 
+        if (request.getRoadmapType() != null) {
+            String t = request.getRoadmapType().trim().toLowerCase(Locale.ROOT);
+            if (!t.equals("skill") && !t.equals("career")) {
+                results.add(ValidationResult.warning("roadmapType",
+                        "Loại roadmap không hợp lệ. Chỉ hỗ trợ 'skill' hoặc 'career'",
+                        "Vui lòng chọn 'skill' (học kỹ năng) hoặc 'career' (lộ trình nghề nghiệp)"));
+            }
+        }
+
+        if (request.getTarget() == null || request.getTarget().trim().isEmpty()) {
+            results.add(ValidationResult.info("target",
+                    "Thiếu mục tiêu cụ thể (target)",
+                    "Ví dụ: ReactJS, Frontend Developer, Digital Marketing"));
+        }
+
+        if (request.getCurrentLevel() != null) {
+            String lvl = request.getCurrentLevel().trim().toLowerCase(Locale.ROOT);
+            List<String> allowed = List.of("zero", "basic", "intermediate");
+            if (!allowed.contains(lvl)) {
+                results.add(ValidationResult.warning("currentLevel",
+                        "Cấp độ hiện tại không hợp lệ",
+                        "Hỗ trợ: zero | basic | intermediate"));
+            }
+        }
+
+        if (request.getDesiredDuration() != null && request.getDailyTime() != null) {
+            String daily = request.getDailyTime().toLowerCase(Locale.ROOT);
+            boolean tinyDaily = daily.contains("30") || daily.contains("30 phút");
+            if (tinyDaily && request.getDesiredDuration().contains("1 tuần")) {
+                results.add(ValidationResult.warning("desiredDuration",
+                        "Thời lượng mong muốn quá ngắn so với thời gian học mỗi ngày",
+                        "Khuyến nghị tăng thời lượng hoặc tăng thời gian học mỗi ngày"));
+            }
+        }
+
+        GenerateRoadmapRequest.RoadmapMode mode = request.getRoadmapMode();
+        if (mode == GenerateRoadmapRequest.RoadmapMode.SKILL_BASED) {
+            if (request.getSkillName() == null || request.getSkillName().trim().isEmpty()) {
+                results.add(ValidationResult.error("skillName",
+                        "Thiếu tên kỹ năng cho chế độ Skill-based",
+                        "Ví dụ: ReactJS, SQL, Figma"));
+            }
+            if (request.getTargetRole() != null && !request.getTargetRole().isBlank()) {
+                results.add(ValidationResult.warning("targetRole",
+                        "Không dùng chung field giữa Skill-based và Career-based",
+                        "Vui lòng chỉ nhập 'skillName' cho chế độ Skill-based"));
+            }
+            if (request.getCurrentSkillLevel() != null) {
+                String lvl = request.getCurrentSkillLevel().trim().toLowerCase(Locale.ROOT);
+                List<String> allowed = List.of("zero", "basic", "intermediate");
+                if (!allowed.contains(lvl)) {
+                    results.add(ValidationResult.warning("currentSkillLevel",
+                            "Cấp độ kỹ năng không hợp lệ",
+                            "Hỗ trợ: ZERO | BASIC | INTERMEDIATE"));
+                }
+            }
+        } else if (mode == GenerateRoadmapRequest.RoadmapMode.CAREER_BASED) {
+            if (request.getTargetRole() == null || request.getTargetRole().trim().isEmpty()) {
+                results.add(ValidationResult.error("targetRole",
+                        "Thiếu vai trò nghề nghiệp cho chế độ Career-based",
+                        "Ví dụ: Frontend Developer, Digital Marketer"));
+            }
+            if (request.getSkillName() != null && !request.getSkillName().isBlank()) {
+                results.add(ValidationResult.warning("skillName",
+                        "Không dùng chung field giữa Skill-based và Career-based",
+                        "Vui lòng chỉ nhập 'targetRole' cho chế độ Career-based"));
+            }
+        }
+
         return results;
+    }
+
+    public List<com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion> generateClarificationQuestions(GenerateRoadmapRequest request) {
+        List<com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion> qs = new ArrayList<>();
+
+        if (request.getRoadmapMode() == null) {
+            qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+                    .field("roadmapMode")
+                    .question("Bạn chọn chế độ nào: Học kỹ năng (SKILL_BASED) hay Lộ trình nghề nghiệp (CAREER_BASED)?")
+                    .examples(List.of("SKILL_BASED", "CAREER_BASED"))
+                    .required(true)
+                    .build());
+        }
+
+        if (request.getRoadmapMode() == GenerateRoadmapRequest.RoadmapMode.SKILL_BASED) {
+            if (request.getSkillName() == null || request.getSkillName().isBlank()) {
+                qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+                        .field("skillName")
+                        .question("Bạn muốn học kỹ năng nào?")
+                        .examples(List.of("ReactJS", "SQL", "Figma"))
+                        .required(true)
+                        .build());
+            }
+        } else if (request.getRoadmapMode() == GenerateRoadmapRequest.RoadmapMode.CAREER_BASED) {
+            if (request.getTargetRole() == null || request.getTargetRole().isBlank()) {
+                qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+                        .field("targetRole")
+                        .question("Bạn muốn hướng đến vai trò nghề nghiệp nào?")
+                        .examples(List.of("Frontend Developer", "Digital Marketer", "UI Designer"))
+                        .required(true)
+                        .build());
+            }
+        } else {
+            if (request.getTarget() == null || request.getTarget().isBlank()) {
+                qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+                        .field("target")
+                        .question("Mục tiêu cụ thể của bạn là gì (kỹ năng hoặc nghề)?")
+                        .examples(List.of("ReactJS", "Frontend Developer", "Digital Marketing", "UI Designer"))
+                        .required(true)
+                        .build());
+            }
+        }
+
+        if (request.getDailyTime() == null || request.getDailyTime().isBlank()) {
+            qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+                    .field("dailyTime")
+                    .question("Bạn có thể dành bao nhiêu thời gian mỗi ngày?")
+                    .examples(List.of("30 phút", "1 giờ", "2 giờ"))
+                    .required(false)
+                    .build());
+        }
+
+        if (request.getLearningStyle() == null && (request.getStyle() == null || request.getStyle().isBlank())) {
+            qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+                    .field("learningStyle")
+                    .question("Phong cách học ưa thích của bạn?")
+                    .examples(List.of("Theo dự án", "Lý thuyết trước", "Video", "Thực hành"))
+                    .required(false)
+                    .build());
+        }
+
+        if (request.getPriority() == null || request.getPriority().isBlank()) {
+            qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+                    .field("priority")
+                    .question("Ưu tiên của bạn là nhanh đi làm hay học sâu?")
+                    .examples(List.of("Nhanh đi làm", "Học sâu"))
+                    .required(false)
+                    .build());
+        }
+
+        if (request.getIncomeGoal() == null) {
+            qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+                    .field("incomeGoal")
+                    .question("Bạn có mục tiêu thu nhập liên quan lộ trình này không?")
+                    .examples(List.of("true", "false"))
+                    .required(false)
+                    .build());
+        }
+
+        return qs;
     }
 
     /**

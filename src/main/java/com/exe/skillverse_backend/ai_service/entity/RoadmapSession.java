@@ -105,6 +105,18 @@ public class RoadmapSession {
     @Column(name = "learning_style_deprecated", length = 50)
     private String style;
 
+    @Column(name = "roadmap_type", length = 20)
+    private String roadmapType;
+
+    @Column(name = "roadmap_mode", length = 20)
+    private String roadmapMode;
+
+    @Column(name = "target", columnDefinition = "TEXT")
+    private String target;
+
+    @Column(name = "final_objective", length = 100)
+    private String finalObjective;
+
     /**
      * Statistics for premium quota tracking
      */

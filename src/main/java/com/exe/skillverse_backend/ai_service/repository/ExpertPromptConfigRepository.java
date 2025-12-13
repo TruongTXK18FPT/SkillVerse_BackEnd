@@ -17,13 +17,12 @@ public interface ExpertPromptConfigRepository extends JpaRepository<ExpertPrompt
     
     // Fuzzy search for matching roles using keyword
     @Query("SELECT e FROM ExpertPromptConfig e WHERE e.isActive = true AND " +
-           "(:domain IS NULL OR LOWER(e.domain) LIKE LOWER(CONCAT('%', :domain, '%'))) AND " +
-           "(:industry IS NULL OR LOWER(e.industry) LIKE LOWER(CONCAT('%', :industry, '%'))) AND " +
-           "(LOWER(e.jobRole) LIKE LOWER(CONCAT('%', :role, '%')) OR " +
-           "LOWER(e.keywords) LIKE LOWER(CONCAT('%', :role, '%')))")
-    List<ExpertPromptConfig> findMatchingPrompts(@Param("domain") String domain, 
-                                                @Param("industry") String industry, 
-                                                @Param("role") String role);
+           "(:domainPattern IS NULL OR e.domain LIKE :domainPattern) AND " +
+           "(:industryPattern IS NULL OR e.industry LIKE :industryPattern) AND " +
+           "(e.jobRole LIKE :rolePattern)")
+    List<ExpertPromptConfig> findMatchingPrompts(@Param("domainPattern") String domainPattern, 
+                                                @Param("industryPattern") String industryPattern, 
+                                                @Param("rolePattern") String rolePattern);
 
     boolean existsByJobRole(String jobRole);
 }

@@ -18,6 +18,7 @@ public class RoadmapSessionSummary {
 
     private Long sessionId;
     private String title;
+    private String roadmapMode;
 
     // V2 field names (matching RoadmapSession entity)
     private String originalGoal;

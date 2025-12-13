@@ -47,7 +47,10 @@ public class ExpertPromptService extends BaseExpertPromptService {
         }
 
         // 2. Try fuzzy matching if exact match fails (For loose search)
-        var matchingPrompts = expertPromptConfigRepository.findMatchingPrompts(domain, industry, normalizedRole);
+        String domainPattern = (domain == null || domain.isBlank()) ? null : "%" + domain + "%";
+        String industryPattern = (industry == null || industry.isBlank()) ? null : "%" + industry + "%";
+        String rolePattern = "%" + normalizedRole + "%";
+        var matchingPrompts = expertPromptConfigRepository.findMatchingPrompts(domainPattern, industryPattern, rolePattern);
         
         if (!matchingPrompts.isEmpty()) {
             // Return the first match

@@ -38,6 +38,12 @@ public class ChatRequest {
     private ChatMode chatMode = ChatMode.GENERAL_CAREER_ADVISOR;
 
     /**
+     * Optional: AI agent mode selection
+     * Example: "deep-research-pro-preview-12-2025"
+     */
+    private String aiAgentMode;
+
+    /**
      * Optional: Broad field (e.g., "Information Technology")
      * Required when chatMode = EXPERT_MODE
      */

@@ -38,20 +38,29 @@ public class AiChatbotService {
   private final UsageLimitService usageLimitService;
   private final ExpertPromptService expertPromptService;
   private final com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository expertPromptConfigRepository;
+  private final com.exe.skillverse_backend.premium_service.service.PremiumService premiumService;
+  private final org.springframework.ai.chat.model.ChatModel geminiChatModel;
+  private final org.springframework.ai.chat.model.ChatModel geminiFallback1ChatModel;
 
   public AiChatbotService(
       @Qualifier("mistralAiChatModel") ChatModel mistralChatModel,
+      @Qualifier("geminiChatModel") ChatModel geminiChatModel,
+      @Qualifier("geminiFallback1ChatModel") ChatModel geminiFallback1ChatModel,
       ChatMessageRepository chatMessageRepository,
       InputValidationService inputValidationService,
       UsageLimitService usageLimitService,
       ExpertPromptService expertPromptService,
-      com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository expertPromptConfigRepository) {
+      com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository expertPromptConfigRepository,
+      com.exe.skillverse_backend.premium_service.service.PremiumService premiumService) {
     this.mistralChatModel = mistralChatModel;
+    this.geminiChatModel = geminiChatModel;
+    this.geminiFallback1ChatModel = geminiFallback1ChatModel;
     this.chatMessageRepository = chatMessageRepository;
     this.inputValidationService = inputValidationService;
     this.usageLimitService = usageLimitService;
     this.expertPromptService = expertPromptService;
     this.expertPromptConfigRepository = expertPromptConfigRepository;
+    this.premiumService = premiumService;
   }
 
   // MEOWL AI CAREER ADVISOR - OPTIMIZED VERSION 2025
@@ -63,6 +72,8 @@ public class AiChatbotService {
       - **Thân thiện & Chuyên nghiệp**: Cung cấp thông tin chính xác về nghề nghiệp, kỹ năng, thị trường lao động 2025
       - **Thông minh & Linh hoạt**: Tự động phát hiện và sửa sai thông tin một cách khéo léo
       - **Thực tế & Khuyến khích**: Đưa ra lời khuyên khả thi, động viên nhưng không viển vông
+
+      QUAN TRỌNG: Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking> để giải thích quá trình suy luận của bạn trước khi đưa ra câu trả lời cuối cùng.
 
       ## 🛡️ AUTO-CORRECTION SYSTEM
       **NGUYÊN TẮC**: Phát hiện → Điều chỉnh → Thông báo lịch sự → Tiếp tục tư vấn
@@ -216,6 +227,8 @@ public class AiChatbotService {
       ## VAI TRÒ
       Bạn là Meowl - cố vấn nghề nghiệp AI của SkillVerse. Trả lời trực tiếp, rõ ràng, 100% tiếng Việt.
 
+      QUAN TRỌNG: Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking> để giải thích quá trình suy luận của bạn trước khi đưa ra câu trả lời cuối cùng.
+
       ## AUTO-CORRECTION (TÓM TẮT)
       - IELTS: 0.0-9.0 (bước 0.5). Nếu > 9.0 → sửa về 9.0 và giải thích ngắn.
       - TOEFL: 0-120. Nếu > 120 → nhắc chuẩn iBT.
@@ -268,6 +281,15 @@ public class AiChatbotService {
     usageLimitService.checkAndRecordUsage(
         user.getId(),
         FeatureType.AI_CHATBOT_REQUESTS);
+
+    // 1b. PREMIUM VALIDATION for special agent mode
+    if (request.getAiAgentMode() != null
+        && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode())) {
+      boolean hasPremium = premiumService.hasActivePremiumSubscription(user.getId());
+      if (!hasPremium) {
+        throw new ApiException(ErrorCode.FORBIDDEN, "Chỉ tài khoản Premium mới có thể chọn chế độ AI Deep Research");
+      }
+    }
 
     // 2. Validate chat mode and required fields
     validateChatRequest(request);
@@ -409,12 +431,40 @@ public class AiChatbotService {
     log.info("Calling Mistral AI chatbot using Spring AI");
 
     try {
-      return callMistralForChat(userMessage, previousMessages, request);
+      String agentSuffix = (request.getAiAgentMode() != null
+          && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode()))
+          ? "\nMODE: Deep Research Pro — Áp dụng phân tích sâu, kiểm chứng thông tin, đưa lộ trình suy luận có cấu trúc, ưu tiên bằng chứng và dữ liệu thị trường 2025.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions> (mỗi câu một dòng)."
+          : "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions> (mỗi câu một dòng).";
+      if (request.getAiAgentMode() != null
+          && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode())) {
+        try {
+          return callGeminiForChat(userMessage, previousMessages, request, agentSuffix, geminiChatModel, "Gemini Primary");
+        } catch (Exception ge) {
+          String msg = ge.getMessage() != null ? ge.getMessage().toLowerCase() : "";
+          if (msg.contains("429") || msg.contains("quota") || msg.contains("resource_exhausted") || msg.contains("rate limit")) {
+            try {
+              return callGeminiForChat(userMessage, previousMessages, request, agentSuffix, geminiFallback1ChatModel, "Gemini Fallback");
+            } catch (Exception ge2) {
+              String normalSuffix = "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions>.";
+              return callMistralForChat(userMessage, previousMessages, request, normalSuffix);
+            }
+          } else {
+            String normalSuffix = "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions>.";
+            return callMistralForChat(userMessage, previousMessages, request, normalSuffix);
+          }
+        }
+      }
+      return callMistralForChat(userMessage, previousMessages, request, agentSuffix);
     } catch (Exception e) {
       log.error("Mistral AI failed: {}", e.getMessage());
 
-      // FALLBACK: Return a helpful response instead of throwing error
-      return generateFallbackResponse(userMessage);
+      try {
+        String normalAgentSuffix = "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.";
+        return callMistralForChat(userMessage, previousMessages, request, normalAgentSuffix);
+      } catch (Exception e2) {
+        // FALLBACK: Return a helpful response instead of throwing error
+        return generateFallbackResponse(userMessage);
+      }
     }
   }
 
@@ -422,7 +472,7 @@ public class AiChatbotService {
    * Call Mistral AI for chat conversation with context using Spring AI ChatClient
    * Mistral provides more recent training data for 2025 career trends
    */
-  private String callMistralForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request) {
+  private String callMistralForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request, String agentSuffix) {
     try {
       // Build conversation history
       StringBuilder contextBuilder = new StringBuilder();
@@ -469,6 +519,9 @@ public class AiChatbotService {
       // Append critical instruction
       String finalSystemPrompt = systemPrompt + 
           "\nCRITICAL: Hãy trả lời bằng đúng ngôn ngữ người dùng đang dùng (ưu tiên Tiếng Việt). Nếu phát hiện yêu cầu vô lý (ví dụ mục tiêu IELTS 10.0), hãy giải thích và đưa gợi ý hợp lệ bằng Tiếng Việt.";
+      if (agentSuffix != null && !agentSuffix.isEmpty()) {
+        finalSystemPrompt = finalSystemPrompt + agentSuffix;
+      }
 
       // Use Spring AI ChatClient for Mistral
       return ChatClient.builder(mistralChatModel)
@@ -486,6 +539,42 @@ public class AiChatbotService {
     }
   }
 
+  private String callGeminiForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request, String agentSuffix, ChatModel model, String label) {
+    StringBuilder contextBuilder = new StringBuilder();
+    contextBuilder.append("Conversation history:\n");
+    for (ChatMessage prev : previousMessages) {
+      contextBuilder.append("User: ").append(prev.getUserMessage()).append("\n");
+      contextBuilder.append("Assistant: ").append(prev.getAiResponse()).append("\n");
+    }
+    contextBuilder.append("User: ").append(userMessage);
+    String conversationHistory = contextBuilder.toString();
+    String systemPrompt;
+    if (request.getChatMode() == com.exe.skillverse_backend.ai_service.enums.ChatMode.EXPERT_MODE) {
+      systemPrompt = expertPromptService.getSystemPrompt(
+          request.getDomain(),
+          request.getIndustry(),
+          request.getJobRole()
+      );
+      if (systemPrompt == null) {
+        systemPrompt = SYSTEM_PROMPT;
+      }
+    } else {
+      boolean isFirstTurn = previousMessages == null || previousMessages.isEmpty();
+      systemPrompt = isFirstTurn ? SYSTEM_PROMPT_SIMPLE : SYSTEM_PROMPT;
+    }
+    String finalSystemPrompt = systemPrompt +
+        "\nCRITICAL: Hãy trả lời bằng đúng ngôn ngữ người dùng đang dùng (ưu tiên Tiếng Việt). Nếu phát hiện yêu cầu vô lý (ví dụ mục tiêu IELTS 10.0), hãy giải thích và đưa gợi ý hợp lệ bằng Tiếng Việt.";
+    if (agentSuffix != null && !agentSuffix.isEmpty()) {
+      finalSystemPrompt = finalSystemPrompt + agentSuffix;
+    }
+    return ChatClient.builder(model)
+        .build()
+        .prompt()
+        .system(finalSystemPrompt)
+        .user(conversationHistory)
+        .call()
+        .content();
+  }
   /**
    * Get conversation history for a session
    * Returns DTOs to avoid lazy loading issues

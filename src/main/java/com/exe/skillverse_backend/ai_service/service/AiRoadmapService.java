@@ -46,6 +46,9 @@ public class AiRoadmapService {
     private final ObjectMapper objectMapper;
     private final InputValidationService inputValidationService;
     private final UsageLimitService usageLimitService;
+    private final ExpertPromptService expertPromptService;
+    private final TaxonomyService taxonomyService;
+    private final com.exe.skillverse_backend.premium_service.service.PremiumService premiumService;
 
     public AiRoadmapService(
             @Qualifier("geminiChatModel") ChatModel geminiChatModel,
@@ -54,7 +57,10 @@ public class AiRoadmapService {
             UserRoadmapProgressRepository progressRepository,
             ObjectMapper objectMapper,
             InputValidationService inputValidationService,
-            UsageLimitService usageLimitService) {
+            UsageLimitService usageLimitService,
+            ExpertPromptService expertPromptService,
+            TaxonomyService taxonomyService,
+            com.exe.skillverse_backend.premium_service.service.PremiumService premiumService) {
         this.geminiChatModel = geminiChatModel;
         this.geminiFallback1ChatModel = geminiFallback1ChatModel;
         this.roadmapSessionRepository = roadmapSessionRepository;
@@ -62,6 +68,9 @@ public class AiRoadmapService {
         this.objectMapper = objectMapper;
         this.inputValidationService = inputValidationService;
         this.usageLimitService = usageLimitService;
+        this.expertPromptService = expertPromptService;
+        this.taxonomyService = taxonomyService;
+        this.premiumService = premiumService;
     }
 
     /**
@@ -104,13 +113,22 @@ public class AiRoadmapService {
      */
     @Transactional
     public RoadmapResponse generateRoadmap(GenerateRoadmapRequest request, User user) {
-        log.info("🚀 Generating roadmap V2 for user {} with goal: {}", user.getId(), request.getGoal());
+        String logGoal = request.getTarget() != null && !request.getTarget().isBlank() ? request.getTarget() : request.getGoal();
+        log.info("🚀 Generating roadmap V2 for user {} with goal/target: {}", user.getId(), logGoal);
 
         try {
             // Step 0: CHECK USAGE LIMIT FIRST
             usageLimitService.checkAndRecordUsage(
                     user.getId(),
                     FeatureType.AI_ROADMAP_GENERATION);
+            
+            if (request.getAiAgentMode() != null
+                    && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode())) {
+                boolean hasPremium = premiumService.hasActivePremiumSubscription(user.getId());
+                if (!hasPremium) {
+                    throw new ApiException(ErrorCode.FORBIDDEN, "Chỉ tài khoản Premium mới có thể chọn chế độ AI Deep Research");
+                }
+            }
 
             // Step 1: AI Goal Validation (CRITICAL - blocks invalid/malicious goals)
             ValidationResult aiValidation = validateGoalWithAI(request.getGoal());
@@ -141,13 +159,77 @@ public class AiRoadmapService {
             // Step 4: Parse and validate JSON (Schema V2)
             ParsedRoadmap parsed = validateAndParseRoadmapV2(roadmapJson);
 
-            // Step 5: Extract statistics for database
+            // Inject mode-specific metadata from request for clarity
+            try {
+                if (request.getRoadmapMode() != null) {
+                    parsed.metadata().setRoadmapMode(request.getRoadmapMode().name());
+                }
+                if (request.getRoadmapMode() == GenerateRoadmapRequest.RoadmapMode.SKILL_BASED) {
+                    RoadmapResponse.SkillModeMeta sm = RoadmapResponse.SkillModeMeta.builder()
+                            .skillName(request.getSkillName())
+                            .skillCategory(request.getSkillCategory())
+                            .desiredDepth(request.getDesiredDepth())
+                            .learnerType(request.getLearnerType())
+                            .currentSkillLevel(request.getCurrentSkillLevel())
+                            .learningGoal(request.getLearningGoal())
+                            .dailyLearningTime(request.getDailyLearningTime())
+                            .assessmentPreference(request.getAssessmentPreference())
+                            .difficultyTolerance(request.getDifficultyTolerance())
+                            .toolPreference(request.getToolPreference())
+                            .build();
+                    parsed.metadata().setSkillMode(sm);
+                    parsed.metadata().setCareerMode(null);
+                } else if (request.getRoadmapMode() == GenerateRoadmapRequest.RoadmapMode.CAREER_BASED) {
+                    RoadmapResponse.CareerModeMeta cm = RoadmapResponse.CareerModeMeta.builder()
+                            .targetRole(request.getTargetRole())
+                            .careerTrack(request.getCareerTrack())
+                            .targetSeniority(request.getTargetSeniority())
+                            .workMode(request.getWorkMode())
+                            .targetMarket(request.getTargetMarket())
+                            .companyType(request.getCompanyType())
+                            .timelineToWork(request.getTimelineToWork())
+                            .incomeExpectation(request.getIncomeExpectation())
+                            .workExperience(request.getWorkExperience())
+                            .transferableSkills(request.getTransferableSkills())
+                            .confidenceLevel(request.getConfidenceLevel())
+                            .build();
+                    parsed.metadata().setCareerMode(cm);
+                    parsed.metadata().setSkillMode(null);
+                }
+            } catch (Exception ignored) {}
+
+            // Step 5: Time budget validator vs total_estimated_hours
+            java.util.List<String> warnings = new java.util.ArrayList<>();
+            try {
+                if (parsed.statistics() != null && parsed.statistics().getTotalEstimatedHours() != null) {
+                    int minutesPerDay = parseDailyTimeMinutes(request.getDailyTime());
+                    int plannedDays = parseDesiredDurationDays(request.getDesiredDuration());
+                    double timeBudgetHours = (minutesPerDay * plannedDays) / 60.0;
+                    double totalHoursGen = parsed.statistics().getTotalEstimatedHours();
+                    double diff = Math.abs(totalHoursGen - timeBudgetHours);
+                    double rel = timeBudgetHours > 0 ? diff / timeBudgetHours : 0.0;
+                    if (rel > 0.10) {
+                        String note = "Cảnh báo: Tổng thời gian lộ trình (" + String.format("%.1f", totalHoursGen)
+                                + "h) lệch hơn 10% so với ngân sách thời gian (" + String.format("%.1f", timeBudgetHours)
+                                + "h).";
+                        String existing = parsed.metadata().getValidationNotes();
+                        parsed.metadata().setValidationNotes(existing == null || existing.isBlank() ? note : existing + " " + note);
+                        warnings.add(note);
+                        String priority = request.getPriority();
+                        if (priority != null && priority.equalsIgnoreCase("Nhanh đi làm")) {
+                            warnings.add("Đề xuất: Giảm số node hoặc hạ độ khó để phù hợp ưu tiên nhanh đi làm");
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+
+            // Step 6: Extract statistics for database
             Integer totalNodes = parsed.statistics() != null ? parsed.statistics().getTotalNodes()
                     : parsed.nodes().size();
             Double totalHours = parsed.statistics() != null ? parsed.statistics().getTotalEstimatedHours()
                     : calculateTotalHours(parsed.nodes());
 
-            // Step 6: Save to database with V2 schema
+            // Step 7: Save to database with V2 schema
             RoadmapSession session = RoadmapSession.builder()
                     .user(user)
                     .schemaVersion(2)
@@ -158,6 +240,10 @@ public class AiRoadmapService {
                     .duration(parsed.metadata().getDuration())
                     .experienceLevel(parsed.metadata().getExperienceLevel())
                     .learningStyle(parsed.metadata().getLearningStyle())
+                    .roadmapMode(parsed.metadata().getRoadmapMode() != null ? parsed.metadata().getRoadmapMode() : (request.getRoadmapMode() != null ? request.getRoadmapMode().name() : null))
+                    .roadmapType(parsed.metadata().getRoadmapType() != null ? parsed.metadata().getRoadmapType() : request.getRoadmapType())
+                    .target(parsed.metadata().getTarget() != null ? parsed.metadata().getTarget() : request.getTarget())
+                    .finalObjective(parsed.metadata().getFinalObjective() != null ? parsed.metadata().getFinalObjective() : request.getFinalObjective())
                     // Statistics (for premium quota)
                     .totalNodes(totalNodes)
                     .totalEstimatedHours(totalHours)
@@ -174,13 +260,20 @@ public class AiRoadmapService {
                     session.getId(), totalNodes, String.format("%.1f", totalHours),
                     parsed.metadata().getDifficultyLevel());
 
-            // Step 7: Return response (new format)
+            // Step 8: Return response (new format)
             return RoadmapResponse.builder()
                     .sessionId(session.getId())
                     .metadata(parsed.metadata())
                     .roadmap(parsed.nodes())
                     .statistics(parsed.statistics())
                     .learningTips(parsed.learningTips())
+                    .warnings(warnings)
+                    .overview(parsed.overview())
+                    .structure(parsed.structure())
+                    .thinkingProgression(parsed.thinkingProgression())
+                    .projectsEvidence(parsed.projectsEvidence())
+                    .nextSteps(parsed.nextSteps())
+                    .skillDependencies(parsed.skillDependencies())
                     .createdAt(session.getCreatedAt())
                     .build();
 
@@ -190,6 +283,123 @@ public class AiRoadmapService {
             log.error("❌ Failed to generate roadmap V2", e);
             throw new ApiException(ErrorCode.INTERNAL_ERROR, "Failed to generate roadmap: " + e.getMessage());
         }
+    }
+
+    public Map<String, Long> getModeCountsGlobal() {
+        Map<String, Long> map = new HashMap<>();
+        try {
+            List<Object[]> rows = roadmapSessionRepository.countGroupedByMode();
+            for (Object[] row : rows) {
+                String mode = (String) row[0];
+                Long count = (Long) row[1];
+                if (mode != null) map.put(mode, count);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load global mode counts: {}", e.getMessage());
+        }
+        map.putIfAbsent("SKILL_BASED", 0L);
+        map.putIfAbsent("CAREER_BASED", 0L);
+        return map;
+    }
+
+    public Map<String, Long> getModeCountsForUser(Long userId) {
+        Map<String, Long> map = new HashMap<>();
+        try {
+            List<Object[]> rows = roadmapSessionRepository.countGroupedByModeForUser(userId);
+            for (Object[] row : rows) {
+                String mode = (String) row[0];
+                Long count = (Long) row[1];
+                if (mode != null) map.put(mode, count);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load user mode counts: {}", e.getMessage());
+        }
+        map.putIfAbsent("SKILL_BASED", 0L);
+        map.putIfAbsent("CAREER_BASED", 0L);
+        return map;
+    }
+
+    public Map<String, Long> getModeCountsGlobalRange(java.time.Instant from, java.time.Instant to) {
+        Map<String, Long> map = new HashMap<>();
+        try {
+            List<Object[]> rows = roadmapSessionRepository.countGroupedByModeInRange(from, to);
+            for (Object[] row : rows) {
+                String mode = (String) row[0];
+                Long count = (Long) row[1];
+                if (mode != null) map.put(mode, count);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load global mode counts (range): {}", e.getMessage());
+        }
+        map.putIfAbsent("SKILL_BASED", 0L);
+        map.putIfAbsent("CAREER_BASED", 0L);
+        return map;
+    }
+
+    public Map<String, Long> getModeCountsForUserRange(Long userId, java.time.Instant from, java.time.Instant to) {
+        Map<String, Long> map = new HashMap<>();
+        try {
+            List<Object[]> rows = roadmapSessionRepository.countGroupedByModeInRangeForUser(userId, from, to);
+            for (Object[] row : rows) {
+                String mode = (String) row[0];
+                Long count = (Long) row[1];
+                if (mode != null) map.put(mode, count);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load user mode counts (range): {}", e.getMessage());
+        }
+        map.putIfAbsent("SKILL_BASED", 0L);
+        map.putIfAbsent("CAREER_BASED", 0L);
+        return map;
+    }
+
+    private Map<String, Map<String, Long>> aggregateBucketRows(List<Object[]> rows) {
+        Map<String, Map<String, Long>> buckets = new LinkedHashMap<>();
+        for (Object[] row : rows) {
+            java.sql.Timestamp ts = (java.sql.Timestamp) row[0];
+            String mode = (String) row[1];
+            Number cntNum = (Number) row[2];
+            Long cnt = cntNum == null ? 0L : cntNum.longValue();
+            String key = ts.toInstant().toString();
+            Map<String, Long> m = buckets.computeIfAbsent(key, k -> new HashMap<>());
+            m.put(mode, cnt);
+        }
+        // Ensure both modes present
+        for (Map.Entry<String, Map<String, Long>> e : buckets.entrySet()) {
+            e.getValue().putIfAbsent("SKILL_BASED", 0L);
+            e.getValue().putIfAbsent("CAREER_BASED", 0L);
+        }
+        return buckets;
+    }
+
+    public Map<String, Map<String, Long>> getModeCountsDaily(java.time.Instant from, java.time.Instant to) {
+        List<Object[]> rows = roadmapSessionRepository.countModeDaily(from, to);
+        return aggregateBucketRows(rows);
+    }
+
+    public Map<String, Map<String, Long>> getModeCountsDailyForUser(Long userId, java.time.Instant from, java.time.Instant to) {
+        List<Object[]> rows = roadmapSessionRepository.countModeDailyForUser(userId, from, to);
+        return aggregateBucketRows(rows);
+    }
+
+    public Map<String, Map<String, Long>> getModeCountsWeekly(java.time.Instant from, java.time.Instant to) {
+        List<Object[]> rows = roadmapSessionRepository.countModeWeekly(from, to);
+        return aggregateBucketRows(rows);
+    }
+
+    public Map<String, Map<String, Long>> getModeCountsWeeklyForUser(Long userId, java.time.Instant from, java.time.Instant to) {
+        List<Object[]> rows = roadmapSessionRepository.countModeWeeklyForUser(userId, from, to);
+        return aggregateBucketRows(rows);
+    }
+
+    public Map<String, Map<String, Long>> getModeCountsMonthly(java.time.Instant from, java.time.Instant to) {
+        List<Object[]> rows = roadmapSessionRepository.countModeMonthly(from, to);
+        return aggregateBucketRows(rows);
+    }
+
+    public Map<String, Map<String, Long>> getModeCountsMonthlyForUser(Long userId, java.time.Instant from, java.time.Instant to) {
+        List<Object[]> rows = roadmapSessionRepository.countModeMonthlyForUser(userId, from, to);
+        return aggregateBucketRows(rows);
     }
 
     /**
@@ -235,6 +445,36 @@ public class AiRoadmapService {
                 }
             } else {
                 log.error("❌ Primary model failed with non-quota error: {}", e.getMessage());
+            }
+
+            // Agent-mode fallback: retry without agent suffix using primary, then fallback
+            String savedAgent = request.getAiAgentMode();
+            try {
+                if (savedAgent != null && !savedAgent.isBlank()) {
+                    request.setAiAgentMode(null);
+                    String normalPrompt = buildPrompt(request);
+                    log.warn("🔁 Retrying with NORMAL agent mode prompt");
+                    try {
+                        return callGeminiWithModel(geminiChatModel, normalPrompt, "Primary (Normal Agent)");
+                    } catch (Exception ePrimaryNormal) {
+                        String err2 = ePrimaryNormal.getMessage() != null ? ePrimaryNormal.getMessage().toLowerCase() : "";
+                        if (err2.contains("429") || err2.contains("quota") ||
+                                err2.contains("resource_exhausted") || err2.contains("rate limit")) {
+                            try {
+                                return callGeminiWithModel(geminiFallback1ChatModel, normalPrompt, "Fallback (Normal Agent)");
+                            } catch (Exception eFallbackNormal) {
+                                lastException = eFallbackNormal;
+                                log.error("❌ Normal agent fallback also failed: {}", eFallbackNormal.getMessage());
+                            }
+                        } else {
+                            lastException = ePrimaryNormal;
+                            log.error("❌ Primary (Normal Agent) failed: {}", ePrimaryNormal.getMessage());
+                        }
+                    }
+                }
+            } finally {
+                // Restore original agent mode
+                request.setAiAgentMode(savedAgent);
             }
 
             // Both attempts failed
@@ -307,33 +547,160 @@ public class AiRoadmapService {
         String userContext = String.format("""
 
                 === USER INPUT ===
-                Goal: %s
+                Roadmap Mode: %s
+                Roadmap Type: %s
+                Target: %s
+                Industry: %s
+                Final Objective: %s
+                Core Goal: %s
                 Duration: %s
+                Desired Duration: %s
+                Current Level: %s
                 Experience Level: %s
                 Learning Style: %s
+                Background: %s
+                Daily Time: %s
+                Target Environment: %s
+                Location: %s
+                Priority: %s
+                Tool Preferences: %s
+                Difficulty Concern: %s
+                Income Goal: %s
+                
+                === SKILL MODE INPUT ===
+                Skill Name: %s
+                Skill Category: %s
+                Desired Depth: %s
+                Learner Type: %s
+                Current Skill Level: %s
+                Learning Goal: %s
+                Daily Learning Time: %s
+                Assessment Preference: %s
+                Difficulty Tolerance: %s
+                Tool Preference: %s
+                
+                === CAREER MODE INPUT ===
+                Target Role: %s
+                Career Track: %s
+                Target Seniority: %s
+                Work Mode: %s
+                Target Market: %s
+                Company Type: %s
+                Timeline To Work: %s
+                Income Expectation: %s
+                Work Experience: %s
+                Transferable Skills: %s
+                Confidence Level: %s
 
                 === YOUR TASK ===
-                Analyze the goal above using Pattern Detection Engine (99%% accuracy).
-                Validate using Validation Framework (check scores, deprecated tech, time feasibility).
-                Generate roadmap adapted to experience level and learning style.
+                Analyze inputs using Pattern Detection Engine.
+                Validate using Validation Framework (scores, deprecated tech, time feasibility).
+                Generate roadmap adapted to level, style, context, preferences.
                 Return ONLY valid JSON following the exact format specified above.
-
+                
                 CRITICAL: Response must be pure JSON starting with { and ending with }.
                 NO markdown, NO explanations, ONLY JSON.
-                """,
-                request.getGoal(),
-                request.getDuration(),
-                request.getExperience(),
-                request.getStyle());
+                %s""",
+                request.getRoadmapMode() != null ? request.getRoadmapMode().name() : "",
+                nullSafe(request.getRoadmapType()),
+                nullSafe(request.getTarget()),
+                nullSafe(request.getIndustry()),
+                nullSafe(request.getFinalObjective()),
+                nullSafe(request.getGoal()),
+                nullSafe(request.getDuration()),
+                nullSafe(request.getDesiredDuration()),
+                nullSafe(request.getCurrentLevel()),
+                nullSafe(request.getExperience()),
+                nullSafe(request.getLearningStyle() != null ? request.getLearningStyle() : request.getStyle()),
+                nullSafe(request.getBackground()),
+                nullSafe(request.getDailyTime()),
+                nullSafe(request.getTargetEnvironment()),
+                nullSafe(request.getLocation()),
+                nullSafe(request.getPriority()),
+                request.getToolPreferences() != null ? String.join(", ", request.getToolPreferences()) : "",
+                nullSafe(request.getDifficultyConcern()),
+                String.valueOf(request.getIncomeGoal() != null ? request.getIncomeGoal() : false),
+                nullSafe(request.getSkillName()),
+                nullSafe(request.getSkillCategory()),
+                nullSafe(request.getDesiredDepth()),
+                nullSafe(request.getLearnerType()),
+                nullSafe(request.getCurrentSkillLevel()),
+                nullSafe(request.getLearningGoal()),
+                nullSafe(request.getDailyLearningTime()),
+                nullSafe(request.getAssessmentPreference()),
+                nullSafe(request.getDifficultyTolerance()),
+                request.getToolPreference() != null ? String.join(", ", request.getToolPreference()) : "",
+                nullSafe(request.getTargetRole()),
+                nullSafe(request.getCareerTrack()),
+                nullSafe(request.getTargetSeniority()),
+                nullSafe(request.getWorkMode()),
+                nullSafe(request.getTargetMarket()),
+                nullSafe(request.getCompanyType()),
+                nullSafe(request.getTimelineToWork()),
+                String.valueOf(request.getIncomeExpectation() != null ? request.getIncomeExpectation() : false),
+                nullSafe(request.getWorkExperience()),
+                String.valueOf(request.getTransferableSkills() != null ? request.getTransferableSkills() : false),
+                nullSafe(request.getConfidenceLevel()),
+                buildConstraintsBlock(request));
 
-        return systemPrompt + userContext;
+        String finalPrompt = systemPrompt + userContext;
+        if (request.getAiAgentMode() != null
+                && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode())) {
+            finalPrompt = finalPrompt + "\nMODE: Deep Research Pro Preview 12/2025 — Yêu cầu tư duy nghiên cứu sâu, kiểm chứng nguồn, ưu tiên số liệu thực tế 2025, trình bày có cấu trúc và trả về JSON theo yêu cầu.";
+        }
+        return finalPrompt;
+    }
+
+    private String nullSafe(String v) {
+        return v == null ? "" : v;
+    }
+
+    private String buildGlobalRuleBlock() {
+        return """
+                RULE SYSTEM:
+                - Value-first, Deliverable-first
+                - Trade-off awareness
+                - Dependency-first ordering
+                - Thinking-before-Tool
+                - Level-gated progression
+                - Minimal sufficiency
+                - Pain-driven design with explicit pitfalls
+                - Real-work simulation with constraints, deadline, KPI
+                - Decision-making requirement
+                - Evidence generation (artifact)
+                - Rubric-based evaluation (≥3 criteria), upgrade threshold ≥70%%
+                - Mode isolation: Skill-based vs Career-based output contracts
+                - Skill→Career bridge only when thresholds met
+                - Context-aware (VN/Global; Startup/Corporate), tool localization
+                - No hallucination; Ask-before-Assume; Explain reasoning
+                - Valid roadmap must include: Overview, Structure, Thinking Progression, Projects & Evidence, Next-step
+                """;
+    }
+
+    private String buildDomainContextBlock(GenerateRoadmapRequest request) {
+        String target = request.getTarget() != null ? request.getTarget() : request.getGoal();
+        String roleCategory = taxonomyService.detectRoleCategory(target);
+        String domain = taxonomyService.detectDomain(target, request.getIndustry(), roleCategory);
+        String market = nullSafe(request.getTargetMarket());
+        String company = nullSafe(request.getCompanyType());
+        String workMode = nullSafe(request.getWorkMode());
+        return "DOMAIN CONTEXT: " + nullSafe(domain)
+                + " | ROLE CATEGORY: " + nullSafe(roleCategory)
+                + " | MARKET: " + market
+                + " | COMPANY: " + company
+                + " | WORK MODE: " + workMode
+                + "\nAPPLY: Role library, project kits, rubric; enforce mode-specific output contract; prefer localized tools; no hallucination.";
     }
 
     /**
      * Build System Prompt V2 - Comprehensive AI Roadmap Architect Instructions
      */
     private String buildSystemPromptV2(GenerateRoadmapRequest request) {
-        return """
+        String expertPersona = selectExpertPersonaForRequest(request);
+        String ruleBlock = buildGlobalRuleBlock();
+        String domainBlock = buildDomainContextBlock(request);
+        String expertPackBlock = buildExpertPackContextBlock(request);
+        String base = expertPersona + "\n" + ruleBlock + "\n" + domainBlock + "\n" + expertPackBlock + "\n" + """
                 # AI ROADMAP ARCHITECT - SYSTEM PROMPT V2
 
                 ## VAI TRÒ & SỨ MỆNH
@@ -372,47 +739,110 @@ public class AiRoadmapService {
                 ```json
                 {
                   "roadmap_metadata": {
-                    "title": "Tên lộ trình (Tiếng Việt có dấu)",
-                    "original_goal": "Mục tiêu gốc từ user (không thay đổi)",
-                    "validated_goal": "Mục tiêu đã làm rõ/điều chỉnh",
-                    "duration": "3 tháng | 6 tuần | 2 ngày (Tiếng Việt)",
-                    "experience_level": "Mới bắt đầu | Trung cấp | Nâng cao | Chuyên gia",
-                    "learning_style": "Theo dự án - Học bằng cách làm | Lý thuyết trước - Hiểu rồi làm | Thực hành trực tiếp",
-                    "detected_intention": "Người dùng muốn học [X] để [Y]",
-                    "validation_notes": "null hoặc giải thích điều chỉnh",
-                    "estimated_completion": "Thời gian thực tế nếu khác duration (Tiếng Việt)",
+                    "title": "Tên lộ trình",
+                    "original_goal": "Mục tiêu gốc",
+                    "validated_goal": "Mục tiêu đã làm rõ",
+                    "duration": "Thời lượng",
+                    "experience_level": "Mức độ kinh nghiệm",
+                    "learning_style": "Phong cách học",
+                    "detected_intention": "Ý định học",
+                    "validation_notes": "Ghi chú xác thực hoặc null",
+                    "estimated_completion": "Thời gian thực tế",
                     "difficulty_level": "beginner | intermediate | advanced | expert",
-                    "prerequisites": ["Kiến thức cần có trước"],
-                    "career_relevance": "Liên quan nghề nghiệp"
+                    "prerequisites": ["Danh sách tiền đề"],
+                    "career_relevance": "Liên quan nghề nghiệp",
+                    "roadmap_type": "skill | career",
+                    "target": "Tên kỹ năng hoặc nghề",
+                    "final_objective": "Đi làm | Freelance | Học cho trường | Build sản phẩm",
+                    "current_level": "zero | basic | intermediate",
+                    "desired_duration": "1 tháng | 3 tháng | 6 tháng",
+                    "background": "Ngữ cảnh",
+                    "daily_time": "Thời gian mỗi ngày",
+                    "target_environment": "Startup | corporate | freelance",
+                    "location": "Việt Nam | quốc tế",
+                    "priority": "Nhanh đi làm | Học sâu",
+                    "tool_preferences": ["React", "Vue", "No-code"],
+                    "difficulty_concern": "Mối lo",
+                    "income_goal": true,
+                    "roadmap_mode": "SKILL_BASED | CAREER_BASED",
+                    "skill_mode": {
+                      "skill_name": "ReactJS | SQL | Figma",
+                      "skill_category": "Technical | Creative | Business",
+                      "desired_depth": "BASIC | SOLID | ADVANCED",
+                      "learner_type": "Student | Working | Explorer",
+                      "current_skill_level": "ZERO | BASIC | INTERMEDIATE",
+                      "learning_goal": "UNDERSTAND | APPLY | MASTER",
+                      "daily_learning_time": "30_MIN | 1_HOUR | 2_HOURS",
+                      "assessment_preference": "QUIZ | PROJECT | MIXED",
+                      "difficulty_tolerance": "EASY | MEDIUM | HARD",
+                      "tool_preference": ["React", "Vue", "No-code"]
+                    },
+                    "career_mode": {
+                      "target_role": "Frontend Developer | Digital Marketer | UI Designer",
+                      "career_track": "IT | Marketing | Design",
+                      "target_seniority": "INTERN | JUNIOR | FREELANCER",
+                      "work_mode": "FULL_TIME | FREELANCE | REMOTE",
+                      "target_market": "VIETNAM | GLOBAL",
+                      "company_type": "STARTUP | SME | CORPORATE",
+                      "timeline_to_work": "3M | 6M | 12M",
+                      "income_expectation": true,
+                      "work_experience": "NONE | RELATED | UNRELATED",
+                      "transferable_skills": true,
+                      "confidence_level": "LOW | MEDIUM | HIGH"
+                    }
                   },
+                  "overview": {
+                    "purpose": "Nghề/skill dùng để làm gì",
+                    "audience": "Phù hợp với ai",
+                    "post_roadmap_state": "Sau roadmap đạt trạng thái gì"
+                  },
+                  "structure": [
+                    {
+                      "phase_id": "phase-1",
+                      "title": "Tên giai đoạn",
+                      "timeframe": "Tuần/Tháng",
+                      "goal": "Mục tiêu",
+                      "skill_focus": ["Kỹ năng trọng tâm"],
+                      "mindset_goal": "Mục tiêu tư duy",
+                      "expected_output": "Output mong đợi"
+                    }
+                  ],
+                  "thinking_progression": [
+                    "Phase 1: ...",
+                    "Phase 2: ..."
+                  ],
+                  "projects_evidence": [
+                    {
+                      "phase_id": "phase-1",
+                      "project": "Tên dự án",
+                      "objective": "Mục tiêu dự án",
+                      "skills_proven": ["Kỹ năng chứng minh"],
+                      "kpi": ["KPI đánh giá"]
+                    }
+                  ],
+                  "next_steps": {
+                    "jobs": ["Job/role có thể apply"],
+                    "next_skills": ["Skill nên học tiếp"],
+                    "mentors_micro_jobs": ["Mentor/micro-job/cơ hội thực tế"]
+                  },
+                  "skill_dependencies": [
+                    { "from": "skill-a", "to": "skill-b" }
+                  ],
                   "roadmap": [
                     {
-                      "id": "quest-[mô-tả-ngắn]",
-                      "title": "Tiêu đề (Tiếng Việt có dấu, 40-80 ký tự)",
-                      "description": "Mô tả 2-4 câu: Học gì, đạt gì, tại sao quan trọng",
+                      "id": "quest-...",
+                      "title": "Tiêu đề",
+                      "description": "Mô tả",
                       "estimated_time_minutes": 180,
                       "type": "MAIN",
                       "difficulty": "easy | medium | hard",
-                      "learning_objectives": [
-                        "Mục tiêu cụ thể đo lường được",
-                        "Tạo được [X], Hiểu và giải thích được [Y]"
-                      ],
-                      "key_concepts": ["Khái niệm 1", "Khái niệm 2"],
-                      "practical_exercises": [
-                        "Bài tập cụ thể 1",
-                        "Dự án mini 2"
-                      ],
-                      "suggested_resources": [
-                        "FreeCodeCamp - Responsive Web Design",
-                        "MDN Web Docs - HTML Basics",
-                        "YouTube - Traversy Media - React Course"
-                      ],
-                      "success_criteria": [
-                        "Tiêu chí đánh giá hoàn thành 1",
-                        "Tiêu chí 2"
-                      ],
-                      "prerequisites": ["quest-id-1"],
-                      "children": ["quest-id-2"],
+                      "learning_objectives": ["..."],
+                      "key_concepts": ["..."],
+                      "practical_exercises": ["..."],
+                      "suggested_resources": ["..."],
+                      "success_criteria": ["..."],
+                      "prerequisites": ["..."],
+                      "children": ["..."],
                       "estimated_completion_rate": "90%%"
                     }
                   ],
@@ -421,16 +851,9 @@ public class AiRoadmapService {
                     "main_nodes": 8,
                     "side_nodes": 4,
                     "total_estimated_hours": 48.5,
-                    "difficulty_distribution": {
-                      "easy": 4,
-                      "medium": 6,
-                      "hard": 2
-                    }
+                    "difficulty_distribution": { "easy": 4, "medium": 6, "hard": 2 }
                   },
-                  "learning_tips": [
-                    "Tip 1: Lời khuyên học tập phù hợp với learning style",
-                    "Tip 2: Best practice cho goal này"
-                  ]
+                  "learning_tips": ["Tip 1", "Tip 2"]
                 }
                 ```
 
@@ -522,7 +945,120 @@ public class AiRoadmapService {
                 □ Tiếng Việt có dấu?
                 □ JSON valid, no markdown wrapper?
 
+                
+                ## ADAPTATION BY PRIORITY/TIME
+                - Nếu priority = "Nhanh đi làm": 10-12 nodes, MAIN ≥ 75%%, SIDE ≤ 25%%, difficulty ưu tiên easy/medium
+                - Nếu priority = "Học sâu": 12-18 nodes, MAIN ≈ 60%%, SIDE ≈ 40%%, difficulty cân bằng medium/hard
+                - Dựa vào daily_time và desired_duration để tính ngân sách thời gian tổng và phân bổ thời gian cho từng node
+                - Tổng thời gian nodes ≈ time_budget_minutes × 0.9 (10%% buffer)
+                
                 """;
+        return base;
+    }
+
+    private String buildExpertPackContextBlock(GenerateRoadmapRequest request) {
+        String target = request.getTarget() != null ? request.getTarget() : request.getGoal();
+        String roleCategory = taxonomyService.detectRoleCategory(target);
+        String domainName = taxonomyService.detectDomain(target, request.getIndustry(), roleCategory);
+        String domainId = taxonomyService.mapToDomainPackId(domainName);
+        String roleId = taxonomyService.normalizeToRoleId(roleCategory);
+        boolean roleKnown = taxonomyService.isRoleKnown(domainId, roleId);
+        Set<String> roles = domainId != null ? taxonomyService.getKnownRolesForDomain(domainId) : Collections.emptySet();
+        Set<String> tools = domainId != null ? taxonomyService.getAllowedTools(domainId) : Collections.emptySet();
+        Set<String> skills = taxonomyService.getAllowedSkills(domainId, roleKnown ? roleId : null);
+        String rolesList = String.join(", ", roles);
+        String toolsList = String.join(", ", tools);
+        String skillsList = String.join(", ", skills);
+        return String.format("""
+                ## EXPERT PACK CONTEXT
+                DomainId: %s
+                RoleId: %s
+                Known Roles: %s
+                Allowed Tools: %s
+                Allowed Skills: %s
+                
+                ENFORCE:
+                - Chỉ sử dụng kỹ năng trong danh sách Allowed Skills
+                - Ưu tiên công cụ trong Allowed Tools cho thị trường mục tiêu
+                - Nếu phát hiện kỹ năng/công cụ/role không tồn tại, đặt 'unknown_term' trong validation_notes
+                """, nullSafe(domainId), nullSafe(roleId), rolesList, toolsList, skillsList);
+    }
+
+    public java.util.List<com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion> generateClarificationQuestions(GenerateRoadmapRequest request) {
+        return inputValidationService.generateClarificationQuestions(request);
+    }
+
+    private String selectExpertPersonaForRequest(GenerateRoadmapRequest request) {
+        String target = request.getTarget() != null ? request.getTarget() : request.getGoal();
+        if (target == null) return expertPromptService.getGenericExpertPrompt("General Mentor");
+        String roleCategory = taxonomyService.detectRoleCategory(target);
+        String domain = taxonomyService.detectDomain(target, request.getIndustry(), roleCategory);
+        String persona = expertPromptService.getSystemPrompt(domain, request.getIndustry(), roleCategory);
+        return persona == null ? expertPromptService.getGenericExpertPrompt(target) : persona;
+    }
+
+    private int parseDailyTimeMinutes(String dailyTime) {
+        if (dailyTime == null) return 60;
+        String s = dailyTime.toLowerCase();
+        if (s.contains("30")) return 30;
+        if (s.contains("2")) return 120;
+        if (s.contains("1")) return 60;
+        if (s.contains("phút")) return 30;
+        if (s.contains("giờ")) return 60;
+        return 60;
+    }
+
+    private int parseDesiredDurationDays(String desiredDuration) {
+        if (desiredDuration == null) return 30;
+        String s = desiredDuration.toLowerCase();
+        if (s.contains("tuần")) {
+            String num = s.replaceAll("[^0-9]", "");
+            int n = num.isEmpty() ? 2 : Integer.parseInt(num);
+            return n * 7;
+        }
+        if (s.contains("tháng")) {
+            String num = s.replaceAll("[^0-9]", "");
+            int n = num.isEmpty() ? 1 : Integer.parseInt(num);
+            return n * 30;
+        }
+        if (s.contains("năm")) {
+            String num = s.replaceAll("[^0-9]", "");
+            int n = num.isEmpty() ? 1 : Integer.parseInt(num);
+            return n * 365;
+        }
+        return 30;
+    }
+
+    private java.util.List<String> computeWarnings(RoadmapResponse.RoadmapMetadata metadata, RoadmapResponse.RoadmapStatistics statistics) {
+        java.util.List<String> warnings = new java.util.ArrayList<>();
+        if (metadata == null || statistics == null || statistics.getTotalEstimatedHours() == null) return warnings;
+        int minutesPerDay = parseDailyTimeMinutes(metadata.getDailyTime());
+        int plannedDays = parseDesiredDurationDays(metadata.getDesiredDuration());
+        double timeBudgetHours = (minutesPerDay * plannedDays) / 60.0;
+        double totalHoursGen = statistics.getTotalEstimatedHours();
+        double diff = Math.abs(totalHoursGen - timeBudgetHours);
+        double rel = timeBudgetHours > 0 ? diff / timeBudgetHours : 0.0;
+        if (rel > 0.10) {
+            String note = "Cảnh báo: Tổng thời gian lộ trình (" + String.format("%.1f", totalHoursGen)
+                    + "h) lệch hơn 10% so với ngân sách thời gian (" + String.format("%.1f", timeBudgetHours)
+                    + "h).";
+            warnings.add(note);
+            if (metadata.getPriority() != null && metadata.getPriority().equalsIgnoreCase("Nhanh đi làm")) {
+                warnings.add("Đề xuất: Giảm số node hoặc hạ độ khó để phù hợp ưu tiên nhanh đi làm");
+            }
+        }
+        return warnings;
+    }
+
+    private String buildConstraintsBlock(GenerateRoadmapRequest request) {
+        int minutesPerDay = parseDailyTimeMinutes(request.getDailyTime());
+        int plannedDays = parseDesiredDurationDays(request.getDesiredDuration());
+        int timeBudgetMinutes = minutesPerDay * plannedDays;
+        String ratio = "65/35";
+        String priority = nullSafe(request.getPriority());
+        if (priority.equalsIgnoreCase("Nhanh đi làm")) ratio = "75/25";
+        if (priority.equalsIgnoreCase("Học sâu")) ratio = "60/40";
+        return String.format("\nCONSTRAINTS:\navailable_minutes_per_day=%d\nplanned_days=%d\ntime_budget_minutes=%d\nmain_side_ratio=%s\n", minutesPerDay, plannedDays, timeBudgetMinutes, ratio);
     }
 
     /**
@@ -580,10 +1116,84 @@ public class AiRoadmapService {
                 }
             }
 
+            RoadmapResponse.Overview overview = null;
+            JsonNode overviewNode = root.path("overview");
+            if (overviewNode.isObject()) {
+                overview = RoadmapResponse.Overview.builder()
+                        .purpose(overviewNode.path("purpose").asText(null))
+                        .audience(overviewNode.path("audience").asText(null))
+                        .postRoadmapState(overviewNode.path("post_roadmap_state").asText(null))
+                        .build();
+            }
+
+            List<RoadmapResponse.StructurePhase> structure = new ArrayList<>();
+            JsonNode structureNode = root.path("structure");
+            if (structureNode.isArray()) {
+                for (JsonNode p : structureNode) {
+                    List<String> skillFocus = parseStringArray(p.path("skill_focus"));
+                    RoadmapResponse.StructurePhase phase = RoadmapResponse.StructurePhase.builder()
+                            .phaseId(p.path("phase_id").asText(null))
+                            .title(p.path("title").asText(null))
+                            .timeframe(p.path("timeframe").asText(null))
+                            .goal(p.path("goal").asText(null))
+                            .skillFocus(skillFocus)
+                            .mindsetGoal(p.path("mindset_goal").asText(null))
+                            .expectedOutput(p.path("expected_output").asText(null))
+                            .build();
+                    structure.add(phase);
+                }
+            }
+
+            List<String> thinkingProgression = new ArrayList<>();
+            JsonNode thinkingNode = root.path("thinking_progression");
+            if (thinkingNode.isArray()) {
+                for (JsonNode t : thinkingNode) {
+                    thinkingProgression.add(t.asText());
+                }
+            }
+
+            List<RoadmapResponse.ProjectEvidence> projectsEvidence = new ArrayList<>();
+            JsonNode projectsNode = root.path("projects_evidence");
+            if (projectsNode.isArray()) {
+                for (JsonNode pr : projectsNode) {
+                    RoadmapResponse.ProjectEvidence pe = RoadmapResponse.ProjectEvidence.builder()
+                            .phaseId(pr.path("phase_id").asText(null))
+                            .project(pr.path("project").asText(null))
+                            .objective(pr.path("objective").asText(null))
+                            .skillsProven(parseStringArray(pr.path("skills_proven")))
+                            .kpi(parseStringArray(pr.path("kpi")))
+                            .build();
+                    projectsEvidence.add(pe);
+                }
+            }
+
+            RoadmapResponse.NextSteps nextSteps = null;
+            JsonNode nextStepsNode = root.path("next_steps");
+            if (nextStepsNode.isObject()) {
+                nextSteps = RoadmapResponse.NextSteps.builder()
+                        .jobs(parseStringArray(nextStepsNode.path("jobs")))
+                        .nextSkills(parseStringArray(nextStepsNode.path("next_skills")))
+                        .mentorsMicroJobs(parseStringArray(nextStepsNode.path("mentors_micro_jobs")))
+                        .build();
+            }
+
+            List<RoadmapResponse.SkillDependency> skillDependencies = new ArrayList<>();
+            JsonNode depsNode = root.path("skill_dependencies");
+            if (depsNode.isArray()) {
+                for (JsonNode d : depsNode) {
+                    RoadmapResponse.SkillDependency dep = RoadmapResponse.SkillDependency.builder()
+                            .from(d.path("from").asText(null))
+                            .to(d.path("to").asText(null))
+                            .build();
+                    skillDependencies.add(dep);
+                }
+            }
+
             log.info("✅ Validated roadmap V2: {} nodes, difficulty: {}",
                     nodes.size(), metadata.getDifficultyLevel());
 
-            return new ParsedRoadmap(metadata, nodes, statistics, learningTips);
+            return new ParsedRoadmap(metadata, nodes, statistics, learningTips,
+                    overview, structure, thinkingProgression, projectsEvidence, nextSteps, skillDependencies);
 
         } catch (JsonProcessingException e) {
             log.error("❌ Failed to parse roadmap JSON V2", e);
@@ -623,7 +1233,7 @@ public class AiRoadmapService {
      * Parse roadmap metadata
      */
     private RoadmapResponse.RoadmapMetadata parseMetadata(JsonNode node) {
-        return RoadmapResponse.RoadmapMetadata.builder()
+        RoadmapResponse.RoadmapMetadata meta = RoadmapResponse.RoadmapMetadata.builder()
                 .title(node.path("title").asText())
                 .originalGoal(node.path("original_goal").asText())
                 .validatedGoal(node.path("validated_goal").asText())
@@ -636,7 +1246,56 @@ public class AiRoadmapService {
                 .difficultyLevel(node.path("difficulty_level").asText("medium"))
                 .prerequisites(parseStringArray(node.path("prerequisites")))
                 .careerRelevance(node.path("career_relevance").asText(null))
+                .roadmapType(node.path("roadmap_type").asText(null))
+                .target(node.path("target").asText(null))
+                .finalObjective(node.path("final_objective").asText(null))
+                .currentLevel(node.path("current_level").asText(null))
+                .desiredDuration(node.path("desired_duration").asText(null))
+                .background(node.path("background").asText(null))
+                .dailyTime(node.path("daily_time").asText(null))
+                .targetEnvironment(node.path("target_environment").asText(null))
+                .location(node.path("location").asText(null))
+                .priority(node.path("priority").asText(null))
+                .toolPreferences(parseStringArray(node.path("tool_preferences")))
+                .difficultyConcern(node.path("difficulty_concern").asText(null))
+                .incomeGoal(node.path("income_goal").isMissingNode() ? null : node.path("income_goal").asBoolean())
                 .build();
+        // Optional: mode-specific metadata if AI provides
+        meta.setRoadmapMode(node.path("roadmap_mode").asText(null));
+        JsonNode skillMode = node.path("skill_mode");
+        if (skillMode.isObject()) {
+            RoadmapResponse.SkillModeMeta sm = RoadmapResponse.SkillModeMeta.builder()
+                    .skillName(skillMode.path("skill_name").asText(null))
+                    .skillCategory(skillMode.path("skill_category").asText(null))
+                    .desiredDepth(skillMode.path("desired_depth").asText(null))
+                    .learnerType(skillMode.path("learner_type").asText(null))
+                    .currentSkillLevel(skillMode.path("current_skill_level").asText(null))
+                    .learningGoal(skillMode.path("learning_goal").asText(null))
+                    .dailyLearningTime(skillMode.path("daily_learning_time").asText(null))
+                    .assessmentPreference(skillMode.path("assessment_preference").asText(null))
+                    .difficultyTolerance(skillMode.path("difficulty_tolerance").asText(null))
+                    .toolPreference(parseStringArray(skillMode.path("tool_preference")))
+                    .build();
+            meta.setSkillMode(sm);
+        }
+        JsonNode careerMode = node.path("career_mode");
+        if (careerMode.isObject()) {
+            RoadmapResponse.CareerModeMeta cm = RoadmapResponse.CareerModeMeta.builder()
+                    .targetRole(careerMode.path("target_role").asText(null))
+                    .careerTrack(careerMode.path("career_track").asText(null))
+                    .targetSeniority(careerMode.path("target_seniority").asText(null))
+                    .workMode(careerMode.path("work_mode").asText(null))
+                    .targetMarket(careerMode.path("target_market").asText(null))
+                    .companyType(careerMode.path("company_type").asText(null))
+                    .timelineToWork(careerMode.path("timeline_to_work").asText(null))
+                    .incomeExpectation(careerMode.path("income_expectation").isMissingNode() ? null : careerMode.path("income_expectation").asBoolean())
+                    .workExperience(careerMode.path("work_experience").asText(null))
+                    .transferableSkills(careerMode.path("transferable_skills").isMissingNode() ? null : careerMode.path("transferable_skills").asBoolean())
+                    .confidenceLevel(careerMode.path("confidence_level").asText(null))
+                    .build();
+            meta.setCareerMode(cm);
+        }
+        return meta;
     }
 
     /**
@@ -727,12 +1386,81 @@ public class AiRoadmapService {
             RoadmapResponse.RoadmapMetadata metadata,
             List<RoadmapResponse.RoadmapNode> nodes,
             RoadmapResponse.RoadmapStatistics statistics,
-            List<String> learningTips) {
+            List<String> learningTips,
+            RoadmapResponse.Overview overview,
+            List<RoadmapResponse.StructurePhase> structure,
+            List<String> thinkingProgression,
+            List<RoadmapResponse.ProjectEvidence> projectsEvidence,
+            RoadmapResponse.NextSteps nextSteps,
+            List<RoadmapResponse.SkillDependency> skillDependencies) {
     }
 
     /**
      * Generate a readable title from goal and duration
      */
+    /**
+     * Get all roadmap sessions (Admin)
+     */
+    @Transactional(readOnly = true)
+    public List<RoadmapSessionSummary> getAllRoadmaps() {
+        List<RoadmapSession> sessions = roadmapSessionRepository.findAllByOrderByCreatedAtDesc();
+        List<RoadmapSessionSummary> summaries = new ArrayList<>();
+
+        for (RoadmapSession session : sessions) {
+            // Parse roadmap JSON to count total quests
+            int totalQuests = 0;
+            try {
+                // Support both V1 and V2 schema
+                JsonNode root = objectMapper.readTree(session.getRoadmapJson());
+                JsonNode roadmapArray = root.path("roadmap");
+                totalQuests = roadmapArray.size();
+
+                // Fallback: if roadmap is empty, try using totalNodes from DB (V2 only)
+                if (totalQuests == 0 && session.getTotalNodes() != null) {
+                    totalQuests = session.getTotalNodes();
+                }
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to parse roadmap JSON for session {}", session.getId());
+                // Fallback to DB field
+                if (session.getTotalNodes() != null) {
+                    totalQuests = session.getTotalNodes();
+                }
+            }
+
+            // Count completed quests
+            Long completedCount = progressRepository.countCompletedBySessionId(session.getId());
+            int completed = completedCount != null ? completedCount.intValue() : 0;
+
+            // Calculate progress percentage
+            int progressPercentage = totalQuests > 0 ? (completed * 100) / totalQuests : 0;
+
+            // Build summary with V2 fields (fallback to V1 for old data)
+            @SuppressWarnings("deprecation") // Intentional V1 fallback for backward compatibility
+            RoadmapSessionSummary summary = RoadmapSessionSummary.builder()
+                    .sessionId(session.getId())
+                    .title(session.getTitle())
+                    .roadmapMode(session.getRoadmapMode())
+                    // Use V2 fields with fallback to deprecated V1 fields
+                    .originalGoal(session.getOriginalGoal() != null ? session.getOriginalGoal() : session.getGoal())
+                    .validatedGoal(session.getValidatedGoal())
+                    .duration(session.getDuration())
+                    .experienceLevel(session.getExperienceLevel() != null ? session.getExperienceLevel()
+                            : session.getExperience())
+                    .learningStyle(session.getLearningStyle() != null ? session.getLearningStyle() : session.getStyle())
+                    .totalQuests(totalQuests)
+                    .completedQuests(completed)
+                    .progressPercentage(progressPercentage)
+                    .difficultyLevel(session.getDifficultyLevel())
+                    .schemaVersion(session.getSchemaVersion())
+                    .createdAt(session.getCreatedAt())
+                    .build();
+
+            summaries.add(summary);
+        }
+
+        return summaries;
+    }
+
     /**
      * Get all roadmap sessions for a user
      */
@@ -774,6 +1502,7 @@ public class AiRoadmapService {
             RoadmapSessionSummary summary = RoadmapSessionSummary.builder()
                     .sessionId(session.getId())
                     .title(session.getTitle())
+                    .roadmapMode(session.getRoadmapMode())
                     // Use V2 fields with fallback to deprecated V1 fields
                     .originalGoal(session.getOriginalGoal() != null ? session.getOriginalGoal() : session.getGoal())
                     .validatedGoal(session.getValidatedGoal())
@@ -819,6 +1548,13 @@ public class AiRoadmapService {
                     .roadmap(parsed.nodes())
                     .statistics(parsed.statistics())
                     .learningTips(parsed.learningTips())
+                    .warnings(computeWarnings(parsed.metadata(), parsed.statistics()))
+                    .overview(parsed.overview())
+                    .structure(parsed.structure())
+                    .thinkingProgression(parsed.thinkingProgression())
+                    .projectsEvidence(parsed.projectsEvidence())
+                    .nextSteps(parsed.nextSteps())
+                    .skillDependencies(parsed.skillDependencies())
                     .createdAt(session.getCreatedAt())
                     .progress(progressMap)
                     .build();
@@ -857,6 +1593,13 @@ public class AiRoadmapService {
                     .roadmap(nodes)
                     .statistics(statistics)
                     .learningTips(List.of()) // Empty list for V1 data
+                    .warnings(List.of())
+                    .overview(null)
+                    .structure(List.of())
+                    .thinkingProgression(List.of())
+                    .projectsEvidence(List.of())
+                    .nextSteps(null)
+                    .skillDependencies(List.of())
                     .createdAt(session.getCreatedAt())
                     .progress(progressMap)
                     .build();
