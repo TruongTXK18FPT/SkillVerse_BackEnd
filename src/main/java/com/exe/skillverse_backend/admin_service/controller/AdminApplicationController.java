@@ -16,11 +16,15 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
+
+import java.io.IOException;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -143,15 +147,15 @@ public class AdminApplicationController {
             }
             String safeName = baseName.replaceAll("[^a-zA-Z0-9_\\-]", "_") + ".pdf";
             return ResponseEntity.ok()
-                    .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                    .contentType(MediaType.APPLICATION_PDF)
                     .header("Content-Disposition", "inline; filename=" + safeName)
                     .body(bytes);
         } catch (IllegalArgumentException e) {
             log.warn("Invalid stream request: {}", e.getMessage());
             return ResponseEntity.badRequest().build();
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             log.error("Error streaming PDF: {}", e.getMessage(), e);
-            return ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND).build();
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         } catch (Exception e) {
             log.error("Unexpected error streaming PDF: {}", e.getMessage(), e);
             return ResponseEntity.badRequest().build();

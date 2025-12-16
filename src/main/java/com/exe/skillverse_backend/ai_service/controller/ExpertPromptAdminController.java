@@ -42,11 +42,11 @@ public class ExpertPromptAdminController {
 
         // Build system prompt from components if not provided directly
         String systemPrompt = request.getSystemPrompt();
-        if ((systemPrompt == null || systemPrompt.isBlank()) && 
-            (request.getDomainRules() != null || request.getRolePrompt() != null)) {
+        if ((systemPrompt == null || systemPrompt.isBlank()) &&
+                (request.getDomainRules() != null || request.getRolePrompt() != null)) {
             systemPrompt = buildSystemPrompt(request.getDomainRules(), request.getRolePrompt(), request.getJobRole());
         }
-        
+
         ExpertPromptConfig config = ExpertPromptConfig.builder()
                 .domain(request.getDomain())
                 .industry(request.getIndustry())
@@ -68,17 +68,17 @@ public class ExpertPromptAdminController {
     public ResponseEntity<ExpertPromptConfig> updateExpertPrompt(
             @PathVariable Long id,
             @Valid @RequestBody ExpertPromptRequest request) {
-        
+
         ExpertPromptConfig config = expertPromptConfigRepository.findById(id)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Prompt config not found"));
 
         // Build system prompt from components if not provided directly
         String systemPrompt = request.getSystemPrompt();
-        if ((systemPrompt == null || systemPrompt.isBlank()) && 
-            (request.getDomainRules() != null || request.getRolePrompt() != null)) {
+        if ((systemPrompt == null || systemPrompt.isBlank()) &&
+                (request.getDomainRules() != null || request.getRolePrompt() != null)) {
             systemPrompt = buildSystemPrompt(request.getDomainRules(), request.getRolePrompt(), request.getJobRole());
         }
-        
+
         config.setDomain(request.getDomain());
         config.setIndustry(request.getIndustry());
         config.setJobRole(request.getJobRole());
@@ -91,28 +91,28 @@ public class ExpertPromptAdminController {
 
         return ResponseEntity.ok(expertPromptConfigRepository.save(config));
     }
-    
+
     /**
      * Build system prompt from base + domain rules + role-specific prompt
      */
     private String buildSystemPrompt(String domainRules, String rolePrompt, String jobRole) {
         StringBuilder sb = new StringBuilder();
-        
+
         // Base prompt header
         sb.append("# 🌟 MEOWL AI - CHUYÊN GIA ").append(jobRole.toUpperCase()).append("\n\n");
-        
+
         // Domain rules section
         if (domainRules != null && !domainRules.isBlank()) {
             sb.append("## 📋 QUY TẮC LĨNH VỰC\n");
             sb.append(domainRules).append("\n\n");
         }
-        
+
         // Role-specific section
         if (rolePrompt != null && !rolePrompt.isBlank()) {
             sb.append("## 🎯 CHUYÊN MÔN VAI TRÒ\n");
             sb.append(rolePrompt).append("\n\n");
         }
-        
+
         return sb.toString();
     }
 
@@ -122,7 +122,7 @@ public class ExpertPromptAdminController {
     public ResponseEntity<List<ExpertPromptConfig>> getAllPrompts() {
         return ResponseEntity.ok(expertPromptConfigRepository.findAll());
     }
-    
+
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Get Expert Prompt by ID")
@@ -141,28 +141,24 @@ public class ExpertPromptAdminController {
         expertPromptConfigRepository.deleteById(id);
         return ResponseEntity.noContent().build();
     }
-
     // ==================== MEDIA MANAGEMENT ====================
 
     @PostMapping(value = "/{id}/media", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Upload media for Expert Prompt", 
-               description = "Upload an icon/image for a specific expert role to Cloudinary")
+    @Operation(summary = "Upload media for Expert Prompt", description = "Upload an icon/image for a specific expert role to Cloudinary")
     public ResponseEntity<Map<String, String>> uploadMedia(
             @PathVariable Long id,
             @RequestParam("file") MultipartFile file) {
-        
+
         String mediaUrl = expertPromptMediaService.uploadMedia(id, file);
         return ResponseEntity.ok(Map.of(
-            "message", "Media uploaded successfully",
-            "mediaUrl", mediaUrl
-        ));
+                "message", "Media uploaded successfully",
+                "mediaUrl", mediaUrl));
     }
 
     @DeleteMapping("/{id}/media")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Delete media for Expert Prompt", 
-               description = "Remove the media URL from expert prompt config")
+    @Operation(summary = "Delete media for Expert Prompt", description = "Remove the media URL from expert prompt config")
     public ResponseEntity<Map<String, String>> deleteMedia(@PathVariable Long id) {
         expertPromptMediaService.deleteMedia(id);
         return ResponseEntity.ok(Map.of("message", "Media deleted successfully"));
@@ -170,21 +166,19 @@ public class ExpertPromptAdminController {
 
     @PutMapping("/{id}/media-url")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Update media URL directly", 
-               description = "Set media URL directly (for admin to paste Cloudinary URL)")
+    @Operation(summary = "Update media URL directly", description = "Set media URL directly (for admin to paste Cloudinary URL)")
     public ResponseEntity<Map<String, String>> updateMediaUrl(
             @PathVariable Long id,
             @RequestBody Map<String, String> request) {
-        
+
         String mediaUrl = request.get("mediaUrl");
         if (mediaUrl == null || mediaUrl.trim().isEmpty()) {
             throw new ApiException(ErrorCode.BAD_REQUEST, "mediaUrl is required");
         }
-        
+
         String updatedUrl = expertPromptMediaService.updateMediaUrl(id, mediaUrl);
         return ResponseEntity.ok(Map.of(
-            "message", "Media URL updated successfully",
-            "mediaUrl", updatedUrl
-        ));
+                "message", "Media URL updated successfully",
+                "mediaUrl", updatedUrl));
     }
 }

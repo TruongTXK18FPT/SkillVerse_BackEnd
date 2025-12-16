@@ -1,30 +1,16 @@
 package com.exe.skillverse_backend.user_service.controller;
 
-import com.exe.skillverse_backend.user_service.dto.request.AddSkillRequest;
-import com.exe.skillverse_backend.user_service.dto.request.CreateProfileRequest;
 import com.exe.skillverse_backend.user_service.dto.request.UpdateProfileRequest;
-import com.exe.skillverse_backend.user_service.dto.request.UpdateSkillRequest;
 import com.exe.skillverse_backend.user_service.dto.response.UserProfileResponse;
-import com.exe.skillverse_backend.user_service.dto.response.UserSkillResponse;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/user/profile")

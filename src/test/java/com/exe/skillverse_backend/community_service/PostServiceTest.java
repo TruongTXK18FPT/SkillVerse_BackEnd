@@ -8,7 +8,8 @@ import com.exe.skillverse_backend.community_service.dto.request.PostUpdateReques
 import com.exe.skillverse_backend.community_service.dto.response.CommentResponse;
 import com.exe.skillverse_backend.community_service.dto.response.PostResponse;
 import com.exe.skillverse_backend.community_service.entity.PostStatus;
-import com.exe.skillverse_backend.community_service.service.PostService;
+import com.exe.skillverse_backend.community_service.service.impl.PostServiceImpl;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,7 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class PostServiceTest {
 
     @Autowired
-    private PostService postService;
+    private PostServiceImpl postService;
 
     @Autowired
     private UserRepository userRepository;
@@ -31,7 +32,8 @@ public class PostServiceTest {
 
     @BeforeEach
     void setup() {
-        User u = User.builder().email("test@example.com").status(com.exe.skillverse_backend.auth_service.entity.UserStatus.ACTIVE).build();
+        User u = User.builder().email("test@example.com")
+                .status(com.exe.skillverse_backend.auth_service.entity.UserStatus.ACTIVE).build();
         userId = userRepository.save(u).getId();
     }
 

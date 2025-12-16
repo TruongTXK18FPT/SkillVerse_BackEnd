@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.admin_service.dto.response;
 
+import com.exe.skillverse_backend.shared.service.impl.EmailServiceImpl;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -84,7 +85,7 @@ public class EmailSendingReport {
      * Factory method to create report from EmailService.EmailSendingResult
      */
     public static EmailSendingReport fromEmailSendingResult(
-            com.exe.skillverse_backend.shared.service.EmailService.EmailSendingResult result) {
+            EmailServiceImpl.EmailSendingResult result) {
 
         EmailSendingReport report = EmailSendingReport.builder()
                 .totalRecipients(result.totalRecipients())

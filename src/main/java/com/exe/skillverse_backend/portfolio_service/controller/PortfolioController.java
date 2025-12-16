@@ -37,155 +37,132 @@ public class PortfolioController {
 
     @PostMapping(value = "/profile", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Create portfolio extended profile", 
-               description = "Create a new portfolio extended profile with avatar, video intro, and cover image. This complements the basic profile from user_service.")
+    @Operation(summary = "Create portfolio extended profile", description = "Create a new portfolio extended profile with avatar, video intro, and cover image. This complements the basic profile from user_service.")
     public ResponseEntity<?> createExtendedProfile(
             @RequestPart("profile") UserProfileDTO profileDTO,
-            @RequestPart(value = "avatar", required = false) 
-            @Parameter(description = "Portfolio avatar (separate from basic profile avatar)") MultipartFile avatar,
-            @RequestPart(value = "video", required = false) 
-            @Parameter(description = "Video introduction") MultipartFile video,
-            @RequestPart(value = "coverImage", required = false) 
-            @Parameter(description = "Portfolio cover/banner image") MultipartFile coverImage,
+            @RequestPart(value = "avatar", required = false) @Parameter(description = "Portfolio avatar (separate from basic profile avatar)") MultipartFile avatar,
+            @RequestPart(value = "video", required = false) @Parameter(description = "Video introduction") MultipartFile video,
+            @RequestPart(value = "coverImage", required = false) @Parameter(description = "Portfolio cover/banner image") MultipartFile coverImage,
             Authentication authentication) {
         try {
             Long userId = Long.parseLong(authentication.getName());
-            UserProfileDTO result = portfolioService.createExtendedProfile(userId, profileDTO, avatar, video, coverImage);
-            
+            UserProfileDTO result = portfolioService.createExtendedProfile(userId, profileDTO, avatar, video,
+                    coverImage);
+
             return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                     "success", true,
                     "message", "Portfolio extended profile created successfully",
-                    "data", result
-            ));
+                    "data", result));
         } catch (RuntimeException e) {
             if (e.getMessage().contains("already exists")) {
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                         "success", false,
-                        "message", e.getMessage()
-                ));
+                        "message", e.getMessage()));
             }
             log.error("Error creating extended profile", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", "Failed to create extended profile: " + e.getMessage()
-            ));
+                    "message", "Failed to create extended profile: " + e.getMessage()));
         }
     }
 
     @PutMapping(value = "/profile", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Update portfolio extended profile", 
-               description = "Update existing portfolio extended profile. Can update text fields and/or upload new media files.")
+    @Operation(summary = "Update portfolio extended profile", description = "Update existing portfolio extended profile. Can update text fields and/or upload new media files.")
     public ResponseEntity<?> updateExtendedProfile(
             @RequestPart("profile") UserProfileDTO profileDTO,
-            @RequestPart(value = "avatar", required = false) 
-            @Parameter(description = "New portfolio avatar (optional)") MultipartFile avatar,
-            @RequestPart(value = "video", required = false) 
-            @Parameter(description = "New video introduction (optional)") MultipartFile video,
-            @RequestPart(value = "coverImage", required = false) 
-            @Parameter(description = "New portfolio cover image (optional)") MultipartFile coverImage,
+            @RequestPart(value = "avatar", required = false) @Parameter(description = "New portfolio avatar (optional)") MultipartFile avatar,
+            @RequestPart(value = "video", required = false) @Parameter(description = "New video introduction (optional)") MultipartFile video,
+            @RequestPart(value = "coverImage", required = false) @Parameter(description = "New portfolio cover image (optional)") MultipartFile coverImage,
             Authentication authentication) {
         try {
             Long userId = Long.parseLong(authentication.getName());
-            UserProfileDTO result = portfolioService.updateExtendedProfile(userId, profileDTO, avatar, video, coverImage);
-            
+            UserProfileDTO result = portfolioService.updateExtendedProfile(userId, profileDTO, avatar, video,
+                    coverImage);
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Portfolio extended profile updated successfully",
-                    "data", result
-            ));
+                    "data", result));
         } catch (Exception e) {
             log.error("Error updating extended profile", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", "Failed to update extended profile: " + e.getMessage()
-            ));
+                    "message", "Failed to update extended profile: " + e.getMessage()));
         }
     }
 
     @DeleteMapping("/profile")
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Delete portfolio extended profile", 
-               description = "Delete portfolio extended profile and all associated media files. This does NOT delete the basic profile from user_service.")
+    @Operation(summary = "Delete portfolio extended profile", description = "Delete portfolio extended profile and all associated media files. This does NOT delete the basic profile from user_service.")
     public ResponseEntity<?> deleteExtendedProfile(Authentication authentication) {
         try {
             Long userId = Long.parseLong(authentication.getName());
             portfolioService.deleteExtendedProfile(userId);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "message", "Portfolio extended profile deleted successfully"
-            ));
+                    "message", "Portfolio extended profile deleted successfully"));
         } catch (Exception e) {
             log.error("Error deleting extended profile", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", "Failed to delete extended profile: " + e.getMessage()
-            ));
+                    "message", "Failed to delete extended profile: " + e.getMessage()));
         }
     }
 
     @GetMapping("/profile")
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get combined profile", 
-               description = "Retrieve the combined portfolio profile (basic + extended) of the authenticated user")
+    @Operation(summary = "Get combined profile", description = "Retrieve the combined portfolio profile (basic + extended) of the authenticated user")
     public ResponseEntity<?> getProfile(Authentication authentication) {
         try {
             Long userId = Long.parseLong(authentication.getName());
             UserProfileDTO profile = portfolioService.getProfile(userId);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", profile
-            ));
+                    "data", profile));
         } catch (Exception e) {
             log.error("Error retrieving profile", e);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
     @GetMapping("/profile/check")
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Check if user has extended profile", 
-               description = "Check whether the authenticated user has created a portfolio extended profile")
+    @Operation(summary = "Check if user has extended profile", description = "Check whether the authenticated user has created a portfolio extended profile")
     public ResponseEntity<?> checkExtendedProfile(Authentication authentication) {
         try {
             Long userId = Long.parseLong(authentication.getName());
             boolean hasProfile = portfolioService.hasExtendedProfile(userId);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "hasExtendedProfile", hasProfile
-            ));
+                    "hasExtendedProfile", hasProfile));
         } catch (Exception e) {
             log.error("Error checking extended profile", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
     @GetMapping("/profile/slug/{slug}")
-    @Operation(summary = "Get public profile by custom URL slug", 
-               description = "Retrieve public portfolio by custom URL (e.g., /portfolio/john-doe-developer). Increments view count.")
+    @Operation(summary = "Get public profile by custom URL slug", description = "Retrieve public portfolio by custom URL (e.g., /portfolio/john-doe-developer). Increments view count.")
     public ResponseEntity<?> getProfileBySlug(@PathVariable String slug) {
         try {
             UserProfileDTO profile = portfolioService.getProfileBySlug(slug);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", profile
-            ));
+                    "data", profile));
         } catch (Exception e) {
             log.error("Error retrieving profile by slug: {}", slug, e);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -194,24 +171,21 @@ public class PortfolioController {
     public ResponseEntity<?> getPublicProfile(@PathVariable Long userId) {
         try {
             UserProfileDTO profile = portfolioService.getProfile(userId);
-            
+
             if (!profile.getIsPublic()) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
                         "success", false,
-                        "message", "This profile is private"
-                ));
+                        "message", "This profile is private"));
             }
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", profile
-            ));
+                    "data", profile));
         } catch (Exception e) {
             log.error("Error retrieving public profile", e);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -222,14 +196,12 @@ public class PortfolioController {
             List<UserProfileDTO> profiles = portfolioService.getAllPublicPortfolios();
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", profiles
-            ));
+                    "data", profiles));
         } catch (Exception e) {
             log.error("Error retrieving public portfolios", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -240,14 +212,12 @@ public class PortfolioController {
             List<PortfolioProjectDTO> projects = portfolioService.getPublicUserProjects(userId);
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", projects
-            ));
+                    "data", projects));
         } catch (Exception e) {
             log.error("Error retrieving public projects", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -258,14 +228,12 @@ public class PortfolioController {
             List<ExternalCertificateDTO> certificates = portfolioService.getPublicUserCertificates(userId);
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", certificates
-            ));
+                    "data", certificates));
         } catch (Exception e) {
             log.error("Error retrieving public certificates", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -276,14 +244,12 @@ public class PortfolioController {
             List<MentorReviewDTO> reviews = portfolioService.getPublicUserReviews(userId);
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", reviews
-            ));
+                    "data", reviews));
         } catch (Exception e) {
             log.error("Error retrieving public reviews", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -299,18 +265,16 @@ public class PortfolioController {
         try {
             Long userId = Long.parseLong(authentication.getName());
             PortfolioProjectDTO result = portfolioService.createProject(userId, projectDTO, thumbnail);
-            
+
             return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                     "success", true,
                     "message", "Project created successfully",
-                    "data", result
-            ));
+                    "data", result));
         } catch (Exception e) {
             log.error("Error creating project", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", "Failed to create project: " + e.getMessage()
-            ));
+                    "message", "Failed to create project: " + e.getMessage()));
         }
     }
 
@@ -325,18 +289,16 @@ public class PortfolioController {
         try {
             Long userId = Long.parseLong(authentication.getName());
             PortfolioProjectDTO result = portfolioService.updateProject(projectId, userId, projectDTO, thumbnail);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "Project updated successfully",
-                    "data", result
-            ));
+                    "data", result));
         } catch (Exception e) {
             log.error("Error updating project", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", "Failed to update project: " + e.getMessage()
-            ));
+                    "message", "Failed to update project: " + e.getMessage()));
         }
     }
 
@@ -347,17 +309,15 @@ public class PortfolioController {
         try {
             Long userId = Long.parseLong(authentication.getName());
             List<PortfolioProjectDTO> projects = portfolioService.getUserProjects(userId);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", projects
-            ));
+                    "data", projects));
         } catch (Exception e) {
             log.error("Error retrieving projects", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -370,17 +330,15 @@ public class PortfolioController {
         try {
             Long userId = Long.parseLong(authentication.getName());
             portfolioService.deleteProject(projectId, userId);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "message", "Project deleted successfully"
-            ));
+                    "message", "Project deleted successfully"));
         } catch (Exception e) {
             log.error("Error deleting project", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -396,18 +354,16 @@ public class PortfolioController {
         try {
             Long userId = Long.parseLong(authentication.getName());
             ExternalCertificateDTO result = portfolioService.createCertificate(userId, certificateDTO, image);
-            
+
             return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                     "success", true,
                     "message", "Certificate added successfully",
-                    "data", result
-            ));
+                    "data", result));
         } catch (Exception e) {
             log.error("Error creating certificate", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", "Failed to add certificate: " + e.getMessage()
-            ));
+                    "message", "Failed to add certificate: " + e.getMessage()));
         }
     }
 
@@ -418,17 +374,15 @@ public class PortfolioController {
         try {
             Long userId = Long.parseLong(authentication.getName());
             List<ExternalCertificateDTO> certificates = portfolioService.getUserCertificates(userId);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", certificates
-            ));
+                    "data", certificates));
         } catch (Exception e) {
             log.error("Error retrieving certificates", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -441,17 +395,15 @@ public class PortfolioController {
         try {
             Long userId = Long.parseLong(authentication.getName());
             portfolioService.deleteCertificate(certificateId, userId);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "message", "Certificate deleted successfully"
-            ));
+                    "message", "Certificate deleted successfully"));
         } catch (Exception e) {
             log.error("Error deleting certificate", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -464,17 +416,15 @@ public class PortfolioController {
         try {
             Long userId = Long.parseLong(authentication.getName());
             List<MentorReviewDTO> reviews = portfolioService.getUserReviews(userId);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", reviews
-            ));
+                    "data", reviews));
         } catch (Exception e) {
             log.error("Error retrieving reviews", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -491,8 +441,7 @@ public class PortfolioController {
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(java.util.Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -507,20 +456,18 @@ public class PortfolioController {
         try {
             Long userId = Long.parseLong(authentication.getName());
             log.info("Generating CV for user: {} with template: {}", userId, request.getTemplateName());
-            
+
             GeneratedCVDTO cv = portfolioService.generateCV(userId, request);
-            
+
             return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
                     "success", true,
                     "message", "CV generated successfully",
-                    "data", cv
-            ));
+                    "data", cv));
         } catch (Exception e) {
             log.error("Error generating CV", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", "Failed to generate CV: " + e.getMessage()
-            ));
+                    "message", "Failed to generate CV: " + e.getMessage()));
         }
     }
 
@@ -535,20 +482,18 @@ public class PortfolioController {
             Long userId = Long.parseLong(authentication.getName());
             String cvContent = updates.get("cvContent");
             String cvJson = updates.get("cvJson");
-            
+
             GeneratedCVDTO cv = portfolioService.updateCV(cvId, userId, cvContent, cvJson);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "CV updated successfully",
-                    "data", cv
-            ));
+                    "data", cv));
         } catch (Exception e) {
             log.error("Error updating CV", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", "Failed to update CV: " + e.getMessage()
-            ));
+                    "message", "Failed to update CV: " + e.getMessage()));
         }
     }
 
@@ -559,17 +504,15 @@ public class PortfolioController {
         try {
             Long userId = Long.parseLong(authentication.getName());
             GeneratedCVDTO cv = portfolioService.getActiveCV(userId);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", cv
-            ));
+                    "data", cv));
         } catch (Exception e) {
             log.error("Error retrieving active CV", e);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -580,17 +523,15 @@ public class PortfolioController {
         try {
             Long userId = Long.parseLong(authentication.getName());
             List<GeneratedCVDTO> cvs = portfolioService.getAllUserCVs(userId);
-            
+
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "data", cvs
-            ));
+                    "data", cvs));
         } catch (Exception e) {
             log.error("Error retrieving CVs", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", e.getMessage()
-            ));
+                    "message", e.getMessage()));
         }
     }
 
@@ -606,14 +547,12 @@ public class PortfolioController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "CV set as active successfully",
-                    "data", cv
-            ));
+                    "data", cv));
         } catch (Exception e) {
             log.error("Error setting CV as active", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", "Failed to set CV as active: " + e.getMessage()
-            ));
+                    "message", "Failed to set CV as active: " + e.getMessage()));
         }
     }
 
@@ -628,14 +567,12 @@ public class PortfolioController {
             portfolioService.deleteCV(cvId, userId);
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "message", "CV deleted successfully"
-            ));
+                    "message", "CV deleted successfully"));
         } catch (Exception e) {
             log.error("Error deleting CV", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
-                    "message", "Failed to delete CV: " + e.getMessage()
-            ));
+                    "message", "Failed to delete CV: " + e.getMessage()));
         }
     }
 }

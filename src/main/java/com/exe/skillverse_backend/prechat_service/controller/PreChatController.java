@@ -56,7 +56,8 @@ public class PreChatController {
 
     @PostMapping("/send")
     @Operation(summary = "Learner gửi tin nhắn pre-chat (REST)")
-    public PreChatMessageResponse sendRest(@Valid @RequestBody PreChatMessageRequest request, Authentication authentication) {
+    public PreChatMessageResponse sendRest(@Valid @RequestBody PreChatMessageRequest request,
+            Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long learnerId = Long.valueOf(jwt.getClaimAsString("userId"));
         return handleSendMessage(learnerId, request, false);
@@ -73,7 +74,8 @@ public class PreChatController {
 
     @GetMapping("/history")
     @Operation(summary = "Lấy lịch sử chat")
-    public Page<PreChatMessageResponse> getHistory(@RequestParam Long mentorId, @RequestParam int page, @RequestParam int size, Authentication authentication) {
+    public Page<PreChatMessageResponse> getHistory(@RequestParam Long mentorId, @RequestParam int page,
+            @RequestParam int size, Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long learnerId = Long.valueOf(jwt.getClaimAsString("userId"));
         User mentor = userRepository.findById(mentorId).orElseThrow();
@@ -84,7 +86,8 @@ public class PreChatController {
 
     @GetMapping("/conversation")
     @Operation(summary = "Lấy nội dung cuộc trò chuyện với một người dùng khác (2 chiều)")
-    public Page<PreChatMessageResponse> getConversation(@RequestParam Long counterpartId, @RequestParam int page, @RequestParam int size, Authentication authentication) {
+    public Page<PreChatMessageResponse> getConversation(@RequestParam Long counterpartId, @RequestParam int page,
+            @RequestParam int size, Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long currentUserId = Long.valueOf(jwt.getClaimAsString("userId"));
         return messageRepository.findConversation(currentUserId, counterpartId, PageRequest.of(page, size))
@@ -93,7 +96,9 @@ public class PreChatController {
 
     @GetMapping("/threads")
     @Operation(summary = "Danh sách thread gần nhất")
-    public java.util.List<com.exe.skillverse_backend.prechat_service.dto.PreChatThreadSummary> getThreads(@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size, Authentication authentication) {
+    public java.util.List<com.exe.skillverse_backend.prechat_service.dto.PreChatThreadSummary> getThreads(
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size,
+            Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
         java.util.List<PreChatMessage> latest = messageRepository.findLastThreads(userId);
@@ -101,30 +106,39 @@ public class PreChatController {
         for (PreChatMessage m : latest) {
             Long counterpartId = m.getMentor().getId().equals(userId) ? m.getLearner().getId() : m.getMentor().getId();
             User counterpart = userRepository.findById(counterpartId).orElse(null);
-            String name = counterpart == null ? ("User #" + counterpartId) : ((counterpart.getFirstName() != null ? counterpart.getFirstName() : "") + (counterpart.getLastName() != null ? " " + counterpart.getLastName() : "")).trim();
+            String name = counterpart == null ? ("User #" + counterpartId)
+                    : ((counterpart.getFirstName() != null ? counterpart.getFirstName() : "")
+                            + (counterpart.getLastName() != null ? " " + counterpart.getLastName() : "")).trim();
             String avatar = counterpart != null ? counterpart.getAvatarUrl() : null;
             if (avatar == null && counterpart != null) {
                 // Try to get from profile if available
                 try {
                     if (mentorProfileRepository.existsByUserId(counterpartId)) {
                         MentorProfile mp = mentorProfileRepository.findById(counterpartId).orElse(null);
-                        // MentorProfile doesn't store avatar directly usually, but let's check if we can get it from UserProfileService if needed
+                        // MentorProfile doesn't store avatar directly usually, but let's check if we
+                        // can get it from UserProfileService if needed
                         // For now, just rely on User entity avatarUrl which should be synced
                     }
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                }
             }
 
-            java.util.Optional<PreChatThreadState> stOpt = threadStateRepository.findByMentorAndLearner(m.getMentor(), m.getLearner());
+            java.util.Optional<PreChatThreadState> stOpt = threadStateRepository.findByMentorAndLearner(m.getMentor(),
+                    m.getLearner());
             if (stOpt.isPresent()) {
                 PreChatThreadState st = stOpt.get();
-                if (m.getMentor().getId().equals(userId) && Boolean.TRUE.equals(st.getHiddenForMentor())) continue;
-                if (m.getLearner().getId().equals(userId) && Boolean.TRUE.equals(st.getHiddenForLearner())) continue;
+                if (m.getMentor().getId().equals(userId) && Boolean.TRUE.equals(st.getHiddenForMentor()))
+                    continue;
+                if (m.getLearner().getId().equals(userId) && Boolean.TRUE.equals(st.getHiddenForLearner()))
+                    continue;
             }
             long unread;
             if (m.getMentor().getId().equals(userId)) {
-                unread = messageRepository.countByMentorAndLearnerAndSenderAndReadByMentorFalse(m.getMentor(), m.getLearner(), m.getLearner());
+                unread = messageRepository.countByMentorAndLearnerAndSenderAndReadByMentorFalse(m.getMentor(),
+                        m.getLearner(), m.getLearner());
             } else {
-                unread = messageRepository.countByMentorAndLearnerAndSenderAndReadByLearnerFalse(m.getMentor(), m.getLearner(), m.getMentor());
+                unread = messageRepository.countByMentorAndLearnerAndSenderAndReadByLearnerFalse(m.getMentor(),
+                        m.getLearner(), m.getMentor());
             }
             out.add(com.exe.skillverse_backend.prechat_service.dto.PreChatThreadSummary.builder()
                     .counterpartId(counterpartId)
@@ -138,7 +152,8 @@ public class PreChatController {
         }
         int from = Math.max(0, page * size);
         int to = Math.min(out.size(), from + size);
-        if (from >= to) return java.util.Collections.emptyList();
+        if (from >= to)
+            return java.util.Collections.emptyList();
         return out.subList(from, to);
     }
 
@@ -207,7 +222,8 @@ public class PreChatController {
 
     @PostMapping("/mentor/send")
     @Operation(summary = "Mentor gửi tin nhắn pre-chat (REST)")
-    public PreChatMessageResponse sendAsMentor(@RequestParam Long learnerId, @RequestBody java.util.Map<String, String> body, Authentication authentication) {
+    public PreChatMessageResponse sendAsMentor(@RequestParam Long learnerId,
+            @RequestBody java.util.Map<String, String> body, Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long mentorId = Long.valueOf(jwt.getClaimAsString("userId"));
         PreChatMessageRequest req = new PreChatMessageRequest();
@@ -219,7 +235,8 @@ public class PreChatController {
         return resp;
     }
 
-    private PreChatMessageResponse handleSendMessage(Long learnerId, PreChatMessageRequest request, boolean senderIsMentor) {
+    private PreChatMessageResponse handleSendMessage(Long learnerId, PreChatMessageRequest request,
+            boolean senderIsMentor) {
         User mentor = userRepository.findById(request.getMentorId())
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Mentor not found"));
         User learner = userRepository.findById(learnerId)
@@ -254,7 +271,8 @@ public class PreChatController {
         boolean recipientMuted = false;
         var ts = threadStateRepository.findByMentorAndLearner(mentor, learner).orElse(null);
         if (ts != null) {
-            recipientMuted = senderIsMentor ? Boolean.TRUE.equals(ts.getMutedForLearner()) : Boolean.TRUE.equals(ts.getMutedForMentor());
+            recipientMuted = senderIsMentor ? Boolean.TRUE.equals(ts.getMutedForLearner())
+                    : Boolean.TRUE.equals(ts.getMutedForMentor());
         }
         if (!recipientMuted) {
             if (senderIsMentor) {
@@ -264,8 +282,7 @@ public class PreChatController {
                         sanitized,
                         NotificationType.PRECHAT_MESSAGE,
                         saved.getId().toString(),
-                        mentor.getId()
-                );
+                        mentor.getId());
             } else {
                 notificationService.createNotification(
                         mentor.getId(),
@@ -273,8 +290,7 @@ public class PreChatController {
                         sanitized,
                         NotificationType.PRECHAT_MESSAGE,
                         saved.getId().toString(),
-                        learner.getId()
-                );
+                        learner.getId());
             }
         }
 
@@ -282,7 +298,8 @@ public class PreChatController {
     }
 
     private String sanitizeContent(String content) {
-        if (content == null) return "";
+        if (content == null)
+            return "";
         String c = content.trim();
         c = c.replaceAll("(?i)\\b(badword|nsfw|terror|hate)\\b", "***");
         return c;
@@ -312,7 +329,10 @@ public class PreChatController {
         User learner = currentIsMentor ? other : current;
         PreChatThreadState st = threadStateRepository.findByMentorAndLearner(mentor, learner)
                 .orElse(PreChatThreadState.builder().mentor(mentor).learner(learner).build());
-        if (currentIsMentor) st.setHiddenForMentor(true); else st.setHiddenForLearner(true);
+        if (currentIsMentor)
+            st.setHiddenForMentor(true);
+        else
+            st.setHiddenForLearner(true);
         threadStateRepository.save(st);
     }
 
@@ -329,7 +349,10 @@ public class PreChatController {
         User learner = currentIsMentor ? other : current;
         PreChatThreadState st = threadStateRepository.findByMentorAndLearner(mentor, learner)
                 .orElse(PreChatThreadState.builder().mentor(mentor).learner(learner).build());
-        if (currentIsMentor) st.setHiddenForMentor(false); else st.setHiddenForLearner(false);
+        if (currentIsMentor)
+            st.setHiddenForMentor(false);
+        else
+            st.setHiddenForLearner(false);
         threadStateRepository.save(st);
     }
 
@@ -346,7 +369,10 @@ public class PreChatController {
         User learner = currentIsMentor ? other : current;
         PreChatThreadState st = threadStateRepository.findByMentorAndLearner(mentor, learner)
                 .orElse(PreChatThreadState.builder().mentor(mentor).learner(learner).build());
-        if (currentIsMentor) st.setMutedForMentor(true); else st.setMutedForLearner(true);
+        if (currentIsMentor)
+            st.setMutedForMentor(true);
+        else
+            st.setMutedForLearner(true);
         threadStateRepository.save(st);
     }
 
@@ -363,21 +389,28 @@ public class PreChatController {
         User learner = currentIsMentor ? other : current;
         PreChatThreadState st = threadStateRepository.findByMentorAndLearner(mentor, learner)
                 .orElse(PreChatThreadState.builder().mentor(mentor).learner(learner).build());
-        if (currentIsMentor) st.setMutedForMentor(false); else st.setMutedForLearner(false);
+        if (currentIsMentor)
+            st.setMutedForMentor(false);
+        else
+            st.setMutedForLearner(false);
         threadStateRepository.save(st);
     }
 
     @PostMapping("/threads/{counterpartId}/report")
     @Operation(summary = "Báo cáo nội dung chat")
     @Transactional
-    public Long reportThread(@PathVariable Long counterpartId, @RequestBody java.util.Map<String, Object> body, Authentication authentication) {
+    public Long reportThread(@PathVariable Long counterpartId, @RequestBody java.util.Map<String, Object> body,
+            Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long reporterId = Long.valueOf(jwt.getClaimAsString("userId"));
         String reason = String.valueOf(body.getOrDefault("reason", ""));
         Long messageId = null;
         Object mid = body.get("messageId");
         if (mid != null) {
-            try { messageId = Long.valueOf(String.valueOf(mid)); } catch (Exception ignored) {}
+            try {
+                messageId = Long.valueOf(String.valueOf(mid));
+            } catch (Exception ignored) {
+            }
         }
         User reporter = userRepository.findById(reporterId).orElseThrow();
         User other = userRepository.findById(counterpartId).orElseThrow();
@@ -397,8 +430,10 @@ public class PreChatController {
 
     @GetMapping("/reports")
     @Operation(summary = "Danh sách báo cáo (Admin)")
-    public Page<PreChatReport> listReports(@RequestParam(required = false) PreChatReport.Status status, @org.springframework.data.web.PageableDefault(size = 20) org.springframework.data.domain.Pageable pageable) {
-        if (status == null) return reportRepository.findAll(pageable);
+    public Page<PreChatReport> listReports(@RequestParam(required = false) PreChatReport.Status status,
+            @org.springframework.data.web.PageableDefault(size = 20) org.springframework.data.domain.Pageable pageable) {
+        if (status == null)
+            return reportRepository.findAll(pageable);
         return reportRepository.findByStatus(status, pageable);
     }
 

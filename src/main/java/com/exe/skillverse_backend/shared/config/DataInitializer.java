@@ -19,10 +19,10 @@ import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.exe.skillverse_backend.auth_service.entity.AuthProvider;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
+import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.exe.skillverse_backend.course_service.entity.*;
 import com.exe.skillverse_backend.course_service.entity.enums.*;
 import com.exe.skillverse_backend.course_service.repository.*;
-import com.exe.skillverse_backend.user_service.service.UserProfileService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -131,43 +131,76 @@ public class DataInitializer implements CommandLineRunner {
 
                         // Seed 11 student accounts (Google login), created at 05/12/2025
                         LocalDateTime createdDate = LocalDateTime.of(2025, 12, 5, 0, 0);
-                        createGoogleStudentIfNotExists("quanphse161574@fpt.edu.vn", userRole, createdDate, "Phạm Hồng Quân");
-                        createGoogleStudentIfNotExists("baotqhe172635@fpt.edu.vn", userRole, createdDate, "Trần Quốc Bảo");
-                        createGoogleStudentIfNotExists("davethediver0411@gmail.com", userRole, createdDate, "davethediver0411@gmail.com");
-                        createGoogleStudentIfNotExists("tamvmse184878@fpt.edu.vn", userRole, createdDate, "Vũ Minh Tâm");
-                        createGoogleStudentIfNotExists("hoantse183091@fpt.edu.vn", userRole, createdDate, "Nguyễn Thanh Hòa");
-                        createGoogleStudentIfNotExists("nhittysa180180@fpt.edu.vn", userRole, createdDate, "Tu Thi Yen Nhi (K18 HCM)");
-                        createGoogleStudentIfNotExists("kujousara0411@gmail.com", userRole, createdDate, "kujousara0411@gmail.com");
-                        createGoogleStudentIfNotExists("tdat01122004@gmail.com", userRole, createdDate, "Trần Thành Đạt");
-                        createGoogleStudentIfNotExists("phanphucnguyen3003@gmail.com", userRole, createdDate, "Phạm Phúc Nguyên");
-                        createGoogleStudentIfNotExists("nguyenkhanhlinh.april@gmail.com", userRole, createdDate, "Nguyễn Khánh Linh");
-                        createGoogleStudentIfNotExists("khanhlinhngu89@gmail.com", userRole, createdDate, "Trần Khánh Linh");
+                        createGoogleStudentIfNotExists("quanphse161574@fpt.edu.vn", userRole, createdDate,
+                                        "Phạm Hồng Quân");
+                        createGoogleStudentIfNotExists("baotqhe172635@fpt.edu.vn", userRole, createdDate,
+                                        "Trần Quốc Bảo");
+                        createGoogleStudentIfNotExists("davethediver0411@gmail.com", userRole, createdDate,
+                                        "davethediver0411@gmail.com");
+                        createGoogleStudentIfNotExists("tamvmse184878@fpt.edu.vn", userRole, createdDate,
+                                        "Vũ Minh Tâm");
+                        createGoogleStudentIfNotExists("hoantse183091@fpt.edu.vn", userRole, createdDate,
+                                        "Nguyễn Thanh Hòa");
+                        createGoogleStudentIfNotExists("nhittysa180180@fpt.edu.vn", userRole, createdDate,
+                                        "Tu Thi Yen Nhi (K18 HCM)");
+                        createGoogleStudentIfNotExists("kujousara0411@gmail.com", userRole, createdDate,
+                                        "kujousara0411@gmail.com");
+                        createGoogleStudentIfNotExists("tdat01122004@gmail.com", userRole, createdDate,
+                                        "Trần Thành Đạt");
+                        createGoogleStudentIfNotExists("phanphucnguyen3003@gmail.com", userRole, createdDate,
+                                        "Phạm Phúc Nguyên");
+                        createGoogleStudentIfNotExists("nguyenkhanhlinh.april@gmail.com", userRole, createdDate,
+                                        "Nguyễn Khánh Linh");
+                        createGoogleStudentIfNotExists("khanhlinhngu89@gmail.com", userRole, createdDate,
+                                        "Trần Khánh Linh");
 
                         LocalDateTime createdDateDec4 = LocalDateTime.of(2025, 12, 4, 0, 0);
-                        createGoogleStudentIfNotExists("phamnhuy8928@gmail.com", userRole, createdDateDec4, "Phạm Quang Huy");
-                        createGoogleStudentIfNotExists("tutran200823@gmail.com", userRole, createdDateDec4, "tutran200823@gmail.com");
+                        createGoogleStudentIfNotExists("phamnhuy8928@gmail.com", userRole, createdDateDec4,
+                                        "Phạm Quang Huy");
+                        createGoogleStudentIfNotExists("tutran200823@gmail.com", userRole, createdDateDec4,
+                                        "tutran200823@gmail.com");
                         createGoogleStudentIfNotExists("Thaom722@gmail.com", userRole, createdDateDec4, "Minh Thảo");
-                        createGoogleStudentIfNotExists("pothei1104@gmail.com", userRole, createdDateDec4, "pothei1104@gmail.com");
-                        createGoogleStudentIfNotExists("quannsse1845831@fpt.edu.vn", userRole, createdDateDec4, "Nguyễn Sỹ Quân(K18 HCM)");
-                        createGoogleStudentIfNotExists("vuhsese182692@fpt.edu.vn", userRole, createdDateDec4, "Hoàng Vũ (K18 HCM)");
-                        createGoogleStudentIfNotExists("quanlvse182728@fpt.edu.vn", userRole, createdDateDec4, "Lê Văn Quân(K18 HCM)");
-                        createGoogleStudentIfNotExists("khanhtgse182983@fpt.edu.vn", userRole, createdDateDec4, "Trần Giang Khánh (K18 HCM)");
-                        createGoogleStudentIfNotExists("giangntse183662@fpt.edu.vn", userRole, createdDateDec4, "Nguyễn Trường Giang (K18 HCM)");
-                        createGoogleStudentIfNotExists("nammhse184557@fpt.edu.vn", userRole, createdDateDec4, "Mai Hải Nam(K18 HCM)");
-                        createGoogleStudentIfNotExists("haomgse184349@fpt.edu.vn", userRole, createdDateDec4, "Mạch Gia Hào (K18 HCM)");
-                        createGoogleStudentIfNotExists("maintpse184343@fpt.edu.vn", userRole, createdDateDec4, "Nguyễn Thị Phương Mai (K18 HCM)");
-                        createGoogleStudentIfNotExists("nhutpmse184520@fpt.edu.vn", userRole, createdDateDec4, "Phạm Minh Nhựt(K18 HCM)");
-                        createGoogleStudentIfNotExists("giapcdse182538@fpt.edu.vn", userRole, createdDateDec4, "Cao Đình Giáp(K18 HCM)");
-                        createGoogleStudentIfNotExists("tranlediemmy0128@gmail.com", userRole, createdDateDec4, "Trần Lê Diễm My");
-                        createGoogleStudentIfNotExists("calamarri0412@gmail.com", userRole, createdDateDec4, "calamarri0412@gmail.com");
-                        createGoogleStudentIfNotExists("luanlemluoc0411@gmail.com", userRole, createdDateDec4, "Trương Quốc Luân");
+                        createGoogleStudentIfNotExists("pothei1104@gmail.com", userRole, createdDateDec4,
+                                        "pothei1104@gmail.com");
+                        createGoogleStudentIfNotExists("quannsse1845831@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Nguyễn Sỹ Quân(K18 HCM)");
+                        createGoogleStudentIfNotExists("vuhsese182692@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Hoàng Vũ (K18 HCM)");
+                        createGoogleStudentIfNotExists("quanlvse182728@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Lê Văn Quân(K18 HCM)");
+                        createGoogleStudentIfNotExists("khanhtgse182983@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Trần Giang Khánh (K18 HCM)");
+                        createGoogleStudentIfNotExists("giangntse183662@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Nguyễn Trường Giang (K18 HCM)");
+                        createGoogleStudentIfNotExists("nammhse184557@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Mai Hải Nam(K18 HCM)");
+                        createGoogleStudentIfNotExists("haomgse184349@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Mạch Gia Hào (K18 HCM)");
+                        createGoogleStudentIfNotExists("maintpse184343@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Nguyễn Thị Phương Mai (K18 HCM)");
+                        createGoogleStudentIfNotExists("nhutpmse184520@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Phạm Minh Nhựt(K18 HCM)");
+                        createGoogleStudentIfNotExists("giapcdse182538@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Cao Đình Giáp(K18 HCM)");
+                        createGoogleStudentIfNotExists("tranlediemmy0128@gmail.com", userRole, createdDateDec4,
+                                        "Trần Lê Diễm My");
+                        createGoogleStudentIfNotExists("calamarri0412@gmail.com", userRole, createdDateDec4,
+                                        "calamarri0412@gmail.com");
+                        createGoogleStudentIfNotExists("luanlemluoc0411@gmail.com", userRole, createdDateDec4,
+                                        "Trương Quốc Luân");
                         createGoogleStudentIfNotExists("1905myhien@gmail.com", userRole, createdDateDec4, "Mỹ Hiền");
-                        createGoogleStudentIfNotExists("khanghqse182958@fpt.edu.vn", userRole, createdDateDec4, "Huỳnh Quốc Khang (K18 HCM)");
-                        createGoogleStudentIfNotExists("khangqt1801@gmail.com", userRole, createdDateDec4, "khangqt1801@gmail.com");
-                        createGoogleStudentIfNotExists("kietnmss180517@fpt.edu.vn", userRole, createdDateDec4, "Nguyễn Minh Kiệt (K18 HCM)");
-                        createGoogleStudentIfNotExists("hoangtran.lenom@gmail.com", userRole, createdDateDec4, "hoangtran.lenom@gmail.com");
-                        createGoogleStudentIfNotExists("quannmse180261@fpt.edu.vn", userRole, createdDateDec4, "Nguyễn Minh Quân(K18 HCM)");
-                        createGoogleStudentIfNotExists("minhcnse180019@fpt.edu.vn", userRole, createdDateDec4, "Chu Minh Nhật (K18 HCM)");
+                        createGoogleStudentIfNotExists("khanghqse182958@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Huỳnh Quốc Khang (K18 HCM)");
+                        createGoogleStudentIfNotExists("khangqt1801@gmail.com", userRole, createdDateDec4,
+                                        "khangqt1801@gmail.com");
+                        createGoogleStudentIfNotExists("kietnmss180517@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Nguyễn Minh Kiệt (K18 HCM)");
+                        createGoogleStudentIfNotExists("hoangtran.lenom@gmail.com", userRole, createdDateDec4,
+                                        "hoangtran.lenom@gmail.com");
+                        createGoogleStudentIfNotExists("quannmse180261@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Nguyễn Minh Quân(K18 HCM)");
+                        createGoogleStudentIfNotExists("minhcnse180019@fpt.edu.vn", userRole, createdDateDec4,
+                                        "Chu Minh Nhật (K18 HCM)");
 
                         log.info("🎉 All test users initialized successfully");
 
@@ -519,7 +552,8 @@ public class DataInitializer implements CommandLineRunner {
                 assignmentRepository.save(assignment);
         }
 
-        private void createGoogleStudentIfNotExists(String email, Role userRole, LocalDateTime createdDate, String fullName) {
+        private void createGoogleStudentIfNotExists(String email, Role userRole, LocalDateTime createdDate,
+                        String fullName) {
                 if (!userRepository.existsByEmail(email)) {
                         User user = User.builder()
                                         .email(email)
@@ -537,7 +571,8 @@ public class DataInitializer implements CommandLineRunner {
                         userRepository.save(user);
                         log.info("✅ Created Google student with email: {}", email);
                         try {
-                                userProfileService.createCompleteProfile(user.getId(), fullName, null, null, null, null, null, null, null);
+                                userProfileService.createCompleteProfile(user.getId(), fullName, null, null, null, null,
+                                                null, null, null);
                                 log.info("✅ Created basic profile for: {}", email);
                         } catch (Exception e) {
                                 log.warn("⚠️ Failed to create profile for {}: {}", email, e.getMessage());

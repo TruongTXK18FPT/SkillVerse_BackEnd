@@ -3,7 +3,7 @@ package com.exe.skillverse_backend.premium_service.service.impl;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
-import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.repository.PaymentTransactionRepository;
 import com.exe.skillverse_backend.premium_service.dto.request.CreateSubscriptionRequest;
@@ -48,7 +48,7 @@ public class PremiumServiceImpl implements PremiumService {
         private final SubscriptionCancellationRepository cancellationRepository;
         private final UserProfileService userProfileService;
         private final PremiumEmailService premiumEmailService;
-        private final NotificationService notificationService;
+        private final NotificationServiceImpl notificationService;
 
         private static final List<String> STUDENT_EMAIL_DOMAINS = List.of(
                         ".edu", ".edu.vn", ".ac.uk", "university.", "student.", ".edu.au");
@@ -692,7 +692,8 @@ public class PremiumServiceImpl implements PremiumService {
                                 "Hủy gói Premium",
                                 "Bạn đã hủy gói Premium thành công. " + (refundPercentage > 0
                                                 ? "Số tiền hoàn lại: " + refundAmount + " VNĐ"
-                                                : "Gói của bạn sẽ hết hạn vào " + subscription.getEndDate().toLocalDate()),
+                                                : "Gói của bạn sẽ hết hạn vào "
+                                                                + subscription.getEndDate().toLocalDate()),
                                 NotificationType.PREMIUM_CANCEL,
                                 String.valueOf(subscription.getId()));
 

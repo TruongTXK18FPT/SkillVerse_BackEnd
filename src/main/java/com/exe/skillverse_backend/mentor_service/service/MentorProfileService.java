@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.mentor_service.service;
 
 import com.exe.skillverse_backend.mentor_service.dto.request.MentorProfileUpdateRequest;
 import com.exe.skillverse_backend.mentor_service.dto.response.MentorProfileResponse;
+import com.exe.skillverse_backend.mentor_service.dto.response.SkillTabResponse;
 
 import java.util.List;
 
@@ -32,10 +33,15 @@ public interface MentorProfileService {
     /**
      * Get leaderboard of mentors ordered by level and points
      */
-    java.util.List<MentorProfileResponse> getLeaderboard(int size);
+    List<MentorProfileResponse> getLeaderboard(int size);
 
     /**
      * Get all unique skills from all mentors
      */
     List<String> getAllSkills();
+
+    /**
+     * Get skill tab information for a mentor
+     */
+    SkillTabResponse getSkillTab(Long mentorId);
 }

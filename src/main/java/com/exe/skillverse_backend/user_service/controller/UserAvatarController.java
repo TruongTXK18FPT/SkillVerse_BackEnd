@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.user_service.controller;
 
-import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -15,6 +14,8 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import com.exe.skillverse_backend.user_service.service.UserProfileService;
 
 import java.util.Map;
 
@@ -31,8 +32,7 @@ public class UserAvatarController {
     @PostMapping("/avatar")
     @Operation(summary = "Upload user avatar", description = "Upload avatar image for current logged-in user")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Avatar uploaded successfully", 
-                content = @Content(schema = @Schema(implementation = Map.class))),
+            @ApiResponse(responseCode = "200", description = "Avatar uploaded successfully", content = @Content(schema = @Schema(implementation = Map.class))),
             @ApiResponse(responseCode = "400", description = "Invalid file or upload failed"),
             @ApiResponse(responseCode = "401", description = "Unauthorized")
     })
@@ -41,10 +41,10 @@ public class UserAvatarController {
             @RequestParam("file") MultipartFile file) {
         try {
             log.info("Uploading avatar for user: {}", jwt.getSubject());
-            
+
             Long userId = Long.parseLong(jwt.getSubject());
             String avatarUrl = userProfileService.uploadAvatar(userId, file);
-            
+
             log.info("Avatar uploaded successfully: {}", avatarUrl);
             return ResponseEntity.ok(Map.of("avatarUrl", avatarUrl));
         } catch (Exception e) {

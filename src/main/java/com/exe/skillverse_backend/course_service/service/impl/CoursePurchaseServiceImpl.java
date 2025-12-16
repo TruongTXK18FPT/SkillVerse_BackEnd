@@ -22,6 +22,8 @@ import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResp
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.event.PaymentSuccessEvent;
 import com.exe.skillverse_backend.payment_service.service.PaymentService;
+import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
+import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
@@ -38,6 +40,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -62,14 +68,17 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         Course course = courseRepository.findById(request.getCourseId())
                 .orElseThrow(() -> new NotFoundException("Course not found"));
 
-        if (coursePurchaseRepository.existsByUserIdAndCourseIdAndStatus(userId, request.getCourseId(), PurchaseStatus.PAID)) {
+        if (coursePurchaseRepository.existsByUserIdAndCourseIdAndStatus(userId, request.getCourseId(),
+                PurchaseStatus.PAID)) {
             throw new IllegalStateException("You have already purchased this course");
         }
 
         String metadata = String.format("{\"courseId\":%d,\"userId\":%d}", course.getId(), userId);
 
-        String successUrl = request.getReturnUrl() != null ? request.getReturnUrl() : "http://localhost:5173/payment/success";
-        String cancelUrl = request.getCancelUrl() != null ? request.getCancelUrl() : "http://localhost:5173/payment/cancel";
+        String successUrl = request.getReturnUrl() != null ? request.getReturnUrl()
+                : "http://localhost:5173/payment/success";
+        String cancelUrl = request.getCancelUrl() != null ? request.getCancelUrl()
+                : "http://localhost:5173/payment/cancel";
 
         CreatePaymentRequest paymentRequest = CreatePaymentRequest.builder()
                 .amount(course.getPrice())
@@ -91,7 +100,8 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         Course course = courseRepository.findById(request.getCourseId())
                 .orElseThrow(() -> new NotFoundException("Course not found"));
 
-        if (coursePurchaseRepository.existsByUserIdAndCourseIdAndStatus(userId, request.getCourseId(), PurchaseStatus.PAID)) {
+        if (coursePurchaseRepository.existsByUserIdAndCourseIdAndStatus(userId, request.getCourseId(),
+                PurchaseStatus.PAID)) {
             throw new IllegalStateException("You have already purchased this course");
         }
 
@@ -99,7 +109,8 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
         // Deduct from user wallet
-        walletService.deductCash(userId, course.getPrice(), "Purchase course: " + course.getTitle(), "COURSE_PURCHASE", "COURSE_" + course.getId());
+        walletService.deductCash(userId, course.getPrice(), "Purchase course: " + course.getTitle(), "COURSE_PURCHASE",
+                "COURSE_" + course.getId());
 
         // Pay mentor (80%)
         BigDecimal mentorShare = course.getPrice().multiply(new BigDecimal("0.80"));
@@ -138,8 +149,7 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                     "Mua khóa học thành công",
                     "Bạn đã mua khóa học '" + course.getTitle() + "'",
                     NotificationType.SYSTEM,
-                    "COURSE_" + course.getId()
-            );
+                    "COURSE_" + course.getId());
         } catch (Exception e) {
             log.warn("Failed to create notification for wallet course purchase: {}", e.getMessage());
         }
@@ -156,7 +166,8 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                 emailService.sendHtmlEmailWithAttachment(user.getEmail(), subject, html,
                         "Hoa_don_WAL-" + walletTx.getTransactionId() + ".pdf", pdf, "application/pdf");
             } else {
-                log.warn("Wallet transaction not found for course purchase invoice: user={}, courseId={}", userId, course.getId());
+                log.warn("Wallet transaction not found for course purchase invoice: user={}, courseId={}", userId,
+                        course.getId());
             }
         } catch (Exception e) {
             log.warn("Failed to send wallet course purchase email/invoice: {}", e.getMessage());
@@ -182,7 +193,8 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                 User user = userRepository.findById(userId)
                         .orElseThrow(() -> new NotFoundException("User not found"));
 
-                if (coursePurchaseRepository.existsByUserIdAndCourseIdAndStatus(userId, courseId, PurchaseStatus.PAID)) {
+                if (coursePurchaseRepository.existsByUserIdAndCourseIdAndStatus(userId, courseId,
+                        PurchaseStatus.PAID)) {
                     log.info("Course already purchased, skipping");
                     return;
                 }
@@ -227,12 +239,14 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
 
     @Override
     @Transactional(readOnly = true)
-    public org.springframework.data.domain.Page<CoursePurchaseDTO> getMentorPurchases(Long mentorId, org.springframework.data.domain.Pageable pageable) {
+    public org.springframework.data.domain.Page<CoursePurchaseDTO> getMentorPurchases(Long mentorId,
+            org.springframework.data.domain.Pageable pageable) {
         return coursePurchaseRepository.findByCourse_Author_Id(mentorId, pageable)
                 .map(this::mapToDTO);
     }
 
-    private String buildWalletCoursePurchaseEmail(String name, String courseTitle, java.math.BigDecimal amount, String ref) {
+    private String buildWalletCoursePurchaseEmail(String name, String courseTitle, java.math.BigDecimal amount,
+            String ref) {
         String amountStr = amount != null ? amount.toPlainString() + " VND" : "-";
         return """
                 <html>
@@ -272,11 +286,13 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                     </div>
                 </body>
                 </html>
-                """.formatted(name, courseTitle, courseTitle, amountStr, ref);
+                """
+                .formatted(name, courseTitle, courseTitle, amountStr, ref);
     }
 
     private String getDisplayName(com.exe.skillverse_backend.auth_service.entity.User user) {
-        if (user == null) return "Learner";
+        if (user == null)
+            return "Learner";
         String fn = user.getFirstName();
         String ln = user.getLastName();
         String built = ((fn != null ? fn : "") + (ln != null ? " " + ln : "")).trim();
@@ -297,8 +313,7 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                 purchase.getCouponCode(),
                 buyerName,
                 avatarUrl,
-                purchase.getCourse().getTitle()
-        );
+                purchase.getCourse().getTitle());
         return dto;
     }
 
@@ -310,7 +325,8 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                     return profile.getFullName();
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         String fn = user.getFirstName();
         String ln = user.getLastName();
         String built = ((fn != null ? fn : "") + (ln != null ? " " + ln : "")).trim();
@@ -322,9 +338,11 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
             if (userProfileService.hasProfile(user.getId())) {
                 var profile = userProfileService.getProfile(user.getId());
                 String avatar = profile.getAvatarMediaUrl();
-                if (avatar != null && !avatar.isBlank()) return avatar;
+                if (avatar != null && !avatar.isBlank())
+                    return avatar;
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
         return user.getAvatarUrl();
     }
 }

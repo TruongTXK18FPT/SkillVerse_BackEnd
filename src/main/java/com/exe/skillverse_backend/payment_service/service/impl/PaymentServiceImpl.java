@@ -239,7 +239,7 @@ public class PaymentServiceImpl implements PaymentService {
                     gatewayReference);
             return transaction;
         }
-        
+
         // Fix race condition: Don't process SUCCESS if payment was already CANCELLED
         if (transaction.getStatus() == PaymentTransaction.PaymentStatus.CANCELLED &&
                 newStatus == PaymentTransaction.PaymentStatus.COMPLETED) {
@@ -273,14 +273,13 @@ public class PaymentServiceImpl implements PaymentService {
                         premiumService.activateSubscription(subscriptionId, transaction.getInternalReference());
                         log.info("Auto-activated subscription {} for payment {}", subscriptionId,
                                 transaction.getInternalReference());
-                        
+
                         notificationService.createNotification(
                                 transaction.getUser().getId(),
                                 "Đăng ký Premium thành công",
                                 "Bạn đã đăng ký gói Premium thành công. Tận hưởng các tính năng độc quyền ngay!",
                                 NotificationType.PREMIUM_PURCHASE,
-                                transaction.getInternalReference()
-                        );
+                                transaction.getInternalReference());
                     }
                 }
             } catch (Exception e) {
@@ -296,7 +295,8 @@ public class PaymentServiceImpl implements PaymentService {
 
             try {
                 eventPublisher.publishEvent(new PaymentSuccessEvent(this, transaction));
-                log.info("✅ Published PaymentSuccessEvent for mentor booking payment {}", transaction.getInternalReference());
+                log.info("✅ Published PaymentSuccessEvent for mentor booking payment {}",
+                        transaction.getInternalReference());
             } catch (Exception e) {
                 log.error("❌ Failed to publish PaymentSuccessEvent for payment {}: {}",
                         transaction.getInternalReference(), e.getMessage(), e);
@@ -332,13 +332,13 @@ public class PaymentServiceImpl implements PaymentService {
                             "Mua khóa học thành công",
                             "Bạn đã mua khóa học '" + course.getTitle() + "'",
                             NotificationType.SYSTEM,
-                            transaction.getInternalReference()
-                    );
+                            transaction.getInternalReference());
 
                     try {
                         byte[] pdf = invoiceService.generatePaymentInvoice(savedTransaction);
                         String subject = "🎉 Mua khóa học thành công - " + course.getTitle();
-                        String html = buildCoursePurchaseSuccessHtml(getUserDisplayName(transaction.getUser()), course.getTitle(),
+                        String html = buildCoursePurchaseSuccessHtml(getUserDisplayName(transaction.getUser()),
+                                course.getTitle(),
                                 transaction.getAmount(), transaction.getInternalReference());
                         emailService.sendHtmlEmailWithAttachment(transaction.getUser().getEmail(), subject, html,
                                 "Hoa_don_" + transaction.getInternalReference() + ".pdf", pdf, "application/pdf");
@@ -361,25 +361,34 @@ public class PaymentServiceImpl implements PaymentService {
                         if (saleCount == 1 && !badges.contains("FIRST_COURSE_SALE")) {
                             badges.add("FIRST_COURSE_SALE");
                             profile.setSkillPoints(profile.getSkillPoints() + 50);
-                            notificationService.createNotification(course.getAuthor().getId(), "Nhận huy hiệu", "Bán khóa học đầu tiên", NotificationType.MENTOR_BADGE_AWARDED, "BADGE_FIRST_COURSE_SALE", transaction.getUser().getId());
+                            notificationService.createNotification(course.getAuthor().getId(), "Nhận huy hiệu",
+                                    "Bán khóa học đầu tiên", NotificationType.MENTOR_BADGE_AWARDED,
+                                    "BADGE_FIRST_COURSE_SALE", transaction.getUser().getId());
                         }
                         if (saleCount == 10 && !badges.contains("TEN_COURSE_SALES")) {
                             badges.add("TEN_COURSE_SALES");
                             profile.setSkillPoints(profile.getSkillPoints() + 100);
-                            notificationService.createNotification(course.getAuthor().getId(), "Nhận huy hiệu", "Bán 10 khóa học", NotificationType.MENTOR_BADGE_AWARDED, "BADGE_TEN_COURSE_SALES", transaction.getUser().getId());
+                            notificationService.createNotification(course.getAuthor().getId(), "Nhận huy hiệu",
+                                    "Bán 10 khóa học", NotificationType.MENTOR_BADGE_AWARDED, "BADGE_TEN_COURSE_SALES",
+                                    transaction.getUser().getId());
                         }
                         if (saleCount == 100 && !badges.contains("HUNDRED_COURSE_SALES")) {
                             badges.add("HUNDRED_COURSE_SALES");
                             profile.setSkillPoints(profile.getSkillPoints() + 500);
-                            notificationService.createNotification(course.getAuthor().getId(), "Nhận huy hiệu", "Bán 100 khóa học", NotificationType.MENTOR_BADGE_AWARDED, "BADGE_HUNDRED_COURSE_SALES", transaction.getUser().getId());
+                            notificationService.createNotification(course.getAuthor().getId(), "Nhận huy hiệu",
+                                    "Bán 100 khóa học", NotificationType.MENTOR_BADGE_AWARDED,
+                                    "BADGE_HUNDRED_COURSE_SALES", transaction.getUser().getId());
                         }
                         profile.setBadges(toBadgesJson(badges));
                         int newLevel = calculateLevel(profile.getSkillPoints());
                         if (newLevel > (profile.getCurrentLevel() != null ? profile.getCurrentLevel() : 0)) {
                             profile.setCurrentLevel(newLevel);
                             String t = getLevelTitle(newLevel);
-                            String msg = t != null ? ("Bạn đã lên level " + newLevel + " - " + t) : ("Bạn đã lên level " + newLevel);
-                            notificationService.createNotification(course.getAuthor().getId(), "Lên level", msg, NotificationType.MENTOR_LEVEL_UP, "LEVEL_" + newLevel, transaction.getUser().getId());
+                            String msg = t != null ? ("Bạn đã lên level " + newLevel + " - " + t)
+                                    : ("Bạn đã lên level " + newLevel);
+                            notificationService.createNotification(course.getAuthor().getId(), "Lên level", msg,
+                                    NotificationType.MENTOR_LEVEL_UP, "LEVEL_" + newLevel,
+                                    transaction.getUser().getId());
                         }
                         profile.setUpdatedAt(java.time.LocalDateTime.now());
                         mentorProfileRepository.save(profile);
@@ -413,8 +422,7 @@ public class PaymentServiceImpl implements PaymentService {
                         "Nạp tiền thành công",
                         "Bạn đã nạp " + transaction.getAmount() + " VNĐ vào ví thành công.",
                         NotificationType.WALLET_DEPOSIT,
-                        transaction.getInternalReference()
-                );
+                        transaction.getInternalReference());
             } catch (Exception e) {
                 log.error("❌ Failed to deposit to wallet for payment {}: {}",
                         transaction.getInternalReference(), e.getMessage(), e);
@@ -425,7 +433,7 @@ public class PaymentServiceImpl implements PaymentService {
                 throw new RuntimeException("Wallet deposit failed", e);
             }
         }
-        
+
         // Handle coin purchase if payment is completed and it's a coin purchase
         if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED &&
                 transaction.getType() == PaymentTransaction.PaymentType.COIN_PURCHASE) {
@@ -438,21 +446,19 @@ public class PaymentServiceImpl implements PaymentService {
                 Map<String, String> coinMetadata = extractCoinMetadataFromJson(transaction.getMetadata());
                 Long totalCoins = Long.parseLong(coinMetadata.getOrDefault("totalCoins", "0"));
                 Long bonusCoins = Long.parseLong(coinMetadata.getOrDefault("bonusCoins", "0"));
-                
+
                 if (totalCoins > 0) {
                     walletService.addCoins(
                             transaction.getUser().getId(),
                             totalCoins,
-                            bonusCoins > 0 ?
-                                WalletTransaction.TransactionType.BONUS_COINS :
-                                WalletTransaction.TransactionType.PURCHASE_COINS,
+                            bonusCoins > 0 ? WalletTransaction.TransactionType.BONUS_COINS
+                                    : WalletTransaction.TransactionType.PURCHASE_COINS,
                             String.format("Mua %d SkillCoin qua PayOS%s",
-                                totalCoins,
-                                bonusCoins > 0 ? " (+" + bonusCoins + " bonus)" : ""),
+                                    totalCoins,
+                                    bonusCoins > 0 ? " (+" + bonusCoins + " bonus)" : ""),
                             "PAYMENT",
-                            transaction.getInternalReference()
-                    );
-                    
+                            transaction.getInternalReference());
+
                     log.info("✅ Successfully added {} Coins to wallet for user {}",
                             totalCoins, transaction.getUser().getId());
 
@@ -461,8 +467,7 @@ public class PaymentServiceImpl implements PaymentService {
                             "Mua xu thành công",
                             "Bạn đã mua " + totalCoins + " SkillCoin thành công.",
                             NotificationType.COIN_PURCHASE,
-                            transaction.getInternalReference()
-                    );
+                            transaction.getInternalReference());
                 } else {
                     log.error("❌ Invalid coin purchase - totalCoins = 0");
                 }
@@ -494,18 +499,18 @@ public class PaymentServiceImpl implements PaymentService {
         }
         return null;
     }
-    
+
     private Map<String, String> extractCoinMetadataFromJson(String metadata) {
         Map<String, String> result = new HashMap<>();
         if (metadata == null || metadata.isEmpty()) {
             return result;
         }
-        
+
         try {
             ObjectMapper mapper = new ObjectMapper();
             JsonNode node = mapper.readTree(metadata);
-            
-            String[] keys = {"coinAmount", "packageId", "totalCoins", "bonusCoins"};
+
+            String[] keys = { "coinAmount", "packageId", "totalCoins", "bonusCoins" };
             for (String key : keys) {
                 JsonNode valueNode = node.get(key);
                 if (valueNode != null && !valueNode.isNull()) {
@@ -515,11 +520,12 @@ public class PaymentServiceImpl implements PaymentService {
         } catch (Exception e) {
             log.warn("Failed to parse coin metadata from JSON: {}", metadata);
         }
-        
+
         return result;
     }
 
-    private String buildCoursePurchaseSuccessHtml(String name, String courseTitle, java.math.BigDecimal amount, String ref) {
+    private String buildCoursePurchaseSuccessHtml(String name, String courseTitle, java.math.BigDecimal amount,
+            String ref) {
         String amountStr = amount != null ? amount.toPlainString() + " VND" : "-";
         return """
                 <html>
@@ -559,7 +565,8 @@ public class PaymentServiceImpl implements PaymentService {
                     </div>
                 </body>
                 </html>
-                """.formatted(name, courseTitle, courseTitle, amountStr, ref);
+                """
+                .formatted(name, courseTitle, courseTitle, amountStr, ref);
     }
 
     private String getUserDisplayName(User user) {
@@ -577,7 +584,7 @@ public class PaymentServiceImpl implements PaymentService {
         try {
             ObjectMapper mapper = new ObjectMapper();
             JsonNode node = mapper.readTree(metadata);
-            String[] keys = {"courseId", "price", "couponCode"};
+            String[] keys = { "courseId", "price", "couponCode" };
             for (String key : keys) {
                 JsonNode valueNode = node.get(key);
                 if (valueNode != null && !valueNode.isNull()) {
@@ -594,8 +601,10 @@ public class PaymentServiceImpl implements PaymentService {
         try {
             ObjectMapper mapper = new ObjectMapper();
             Map<String, Object> map = new HashMap<>();
-            if (request.getCourseId() != null) map.put("courseId", request.getCourseId());
-            if (request.getAmount() != null) map.put("price", request.getAmount());
+            if (request.getCourseId() != null)
+                map.put("courseId", request.getCourseId());
+            if (request.getAmount() != null)
+                map.put("price", request.getAmount());
             if (request.getMetadata() != null && !request.getMetadata().isEmpty()) {
                 JsonNode node = mapper.readTree(request.getMetadata());
                 node.fields().forEachRemaining(entry -> map.put(entry.getKey(), entry.getValue().asText()));
@@ -614,7 +623,8 @@ public class PaymentServiceImpl implements PaymentService {
                 String[] arr = mapper.readValue(badgesJson, String[].class);
                 if (arr != null) {
                     for (String s : arr) {
-                        if (s != null && !s.isEmpty()) set.add(s);
+                        if (s != null && !s.isEmpty())
+                            set.add(s);
                     }
                 }
             }
@@ -633,16 +643,22 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     private int calculateLevel(int points) {
-        if (points < 0) return 0;
+        if (points < 0)
+            return 0;
         return points / 100;
     }
 
     private String getLevelTitle(int level) {
-        if (level == 1) return "Mentor mới nổi";
-        if (level == 5) return "Mentor ngôi sao";
-        if (level == 10) return "Mentor kỳ cựu";
-        if (level == 15) return "Mentor cao thủ";
-        if (level == 20) return "Mentor siêu cấp";
+        if (level == 1)
+            return "Mentor mới nổi";
+        if (level == 5)
+            return "Mentor ngôi sao";
+        if (level == 10)
+            return "Mentor kỳ cựu";
+        if (level == 15)
+            return "Mentor cao thủ";
+        if (level == 20)
+            return "Mentor siêu cấp";
         return null;
     }
 
@@ -669,7 +685,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         // If already completed, cancelled, or failed - don't change status
         if (transaction.getStatus() != PaymentTransaction.PaymentStatus.PENDING) {
-            log.warn("⚠️ Cannot cancel payment {} - already in status: {}", 
+            log.warn("⚠️ Cannot cancel payment {} - already in status: {}",
                     internalReference, transaction.getStatus());
             return; // Silently return instead of throwing, for better UX
         }
@@ -892,13 +908,14 @@ public class PaymentServiceImpl implements PaymentService {
         // This includes: PURCHASE_PREMIUM, PURCHASE_COURSE, PURCHASE_COINS
         java.math.BigDecimal walletPurchaseRevenue = walletTransactionRepository
                 .calculateTotalPurchaseRevenueInRange(startDate, endDate);
-        
-        // Also add PayOS payments for premium/course/coins (if any paid directly via PayOS)
+
+        // Also add PayOS payments for premium/course/coins (if any paid directly via
+        // PayOS)
         double payosRevenueValue = transactions.stream()
                 .filter(t -> t.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED)
                 .filter(t -> t.getType() == PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION ||
-                            t.getType() == PaymentTransaction.PaymentType.COURSE_PURCHASE ||
-                            t.getType() == PaymentTransaction.PaymentType.COIN_PURCHASE)
+                        t.getType() == PaymentTransaction.PaymentType.COURSE_PURCHASE ||
+                        t.getType() == PaymentTransaction.PaymentType.COIN_PURCHASE)
                 .map(PaymentTransaction::getAmount)
                 .filter(amount -> amount != null)
                 .mapToDouble(amount -> {
@@ -909,12 +926,12 @@ public class PaymentServiceImpl implements PaymentService {
                     }
                 })
                 .sum();
-        
+
         // Total revenue = wallet purchases + PayOS purchases
-        double totalRevenueValue = (walletPurchaseRevenue != null ? walletPurchaseRevenue.doubleValue() : 0.0) 
-                                 + payosRevenueValue;
+        double totalRevenueValue = (walletPurchaseRevenue != null ? walletPurchaseRevenue.doubleValue() : 0.0)
+                + payosRevenueValue;
         String totalRevenue = String.valueOf(totalRevenueValue);
-        
+
         // Calculate total wallet deposits separately (nạp tiền vào ví)
         double totalWalletDeposits = transactions.stream()
                 .filter(t -> t.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED)
@@ -947,18 +964,18 @@ public class PaymentServiceImpl implements PaymentService {
     @Transactional(readOnly = true)
     public Map<String, Object> getRevenueBreakdown(String period, int lookbackDays) {
         log.info("Admin fetching revenue breakdown - period: {}, lookback: {} days", period, lookbackDays);
-        
+
         Map<String, Object> result = new HashMap<>();
         List<Map<String, Object>> data = new java.util.ArrayList<>();
-        
+
         LocalDateTime fromDate;
-        
+
         switch (period.toLowerCase()) {
             case "daily":
                 // Last N days - combine PaymentTransactions + WalletTransactions
                 fromDate = LocalDateTime.now().minusDays(lookbackDays);
                 Map<String, double[]> dailyAgg = new java.util.LinkedHashMap<>();
-                
+
                 // Get PayOS purchases
                 List<Object[]> dailyPayOS = paymentTransactionRepository.getDailyRevenue(fromDate);
                 for (Object[] row : dailyPayOS) {
@@ -966,11 +983,11 @@ public class PaymentServiceImpl implements PaymentService {
                         String dateKey = row[0].toString();
                         double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
                         long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
-                        dailyAgg.merge(dateKey, new double[]{revenue, txCount}, 
-                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                        dailyAgg.merge(dateKey, new double[] { revenue, txCount },
+                                (a, b) -> new double[] { a[0] + b[0], a[1] + b[1] });
                     }
                 }
-                
+
                 // Get wallet purchases
                 List<Object[]> dailyWallet = walletTransactionRepository.getDailyPurchaseRevenue(fromDate);
                 for (Object[] row : dailyWallet) {
@@ -978,11 +995,11 @@ public class PaymentServiceImpl implements PaymentService {
                         String dateKey = row[0].toString();
                         double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
                         long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
-                        dailyAgg.merge(dateKey, new double[]{revenue, txCount}, 
-                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                        dailyAgg.merge(dateKey, new double[] { revenue, txCount },
+                                (a, b) -> new double[] { a[0] + b[0], a[1] + b[1] });
                     }
                 }
-                
+
                 // Convert to list
                 for (Map.Entry<String, double[]> entry : dailyAgg.entrySet()) {
                     Map<String, Object> item = new HashMap<>();
@@ -992,38 +1009,40 @@ public class PaymentServiceImpl implements PaymentService {
                     data.add(item);
                 }
                 break;
-                
+
             case "weekly":
                 // Aggregate by week (last N weeks) - combine PayOS + wallet
                 fromDate = LocalDateTime.now().minusWeeks(lookbackDays);
                 Map<String, double[]> weeklyAgg = new java.util.LinkedHashMap<>();
-                
+
                 // PayOS purchases
                 List<Object[]> weeklyPayOS = paymentTransactionRepository.getDailyRevenue(fromDate);
                 for (Object[] row : weeklyPayOS) {
                     if (row[0] != null) {
                         java.time.LocalDate date = (java.time.LocalDate) row[0];
-                        String weekKey = date.getYear() + "-W" + String.format("%02d", date.get(java.time.temporal.WeekFields.ISO.weekOfYear()));
+                        String weekKey = date.getYear() + "-W"
+                                + String.format("%02d", date.get(java.time.temporal.WeekFields.ISO.weekOfYear()));
                         double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
                         long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
-                        weeklyAgg.merge(weekKey, new double[]{revenue, txCount}, 
-                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                        weeklyAgg.merge(weekKey, new double[] { revenue, txCount },
+                                (a, b) -> new double[] { a[0] + b[0], a[1] + b[1] });
                     }
                 }
-                
+
                 // Wallet purchases
                 List<Object[]> weeklyWallet = walletTransactionRepository.getDailyPurchaseRevenue(fromDate);
                 for (Object[] row : weeklyWallet) {
                     if (row[0] != null) {
                         java.time.LocalDate date = (java.time.LocalDate) row[0];
-                        String weekKey = date.getYear() + "-W" + String.format("%02d", date.get(java.time.temporal.WeekFields.ISO.weekOfYear()));
+                        String weekKey = date.getYear() + "-W"
+                                + String.format("%02d", date.get(java.time.temporal.WeekFields.ISO.weekOfYear()));
                         double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
                         long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
-                        weeklyAgg.merge(weekKey, new double[]{revenue, txCount}, 
-                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                        weeklyAgg.merge(weekKey, new double[] { revenue, txCount },
+                                (a, b) -> new double[] { a[0] + b[0], a[1] + b[1] });
                     }
                 }
-                
+
                 for (Map.Entry<String, double[]> entry : weeklyAgg.entrySet()) {
                     Map<String, Object> item = new HashMap<>();
                     item.put("week", entry.getKey());
@@ -1032,12 +1051,12 @@ public class PaymentServiceImpl implements PaymentService {
                     data.add(item);
                 }
                 break;
-                
+
             case "monthly":
                 // Last N months - combine PayOS + wallet
                 fromDate = LocalDateTime.now().minusMonths(lookbackDays);
                 Map<String, double[]> monthlyAgg = new java.util.LinkedHashMap<>();
-                
+
                 // PayOS purchases
                 List<Object[]> monthlyPayOS = paymentTransactionRepository.getMonthlyRevenue(fromDate);
                 for (Object[] row : monthlyPayOS) {
@@ -1046,10 +1065,10 @@ public class PaymentServiceImpl implements PaymentService {
                     String monthKey = String.format("%d-%02d", year, month);
                     double revenue = row[2] != null ? Double.parseDouble(row[2].toString()) : 0;
                     long txCount = row[3] != null ? ((Number) row[3]).longValue() : 0;
-                    monthlyAgg.merge(monthKey, new double[]{revenue, txCount}, 
-                        (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                    monthlyAgg.merge(monthKey, new double[] { revenue, txCount },
+                            (a, b) -> new double[] { a[0] + b[0], a[1] + b[1] });
                 }
-                
+
                 // Wallet purchases
                 List<Object[]> monthlyWallet = walletTransactionRepository.getMonthlyPurchaseRevenue(fromDate);
                 for (Object[] row : monthlyWallet) {
@@ -1058,10 +1077,10 @@ public class PaymentServiceImpl implements PaymentService {
                     String monthKey = String.format("%d-%02d", year, month);
                     double revenue = row[2] != null ? Double.parseDouble(row[2].toString()) : 0;
                     long txCount = row[3] != null ? ((Number) row[3]).longValue() : 0;
-                    monthlyAgg.merge(monthKey, new double[]{revenue, txCount}, 
-                        (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                    monthlyAgg.merge(monthKey, new double[] { revenue, txCount },
+                            (a, b) -> new double[] { a[0] + b[0], a[1] + b[1] });
                 }
-                
+
                 for (Map.Entry<String, double[]> entry : monthlyAgg.entrySet()) {
                     Map<String, Object> item = new HashMap<>();
                     item.put("month", entry.getKey());
@@ -1070,31 +1089,31 @@ public class PaymentServiceImpl implements PaymentService {
                     data.add(item);
                 }
                 break;
-                
+
             case "yearly":
                 // All years - combine PayOS + wallet
                 Map<Integer, double[]> yearlyAgg = new java.util.LinkedHashMap<>();
-                
+
                 // PayOS purchases
                 List<Object[]> yearlyPayOS = paymentTransactionRepository.getYearlyRevenue();
                 for (Object[] row : yearlyPayOS) {
                     int year = row[0] != null ? ((Number) row[0]).intValue() : 0;
                     double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
                     long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
-                    yearlyAgg.merge(year, new double[]{revenue, txCount}, 
-                        (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                    yearlyAgg.merge(year, new double[] { revenue, txCount },
+                            (a, b) -> new double[] { a[0] + b[0], a[1] + b[1] });
                 }
-                
+
                 // Wallet purchases
                 List<Object[]> yearlyWallet = walletTransactionRepository.getYearlyPurchaseRevenue();
                 for (Object[] row : yearlyWallet) {
                     int year = row[0] != null ? ((Number) row[0]).intValue() : 0;
                     double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
                     long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
-                    yearlyAgg.merge(year, new double[]{revenue, txCount}, 
-                        (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                    yearlyAgg.merge(year, new double[] { revenue, txCount },
+                            (a, b) -> new double[] { a[0] + b[0], a[1] + b[1] });
                 }
-                
+
                 for (Map.Entry<Integer, double[]> entry : yearlyAgg.entrySet()) {
                     Map<String, Object> item = new HashMap<>();
                     item.put("year", entry.getKey());
@@ -1103,34 +1122,34 @@ public class PaymentServiceImpl implements PaymentService {
                     data.add(item);
                 }
                 break;
-                
+
             default:
                 log.warn("Unknown period: {}, defaulting to daily", period);
                 fromDate = LocalDateTime.now().minusDays(30);
                 Map<String, double[]> defaultAgg = new java.util.LinkedHashMap<>();
-                
+
                 List<Object[]> defaultPayOS = paymentTransactionRepository.getDailyRevenue(fromDate);
                 for (Object[] row : defaultPayOS) {
                     if (row[0] != null) {
                         String dateKey = row[0].toString();
                         double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
                         long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
-                        defaultAgg.merge(dateKey, new double[]{revenue, txCount}, 
-                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                        defaultAgg.merge(dateKey, new double[] { revenue, txCount },
+                                (a, b) -> new double[] { a[0] + b[0], a[1] + b[1] });
                     }
                 }
-                
+
                 List<Object[]> defaultWallet = walletTransactionRepository.getDailyPurchaseRevenue(fromDate);
                 for (Object[] row : defaultWallet) {
                     if (row[0] != null) {
                         String dateKey = row[0].toString();
                         double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
                         long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
-                        defaultAgg.merge(dateKey, new double[]{revenue, txCount}, 
-                            (a, b) -> new double[]{a[0] + b[0], a[1] + b[1]});
+                        defaultAgg.merge(dateKey, new double[] { revenue, txCount },
+                                (a, b) -> new double[] { a[0] + b[0], a[1] + b[1] });
                     }
                 }
-                
+
                 for (Map.Entry<String, double[]> entry : defaultAgg.entrySet()) {
                     Map<String, Object> item = new HashMap<>();
                     item.put("date", entry.getKey());
@@ -1139,32 +1158,32 @@ public class PaymentServiceImpl implements PaymentService {
                     data.add(item);
                 }
         }
-        
+
         // Calculate totals
         double totalRevenue = data.stream()
-            .mapToDouble(d -> (Double) d.getOrDefault("revenue", 0.0))
-            .sum();
+                .mapToDouble(d -> (Double) d.getOrDefault("revenue", 0.0))
+                .sum();
         long totalTransactions = data.stream()
-            .mapToLong(d -> (Long) d.getOrDefault("transactions", 0L))
-            .sum();
-        
+                .mapToLong(d -> (Long) d.getOrDefault("transactions", 0L))
+                .sum();
+
         result.put("period", period);
         result.put("data", data);
         result.put("totalRevenue", totalRevenue);
         result.put("totalTransactions", totalTransactions);
         result.put("dataPoints", data.size());
-        
+
         return result;
     }
-    
+
     @Override
     @Transactional(readOnly = true)
     public byte[] generatePaymentInvoicePdf(Long paymentId) {
         log.info("Generating PDF invoice for payment: {}", paymentId);
-        
+
         PaymentTransaction payment = paymentTransactionRepository.findById(paymentId)
-            .orElseThrow(() -> new RuntimeException("Payment not found with ID: " + paymentId));
-        
+                .orElseThrow(() -> new RuntimeException("Payment not found with ID: " + paymentId));
+
         return invoiceService.generatePaymentInvoice(payment);
     }
 
@@ -1173,7 +1192,7 @@ public class PaymentServiceImpl implements PaymentService {
     public byte[] generatePaymentInvoicePdf(Long paymentId, String role) {
         log.info("Generating PDF invoice for payment: {} with role {}", paymentId, role);
         PaymentTransaction payment = paymentTransactionRepository.findById(paymentId)
-            .orElseThrow(() -> new RuntimeException("Payment not found with ID: " + paymentId));
+                .orElseThrow(() -> new RuntimeException("Payment not found with ID: " + paymentId));
         return invoiceService.generatePaymentInvoice(payment, role);
     }
 
@@ -1181,10 +1200,10 @@ public class PaymentServiceImpl implements PaymentService {
     @Transactional(readOnly = true)
     public byte[] generateWalletTransactionInvoicePdf(Long transactionId) {
         log.info("Generating PDF invoice for wallet transaction: {}", transactionId);
-        
+
         WalletTransaction transaction = walletTransactionRepository.findById(transactionId)
-            .orElseThrow(() -> new RuntimeException("Wallet transaction not found with ID: " + transactionId));
-        
+                .orElseThrow(() -> new RuntimeException("Wallet transaction not found with ID: " + transactionId));
+
         return invoiceService.generateWalletTransactionInvoice(transaction);
     }
 
@@ -1193,7 +1212,7 @@ public class PaymentServiceImpl implements PaymentService {
     public byte[] generateWalletTransactionInvoicePdf(Long transactionId, String role) {
         log.info("Generating PDF invoice for wallet transaction: {} with role {}", transactionId, role);
         WalletTransaction transaction = walletTransactionRepository.findById(transactionId)
-            .orElseThrow(() -> new RuntimeException("Wallet transaction not found with ID: " + transactionId));
+                .orElseThrow(() -> new RuntimeException("Wallet transaction not found with ID: " + transactionId));
         return invoiceService.generateWalletTransactionInvoice(transaction, role);
     }
 }

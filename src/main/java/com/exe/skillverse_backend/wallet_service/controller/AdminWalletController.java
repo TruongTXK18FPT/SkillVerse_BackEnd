@@ -29,10 +29,10 @@ import java.util.Map;
 @PreAuthorize("hasRole('ADMIN')")
 @Tag(name = "Admin - Wallet", description = "Admin wallet & withdrawal management")
 public class AdminWalletController {
-    
+
     private final WalletService walletService;
     private final WithdrawalService withdrawalService;
-    
+
     /**
      * Get all withdrawal requests with filtering
      */
@@ -40,36 +40,33 @@ public class AdminWalletController {
     @Operation(summary = "Get all withdrawal requests", description = "Retrieve all withdrawal requests with optional status filter")
     public ResponseEntity<Page<WithdrawalRequestResponse>> getAllWithdrawals(
             @RequestParam(required = false) WithdrawalRequest.WithdrawalStatus status,
-            Pageable pageable
-    ) {
+            Pageable pageable) {
         Page<WithdrawalRequestResponse> requests = withdrawalService.getAllWithdrawalRequests(status, pageable);
         return ResponseEntity.ok(requests);
     }
-    
+
     /**
      * Get pending withdrawal requests (priority queue)
      */
     @GetMapping("/withdrawals/pending")
     @Operation(summary = "Get pending withdrawals", description = "Retrieve pending withdrawal requests ordered by priority")
     public ResponseEntity<Page<WithdrawalRequestResponse>> getPendingWithdrawals(
-            Pageable pageable
-    ) {
+            Pageable pageable) {
         Page<WithdrawalRequestResponse> requests = withdrawalService.getPendingRequests(pageable);
         return ResponseEntity.ok(requests);
     }
-    
+
     /**
      * Get withdrawal request detail (full admin view)
      */
     @GetMapping("/withdrawals/{id}")
     @Operation(summary = "Get withdrawal detail", description = "Retrieve full withdrawal request details (admin view)")
     public ResponseEntity<WithdrawalRequestResponse> getWithdrawalDetail(
-            @PathVariable Long id
-    ) {
+            @PathVariable Long id) {
         WithdrawalRequestResponse withdrawal = withdrawalService.getWithdrawalRequestDetailAdmin(id);
         return ResponseEntity.ok(withdrawal);
     }
-    
+
     /**
      * Approve withdrawal request and complete withdrawal
      * This will immediately deduct balance and create transaction
@@ -79,17 +76,16 @@ public class AdminWalletController {
     public ResponseEntity<WithdrawalRequestResponse> approveWithdrawal(
             @PathVariable Long id,
             @RequestBody(required = false) Map<String, String> request,
-            Authentication authentication
-    ) {
+            Authentication authentication) {
         Long adminId = extractUserId(authentication);
         String notes = request != null ? request.get("notes") : null;
-        
+
         WithdrawalRequestResponse withdrawal = withdrawalService.approveWithdrawalRequest(id, adminId, notes);
-        
+
         log.info("✅ Admin {} đã duyệt withdrawal request {}", adminId, id);
         return ResponseEntity.ok(withdrawal);
     }
-    
+
     /**
      * Reject withdrawal request
      */
@@ -98,21 +94,20 @@ public class AdminWalletController {
     public ResponseEntity<WithdrawalRequestResponse> rejectWithdrawal(
             @PathVariable Long id,
             @RequestBody Map<String, String> request,
-            Authentication authentication
-    ) {
+            Authentication authentication) {
         Long adminId = extractUserId(authentication);
         String reason = request.get("reason");
-        
+
         if (reason == null || reason.isBlank()) {
             return ResponseEntity.badRequest().build();
         }
-        
+
         WithdrawalRequestResponse withdrawal = withdrawalService.rejectWithdrawalRequest(id, adminId, reason);
-        
+
         log.info("❌ Admin {} đã từ chối withdrawal request {} - Lý do: {}", adminId, id, reason);
         return ResponseEntity.ok(withdrawal);
     }
-    
+
     /**
      * Update bank transaction ID (optional)
      * Balance has already been deducted during approval
@@ -122,33 +117,32 @@ public class AdminWalletController {
     public ResponseEntity<WithdrawalRequestResponse> completeWithdrawal(
             @PathVariable Long id,
             @RequestBody Map<String, String> request,
-            Authentication authentication
-    ) {
+            Authentication authentication) {
         Long adminId = extractUserId(authentication);
         String bankTransactionId = request.get("bankTransactionId");
-        
+
         if (bankTransactionId == null || bankTransactionId.isBlank()) {
             return ResponseEntity.badRequest().build();
         }
-        
+
         WithdrawalRequestResponse withdrawal = withdrawalService.completeWithdrawal(id, adminId, bankTransactionId);
-        
-        log.info("💳 Admin {} đã cập nhật bank transaction ID cho withdrawal {} - Bank TX: {}", adminId, id, bankTransactionId);
+
+        log.info("💳 Admin {} đã cập nhật bank transaction ID cho withdrawal {} - Bank TX: {}", adminId, id,
+                bankTransactionId);
         return ResponseEntity.ok(withdrawal);
     }
-    
+
     /**
      * Get user's wallet (admin view)
      */
     @GetMapping("/users/{userId}/wallet")
     @Operation(summary = "Get user wallet", description = "View any user's wallet information")
     public ResponseEntity<WalletResponse> getUserWallet(
-            @PathVariable Long userId
-    ) {
+            @PathVariable Long userId) {
         WalletResponse wallet = walletService.getWalletByUserId(userId);
         return ResponseEntity.ok(wallet);
     }
-    
+
     /**
      * Get user's transaction history (admin view)
      */
@@ -156,12 +150,11 @@ public class AdminWalletController {
     @Operation(summary = "Get user transactions", description = "View user's transaction history")
     public ResponseEntity<Page<WalletTransactionResponse>> getUserTransactions(
             @PathVariable Long userId,
-            Pageable pageable
-    ) {
+            Pageable pageable) {
         Page<WalletTransactionResponse> transactions = walletService.getTransactionHistory(userId, pageable);
         return ResponseEntity.ok(transactions);
     }
-    
+
     /**
      * Get ALL wallet transactions (admin view for transaction management)
      */
@@ -169,12 +162,11 @@ public class AdminWalletController {
     @Operation(summary = "Get all transactions", description = "View all wallet transactions system-wide")
     public ResponseEntity<Page<WalletTransactionResponse>> getAllTransactions(
             @RequestParam(required = false) String type,
-            Pageable pageable
-    ) {
+            Pageable pageable) {
         Page<WalletTransactionResponse> transactions = walletService.getAllTransactionsAdmin(type, pageable);
         return ResponseEntity.ok(transactions);
     }
-    
+
     /**
      * Get global wallet statistics
      */
@@ -184,7 +176,7 @@ public class AdminWalletController {
         Map<String, Object> statistics = walletService.getGlobalStatistics();
         return ResponseEntity.ok(statistics);
     }
-    
+
     /**
      * Get daily deposit/withdrawal statistics
      */
@@ -192,12 +184,11 @@ public class AdminWalletController {
     @Operation(summary = "Get daily statistics", description = "Retrieve daily deposit and withdrawal statistics")
     public ResponseEntity<Map<String, Object>> getDailyStatistics(
             @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate
-    ) {
+            @RequestParam(required = false) String endDate) {
         Map<String, Object> statistics = walletService.getDailyStatistics(startDate, endDate);
         return ResponseEntity.ok(statistics);
     }
-    
+
     /**
      * Manually process expired withdrawal requests
      */
@@ -208,9 +199,9 @@ public class AdminWalletController {
         log.info("🔄 Admin đã trigger xử lý withdrawal requests hết hạn");
         return ResponseEntity.ok(Map.of("message", "Đã xử lý các yêu cầu hết hạn"));
     }
-    
+
     // ==================== HELPER METHODS ====================
-    
+
     private Long extractUserId(Authentication authentication) {
         // TODO: Extract user ID from JWT token
         // For now, assume user ID is in authentication principal

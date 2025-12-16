@@ -30,7 +30,8 @@ public class PostController {
     public ResponseEntity<PostResponse> createPost(@Valid @RequestBody PostCreateRequest req, Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
         boolean allowed = rateLimiterService.tryConsume("create:" + userId, 30, 60);
-        if (!allowed) return ResponseEntity.status(429).build();
+        if (!allowed)
+            return ResponseEntity.status(429).build();
         PostResponse res = postService.createPost(userId, req);
         return ResponseEntity.status(HttpStatus.CREATED).body(res);
     }
@@ -70,7 +71,8 @@ public class PostController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<PostResponse> updatePost(@PathVariable Long id, @Valid @RequestBody PostUpdateRequest req, Authentication auth) {
+    public ResponseEntity<PostResponse> updatePost(@PathVariable Long id, @Valid @RequestBody PostUpdateRequest req,
+            Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
         PostResponse res = postService.updatePost(id, userId, req);
         return ResponseEntity.ok(res);
@@ -87,7 +89,8 @@ public class PostController {
     public ResponseEntity<PostResponse> likePost(@PathVariable Long id, Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
         boolean allowed = rateLimiterService.tryConsume("like:" + userId, 100, 60);
-        if (!allowed) return ResponseEntity.status(429).build();
+        if (!allowed)
+            return ResponseEntity.status(429).build();
         return ResponseEntity.ok(postService.likePost(id, userId));
     }
 
@@ -95,15 +98,18 @@ public class PostController {
     public ResponseEntity<PostResponse> dislikePost(@PathVariable Long id, Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
         boolean allowed = rateLimiterService.tryConsume("dislike:" + userId, 100, 60);
-        if (!allowed) return ResponseEntity.status(429).build();
+        if (!allowed)
+            return ResponseEntity.status(429).build();
         return ResponseEntity.ok(postService.dislikePost(id, userId));
     }
 
     @PostMapping("/{id}/comments")
-    public ResponseEntity<CommentResponse> addComment(@PathVariable Long id, @Valid @RequestBody CommentCreateRequest req, Authentication auth) {
+    public ResponseEntity<CommentResponse> addComment(@PathVariable Long id,
+            @Valid @RequestBody CommentCreateRequest req, Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
         boolean allowed = rateLimiterService.tryConsume("comment:" + userId, 100, 60);
-        if (!allowed) return ResponseEntity.status(429).build();
+        if (!allowed)
+            return ResponseEntity.status(429).build();
         CommentResponse res = postService.addComment(id, userId, req);
         return ResponseEntity.status(HttpStatus.CREATED).body(res);
     }
@@ -117,7 +123,8 @@ public class PostController {
     }
 
     @DeleteMapping("/{postId}/comments/{commentId}")
-    public ResponseEntity<Void> deleteComment(@PathVariable Long postId, @PathVariable Long commentId, Authentication auth) {
+    public ResponseEntity<Void> deleteComment(@PathVariable Long postId, @PathVariable Long commentId,
+            Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
         postService.deleteComment(postId, commentId, userId);
         return ResponseEntity.noContent().build();
@@ -154,7 +161,8 @@ public class PostController {
         Long userId = Long.parseLong(auth.getName());
         String reason = body != null ? body.getOrDefault("reason", "") : "";
         boolean allowed = rateLimiterService.tryConsume("report:" + userId, 200, 60);
-        if (!allowed) return ResponseEntity.status(429).build();
+        if (!allowed)
+            return ResponseEntity.status(429).build();
         postService.reportComment(postId, commentId, userId, reason);
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
@@ -163,7 +171,8 @@ public class PostController {
     public ResponseEntity<Void> savePost(@PathVariable Long id, Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
         boolean allowed = rateLimiterService.tryConsume("save:" + userId, 200, 60);
-        if (!allowed) return ResponseEntity.status(429).build();
+        if (!allowed)
+            return ResponseEntity.status(429).build();
         postService.savePost(id, userId);
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }

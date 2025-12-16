@@ -5,7 +5,8 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.community_service.dto.request.PostCreateRequest;
 import com.exe.skillverse_backend.community_service.dto.response.PostResponse;
 import com.exe.skillverse_backend.community_service.entity.PostStatus;
-import com.exe.skillverse_backend.community_service.service.PostService;
+import com.exe.skillverse_backend.community_service.service.impl.PostServiceImpl;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -17,13 +18,14 @@ import static org.junit.jupiter.api.Assertions.*;
 @Transactional
 public class PerformanceTest {
     @Autowired
-    private PostService postService;
+    private PostServiceImpl postService;
     @Autowired
     private UserRepository userRepository;
 
     @Test
     void seed_many_posts() {
-        User u = User.builder().email("perf@example.com").status(com.exe.skillverse_backend.auth_service.entity.UserStatus.ACTIVE).build();
+        User u = User.builder().email("perf@example.com")
+                .status(com.exe.skillverse_backend.auth_service.entity.UserStatus.ACTIVE).build();
         Long userId = userRepository.save(u).getId();
         int n = 500;
         for (int i = 0; i < n; i++) {

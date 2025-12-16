@@ -2,7 +2,7 @@ package com.exe.skillverse_backend.meowl_chat_service.controller;
 
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatRequest;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatResponse;
-import com.exe.skillverse_backend.meowl_chat_service.service.IMeowlChatService;
+import com.exe.skillverse_backend.meowl_chat_service.service.MeowlChatService;
 import com.exe.skillverse_backend.meowl_chat_service.service.MeowlReminderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -30,7 +30,7 @@ import java.util.List;
 @Tag(name = "Meowl Chat", description = "Cute AI assistant for learning support")
 public class MeowlChatController {
 
-    private final IMeowlChatService meowlChatService;
+    private final MeowlChatService meowlChatService;
     private final MeowlReminderService reminderService;
 
     /**
@@ -40,13 +40,13 @@ public class MeowlChatController {
     @Operation(summary = "Chat with Meowl", description = "Send a message and get a cute, helpful response from Meowl")
     public ResponseEntity<MeowlChatResponse> chat(@RequestBody MeowlChatRequest request) {
         log.info("Received chat request from user: {}", request.getUserId());
-        
+
         try {
             MeowlChatResponse response = meowlChatService.chat(request);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("Error processing chat request: ", e);
-            
+
             String language = request.getLanguage() != null ? request.getLanguage() : "en";
             String errorMessage = language.equals("vi")
                     ? "Meo ơi! 🐱 Có lỗi xảy ra. Thử lại sau nhé! ✨"
@@ -57,7 +57,7 @@ public class MeowlChatController {
                     .success(false)
                     .mood("apologetic")
                     .build();
-            
+
             return ResponseEntity.status(500).body(errorResponse);
         }
     }
@@ -70,12 +70,11 @@ public class MeowlChatController {
     public ResponseEntity<List<MeowlChatResponse.MeowlReminder>> getReminders(
             @PathVariable Long userId,
             @RequestParam(defaultValue = "en") String language) {
-        
+
         log.info("Getting reminders for user: {}", userId);
-        
+
         try {
-            List<MeowlChatResponse.MeowlReminder> reminders =
-                    reminderService.getRemindersForUser(userId, language);
+            List<MeowlChatResponse.MeowlReminder> reminders = reminderService.getRemindersForUser(userId, language);
             return ResponseEntity.ok(reminders);
         } catch (Exception e) {
             log.error("Error getting reminders: ", e);
@@ -91,12 +90,12 @@ public class MeowlChatController {
     public ResponseEntity<List<MeowlChatResponse.MeowlNotification>> getNotifications(
             @PathVariable Long userId,
             @RequestParam(defaultValue = "en") String language) {
-        
+
         log.info("Getting notifications for user: {}", userId);
-        
+
         try {
-            List<MeowlChatResponse.MeowlNotification> notifications =
-                    reminderService.getNotifications(userId, language);
+            List<MeowlChatResponse.MeowlNotification> notifications = reminderService.getNotifications(userId,
+                    language);
             return ResponseEntity.ok(notifications);
         } catch (Exception e) {
             log.error("Error getting notifications: ", e);

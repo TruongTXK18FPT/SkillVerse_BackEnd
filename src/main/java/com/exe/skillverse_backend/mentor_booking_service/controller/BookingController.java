@@ -151,12 +151,14 @@ public class BookingController {
         String role = authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()))
                 ? "ADMIN"
                 : (authentication.getAuthorities().stream().anyMatch(a -> "ROLE_MENTOR".equals(a.getAuthority()))
-                    ? "MENTOR" : "USER");
+                        ? "MENTOR"
+                        : "USER");
         byte[] pdfBytes = invoiceService.generateBookingInvoice(booking, role);
 
         String filename = "booking-" + id + ".pdf";
         return org.springframework.http.ResponseEntity.ok()
-                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + filename + "\"")
                 .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
                 .body(pdfBytes);
     }
