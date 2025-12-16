@@ -403,7 +403,7 @@ public class EmailService {
                 We're excited to welcome you to our SkillVerse community. Your application has been reviewed and accepted by our admin team.
 
                 What's next:
-                • You can now login to your account
+                • You can now login to your account (using your email/password or Google Login with this email)
                 • Explore our features
                 • Complete your profile setup
                 • Start %s

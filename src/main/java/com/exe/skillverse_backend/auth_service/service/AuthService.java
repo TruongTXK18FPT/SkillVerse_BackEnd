@@ -7,6 +7,7 @@ import com.exe.skillverse_backend.auth_service.dto.response.AuthResponse;
 import com.exe.skillverse_backend.auth_service.dto.response.RegistrationResponse;
 import com.exe.skillverse_backend.auth_service.dto.response.UserDto;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
+import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
@@ -594,17 +595,46 @@ public class AuthService {
                                 user = existingUser.get();
                                 log.info("Existing user logging in with Google: {}", email);
 
-                                // 5. Validate: Only USER role can login with Google
-                                if (user.getPrimaryRole() != PrimaryRole.USER) {
-                                        log.error("Non-USER role attempted Google login: {} with role {}",
-                                                        email, user.getPrimaryRole());
-                                        throw new RuntimeException("Only USER accounts can login with Google. " +
-                                                        "MENTOR and BUSINESS accounts must use email/password login.");
+                                // 5. Check restrictions (Allow USER and MENTOR, Block RECRUITER)
+                                boolean isStudent = user.getRoles().stream()
+                                                .anyMatch(role -> role.getName().equals("USER"));
+                                boolean isMentor = user.getRoles().stream()
+                                                .anyMatch(role -> role.getName().equals("MENTOR"));
+                                boolean isRecruiter = user.getRoles().stream()
+                                                .anyMatch(role -> role.getName().equals("RECRUITER"));
+
+                                if (isRecruiter) {
+                                        log.warn("RECRUITER attempted Google login: {}", email);
+                                        throw new RuntimeException(
+                                                        "Business/Recruiter accounts must use email/password login.");
+                                }
+
+                                if (!isStudent && !isMentor) {
+                                        log.warn("Unauthorized role attempted Google login: {}", email);
+                                        throw new RuntimeException(
+                                                        "Only Student and Approved Mentor accounts can use Google Login.");
                                 }
 
                                 // 6. Check account status
                                 if (user.getStatus() != UserStatus.ACTIVE) {
-                                        log.error("Inactive user attempted Google login: {}", email);
+                                        log.warn("Inactive user attempted Google login: {}", email);
+                                        if (isMentor) {
+                                                // Check if rejected
+                                                var mentorProfile = mentorProfileRepository.findByUserId(user.getId());
+                                                if (mentorProfile.isPresent() &&
+                                                                mentorProfile.get()
+                                                                                .getApplicationStatus() == ApplicationStatus.REJECTED) {
+                                                        String reason = mentorProfile.get().getRejectionReason();
+                                                        throw new RuntimeException(
+                                                                        "Your Mentor application was rejected. Reason: "
+                                                                                        +
+                                                                                        (reason != null ? reason
+                                                                                                        : "Not specified"));
+                                                }
+
+                                                throw new RuntimeException(
+                                                                "Your Mentor account is pending approval. Please check your email for updates.");
+                                        }
                                         throw new RuntimeException(
                                                         "Your account is not active. Please contact support.");
                                 }
