@@ -340,6 +340,33 @@ jobs:
 
       - name: 🧪 Test Docker Image
         run: |
+          # Pull Redis with retry logic & fallback
+          echo "🔄 Pulling Redis image..."
+          REDIS_IMAGE="redis:7-alpine"
+          FALLBACK_IMAGE="public.ecr.aws/docker/library/redis:7-alpine"
+          
+          PULLED=false
+          for i in {1..3}; do
+            if docker pull $REDIS_IMAGE; then
+              echo "✅ Redis image pulled from Docker Hub."
+              PULLED=true
+              break
+            fi
+            echo "⚠️ Docker Hub pull failed (attempt $i/3). Retrying..."
+            sleep 5
+          done
+          
+          if [ "$PULLED" = false ]; then
+             echo "⚠️ Docker Hub failed. Switching to public mirror..."
+             if docker pull $FALLBACK_IMAGE; then
+               echo "✅ Redis image pulled from mirror."
+               docker tag $FALLBACK_IMAGE $REDIS_IMAGE
+             else
+               echo "❌ Failed to pull Redis from both Docker Hub and mirror."
+               exit 1
+             fi
+          fi
+
           # Start Redis for the test
           echo "🚀 Starting Redis container..."
           docker run -d --name test-redis \
