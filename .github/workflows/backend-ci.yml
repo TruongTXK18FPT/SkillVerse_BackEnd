@@ -10,86 +10,36 @@ env:
   JAVA_VERSION: "21"
   DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
   JWT_SECRET: ${{ secrets.JWT_SECRET }}
-  JWT_ACCESS_TOKEN_EXPIRATION: ${{ secrets.JWT_ACCESS_TOKEN_EXPIRATION }}
-  JWT_REFRESH_TOKEN_EXPIRATION: ${{ secrets.JWT_REFRESH_TOKEN_EXPIRATION }}
   JWT_REFRESH_PEPPER: ${{ secrets.JWT_REFRESH_PEPPER }}
-  JWT_ISSUER: ${{ secrets.JWT_ISSUER }}
 
   # Google OAuth2 Configuration
   GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
   GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
 
   # Email Configuration
-  SPRING_MAIL_HOST: ${{ secrets.SPRING_MAIL_HOST }}
-  SPRING_MAIL_PORT: ${{ secrets.SPRING_MAIL_PORT }}
   SPRING_MAIL_USERNAME: ${{ secrets.SPRING_MAIL_USERNAME }}
   SPRING_MAIL_PASSWORD: ${{ secrets.SPRING_MAIL_PASSWORD }}
-  EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
-  EMAIL_FROM_NAME: ${{ secrets.EMAIL_FROM_NAME }}
-
+  
   # SMTP (Primary) Configuration
-  SMTP_HOST: ${{ secrets.SMTP_HOST }}
-  SMTP_PORT: ${{ secrets.SMTP_PORT }}
   SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
   SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-  SMTP_SSL_ENABLE: ${{ secrets.SMTP_SSL_ENABLE }}
-  SMTP_SSL_CHECKSERVERIDENTITY: ${{ secrets.SMTP_SSL_CHECKSERVERIDENTITY }}
-  SMTP_STARTTLS_ENABLE: ${{ secrets.SMTP_STARTTLS_ENABLE }}
-  SMTP_STARTTLS_REQUIRED: ${{ secrets.SMTP_STARTTLS_REQUIRED }}
-  SMTP_CONNECTION_TIMEOUT: ${{ secrets.SMTP_CONNECTION_TIMEOUT }}
-  SMTP_TIMEOUT: ${{ secrets.SMTP_TIMEOUT }}
-  SMTP_WRITE_TIMEOUT: ${{ secrets.SMTP_WRITE_TIMEOUT }}
-
-  # Spring Mail Properties (Fallback) Configuration
-  SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: ${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH }}
-  SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE: ${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE }}
-  SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_TRUST: ${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_TRUST }}
-  SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_CHECKSERVERIDENTITY: ${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_CHECKSERVERIDENTITY }}
-  SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: ${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE }}
-  SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED: ${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED }}
-  SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT: ${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT }}
-  SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT: ${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT }}
-  SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT: ${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT }}
 
   # Gemini AI Configuration
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-  GEMINI_OPENAI_BASE_URL: ${{ secrets.GEMINI_OPENAI_BASE_URL }}
-  GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
-  GEMINI_FALLBACK_MODELS: ${{ secrets.GEMINI_FALLBACK_MODELS }}
-  GEMINI_TEMPERATURE: ${{ secrets.GEMINI_TEMPERATURE }}
-  GEMINI_MAX_TOKENS: ${{ secrets.GEMINI_MAX_TOKENS }}
-  GEMINI_ENABLED: ${{ secrets.GEMINI_ENABLED }}
 
   # Mistral AI Configuration
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-  MISTRAL_API_MODEL: ${{ secrets.MISTRAL_API_MODEL }}
-  MISTRAL_ENABLED: ${{ secrets.MISTRAL_ENABLED }}
-  MISTRAL_API_MAX_TOKENS: ${{ secrets.MISTRAL_API_MAX_TOKENS }}
-  MISTRAL_API_TEMPERATURE: ${{ secrets.MISTRAL_API_TEMPERATURE }}
 
   # Meowl Chat Configuration
   MEOWL_GEMINI_API_KEY: ${{ secrets.MEOWL_GEMINI_API_KEY }}
-  MEOWL_REMINDER_ENABLED: ${{ secrets.MEOWL_REMINDER_ENABLED }}
-  MEOWL_NOTIFICATION_ENABLED: ${{ secrets.MEOWL_NOTIFICATION_ENABLED }}
 
   # Portfolio CV Generation AI Configuration
   PORTFOLIO_MISTRAL_API_KEY: ${{ secrets.PORTFOLIO_MISTRAL_API_KEY }}
-  PORTFOLIO_MISTRAL_API_BASE_URL: ${{ secrets.PORTFOLIO_MISTRAL_API_BASE_URL }}
-  PORTFOLIO_MISTRAL_API_MODEL: ${{ secrets.PORTFOLIO_MISTRAL_API_MODEL }}
-  PORTFOLIO_MISTRAL_ENABLED: ${{ secrets.PORTFOLIO_MISTRAL_ENABLED }}
-  PORTFOLIO_MISTRAL_API_TIMEOUT: ${{ secrets.PORTFOLIO_MISTRAL_API_TIMEOUT }}
-  PORTFOLIO_MISTRAL_API_MAX_TOKENS: ${{ secrets.PORTFOLIO_MISTRAL_API_MAX_TOKENS }}
-  PORTFOLIO_MISTRAL_API_TEMPERATURE: ${{ secrets.PORTFOLIO_MISTRAL_API_TEMPERATURE }}
 
   # Payment Gateway Configuration (PayOS)
   PAYOS_CLIENT_ID: ${{ secrets.PAYOS_CLIENT_ID }}
   PAYOS_API_KEY: ${{ secrets.PAYOS_API_KEY }}
   PAYOS_CHECKSUM_KEY: ${{ secrets.PAYOS_CHECKSUM_KEY }}
-  PAYOS_BASE_URL: ${{ secrets.PAYOS_BASE_URL }}
-  PAYOS_WEBHOOK_URL: ${{ secrets.PAYOS_WEBHOOK_URL }}
-
-  # Premium Subscription Configuration
-  PREMIUM_AUTO_CREATE_PLANS: ${{ secrets.PREMIUM_AUTO_CREATE_PLANS }}
 
   # Cloudinary Configuration
   CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
@@ -97,27 +47,9 @@ env:
   CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
   CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
 
-  # CORS Configuration
-  CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
-  CORS_ALLOWED_METHODS: ${{ secrets.CORS_ALLOWED_METHODS }}
-  CORS_ALLOWED_HEADERS: ${{ secrets.CORS_ALLOWED_HEADERS }}
-  CORS_ALLOW_CREDENTIALS: ${{ secrets.CORS_ALLOW_CREDENTIALS }}
-  CORS_MAX_AGE: ${{ secrets.CORS_MAX_AGE }}
-
-  # Jackson Configuration
-  SPRING_JACKSON_TIME_ZONE: ${{ secrets.SPRING_JACKSON_TIME_ZONE }}
-  SPRING_JACKSON_DATE_FORMAT: ${{ secrets.SPRING_JACKSON_DATE_FORMAT }}
-
-  # Swagger Configuration
-  SPRINGDOC_API_DOCS_ENABLED: ${{ secrets.SPRINGDOC_API_DOCS_ENABLED }}
-  SPRINGDOC_SWAGGER_UI_ENABLED: ${{ secrets.SPRINGDOC_SWAGGER_UI_ENABLED }}
-  SPRINGDOC_API_DOCS_PATH: ${{ secrets.SPRINGDOC_API_DOCS_PATH }}
-  SPRINGDOC_SWAGGER_UI_PATH: ${{ secrets.SPRINGDOC_SWAGGER_UI_PATH }}
-
   # FPT.AI Speech Configuration
   FPT_AI_KEY: ${{ secrets.FPT_AI_KEY }}
-  AI_FPT_STT_ENDPOINT: ${{ secrets.AI_FPT_STT_ENDPOINT }}
-  AI_FPT_TTS_ENDPOINT: ${{ secrets.AI_FPT_TTS_ENDPOINT }}
+
 
 jobs:
   # Job 1: Code Quality & Testing
@@ -415,84 +347,25 @@ jobs:
             -e SPRING_DATA_REDIS_HOST=redis \
             -e SPRING_DATA_REDIS_PORT=6379 \
             -e FPT_AI_KEY="${FPT_AI_KEY}" \
-            -e AI_FPT_STT_ENDPOINT="${AI_FPT_STT_ENDPOINT}" \
-            -e AI_FPT_TTS_ENDPOINT="${AI_FPT_TTS_ENDPOINT}" \
             -e JWT_SECRET="${JWT_SECRET}" \
-            -e JWT_ACCESS_TOKEN_EXPIRATION="${JWT_ACCESS_TOKEN_EXPIRATION}" \
-            -e JWT_REFRESH_TOKEN_EXPIRATION="${JWT_REFRESH_TOKEN_EXPIRATION}" \
+            -e JWT_REFRESH_PEPPER="${JWT_REFRESH_PEPPER}" \
             -e GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}" \
             -e GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET}" \
-            -e SPRING_MAIL_HOST="${SPRING_MAIL_HOST}" \
-            -e SPRING_MAIL_PORT="${SPRING_MAIL_PORT}" \
             -e SPRING_MAIL_USERNAME="${SPRING_MAIL_USERNAME}" \
             -e SPRING_MAIL_PASSWORD="${SPRING_MAIL_PASSWORD}" \
-            -e EMAIL_FROM="${EMAIL_FROM}" \
-            -e EMAIL_FROM_NAME="${EMAIL_FROM_NAME}" \
-            -e SMTP_HOST="${SMTP_HOST}" \
-            -e SMTP_PORT="${SMTP_PORT}" \
             -e SMTP_USERNAME="${SMTP_USERNAME}" \
             -e SMTP_PASSWORD="${SMTP_PASSWORD}" \
-            -e SMTP_SSL_ENABLE="${SMTP_SSL_ENABLE}" \
-            -e SMTP_SSL_CHECKSERVERIDENTITY="${SMTP_SSL_CHECKSERVERIDENTITY}" \
-            -e SMTP_STARTTLS_ENABLE="${SMTP_STARTTLS_ENABLE}" \
-            -e SMTP_STARTTLS_REQUIRED="${SMTP_STARTTLS_REQUIRED}" \
-            -e SMTP_CONNECTION_TIMEOUT="${SMTP_CONNECTION_TIMEOUT}" \
-            -e SMTP_TIMEOUT="${SMTP_TIMEOUT}" \
-            -e SMTP_WRITE_TIMEOUT="${SMTP_WRITE_TIMEOUT}" \
-            -e SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH="${SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH}" \
-            -e SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE="${SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE}" \
-            -e SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_TRUST="${SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_TRUST}" \
-            -e SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_CHECKSERVERIDENTITY="${SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_CHECKSERVERIDENTITY}" \
-            -e SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE="${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE}" \
-            -e SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED="${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED}" \
-            -e SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT="${SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT}" \
-            -e SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT="${SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT}" \
-            -e SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT="${SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT}" \
             -e GEMINI_API_KEY="${GEMINI_API_KEY}" \
-            -e GEMINI_OPENAI_BASE_URL="${GEMINI_OPENAI_BASE_URL}" \
-            -e GEMINI_MODEL="${GEMINI_MODEL}" \
-            -e GEMINI_FALLBACK_MODELS="${GEMINI_FALLBACK_MODELS}" \
-            -e GEMINI_TEMPERATURE="${GEMINI_TEMPERATURE}" \
-            -e GEMINI_MAX_TOKENS="${GEMINI_MAX_TOKENS}" \
-            -e GEMINI_ENABLED="${GEMINI_ENABLED}" \
             -e MISTRAL_API_KEY="${MISTRAL_API_KEY}" \
-            -e MISTRAL_API_MODEL="${MISTRAL_API_MODEL}" \
-            -e MISTRAL_ENABLED="${MISTRAL_ENABLED}" \
-            -e MISTRAL_API_MAX_TOKENS="${MISTRAL_API_MAX_TOKENS}" \
-            -e MISTRAL_API_TEMPERATURE="${MISTRAL_API_TEMPERATURE}" \
             -e MEOWL_GEMINI_API_KEY="${MEOWL_GEMINI_API_KEY}" \
-            -e MEOWL_GEMINI_API_URL="${MEOWL_GEMINI_API_URL}" \
-            -e MEOWL_GEMINI_MODEL="${MEOWL_GEMINI_MODEL}" \
-            -e MEOWL_REMINDER_ENABLED="${MEOWL_REMINDER_ENABLED}" \
-            -e MEOWL_NOTIFICATION_ENABLED="${MEOWL_NOTIFICATION_ENABLED}" \
             -e PORTFOLIO_MISTRAL_API_KEY="${PORTFOLIO_MISTRAL_API_KEY}" \
-            -e PORTFOLIO_MISTRAL_API_BASE_URL="${PORTFOLIO_MISTRAL_API_BASE_URL}" \
-            -e PORTFOLIO_MISTRAL_API_MODEL="${PORTFOLIO_MISTRAL_API_MODEL}" \
-            -e PORTFOLIO_MISTRAL_ENABLED="${PORTFOLIO_MISTRAL_ENABLED}" \
-            -e PORTFOLIO_MISTRAL_API_TIMEOUT="${PORTFOLIO_MISTRAL_API_TIMEOUT}" \
-            -e PORTFOLIO_MISTRAL_API_MAX_TOKENS="${PORTFOLIO_MISTRAL_API_MAX_TOKENS}" \
-            -e PORTFOLIO_MISTRAL_API_TEMPERATURE="${PORTFOLIO_MISTRAL_API_TEMPERATURE}" \
             -e PAYOS_CLIENT_ID="${PAYOS_CLIENT_ID}" \
             -e PAYOS_API_KEY="${PAYOS_API_KEY}" \
             -e PAYOS_CHECKSUM_KEY="${PAYOS_CHECKSUM_KEY}" \
-            -e PAYOS_BASE_URL="${PAYOS_BASE_URL}" \
-            -e PAYOS_WEBHOOK_URL="${PAYOS_WEBHOOK_URL}" \
-            -e PREMIUM_AUTO_CREATE_PLANS="${PREMIUM_AUTO_CREATE_PLANS}" \
             -e CLOUDINARY_CLOUD_NAME="${CLOUDINARY_CLOUD_NAME}" \
             -e CLOUDINARY_API_KEY="${CLOUDINARY_API_KEY}" \
             -e CLOUDINARY_API_SECRET="${CLOUDINARY_API_SECRET}" \
             -e CLOUDINARY_URL="${CLOUDINARY_URL}" \
-            -e CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS}" \
-            -e CORS_ALLOWED_METHODS="${CORS_ALLOWED_METHODS}" \
-            -e CORS_ALLOWED_HEADERS="${CORS_ALLOWED_HEADERS}" \
-            -e CORS_ALLOW_CREDENTIALS="${CORS_ALLOW_CREDENTIALS}" \
-            -e CORS_MAX_AGE="${CORS_MAX_AGE}" \
-            -e SPRING_JACKSON_TIME_ZONE="${SPRING_JACKSON_TIME_ZONE}" \
-            -e SPRING_JACKSON_DATE_FORMAT="${SPRING_JACKSON_DATE_FORMAT}" \
-            -e SPRINGDOC_API_DOCS_ENABLED="${SPRINGDOC_API_DOCS_ENABLED}" \
-            -e SPRINGDOC_SWAGGER_UI_ENABLED="${SPRINGDOC_SWAGGER_UI_ENABLED}" \
-            -e SPRINGDOC_API_DOCS_PATH="${SPRINGDOC_API_DOCS_PATH}" \
-            -e SPRINGDOC_SWAGGER_UI_PATH="${SPRINGDOC_SWAGGER_UI_PATH}" \
             skillverse-backend:${{ github.sha }}
             
           echo "⏳ Waiting for application to start..."
@@ -572,99 +445,34 @@ jobs:
           # Use proper quoting to handle special characters in secret values
           cat > .env << 'ENVFILE'
           SPRING_PROFILES_ACTIVE=docker
-          SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/skillverse_db
-          SPRING_DATASOURCE_USERNAME=skillverse_user
-          SPRING_JPA_HIBERNATE_DDL_AUTO=update
-          SPRING_JPA_SHOW_SQL=false
-          REDIS_HOST=redis
-          REDIS_PORT=6379
           ENVFILE
 
           # Append secrets with proper escaping (values may contain special chars)
           echo "SPRING_DATASOURCE_PASSWORD='${{ secrets.DB_PASSWORD }}'" >> .env
           echo "REDIS_PASSWORD='${{ secrets.REDIS_PASSWORD }}'" >> .env
           echo "JWT_SECRET='${{ secrets.JWT_SECRET }}'" >> .env
-          echo "JWT_ACCESS_TOKEN_EXPIRATION='${{ secrets.JWT_ACCESS_TOKEN_EXPIRATION }}'" >> .env
-          echo "JWT_REFRESH_TOKEN_EXPIRATION='${{ secrets.JWT_REFRESH_TOKEN_EXPIRATION }}'" >> .env
           echo "JWT_REFRESH_PEPPER='${{ secrets.JWT_REFRESH_PEPPER }}'" >> .env
-          echo "JWT_ISSUER='${{ secrets.JWT_ISSUER }}'" >> .env
           echo "GOOGLE_CLIENT_ID='${{ secrets.GOOGLE_CLIENT_ID }}'" >> .env
           echo "GOOGLE_CLIENT_SECRET='${{ secrets.GOOGLE_CLIENT_SECRET }}'" >> .env
-          echo "SPRING_MAIL_HOST='${{ secrets.SPRING_MAIL_HOST }}'" >> .env
-          echo "SPRING_MAIL_PORT='${{ secrets.SPRING_MAIL_PORT }}'" >> .env
           echo "SPRING_MAIL_USERNAME='${{ secrets.SPRING_MAIL_USERNAME }}'" >> .env
           echo "SPRING_MAIL_PASSWORD='${{ secrets.SPRING_MAIL_PASSWORD }}'" >> .env
-          echo "EMAIL_FROM='${{ secrets.EMAIL_FROM }}'" >> .env
-          echo "EMAIL_FROM_NAME='${{ secrets.EMAIL_FROM_NAME }}'" >> .env
-          echo "SMTP_HOST='${{ secrets.SMTP_HOST }}'" >> .env
-          echo "SMTP_PORT='${{ secrets.SMTP_PORT }}'" >> .env
           echo "SMTP_USERNAME='${{ secrets.SMTP_USERNAME }}'" >> .env
           echo "SMTP_PASSWORD='${{ secrets.SMTP_PASSWORD }}'" >> .env
-          echo "SMTP_SSL_ENABLE='${{ secrets.SMTP_SSL_ENABLE }}'" >> .env
-          echo "SMTP_SSL_CHECKSERVERIDENTITY='${{ secrets.SMTP_SSL_CHECKSERVERIDENTITY }}'" >> .env
-          echo "SMTP_STARTTLS_ENABLE='${{ secrets.SMTP_STARTTLS_ENABLE }}'" >> .env
-          echo "SMTP_STARTTLS_REQUIRED='${{ secrets.SMTP_STARTTLS_REQUIRED }}'" >> .env
-          echo "SMTP_CONNECTION_TIMEOUT='${{ secrets.SMTP_CONNECTION_TIMEOUT }}'" >> .env
-          echo "SMTP_TIMEOUT='${{ secrets.SMTP_TIMEOUT }}'" >> .env
-          echo "SMTP_WRITE_TIMEOUT='${{ secrets.SMTP_WRITE_TIMEOUT }}'" >> .env
 
           # FPT.AI Speech Configuration
           echo "FPT_AI_KEY='${{ secrets.FPT_AI_KEY }}'" >> .env
-          echo "AI_FPT_STT_ENDPOINT='${{ secrets.AI_FPT_STT_ENDPOINT }}'" >> .env
-          echo "AI_FPT_TTS_ENDPOINT='${{ secrets.AI_FPT_TTS_ENDPOINT }}'" >> .env
 
-          echo "SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH='${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH }}'" >> .env
-          echo "SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE='${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE }}'" >> .env
-          echo "SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_TRUST='${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_TRUST }}'" >> .env
-          echo "SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_CHECKSERVERIDENTITY='${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_CHECKSERVERIDENTITY }}'" >> .env
-          echo "SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE='${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE }}'" >> .env
-          echo "SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED='${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED }}'" >> .env
-          echo "SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT='${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT }}'" >> .env
-          echo "SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT='${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT }}'" >> .env
-          echo "SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT='${{ secrets.SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT }}'" >> .env
           echo "GEMINI_API_KEY='${{ secrets.GEMINI_API_KEY }}'" >> .env
-          echo "GEMINI_OPENAI_BASE_URL='${{ secrets.GEMINI_OPENAI_BASE_URL }}'" >> .env
-          echo "GEMINI_MODEL='${{ secrets.GEMINI_MODEL }}'" >> .env
-          echo "GEMINI_FALLBACK_MODELS='${{ secrets.GEMINI_FALLBACK_MODELS }}'" >> .env
-          echo "GEMINI_TEMPERATURE='${{ secrets.GEMINI_TEMPERATURE }}'" >> .env
-          echo "GEMINI_MAX_TOKENS='${{ secrets.GEMINI_MAX_TOKENS }}'" >> .env
-          echo "GEMINI_ENABLED='${{ secrets.GEMINI_ENABLED }}'" >> .env
           echo "MISTRAL_API_KEY='${{ secrets.MISTRAL_API_KEY }}'" >> .env
-          echo "MISTRAL_API_MODEL='${{ secrets.MISTRAL_API_MODEL }}'" >> .env
-          echo "MISTRAL_ENABLED='${{ secrets.MISTRAL_ENABLED }}'" >> .env
-          echo "MISTRAL_API_MAX_TOKENS='${{ secrets.MISTRAL_API_MAX_TOKENS }}'" >> .env
-          echo "MISTRAL_API_TEMPERATURE='${{ secrets.MISTRAL_API_TEMPERATURE }}'" >> .env
           echo "MEOWL_GEMINI_API_KEY='${{ secrets.MEOWL_GEMINI_API_KEY }}'" >> .env
-          echo "MEOWL_GEMINI_API_URL='${{ secrets.MEOWL_GEMINI_API_URL }}'" >> .env
-          echo "MEOWL_GEMINI_MODEL='${{ secrets.MEOWL_GEMINI_MODEL }}'" >> .env
-          echo "MEOWL_REMINDER_ENABLED='${{ secrets.MEOWL_REMINDER_ENABLED }}'" >> .env
-          echo "MEOWL_NOTIFICATION_ENABLED='${{ secrets.MEOWL_NOTIFICATION_ENABLED }}'" >> .env
           echo "PORTFOLIO_MISTRAL_API_KEY='${{ secrets.PORTFOLIO_MISTRAL_API_KEY }}'" >> .env
-          echo "PORTFOLIO_MISTRAL_API_BASE_URL='${{ secrets.PORTFOLIO_MISTRAL_API_BASE_URL }}'" >> .env
-          echo "PORTFOLIO_MISTRAL_API_MODEL='${{ secrets.PORTFOLIO_MISTRAL_API_MODEL }}'" >> .env
-          echo "PORTFOLIO_MISTRAL_ENABLED='${{ secrets.PORTFOLIO_MISTRAL_ENABLED }}'" >> .env
-          echo "PORTFOLIO_MISTRAL_API_TIMEOUT='${{ secrets.PORTFOLIO_MISTRAL_API_TIMEOUT }}'" >> .env
-          echo "PORTFOLIO_MISTRAL_API_MAX_TOKENS='${{ secrets.PORTFOLIO_MISTRAL_API_MAX_TOKENS }}'" >> .env
-          echo "PORTFOLIO_MISTRAL_API_TEMPERATURE='${{ secrets.PORTFOLIO_MISTRAL_API_TEMPERATURE }}'" >> .env
           echo "PAYOS_CLIENT_ID='${{ secrets.PAYOS_CLIENT_ID }}'" >> .env
           echo "PAYOS_API_KEY='${{ secrets.PAYOS_API_KEY }}'" >> .env
           echo "PAYOS_CHECKSUM_KEY='${{ secrets.PAYOS_CHECKSUM_KEY }}'" >> .env
-          echo "PAYOS_BASE_URL='${{ secrets.PAYOS_BASE_URL }}'" >> .env
-          echo "PAYOS_WEBHOOK_URL='${{ secrets.PAYOS_WEBHOOK_URL }}'" >> .env
-          echo "PREMIUM_AUTO_CREATE_PLANS='${{ secrets.PREMIUM_AUTO_CREATE_PLANS }}'" >> .env
           echo "CLOUDINARY_CLOUD_NAME='${{ secrets.CLOUDINARY_CLOUD_NAME }}'" >> .env
           echo "CLOUDINARY_API_KEY='${{ secrets.CLOUDINARY_API_KEY }}'" >> .env
           echo "CLOUDINARY_API_SECRET='${{ secrets.CLOUDINARY_API_SECRET }}'" >> .env
           echo "CLOUDINARY_URL='${{ secrets.CLOUDINARY_URL }}'" >> .env
-          echo "CORS_ALLOWED_ORIGINS='${{ secrets.CORS_ALLOWED_ORIGINS }}'" >> .env
-          echo "CORS_ALLOWED_METHODS='${{ secrets.CORS_ALLOWED_METHODS }}'" >> .env
-          echo "CORS_ALLOWED_HEADERS='${{ secrets.CORS_ALLOWED_HEADERS }}'" >> .env
-          echo "CORS_ALLOW_CREDENTIALS='${{ secrets.CORS_ALLOW_CREDENTIALS }}'" >> .env
-          echo "CORS_MAX_AGE='${{ secrets.CORS_MAX_AGE }}'" >> .env
-          echo "SPRING_JACKSON_TIME_ZONE='${{ secrets.SPRING_JACKSON_TIME_ZONE }}'" >> .env
-          echo "SPRING_JACKSON_DATE_FORMAT='${{ secrets.SPRING_JACKSON_DATE_FORMAT }}'" >> .env
-          echo "SPRINGDOC_API_DOCS_ENABLED='${{ secrets.SPRINGDOC_API_DOCS_ENABLED }}'" >> .env
-          echo "SPRINGDOC_SWAGGER_UI_ENABLED='${{ secrets.SPRINGDOC_SWAGGER_UI_ENABLED }}'" >> .env
 
           # Debug: Verify critical secrets are set (without exposing values)
           echo "🔍 Verifying critical environment variables..."
