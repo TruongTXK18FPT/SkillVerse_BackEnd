@@ -487,6 +487,12 @@ jobs:
           # Use proper quoting to handle special characters in secret values
           cat > .env << 'ENVFILE'
           SPRING_PROFILES_ACTIVE=docker
+          SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/skillverse_db
+          SPRING_DATASOURCE_USERNAME=skillverse_user
+          SPRING_JPA_HIBERNATE_DDL_AUTO=update
+          SPRING_JPA_SHOW_SQL=false
+          REDIS_HOST=redis
+          REDIS_PORT=6379
           ENVFILE
 
           # Append secrets with proper escaping (values may contain special chars)
