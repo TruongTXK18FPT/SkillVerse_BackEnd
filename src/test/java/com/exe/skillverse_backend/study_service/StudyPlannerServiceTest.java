@@ -5,6 +5,8 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.study_service.dto.request.CreateStudySessionRequest;
 import com.exe.skillverse_backend.study_service.dto.response.StudySessionResponse;
 import com.exe.skillverse_backend.study_service.entity.StudySessionStatus;
+import com.exe.skillverse_backend.study_service.entity.StudySession;
+import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 import com.exe.skillverse_backend.study_service.service.impl.StudyPlannerServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +27,9 @@ public class StudyPlannerServiceTest {
 
     @Autowired
     private StudyPlannerServiceImpl studyPlannerService;
+
+    @Autowired
+    private StudySessionRepository studySessionRepository;
 
     @Autowired
     private UserRepository userRepository;
@@ -77,13 +82,18 @@ public class StudyPlannerServiceTest {
 
     @Test
     void delete_session() {
-        CreateStudySessionRequest request = new CreateStudySessionRequest();
-        request.setTitle("To Delete");
-        request.setStartTime(LocalDateTime.now());
-        request.setEndTime(LocalDateTime.now().plusHours(1));
-        StudySessionResponse created = studyPlannerService.createSession(userId, request);
+        // Manually create and save a session to ensure it's persisted before delete
+        // This avoids TransientObjectException if references exist
+        StudySession session = StudySession.builder()
+                .title("To Delete")
+                .startTime(LocalDateTime.now())
+                .endTime(LocalDateTime.now().plusHours(1))
+                .status(StudySessionStatus.SCHEDULED)
+                .user(userRepository.findById(userId).orElseThrow())
+                .build();
+        studySessionRepository.save(session);
 
-        studyPlannerService.deleteSession(created.getId());
+        studyPlannerService.deleteSession(session.getId());
         
         List<StudySessionResponse> sessions = studyPlannerService.getSessions(userId);
         assertTrue(sessions.isEmpty());

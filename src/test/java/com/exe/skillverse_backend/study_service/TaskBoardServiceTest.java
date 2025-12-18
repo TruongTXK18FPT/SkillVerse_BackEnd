@@ -106,6 +106,9 @@ public class TaskBoardServiceTest {
 
     @Test
     void task_auto_complete_when_sessions_completed() {
+        // Ensure board is initialized with all columns (including Done)
+        taskBoardService.getBoard(userId);
+
         // 1. Create a Session
         CreateStudySessionRequest sessionRequest = new CreateStudySessionRequest();
         sessionRequest.setTitle("Study for Task");
@@ -137,7 +140,7 @@ public class TaskBoardServiceTest {
         TaskColumnResponse doneColumn = board.stream()
                 .filter(c -> "Done".equals(c.getName()))
                 .findFirst()
-                .orElseThrow();
+                .orElseThrow(() -> new AssertionError("Done column not found"));
         
         boolean taskIsDone = doneColumn.getTasks().stream()
                 .anyMatch(t -> t.getId().equals(task.getId()));

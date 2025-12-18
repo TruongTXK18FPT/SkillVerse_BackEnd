@@ -19,75 +19,75 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-        /**
-         * Handles ApiException thrown intentionally by the application.
-         *
-         * @param ex  the ApiException
-         * @param req the HTTP request
-         * @return error response entity
-         */
-        @ExceptionHandler(ApiException.class)
-        public ResponseEntity<ErrorResponse> handleApiException(
-                        ApiException ex, HttpServletRequest req) {
-                var ec = ex.getErrorCode();
-                var body = ErrorResponse.builder()
-                                .code(ec.code)
-                                .message(ex.getMessage())
-                                .status(ec.status.value())
-                                .timestamp(Instant.now())
-                                .path(req.getRequestURI())
-                                .details(asMap(ex.getDetails()))
-                                .build();
-                return ResponseEntity.status(ec.status).body(body);
-        }
+    /**
+     * Handles ApiException thrown intentionally by the application.
+     *
+     * @param ex  the ApiException
+     * @param req the HTTP request
+     * @return error response entity
+     */
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<ErrorResponse> handleApiException(
+            ApiException ex, HttpServletRequest req) {
+        var ec = ex.getErrorCode();
+        var body = ErrorResponse.builder()
+                .code(ec.code)
+                .message(ex.getMessage())
+                .status(ec.status.value())
+                .timestamp(Instant.now())
+                .path(req.getRequestURI())
+                .details(asMap(ex.getDetails()))
+                .build();
+        return ResponseEntity.status(ec.status).body(body);
+    }
 
-        /**
-         * Handles validation errors for @Valid on @RequestBody.
-         *
-         * @param ex  the MethodArgumentNotValidException
-         * @param req the HTTP request
-         * @return error response entity with field validation errors
-         */
-        @ExceptionHandler(MethodArgumentNotValidException.class)
-        public ResponseEntity<ErrorResponse> handleValidation(
-                        MethodArgumentNotValidException ex, HttpServletRequest req) {
-                Map<String, Object> fieldErrors = new HashMap<>();
-                ex.getBindingResult().getFieldErrors().forEach(
-                                fe -> fieldErrors.put(fe.getField(), fe.getDefaultMessage()));
-                var body = ErrorResponse.builder()
-                                .code(ErrorCode.VALIDATION_FAILED.code)
-                                .message("Validation failed")
-                                .status(ErrorCode.VALIDATION_FAILED.status.value())
-                                .timestamp(Instant.now())
-                                .path(req.getRequestURI())
-                                .details(fieldErrors)
-                                .build();
-                return ResponseEntity.status(ErrorCode.VALIDATION_FAILED.status).body(body);
-        }
+    /**
+     * Handles validation errors for @Valid on @RequestBody.
+     *
+     * @param ex  the MethodArgumentNotValidException
+     * @param req the HTTP request
+     * @return error response entity with field validation errors
+     */
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValidation(
+            MethodArgumentNotValidException ex, HttpServletRequest req) {
+        Map<String, Object> fieldErrors = new HashMap<>();
+        ex.getBindingResult().getFieldErrors().forEach(
+                fe -> fieldErrors.put(fe.getField(), fe.getDefaultMessage()));
+        var body = ErrorResponse.builder()
+                .code(ErrorCode.VALIDATION_FAILED.code)
+                .message("Validation failed")
+                .status(ErrorCode.VALIDATION_FAILED.status.value())
+                .timestamp(Instant.now())
+                .path(req.getRequestURI())
+                .details(fieldErrors)
+                .build();
+        return ResponseEntity.status(ErrorCode.VALIDATION_FAILED.status).body(body);
+    }
 
-        /**
-         * Handles validation errors for @Valid on @ModelAttribute or @PathVariable.
-         *
-         * @param ex  the BindException
-         * @param req the HTTP request
-         * @return error response entity with field validation errors
-         */
-        @ExceptionHandler(BindException.class)
-        public ResponseEntity<ErrorResponse> handleBind(
-                        BindException ex, HttpServletRequest req) {
-                Map<String, Object> fieldErrors = new HashMap<>();
-                ex.getBindingResult().getFieldErrors().forEach(
-                                fe -> fieldErrors.put(fe.getField(), fe.getDefaultMessage()));
-                var body = ErrorResponse.builder()
-                                .code(ErrorCode.VALIDATION_FAILED.code)
-                                .message("Validation failed")
-                                .status(ErrorCode.VALIDATION_FAILED.status.value())
-                                .timestamp(Instant.now())
-                                .path(req.getRequestURI())
-                                .details(fieldErrors)
-                                .build();
-                return ResponseEntity.status(ErrorCode.VALIDATION_FAILED.status).body(body);
-        }
+    /**
+     * Handles validation errors for @Valid on @ModelAttribute or @PathVariable.
+     *
+     * @param ex  the BindException
+     * @param req the HTTP request
+     * @return error response entity with field validation errors
+     */
+    @ExceptionHandler(BindException.class)
+    public ResponseEntity<ErrorResponse> handleBind(
+            BindException ex, HttpServletRequest req) {
+        Map<String, Object> fieldErrors = new HashMap<>();
+        ex.getBindingResult().getFieldErrors().forEach(
+                fe -> fieldErrors.put(fe.getField(), fe.getDefaultMessage()));
+        var body = ErrorResponse.builder()
+                .code(ErrorCode.VALIDATION_FAILED.code)
+                .message("Validation failed")
+                .status(ErrorCode.VALIDATION_FAILED.status.value())
+                .timestamp(Instant.now())
+                .path(req.getRequestURI())
+                .details(fieldErrors)
+                .build();
+        return ResponseEntity.status(ErrorCode.VALIDATION_FAILED.status).body(body);
+    }
 
         /**
          * Handles authentication exceptions for login and auth errors.

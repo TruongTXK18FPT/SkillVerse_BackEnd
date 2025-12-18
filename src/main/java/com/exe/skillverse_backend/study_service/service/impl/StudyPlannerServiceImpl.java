@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -98,7 +99,7 @@ public class StudyPlannerServiceImpl implements StudyPlannerService {
                 .status(column.getName())
                 .column(column)
                 .user(user)
-                .linkedSessions(List.of(session))
+                .linkedSessions(new ArrayList<>(List.of(session)))
                 .userProgress(0)
                 .build();
     }
