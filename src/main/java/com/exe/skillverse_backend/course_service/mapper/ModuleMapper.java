@@ -1,6 +1,9 @@
 package com.exe.skillverse_backend.course_service.mapper;
 
-import com.exe.skillverse_backend.course_service.dto.moduledto.*;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;

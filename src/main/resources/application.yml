@@ -84,6 +84,12 @@ spring:
           temperature: ${MISTRAL_API_TEMPERATURE:0.7}
           max-tokens: ${MISTRAL_API_MAX_TOKENS:30000}
 
+    # Custom configuration for AI Study Planner (Mistral Small)
+    planner:
+      mistral:
+        api-key: ${MISTRAL_PLANNER_API_KEY:}
+        model: ${MISTRAL_PLANNER_MODEL:mistral-small-latest}
+
     # OpenAI configuration - using Gemini's OpenAI-compatible endpoint
     openai:
       api-key: ${GEMINI_API_KEY:}

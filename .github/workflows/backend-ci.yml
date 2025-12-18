@@ -31,6 +31,8 @@ env:
 
   # Mistral AI Configuration
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+  MISTRAL_PLANNER_API_KEY: ${{ secrets.MISTRAL_PLANNER_API_KEY }}
+  MISTRAL_PLANNER_MODEL: mistral-small-latest
 
   # Meowl Chat Configuration
   MEOWL_GEMINI_API_KEY: ${{ secrets.MEOWL_GEMINI_API_KEY }}
