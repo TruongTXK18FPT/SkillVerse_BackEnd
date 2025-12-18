@@ -278,7 +278,6 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
     }
 
     @Override
-    @Transactional
     public List<StudySessionResponse> generateSchedule(Long userId, GenerateScheduleRequest request) {
         // Legacy method: generates and saves immediately
         List<StudySessionResponse> proposed = generateProposedSchedule(userId, request);
@@ -293,7 +292,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        List<StudySession> savedSessions = new ArrayList<>();
+        List<StudySession> sessionsToSave = new ArrayList<>();
         for (StudySessionResponse resp : proposed) {
             StudySession session = StudySession.builder()
                     .title(resp.getTitle())
@@ -303,8 +302,10 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                     .status(StudySessionStatus.SCHEDULED)
                     .user(user)
                     .build();
-            savedSessions.add(studySessionRepository.save(session));
+            sessionsToSave.add(session);
         }
+
+        List<StudySession> savedSessions = studySessionRepository.saveAll(sessionsToSave);
 
         return savedSessions.stream()
                 .map(s -> StudySessionResponse.builder()
