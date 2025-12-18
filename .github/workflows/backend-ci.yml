@@ -405,6 +405,7 @@ jobs:
             -e SMTP_PASSWORD="${SMTP_PASSWORD}" \
             -e GEMINI_API_KEY="${GEMINI_API_KEY}" \
             -e MISTRAL_API_KEY="${MISTRAL_API_KEY}" \
+            -e MISTRAL_PLANNER_API_KEY="${MISTRAL_PLANNER_API_KEY}" \
             -e MEOWL_GEMINI_API_KEY="${MEOWL_GEMINI_API_KEY}" \
             -e PORTFOLIO_MISTRAL_API_KEY="${PORTFOLIO_MISTRAL_API_KEY}" \
             -e PAYOS_CLIENT_ID="${PAYOS_CLIENT_ID}" \
@@ -520,6 +521,7 @@ jobs:
 
           echo "GEMINI_API_KEY='${{ secrets.GEMINI_API_KEY }}'" >> .env
           echo "MISTRAL_API_KEY='${{ secrets.MISTRAL_API_KEY }}'" >> .env
+          echo "MISTRAL_PLANNER_API_KEY='${{ secrets.MISTRAL_PLANNER_API_KEY }}'" >> .env
           echo "MEOWL_GEMINI_API_KEY='${{ secrets.MEOWL_GEMINI_API_KEY }}'" >> .env
           echo "PORTFOLIO_MISTRAL_API_KEY='${{ secrets.PORTFOLIO_MISTRAL_API_KEY }}'" >> .env
           echo "PAYOS_CLIENT_ID='${{ secrets.PAYOS_CLIENT_ID }}'" >> .env
@@ -629,6 +631,7 @@ jobs:
               -e SMTP_PASSWORD="$SMTP_PASSWORD" \
               -e FPT_AI_KEY="$FPT_AI_KEY" \
               -e MISTRAL_API_KEY="$MISTRAL_API_KEY" \
+              -e MISTRAL_PLANNER_API_KEY="$MISTRAL_PLANNER_API_KEY" \
               -e GEMINI_API_KEY="$GEMINI_API_KEY" \
               -e MEOWL_GEMINI_API_KEY="$MEOWL_GEMINI_API_KEY" \
               -e PORTFOLIO_MISTRAL_API_KEY="$PORTFOLIO_MISTRAL_API_KEY" \
