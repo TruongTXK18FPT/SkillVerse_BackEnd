@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.RestClient;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 /**
  * Spring AI Configuration for multiple AI providers
@@ -79,8 +81,16 @@ public class SpringAiConfig {
      * Helper method to create ChatModel with specific Gemini model
      */
     private ChatModel createGeminiChatModel(String modelName, String apiKey) {
+        // Configure timeout (1 hour for read, 60s for connect)
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(60 * 1000);
+        requestFactory.setReadTimeout(3600 * 1000);
+
+        RestClient.Builder builder = RestClient.builder()
+                .requestFactory(requestFactory);
+
         // Create OpenAI API client configured for Gemini's OpenAI-compatible endpoint
-        OpenAiApi openAiApi = new OpenAiApi(geminiBaseUrl, apiKey);
+        OpenAiApi openAiApi = new OpenAiApi(geminiBaseUrl, apiKey, builder);
 
         // Configure chat options with specified model and parameters
         OpenAiChatOptions chatOptions = OpenAiChatOptions.builder()
