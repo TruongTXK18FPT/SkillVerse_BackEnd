@@ -73,15 +73,34 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         // Clean response if it contains markdown code blocks
         if (response.startsWith("```json")) {
             response = response.substring(7);
+        } else if (response.startsWith("```")) {
+            response = response.substring(3);
         }
+        
         if (response.endsWith("```")) {
             response = response.substring(0, response.length() - 3);
         }
         
+        // Escape backslashes that might be used for markdown escaping but break JSON
+        // We only want to escape backslashes that are NOT already escaped
+        // But Jackson parser is strict. Let's try to configure ObjectMapper to be more lenient first.
+        
         try {
             return objectMapper.readValue(response, new TypeReference<List<StudySessionResponse>>() {});
         } catch (JsonProcessingException e) {
-            log.error("Error parsing AI response", e);
+            log.error("Error parsing AI response: {}", response); // Log full response for debug
+            
+            try {
+                // Configure mapper to allow backslash escaping for non-standard JSON
+                ObjectMapper lenientMapper = new ObjectMapper();
+                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_BACKSLASH_ESCAPING_ANY_CHARACTER.mappedFeature(), true);
+                lenientMapper.findAndRegisterModules();
+                
+                return lenientMapper.readValue(response, new TypeReference<List<StudySessionResponse>>() {});
+            } catch (Exception ex) {
+                 log.error("Fallback parsing failed", ex);
+            }
+            
             throw new RuntimeException("Failed to parse AI schedule");
         }
     }
@@ -132,9 +151,9 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             "1) Trả về kết quả là một MẢNG JSON hợp lệ.\n" +
             "2) Mỗi phần tử trong mảng là một object có các trường: title, startTime, endTime, description.\n" +
             "3) Định dạng thời gian startTime và endTime là ISO 8601 (YYYY-MM-DDTHH:mm:ss).\n" +
-            "4) Không được chứa bất kỳ văn bản nào khác ngoài chuỗi JSON. Không dùng markdown ```json ... ```.\n" +
+            "4) Không được chứa bất kỳ văn bản nào khác ngoài chuỗi JSON. Không dùng markdown ```json ... ``` bao quanh kết quả.\n" +
             "5) Nếu không thể tạo lịch, trả về mảng rỗng [].\n" +
-            "6) description phải CỰC KỲ CHI TIẾT, bao gồm mục tiêu của phiên học và các bước thực hiện cụ thể (subtasks) nếu cần.\n" +
+            "6) description phải CỰC KỲ CHI TIẾT, sử dụng Markdown (**in đậm**, *nghiêng*, - danh sách) để trình bày mục tiêu và các bước thực hiện cụ thể.\n" +
             "7) Thời gian phải trong tương lai, từ ngày bắt đầu đến hạn chót.\n" +
             "8) Các phiên học nên được phân bổ hợp lý theo phương pháp %s và mức độ %s.\n" +
             (avoidLateNight ? "9) KHÔNG tạo phiên từ 23:00 đến 06:00.\n" : allowLateNight ? "9) Cảnh báo nếu học khuya.\n" : "9) Hạn chế học khuya.\n"),
@@ -255,7 +274,8 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 "Phản hồi của người dùng: %s\n\n" +
                 "Vui lòng sửa đổi lịch trình dựa trên phản hồi. Chỉ trả về mảng JSON đã cập nhật của các đối tượng (cùng định dạng như trước).\n" +
                 "Đảm bảo tiêu đề và mô tả bằng Tiếng Việt.\n" +
-                "Không bao gồm bất kỳ định dạng markdown nào.",
+                "Trong phần description, hãy sử dụng Markdown (**in đậm**, *nghiêng*, - danh sách) để trình bày rõ ràng.\n" +
+                "Không bao gồm bất kỳ định dạng markdown code block (```json) nào bao quanh kết quả.",
                 request.getOriginalGoal(),
                 currentScheduleJson,
                 request.getUserFeedback()

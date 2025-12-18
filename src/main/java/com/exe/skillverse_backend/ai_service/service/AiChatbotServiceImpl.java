@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.ai_service.service;
 
 import com.exe.skillverse_backend.ai_service.dto.ChatMessageResponse;
 import com.exe.skillverse_backend.ai_service.dto.ChatSessionSummary;
+import com.exe.skillverse_backend.ai_service.dto.gemini.GeminiDTO;
 import com.exe.skillverse_backend.ai_service.dto.request.ChatRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ChatResponse;
 import com.exe.skillverse_backend.ai_service.entity.ChatMessage;
@@ -15,8 +16,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -39,13 +44,21 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   private final ExpertPromptServiceImpl expertPromptService;
   private final com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository expertPromptConfigRepository;
   private final com.exe.skillverse_backend.premium_service.service.PremiumService premiumService;
-  private final org.springframework.ai.chat.model.ChatModel geminiChatModel;
-  private final org.springframework.ai.chat.model.ChatModel geminiFallback1ChatModel;
+  
+  @Value("${spring.ai.openai.api-key}")
+  private String geminiApiKey;
+
+  @Value("${spring.ai.openai.chat.options.model}")
+  private String geminiModel;
+
+  @Value("${spring.ai.openai.fallback-models:gemini-2.0-flash}")
+  private String geminiFallbackModel;
+
+  // Use Gemini native endpoint instead of OpenAI-compatible one
+  private static final String GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
 
   public AiChatbotServiceImpl(
       @Qualifier("mistralAiChatModel") ChatModel mistralChatModel,
-      @Qualifier("geminiChatModel") ChatModel geminiChatModel,
-      @Qualifier("geminiFallback1ChatModel") ChatModel geminiFallback1ChatModel,
       ChatMessageRepository chatMessageRepository,
       InputValidationServiceImpl inputValidationService,
       UsageLimitService usageLimitService,
@@ -53,8 +66,6 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository expertPromptConfigRepository,
       com.exe.skillverse_backend.premium_service.service.PremiumService premiumService) {
     this.mistralChatModel = mistralChatModel;
-    this.geminiChatModel = geminiChatModel;
-    this.geminiFallback1ChatModel = geminiFallback1ChatModel;
     this.chatMessageRepository = chatMessageRepository;
     this.inputValidationService = inputValidationService;
     this.usageLimitService = usageLimitService;
@@ -438,14 +449,14 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       if (request.getAiAgentMode() != null
           && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode())) {
         try {
-          return callGeminiForChat(userMessage, previousMessages, request, agentSuffix, geminiChatModel,
+          return callGeminiForChat(userMessage, previousMessages, request, agentSuffix, geminiModel,
               "Gemini Primary");
         } catch (Exception ge) {
           String msg = ge.getMessage() != null ? ge.getMessage().toLowerCase() : "";
           if (msg.contains("429") || msg.contains("quota") || msg.contains("resource_exhausted")
               || msg.contains("rate limit")) {
             try {
-              return callGeminiForChat(userMessage, previousMessages, request, agentSuffix, geminiFallback1ChatModel,
+              return callGeminiForChat(userMessage, previousMessages, request, agentSuffix, geminiFallbackModel,
                   "Gemini Fallback");
             } catch (Exception ge2) {
               String normalSuffix = "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions>.";
@@ -543,7 +554,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   }
 
   private String callGeminiForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request,
-      String agentSuffix, ChatModel model, String label) {
+      String agentSuffix, String modelName, String label) {
     StringBuilder contextBuilder = new StringBuilder();
     contextBuilder.append("Conversation history:\n");
     for (ChatMessage prev : previousMessages) {
@@ -570,13 +581,79 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     if (agentSuffix != null && !agentSuffix.isEmpty()) {
       finalSystemPrompt = finalSystemPrompt + agentSuffix;
     }
-    return ChatClient.builder(model)
-        .build()
-        .prompt()
-        .system(finalSystemPrompt)
-        .user(conversationHistory)
-        .call()
-        .content();
+    
+    // Combine system prompt and conversation history
+    String fullPrompt = finalSystemPrompt + "\n\n" + conversationHistory;
+    
+    return callGeminiDirectly(fullPrompt, modelName);
+  }
+
+  /**
+   * Call Gemini API directly via HTTP REST and return raw text response
+   */
+  private String callGeminiDirectly(String prompt, String modelName) {
+      log.info("📡 Calling Gemini API directly (model: {})", modelName);
+
+      try {
+          // 1. Configure RestClient with 1-hour timeout
+          SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+          requestFactory.setConnectTimeout(60 * 1000); // 60s connect
+          requestFactory.setReadTimeout(3600 * 1000);  // 1 hour read
+
+          RestClient restClient = RestClient.builder()
+                  .requestFactory(requestFactory)
+                  .baseUrl(GEMINI_API_BASE_URL)
+                  .build();
+
+          // 2. Build Request Payload (Google Gemini Format)
+          GeminiDTO.Part part = GeminiDTO.Part.builder()
+                  .text(prompt)
+                  .build();
+
+          GeminiDTO.Content content = GeminiDTO.Content.builder()
+                  .role("user")
+                  .parts(List.of(part))
+                  .build();
+
+          GeminiDTO.GenerationConfig genConfig = GeminiDTO.GenerationConfig.builder()
+                  .temperature(0.7)
+                  .maxOutputTokens(30000)
+                  .build();
+
+          GeminiDTO.Request geminiRequest = GeminiDTO.Request.builder()
+                  .contents(List.of(content))
+                  .generationConfig(genConfig)
+                  .build();
+
+          // 3. Execute Request
+          String url = GEMINI_API_BASE_URL + modelName + ":generateContent?key=" + geminiApiKey;
+          
+          GeminiDTO.Response response = restClient.post()
+                  .uri(url)
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .body(geminiRequest)
+                  .retrieve()
+                  .body(GeminiDTO.Response.class);
+
+          // 4. Process Response
+          if (response != null && response.getCandidates() != null && !response.getCandidates().isEmpty()) {
+              GeminiDTO.Candidate candidate = response.getCandidates().get(0);
+              if (candidate.getContent() != null && candidate.getContent().getParts() != null 
+                      && !candidate.getContent().getParts().isEmpty()) {
+                  
+                  String rawText = candidate.getContent().getParts().get(0).getText();
+                  log.debug("Raw Gemini response length: {}", rawText.length());
+                  
+                  return rawText;
+              }
+          }
+
+          throw new ApiException(ErrorCode.INTERNAL_ERROR, "Empty response from Gemini API");
+
+      } catch (Exception e) {
+          log.error("❌ Failed to call Gemini API directly: {}", e.getMessage());
+          throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "AI generation failed: " + e.getMessage());
+      }
   }
 
   /**

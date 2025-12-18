@@ -24,11 +24,16 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
+import com.exe.skillverse_backend.ai_service.dto.gemini.GeminiDTO;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestClient;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,8 +49,15 @@ import java.util.stream.Collectors;
 @Slf4j
 public class AiRoadmapServiceImpl implements AiRoadmapService {
 
-    private final ChatModel geminiChatModel;
-    private final ChatModel geminiFallback1ChatModel;
+    @Value("${spring.ai.openai.api-key}")
+    private String geminiApiKey;
+
+    @Value("${spring.ai.openai.chat.options.model}")
+    private String geminiModel;
+
+    // Use Gemini native endpoint instead of OpenAI-compatible one
+    private static final String GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
+
     private final RoadmapSessionRepository roadmapSessionRepository;
     private final UserRoadmapProgressRepository progressRepository;
     private final ObjectMapper objectMapper;
@@ -54,10 +66,9 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
     private final ExpertPromptService expertPromptService;
     private final TaxonomyService taxonomyService;
     private final PremiumService premiumService;
+    private final ChatModel mistralChatModel;
 
     public AiRoadmapServiceImpl(
-            @Qualifier("geminiChatModel") ChatModel geminiChatModel,
-            @Qualifier("geminiFallback1ChatModel") ChatModel geminiFallback1ChatModel,
             RoadmapSessionRepository roadmapSessionRepository,
             UserRoadmapProgressRepository progressRepository,
             ObjectMapper objectMapper,
@@ -65,9 +76,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             UsageLimitService usageLimitService,
             ExpertPromptService expertPromptService,
             TaxonomyService taxonomyService,
-            PremiumService premiumService) {
-        this.geminiChatModel = geminiChatModel;
-        this.geminiFallback1ChatModel = geminiFallback1ChatModel;
+            PremiumService premiumService,
+            @Qualifier("mistralAiChatModel") ChatModel mistralChatModel) {
         this.roadmapSessionRepository = roadmapSessionRepository;
         this.progressRepository = progressRepository;
         this.objectMapper = objectMapper;
@@ -76,6 +86,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         this.expertPromptService = expertPromptService;
         this.taxonomyService = taxonomyService;
         this.premiumService = premiumService;
+        this.mistralChatModel = mistralChatModel;
     }
 
     /**
@@ -161,7 +172,16 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             inputValidationService.validateTextOrThrow(request.getStyle());
 
             // Step 3: Call Gemini API with comprehensive prompt
-            String roadmapJson = callGeminiAPI(request);
+            String roadmapJson;
+            try {
+                roadmapJson = callGeminiAPI(request);
+            } catch (Exception e) {
+                log.warn("⚠️ Gemini API failed, attempting fallback to Mistral AI: {}", e.getMessage());
+                String prompt = buildPrompt(request);
+                String finalPrompt = prompt + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Nếu phát hiện mục tiêu/đầu vào vô lý, hãy từ chối lịch sự. Chỉ trả về JSON hợp lệ.";
+                roadmapJson = callMistralAPI(finalPrompt);
+                roadmapJson = extractJsonFromResponse(roadmapJson);
+            }
             String storedJson = sanitizeJson(roadmapJson);
 
             // Step 4: Parse and validate JSON (Schema V2)
@@ -436,100 +456,103 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
     }
 
     /**
-     * Call Gemini API using Spring AI ChatClient with fallback model
-     * Tries primary model first (2.5 Flash), then fallback to 2.0 Flash if quota
-     * exceeded
-     * Note: Gemini 1.5 has been deprecated
+     * Call Mistral AI via Spring AI ChatModel
      */
-    private String callGeminiAPI(GenerateRoadmapRequest request) {
-        String prompt = buildPrompt(request);
-        Exception lastException = null;
-
-        // Try primary model first (gemini-2.5-flash)
+    private String callMistralAPI(String prompt) {
+        log.info("📡 Calling Mistral AI as fallback");
         try {
-            log.info("🎯 Calling Gemini API (primary: 2.5 Flash) via Spring AI ChatClient");
-            return callGeminiWithModel(geminiChatModel, prompt, "Primary (2.5 Flash)");
+            return ChatClient.builder(mistralChatModel)
+                .build()
+                .prompt()
+                .user(prompt)
+                .call()
+                .content();
         } catch (Exception e) {
-            lastException = e;
-            String errorMsg = e.getMessage() != null ? e.getMessage().toLowerCase() : "";
-
-            // Check if it's a quota/rate limit error (429)
-            if (errorMsg.contains("429") || errorMsg.contains("quota") ||
-                    errorMsg.contains("resource_exhausted") || errorMsg.contains("rate limit")) {
-
-                log.warn("⚠️ Primary model quota exceeded, trying fallback (2.0 Flash)...");
-
-                // Try fallback (gemini-2.0-flash-exp)
-                try {
-                    return callGeminiWithModel(geminiFallback1ChatModel, prompt, "Fallback (2.0 Flash)");
-                } catch (Exception fallbackEx) {
-                    lastException = fallbackEx;
-                    log.error("❌ Fallback model also failed: {}", fallbackEx.getMessage());
-                }
-            } else {
-                log.error("❌ Primary model failed with non-quota error: {}", e.getMessage());
-            }
-
-            // Agent-mode fallback: retry without agent suffix using primary, then fallback
-            String savedAgent = request.getAiAgentMode();
-            try {
-                if (savedAgent != null && !savedAgent.isBlank()) {
-                    request.setAiAgentMode(null);
-                    String normalPrompt = buildPrompt(request);
-                    log.warn("🔁 Retrying with NORMAL agent mode prompt");
-                    try {
-                        return callGeminiWithModel(geminiChatModel, normalPrompt, "Primary (Normal Agent)");
-                    } catch (Exception ePrimaryNormal) {
-                        String err2 = ePrimaryNormal.getMessage() != null ? ePrimaryNormal.getMessage().toLowerCase()
-                                : "";
-                        if (err2.contains("429") || err2.contains("quota") ||
-                                err2.contains("resource_exhausted") || err2.contains("rate limit")) {
-                            try {
-                                return callGeminiWithModel(geminiFallback1ChatModel, normalPrompt,
-                                        "Fallback (Normal Agent)");
-                            } catch (Exception eFallbackNormal) {
-                                lastException = eFallbackNormal;
-                                log.error("❌ Normal agent fallback also failed: {}", eFallbackNormal.getMessage());
-                            }
-                        } else {
-                            lastException = ePrimaryNormal;
-                            log.error("❌ Primary (Normal Agent) failed: {}", ePrimaryNormal.getMessage());
-                        }
-                    }
-                }
-            } finally {
-                // Restore original agent mode
-                request.setAiAgentMode(savedAgent);
-            }
-
-            // Both attempts failed
-            log.error("❌ All Gemini API attempts failed: {}", lastException.getMessage());
-            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE,
-                    "AI service unavailable. Both models exhausted. Error: " + lastException.getMessage());
+            log.error("❌ Failed to call Mistral AI: {}", e.getMessage());
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "Mistral AI generation failed: " + e.getMessage());
         }
     }
 
     /**
-     * Call Gemini with specific ChatModel
+     * Call Gemini API directly using RestClient with extended timeout
      */
-    private String callGeminiWithModel(ChatModel chatModel, String prompt, String modelLabel) {
-        log.info("📡 Calling Gemini {} model...", modelLabel);
-        String response = ChatClient.builder(chatModel)
-                .build()
-                .prompt()
-                .user(prompt
-                        + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Nếu phát hiện mục tiêu/đầu vào vô lý (ví dụ: IELTS 10.0, nội dung thô tục), hãy từ chối lịch sự bằng tiếng Việt và gợi ý cách nhập lại hợp lệ. Chỉ trả về JSON hợp lệ như yêu cầu.")
-                .call()
-                .content();
+    private String callGeminiAPI(GenerateRoadmapRequest request) {
+        String prompt = buildPrompt(request);
+        
+        // Append critical instruction for JSON format
+        String finalPrompt = prompt + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Nếu phát hiện mục tiêu/đầu vào vô lý (ví dụ: IELTS 10.0, nội dung thô tục), hãy từ chối lịch sự bằng tiếng Việt và gợi ý cách nhập lại hợp lệ. Chỉ trả về JSON hợp lệ như yêu cầu.";
 
-        log.debug("Raw AI response length: {} chars", response.length());
-        log.debug("Raw AI response preview: {}", response.substring(0, Math.min(500, response.length())));
+        String rawResponse = callGeminiDirectly(finalPrompt, geminiModel);
+        return extractJsonFromResponse(rawResponse);
+    }
 
-        // Extract JSON from markdown code blocks if present
-        String cleanedResponse = extractJsonFromResponse(response);
+    /**
+     * Call Gemini API directly via HTTP REST and return raw text response
+     */
+    private String callGeminiDirectly(String prompt, String modelName) {
+        log.info("📡 Calling Gemini API directly (model: {})", modelName);
 
-        log.info("✅ Successfully generated roadmap with Gemini");
-        return cleanedResponse;
+        try {
+            // 1. Configure RestClient with 1-hour timeout
+            SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+            requestFactory.setConnectTimeout(60 * 1000); // 60s connect
+            requestFactory.setReadTimeout(3600 * 1000);  // 1 hour read
+
+            RestClient restClient = RestClient.builder()
+                    .requestFactory(requestFactory)
+                    .baseUrl(GEMINI_API_BASE_URL)
+                    .build();
+
+            // 2. Build Request Payload (Google Gemini Format)
+            GeminiDTO.Part part = GeminiDTO.Part.builder()
+                    .text(prompt)
+                    .build();
+
+            GeminiDTO.Content content = GeminiDTO.Content.builder()
+                    .role("user")
+                    .parts(List.of(part))
+                    .build();
+
+            GeminiDTO.GenerationConfig genConfig = GeminiDTO.GenerationConfig.builder()
+                    .temperature(0.7)
+                    .maxOutputTokens(30000)
+                    // .responseMimeType("application/json") // Don't force JSON here to support validation prompt
+                    .build();
+
+            GeminiDTO.Request geminiRequest = GeminiDTO.Request.builder()
+                    .contents(List.of(content))
+                    .generationConfig(genConfig)
+                    .build();
+
+            // 3. Execute Request
+            String url = GEMINI_API_BASE_URL + modelName + ":generateContent?key=" + geminiApiKey;
+            
+            GeminiDTO.Response response = restClient.post()
+                    .uri(url)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(geminiRequest)
+                    .retrieve()
+                    .body(GeminiDTO.Response.class);
+
+            // 4. Process Response
+            if (response != null && response.getCandidates() != null && !response.getCandidates().isEmpty()) {
+                GeminiDTO.Candidate candidate = response.getCandidates().get(0);
+                if (candidate.getContent() != null && candidate.getContent().getParts() != null 
+                        && !candidate.getContent().getParts().isEmpty()) {
+                    
+                    String rawText = candidate.getContent().getParts().get(0).getText();
+                    log.debug("Raw Gemini response length: {}", rawText.length());
+                    
+                    return rawText;
+                }
+            }
+
+            throw new ApiException(ErrorCode.INTERNAL_ERROR, "Empty response from Gemini API");
+
+        } catch (Exception e) {
+            log.error("❌ Failed to call Gemini API directly: {}", e.getMessage());
+            throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "AI generation failed: " + e.getMessage());
+        }
     }
 
     /**
@@ -621,6 +644,11 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 Analyze inputs using Pattern Detection Engine.
                 Validate using Validation Framework (scores, deprecated tech, time feasibility).
                 Generate roadmap adapted to level, style, context, preferences.
+                CRITICAL: Trong phần description của mỗi node, hãy sử dụng Markdown phong phú để làm nổi bật thông tin quan trọng:
+                - Dùng **in đậm** cho từ khóa quan trọng.
+                - Dùng *in nghiêng* cho lưu ý.
+                - Dùng danh sách (- item) để liệt kê.
+                - Dùng `code block` cho các thuật ngữ kỹ thuật hoặc lệnh.
                 Return ONLY valid JSON following the exact format specified above.
 
                 CRITICAL: Response must be pure JSON starting with { and ending with }.
@@ -859,7 +887,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                             {
                               "id": "quest-...",
                               "title": "Tiêu đề",
-                              "description": "Mô tả",
+                              "description": "Mô tả chi tiết với Markdown đầy đủ (bôi đậm, nghiêng, list, code block)",
                               "estimated_time_minutes": 180,
                               "type": "MAIN",
                               "difficulty": "easy | medium | hard",
@@ -1823,17 +1851,21 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         String validationPrompt = buildGoalValidationPrompt(goal);
 
         try {
-            // Use Spring AI ChatModel for validation
-            ChatResponse response = geminiChatModel.call(new Prompt(validationPrompt));
-            String aiResponse = response.getResult().getOutput().getContent().trim();
-
+            // Use Gemini RestClient for validation
+            String aiResponse = callGeminiDirectly(validationPrompt, geminiModel);
             log.debug("AI Validation Response: {}", aiResponse);
 
             // Parse AI response
             return parseAIValidationResponse(aiResponse, goal);
 
         } catch (Exception e) {
-            log.warn("⚠️ AI validation failed, falling back to basic validation: {}", e.getMessage());
+            log.warn("⚠️ AI validation (Gemini) failed, attempting fallback to Mistral: {}", e.getMessage());
+            try {
+                 String aiResponse = callMistralAPI(validationPrompt);
+                 return parseAIValidationResponse(aiResponse, goal);
+            } catch (Exception ex) {
+                log.warn("⚠️ AI validation (Mistral) failed, falling back to basic validation: {}", ex.getMessage());
+            }
 
             // Fallback: Basic validation if AI fails
             if (goal == null || goal.trim().isEmpty()) {
