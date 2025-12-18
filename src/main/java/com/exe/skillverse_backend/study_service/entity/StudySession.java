@@ -31,5 +31,6 @@ public class StudySession {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    private String description;
+    @Column(columnDefinition = "TEXT")
+    private String fullDescription;
 }

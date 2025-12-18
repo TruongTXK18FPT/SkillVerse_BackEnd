@@ -15,4 +15,7 @@ public class CreateTaskRequest {
     private TaskPriority priority;
     private UUID columnId;
     private java.util.List<UUID> linkedSessionIds;
+    private Integer userProgress;
+    private String satisfactionLevel;
+    private String userNotes;
 }

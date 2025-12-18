@@ -21,7 +21,9 @@ public class Task {
     private UUID id;
 
     private String title;
-    private String description;
+    
+    @Column(columnDefinition = "TEXT")
+    private String fullDescription;
 
     private LocalDateTime startDate;
     private LocalDateTime endDate;

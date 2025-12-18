@@ -2,6 +2,9 @@ package com.exe.skillverse_backend.study_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
+import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
+import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
 import com.exe.skillverse_backend.study_service.dto.request.GenerateScheduleRequest;
 import com.exe.skillverse_backend.study_service.dto.response.StudySessionResponse;
 import com.exe.skillverse_backend.study_service.entity.StudySession;
@@ -37,6 +40,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
 
     private final StudySessionRepository studySessionRepository;
     private final UserRepository userRepository;
+    private final UserSubscriptionRepository userSubscriptionRepository;
     private final ObjectMapper objectMapper;
 
     @Value("${spring.ai.planner.mistral.api-key:}")
@@ -104,7 +108,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         String focusWindows = request.getIdealFocusWindows() != null && !request.getIdealFocusWindows().isEmpty() ? String.join(", ", request.getIdealFocusWindows()) : "Không chỉ định";
 
         return String.format(
-            "Bạn là Trợ lý Lập kế hoạch Học tập AI. Tạo lịch học bằng Tiếng Việt cho yêu cầu:\n" +
+            "Bạn là Trợ lý Lập kế hoạch Học tập AI chuyên nghiệp. Hãy tạo một lịch trình học tập chi tiết, tối ưu bằng Tiếng Việt cho yêu cầu sau:\n" +
             "- Môn học: %s\n" +
             "- Chủ đề trọng tâm: %s\n" +
             "- Thời gian rảnh mô tả: %s\n" +
@@ -124,19 +128,16 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             "- Phương pháp học: %s\n" +
             "- Mục tiêu mong muốn: %s\n" +
             "- Tài nguyên ưa thích: %s\n\n" +
-            "QUY TẮC:\n" +
-            "1) Mỗi phần tử PHẢI có đủ: title, startTime, endTime, description.\n" +
-            "2) startTime và endTime theo ISO 8601 KHÔNG kèm múi giờ (YYYY-MM-DDTHH:mm:ss), hiểu theo múi giờ đã cho.\n" +
-            "3) Chỉ tạo phiên trong khung giờ ưu tiên và ngày ưu tiên; tôn trọng thói quen học.\n" +
-            "3.1) ƯU TIÊN đặt trong cửa sổ tập trung lý tưởng.\n" +
-            "4) Không tạo lịch trong quá khứ; thời điểm phải >= hiện tại và trước hạn chót.\n" +
-            "5) Không dùng năm không hợp lệ (ví dụ 2023 nếu hiện tại > 2023).\n" +
-            "6) Bảo đảm khoảng nghỉ giữa phiên và giới hạn số phiên/ngày.\n" +
-            "7) Tổng thời lượng một ngày không vượt quá giới hạn.\n" +
-            (avoidLateNight ? "8) Tránh tạo phiên sau 23:00 hoặc trước 06:00.\n" : allowLateNight ? "8) Nếu tạo phiên sau 23:00 hoặc trước 06:00, thêm cảnh báo \"Học khuya ảnh hưởng sức khỏe\" vào description.\n" : "8) Hạn chế tối đa phiên sau 23:00 hoặc trước 06:00.\n") +
-            "7) title gồm số thứ tự phiên + chủ đề; description nêu mục tiêu cụ thể, nội dung chi tiết, gợi ý tài nguyên phù hợp.\n" +
-            "8) Chỉ trả về MẢNG JSON thô, không markdown."
-            ,
+            "QUY TẮC QUAN TRỌNG:\n" +
+            "1) Trả về kết quả là một MẢNG JSON hợp lệ.\n" +
+            "2) Mỗi phần tử trong mảng là một object có các trường: title, startTime, endTime, description.\n" +
+            "3) Định dạng thời gian startTime và endTime là ISO 8601 (YYYY-MM-DDTHH:mm:ss).\n" +
+            "4) Không được chứa bất kỳ văn bản nào khác ngoài chuỗi JSON. Không dùng markdown ```json ... ```.\n" +
+            "5) Nếu không thể tạo lịch, trả về mảng rỗng [].\n" +
+            "6) description phải CỰC KỲ CHI TIẾT, bao gồm mục tiêu của phiên học và các bước thực hiện cụ thể (subtasks) nếu cần.\n" +
+            "7) Thời gian phải trong tương lai, từ ngày bắt đầu đến hạn chót.\n" +
+            "8) Các phiên học nên được phân bổ hợp lý theo phương pháp %s và mức độ %s.\n" +
+            (avoidLateNight ? "9) KHÔNG tạo phiên từ 23:00 đến 06:00.\n" : allowLateNight ? "9) Cảnh báo nếu học khuya.\n" : "9) Hạn chế học khuya.\n"),
             request.getSubjectName(),
             topics,
             request.getFreeTimeDescription(),
@@ -156,8 +157,38 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             intensity,
             method,
             outcome,
-            resources
+            resources,
+            method,
+            intensity
         );
+    }
+
+    // Helper method to determine Mistral model based on user plan
+    private String getMistralModelForUser(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        UserSubscription subscription = userSubscriptionRepository.findByUserAndIsActiveTrue(user)
+                .orElse(null);
+
+        // Check for Free Tier or No Subscription
+        if (subscription == null || 
+            (subscription.getPlan() != null && subscription.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER)) {
+            throw new RuntimeException("Tính năng AI Study Planner chỉ dành cho gói Premium (Skill-Plus, Student, Mentor-Pro). Vui lòng nâng cấp gói.");
+        }
+
+        String modelToUse = "mistral-small-latest"; // Default
+        if (subscription.getPlan() != null) {
+            String planName = subscription.getPlan().getName().toLowerCase();
+            String planType = subscription.getPlan().getPlanType().toString();
+            
+            // Check by Plan Name OR Plan Type
+            if ((planName.contains("mentor") && planName.contains("pro")) || 
+                "PREMIUM_PLUS".equals(planType)) {
+                modelToUse = "mistral-large-latest";
+            }
+        }
+        return modelToUse;
     }
 
     @Override
@@ -165,13 +196,36 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         if (chatClient == null) {
             throw new RuntimeException("AI Study Planner service is not correctly initialized (Missing API Key)");
         }
+
+        String modelToUse = getMistralModelForUser(userId);
+
+        log.info("Generating schedule for user {} using model {}", userId, modelToUse);
+        
+        MistralAiChatOptions options = MistralAiChatOptions.builder()
+                .withModel(modelToUse)
+                .withTemperature(0.7)
+                .build();
         
         String promptText = getPromptText(request);
-        String response = chatClient.prompt()
-                .system("Luôn trả lời bằng Tiếng Việt. Tuân thủ múi giờ Việt Nam (Asia/Ho_Chi_Minh). Không trả về markdown.")
-                .user(promptText)
-                .call()
-                .content();
+        String response = "";
+        try {
+            response = chatClient.prompt()
+                    .options(options)
+                    .system("Bạn là một chuyên gia lập kế hoạch học tập. Chỉ trả về JSON array thô, không markdown.")
+                    .user(promptText)
+                    .call()
+                    .content();
+        } catch (Exception e) {
+            log.error("Error calling AI service", e);
+            throw new RuntimeException("Failed to call AI service: " + e.getMessage());
+        }
+
+        if (response == null || response.isBlank()) {
+             throw new RuntimeException("AI service returned empty response");
+        }
+
+        log.debug("AI Raw Response: {}", response);
+
         List<StudySessionResponse> parsed = parseResponse(response);
         ZoneId zone = ZoneId.of(request.getTimezone() != null && !request.getTimezone().isBlank() ? request.getTimezone() : "Asia/Ho_Chi_Minh");
         return normalizeSessions(parsed, request.getDurationMinutes(), zone);
@@ -182,6 +236,14 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         if (chatClient == null) {
             throw new RuntimeException("AI Study Planner service is not correctly initialized");
         }
+
+        String modelToUse = getMistralModelForUser(userId);
+        log.info("Refining schedule for user {} using model {}", userId, modelToUse);
+
+        MistralAiChatOptions options = MistralAiChatOptions.builder()
+                .withModel(modelToUse)
+                .withTemperature(0.7)
+                .build();
 
         try {
             String currentScheduleJson = objectMapper.writeValueAsString(request.getCurrentSchedule());
@@ -200,6 +262,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             );
 
             String response = chatClient.prompt()
+                    .options(options)
                     .system("Luôn trả lời bằng Tiếng Việt. Tuân thủ múi giờ Việt Nam (Asia/Ho_Chi_Minh). Không trả về markdown.")
                     .user(promptText)
                     .call()
@@ -234,7 +297,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         for (StudySessionResponse resp : proposed) {
             StudySession session = StudySession.builder()
                     .title(resp.getTitle())
-                    .description(resp.getDescription())
+                    .fullDescription(resp.getDescription())
                     .startTime(resp.getStartTime())
                     .endTime(resp.getEndTime())
                     .status(StudySessionStatus.SCHEDULED)
@@ -247,7 +310,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 .map(s -> StudySessionResponse.builder()
                         .id(s.getId())
                         .title(s.getTitle())
-                        .description(s.getDescription())
+                        .description(s.getFullDescription())
                         .startTime(s.getStartTime())
                         .endTime(s.getEndTime())
                         .status(s.getStatus())

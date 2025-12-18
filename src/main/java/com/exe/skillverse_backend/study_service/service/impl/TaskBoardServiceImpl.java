@@ -134,7 +134,7 @@ public class TaskBoardServiceImpl implements TaskBoardService {
 
         Task task = Task.builder()
                 .title(request.getTitle())
-                .description(request.getDescription())
+                .fullDescription(request.getDescription())
                 .startDate(request.getStartDate())
                 .endDate(request.getEndDate())
                 .deadline(request.getDeadline())
@@ -143,6 +143,9 @@ public class TaskBoardServiceImpl implements TaskBoardService {
                 .column(column)
                 .user(user)
                 .linkedSessions(sessions)
+                .userProgress(request.getUserProgress() != null ? request.getUserProgress() : 0)
+                .satisfactionLevel(request.getSatisfactionLevel())
+                .userNotes(request.getUserNotes())
                 .build();
 
         return mapToTaskResponse(taskRepository.save(task));
@@ -155,7 +158,7 @@ public class TaskBoardServiceImpl implements TaskBoardService {
                 .orElseThrow(() -> new RuntimeException("Task not found"));
 
         if (request.getTitle() != null) task.setTitle(request.getTitle());
-        if (request.getDescription() != null) task.setDescription(request.getDescription());
+        if (request.getDescription() != null) task.setFullDescription(request.getDescription());
         if (request.getStartDate() != null) task.setStartDate(request.getStartDate());
         if (request.getEndDate() != null) task.setEndDate(request.getEndDate());
         if (request.getDeadline() != null) task.setDeadline(request.getDeadline());
@@ -252,7 +255,7 @@ public class TaskBoardServiceImpl implements TaskBoardService {
         return TaskResponse.builder()
                 .id(task.getId())
                 .title(task.getTitle())
-                .description(task.getDescription())
+                .description(task.getFullDescription())
                 .startDate(task.getStartDate())
                 .endDate(task.getEndDate())
                 .deadline(task.getDeadline())

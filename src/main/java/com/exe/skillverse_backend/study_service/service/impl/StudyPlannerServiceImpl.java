@@ -42,7 +42,7 @@ public class StudyPlannerServiceImpl implements StudyPlannerService {
                 .title(request.getTitle())
                 .startTime(request.getStartTime())
                 .endTime(request.getEndTime())
-                .description(request.getDescription())
+                .fullDescription(request.getDescription())
                 .status(StudySessionStatus.SCHEDULED)
                 .user(user)
                 .build();
@@ -65,7 +65,7 @@ public class StudyPlannerServiceImpl implements StudyPlannerService {
                 .title(request.getTitle())
                 .startTime(request.getStartTime())
                 .endTime(request.getEndTime())
-                .description(request.getDescription())
+                .fullDescription(request.getDescription())
                 .status(StudySessionStatus.SCHEDULED)
                 .user(user)
                 .build()).collect(Collectors.toList());
@@ -91,7 +91,7 @@ public class StudyPlannerServiceImpl implements StudyPlannerService {
     private Task buildTaskForSession(User user, StudySession session, TaskColumn column) {
         return Task.builder()
                 .title(session.getTitle())
-                .description(session.getDescription())
+                .fullDescription(session.getFullDescription())
                 .startDate(session.getStartTime())
                 .endDate(session.getEndTime())
                 .deadline(session.getEndTime())
@@ -182,7 +182,7 @@ public class StudyPlannerServiceImpl implements StudyPlannerService {
                 .startTime(session.getStartTime())
                 .endTime(session.getEndTime())
                 .status(session.getStatus())
-                .description(session.getDescription())
+                .description(session.getFullDescription())
                 .build();
     }
 }
