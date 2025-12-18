@@ -19,9 +19,9 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.mistralai.MistralAiChatModel;
-import org.springframework.ai.mistralai.MistralAiChatOptions;
-import org.springframework.ai.mistralai.api.MistralAiApi;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,7 +49,8 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
     @Value("${spring.ai.planner.mistral.model:mistral-small-latest}")
     private String mistralModel;
 
-    private ChatClient chatClient;
+    private RestClient restClient;
+    private static final String MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions";
 
     @PostConstruct
     public void init() {
@@ -58,15 +59,45 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             return;
         }
 
-        MistralAiApi mistralAiApi = new MistralAiApi(mistralApiKey);
-        MistralAiChatOptions options = MistralAiChatOptions.builder()
-                .withModel(mistralModel)
-                .withTemperature(0.7)
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(60 * 1000); // 60s connect
+        requestFactory.setReadTimeout(3600 * 1000);  // 1 hour read
+
+        this.restClient = RestClient.builder()
+                .requestFactory(requestFactory)
+                .baseUrl(MISTRAL_API_URL)
+                .defaultHeader("Authorization", "Bearer " + mistralApiKey)
                 .build();
         
-        MistralAiChatModel chatModel = new MistralAiChatModel(mistralAiApi, options);
-        this.chatClient = ChatClient.builder(chatModel).build();
-        log.info("Initialized AI Study Planner with Mistral model: {}", mistralModel);
+        log.info("Initialized AI Study Planner with Mistral model: {} (Direct REST)", mistralModel);
+    }
+
+    // Inner DTOs for Mistral API
+    @lombok.Data
+    @lombok.Builder
+    private static class MistralRequest {
+        private String model;
+        private List<Message> messages;
+        private double temperature;
+        @lombok.Data
+        @lombok.Builder
+        public static class Message {
+            private String role;
+            private String content;
+        }
+    }
+
+    @lombok.Data
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    private static class MistralResponse {
+        private List<Choice> choices;
+        @lombok.Data
+        @lombok.NoArgsConstructor
+        @lombok.AllArgsConstructor
+        public static class Choice {
+            private MistralRequest.Message message;
+        }
     }
 
     private List<StudySessionResponse> parseResponse(String response) {
@@ -212,7 +243,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
 
     @Override
     public List<StudySessionResponse> generateProposedSchedule(Long userId, GenerateScheduleRequest request) {
-        if (chatClient == null) {
+        if (restClient == null) {
             throw new RuntimeException("AI Study Planner service is not correctly initialized (Missing API Key)");
         }
 
@@ -220,20 +251,35 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
 
         log.info("Generating schedule for user {} using model {}", userId, modelToUse);
         
-        MistralAiChatOptions options = MistralAiChatOptions.builder()
-                .withModel(modelToUse)
-                .withTemperature(0.7)
-                .build();
-        
         String promptText = getPromptText(request);
         String response = "";
         try {
-            response = chatClient.prompt()
-                    .options(options)
-                    .system("Bạn là một chuyên gia lập kế hoạch học tập. Chỉ trả về JSON array thô, không markdown.")
-                    .user(promptText)
-                    .call()
-                    .content();
+            // Build request
+            MistralRequest mistralRequest = MistralRequest.builder()
+                    .model(modelToUse)
+                    .temperature(0.7)
+                    .messages(List.of(
+                            MistralRequest.Message.builder()
+                                    .role("system")
+                                    .content("Bạn là một chuyên gia lập kế hoạch học tập. Chỉ trả về JSON array thô, không markdown.")
+                                    .build(),
+                            MistralRequest.Message.builder()
+                                    .role("user")
+                                    .content(promptText)
+                                    .build()
+                    ))
+                    .build();
+
+            // Execute call
+            MistralResponse apiResponse = restClient.post()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(mistralRequest)
+                    .retrieve()
+                    .body(MistralResponse.class);
+
+            if (apiResponse != null && apiResponse.getChoices() != null && !apiResponse.getChoices().isEmpty()) {
+                response = apiResponse.getChoices().get(0).getMessage().getContent();
+            }
         } catch (Exception e) {
             log.error("Error calling AI service", e);
             throw new RuntimeException("Failed to call AI service: " + e.getMessage());
@@ -252,17 +298,12 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
 
     @Override
     public List<StudySessionResponse> refineSchedule(Long userId, RefineScheduleRequest request) {
-        if (chatClient == null) {
+        if (restClient == null) {
             throw new RuntimeException("AI Study Planner service is not correctly initialized");
         }
 
         String modelToUse = getMistralModelForUser(userId);
         log.info("Refining schedule for user {} using model {}", userId, modelToUse);
-
-        MistralAiChatOptions options = MistralAiChatOptions.builder()
-                .withModel(modelToUse)
-                .withTemperature(0.7)
-                .build();
 
         try {
             String currentScheduleJson = objectMapper.writeValueAsString(request.getCurrentSchedule());
@@ -281,12 +322,34 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 request.getUserFeedback()
             );
 
-            String response = chatClient.prompt()
-                    .options(options)
-                    .system("Luôn trả lời bằng Tiếng Việt. Tuân thủ múi giờ Việt Nam (Asia/Ho_Chi_Minh). Không trả về markdown.")
-                    .user(promptText)
-                    .call()
-                    .content();
+            String response = "";
+            // Build request
+            MistralRequest mistralRequest = MistralRequest.builder()
+                    .model(modelToUse)
+                    .temperature(0.7)
+                    .messages(List.of(
+                            MistralRequest.Message.builder()
+                                    .role("system")
+                                    .content("Luôn trả lời bằng Tiếng Việt. Tuân thủ múi giờ Việt Nam (Asia/Ho_Chi_Minh). Không trả về markdown.")
+                                    .build(),
+                            MistralRequest.Message.builder()
+                                    .role("user")
+                                    .content(promptText)
+                                    .build()
+                    ))
+                    .build();
+
+            // Execute call
+            MistralResponse apiResponse = restClient.post()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(mistralRequest)
+                    .retrieve()
+                    .body(MistralResponse.class);
+
+            if (apiResponse != null && apiResponse.getChoices() != null && !apiResponse.getChoices().isEmpty()) {
+                response = apiResponse.getChoices().get(0).getMessage().getContent();
+            }
+
             List<StudySessionResponse> parsed = parseResponse(response);
             int inferredDuration = inferDurationMinutes(parsed);
             ZoneId zone = ZoneId.of("Asia/Ho_Chi_Minh");
