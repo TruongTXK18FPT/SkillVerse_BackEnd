@@ -49,10 +49,12 @@ public class SpringAiConfig {
     @Bean
     @Qualifier("geminiChatModel")
     public ChatModel geminiChatModel() {
-        if (!StringUtils.hasText(geminiApiKey)) {
-            throw new IllegalArgumentException("Gemini API Key is missing. Please set GEMINI_API_KEY environment variable.");
+        String apiKey = geminiApiKey;
+        if (!StringUtils.hasText(apiKey)) {
+            System.err.println("⚠️ WARNING: Gemini API Key is missing! Using a dummy key to allow application startup. AI features will fail if used.");
+            apiKey = "dummy-key-to-allow-startup";
         }
-        return createGeminiChatModel(geminiModel);
+        return createGeminiChatModel(geminiModel, apiKey);
     }
 
     /**
@@ -66,15 +68,19 @@ public class SpringAiConfig {
     @Qualifier("geminiFallback1ChatModel")
     public ChatModel geminiFallback1ChatModel() {
         String model = fallbackModels.trim(); // Only one fallback now
-        return createGeminiChatModel(model);
+        String apiKey = geminiApiKey;
+        if (!StringUtils.hasText(apiKey)) {
+             apiKey = "dummy-key-to-allow-startup";
+        }
+        return createGeminiChatModel(model, apiKey);
     }
 
     /**
      * Helper method to create ChatModel with specific Gemini model
      */
-    private ChatModel createGeminiChatModel(String modelName) {
+    private ChatModel createGeminiChatModel(String modelName, String apiKey) {
         // Create OpenAI API client configured for Gemini's OpenAI-compatible endpoint
-        OpenAiApi openAiApi = new OpenAiApi(geminiBaseUrl, geminiApiKey);
+        OpenAiApi openAiApi = new OpenAiApi(geminiBaseUrl, apiKey);
 
         // Configure chat options with specified model and parameters
         OpenAiChatOptions chatOptions = OpenAiChatOptions.builder()
@@ -85,6 +91,11 @@ public class SpringAiConfig {
 
         // Create and return OpenAiChatModel with Gemini configuration
         return new OpenAiChatModel(openAiApi, chatOptions);
+    }
+
+    // Overload for backward compatibility if needed, though private
+    private ChatModel createGeminiChatModel(String modelName) {
+        return createGeminiChatModel(modelName, geminiApiKey);
     }
 
     /**
