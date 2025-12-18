@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.reactive.function.client.WebClient;
 
 /**
  * Spring AI Configuration for multiple AI providers
@@ -90,7 +91,7 @@ public class SpringAiConfig {
                 .requestFactory(requestFactory);
 
         // Create OpenAI API client configured for Gemini's OpenAI-compatible endpoint
-        OpenAiApi openAiApi = new OpenAiApi(geminiBaseUrl, apiKey, builder);
+        OpenAiApi openAiApi = new OpenAiApi(geminiBaseUrl, apiKey, builder, WebClient.builder());
 
         // Configure chat options with specified model and parameters
         OpenAiChatOptions chatOptions = OpenAiChatOptions.builder()
