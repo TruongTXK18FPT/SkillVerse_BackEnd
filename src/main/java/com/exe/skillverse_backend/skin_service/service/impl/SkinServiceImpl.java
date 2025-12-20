@@ -193,6 +193,46 @@ public class SkinServiceImpl implements SkinService {
     }
 
     @Override
+    public List<MeowlSkinResponse> getSkinLeaderboard(Long userId) {
+        List<Object[]> results = skinRepository.findSkinsWithSalesCount();
+        
+        Map<Long, UserSkin> userSkinMap = new HashMap<>();
+        if (userId != null) {
+            List<UserSkin> userSkins = userSkinRepository.findByUserId(userId);
+            userSkinMap = userSkins.stream()
+                .collect(Collectors.toMap(us -> us.getSkin().getId(), us -> us));
+        }
+
+        final Map<Long, UserSkin> finalUserSkinMap = userSkinMap;
+
+        return results.stream()
+                .map(record -> {
+                    MeowlSkin skin = (MeowlSkin) record[0];
+                    Long count = (Long) record[1];
+                    Long used = record[2] != null ? ((Number) record[2]).longValue() : 0L;
+                    
+                    UserSkin us = finalUserSkinMap.get(skin.getId());
+                    boolean isOwned = us != null;
+                    boolean isSelected = us != null && us.isActive();
+                    
+                    return MeowlSkinResponse.builder()
+                            .id(skin.getId())
+                            .skinCode(skin.getSkinCode())
+                            .name(skin.getName())
+                            .nameVi(skin.getNameVi())
+                            .imageUrl(skin.getImageUrl())
+                            .price(skin.getPrice())
+                            .isPremium(skin.isPremium())
+                            .isOwned(isOwned)
+                            .isSelected(isSelected)
+                            .purchasedCount(count)
+                            .usedCount(used)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
     @Transactional
     public void selectSkin(Long userId, String skinCode) {
         if ("default".equals(skinCode)) {

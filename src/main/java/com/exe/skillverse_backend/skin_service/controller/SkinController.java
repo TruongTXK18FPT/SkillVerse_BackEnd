@@ -108,4 +108,19 @@ public class SkinController {
         Long userId = Long.parseLong(authentication.getName());
         return ResponseEntity.ok(skinService.getMySkins(userId));
     }
+
+    @GetMapping("/leaderboard")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get skin leaderboard", description = "Get skins sorted by purchase count")
+    public ResponseEntity<List<MeowlSkinResponse>> getSkinLeaderboard(Authentication authentication) {
+        Long userId = Long.parseLong(authentication.getName());
+        return ResponseEntity.ok(skinService.getSkinLeaderboard(userId));
+    }
+
+    @GetMapping("/stats")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Get skin stats", description = "Get all skins with purchase counts for admin")
+    public ResponseEntity<List<MeowlSkinResponse>> getSkinStats() {
+        return ResponseEntity.ok(skinService.getSkinLeaderboard(null));
+    }
 }
