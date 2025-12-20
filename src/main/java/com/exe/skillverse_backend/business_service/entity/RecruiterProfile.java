@@ -39,6 +39,9 @@ public class RecruiterProfile {
     @Column(name = "tax_code_or_business_registration_number", nullable = false)
     private String taxCodeOrBusinessRegistrationNumber;
 
+    @Column(name = "company_phone", length = 20)
+    private String companyPhone;
+
     @Column(name = "company_documents_url", nullable = false)
     private String companyDocumentsUrl; // URL to uploaded company documents
 

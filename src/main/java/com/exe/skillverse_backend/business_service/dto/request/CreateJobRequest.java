@@ -43,4 +43,12 @@ public class CreateJobRequest {
     private Boolean isRemote;
 
     private String location; // Nullable - required only if isRemote = false
+
+    // Enhanced fields
+    private String experienceLevel;
+    private String jobType;
+    private Integer hiringQuantity;
+    private String benefits;
+    private String genderRequirement;
+    private Boolean isNegotiable;
 }

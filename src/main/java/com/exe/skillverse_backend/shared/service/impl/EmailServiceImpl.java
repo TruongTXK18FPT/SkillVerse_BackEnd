@@ -482,13 +482,13 @@ public class EmailServiceImpl implements EmailService {
     /**
      * Send email when application is ACCEPTED with custom message
      */
-    public void sendJobApplicationAccepted(String email, String fullName, String jobTitle, String acceptanceMessage) {
+    public void sendJobApplicationAccepted(String email, String fullName, String jobTitle, String acceptanceMessage, String contactEmail) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
             message.setFrom(fromEmail);
             message.setTo(email);
             message.setSubject("🎉 Congratulations! Your Job Application Has Been Accepted - SkillVerse");
-            message.setText(buildJobApplicationAcceptedContent(fullName, jobTitle, acceptanceMessage));
+            message.setText(buildJobApplicationAcceptedContent(fullName, jobTitle, acceptanceMessage, contactEmail));
 
             mailSender.send(message);
 
@@ -503,6 +503,7 @@ public class EmailServiceImpl implements EmailService {
             log.info("📧 Subject: Congratulations! Your Job Application Has Been Accepted - SkillVerse");
             log.info("📝 Your application for '{}' has been accepted!", jobTitle);
             log.info("💌 Message: {}", acceptanceMessage);
+            log.info("📧 Contact: {}", contactEmail);
             log.info("✉️  [SIMULATED] Application accepted email sent successfully to {}", email);
         }
     }
@@ -556,7 +557,7 @@ public class EmailServiceImpl implements EmailService {
                 .formatted(name, jobTitle);
     }
 
-    private String buildJobApplicationAcceptedContent(String name, String jobTitle, String acceptanceMessage) {
+    private String buildJobApplicationAcceptedContent(String name, String jobTitle, String acceptanceMessage, String contactEmail) {
         return """
                 Dear %s,
 
@@ -573,6 +574,8 @@ public class EmailServiceImpl implements EmailService {
                 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
                 Please follow the instructions provided by the recruiter to proceed with the next steps.
+                
+                You can contact the recruiter directly at: %s
 
                 If you have any questions, feel free to reply to this email or contact the recruiter directly using the information provided in their message.
 
@@ -581,7 +584,7 @@ public class EmailServiceImpl implements EmailService {
                 Best regards,
                 The SkillVerse Team
                 """
-                .formatted(name, jobTitle, acceptanceMessage);
+                .formatted(name, jobTitle, acceptanceMessage, contactEmail);
     }
 
     private String buildJobApplicationRejectedContent(String name, String jobTitle, String rejectionReason) {

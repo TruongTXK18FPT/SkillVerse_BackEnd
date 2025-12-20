@@ -17,7 +17,7 @@ public class RecruiterProfileUpdateRequest {
     private String companyName;
 
     @NotBlank(message = "Company website is required")
-    @Pattern(regexp = "^https?://.*", message = "Company website must be a valid URL")
+    @Pattern(regexp = "^(https?://)?([\\w\\d-]+\\.)+[\\w\\d]{2,}(/.*)?$", message = "Company website must be a valid URL (e.g. example.com or https://example.com)")
     private String companyWebsite;
 
     @NotBlank(message = "Company address is required")

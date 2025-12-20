@@ -22,6 +22,9 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import java.math.BigDecimal;
+
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -31,9 +34,10 @@ public class JobPostingServiceImpl implements JobPostingService {
     private final RecruiterProfileRepository recruiterProfileRepository;
     private final JobApplicationRepository jobApplicationRepository;
     private final ObjectMapper objectMapper;
+    private final WalletService walletService;
 
     /**
-     * Create a new job posting (status = IN_PROGRESS by default)
+     * Create a new job posting (status = PENDING_APPROVAL, fee = 50k)
      */
     @Transactional
     public JobPostingResponse createJob(Long userId, CreateJobRequest request) {
@@ -73,12 +77,35 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .deadline(request.getDeadline())
                 .isRemote(request.getIsRemote())
                 .location(request.getLocation())
-                .status(JobStatus.IN_PROGRESS) // Default status
+                .status(JobStatus.PENDING_APPROVAL) // Default status for approval
                 .applicantCount(0)
+                .experienceLevel(request.getExperienceLevel())
+                .jobType(request.getJobType())
+                .hiringQuantity(request.getHiringQuantity())
+                .benefits(request.getBenefits())
+                .genderRequirement(request.getGenderRequirement())
+                .isNegotiable(request.getIsNegotiable() != null ? request.getIsNegotiable() : false)
                 .recruiterProfile(recruiterProfile)
                 .build();
 
         JobPosting savedJob = jobPostingRepository.save(job);
+
+        // Deduct Job Posting Fee (50,000 VND)
+        try {
+            BigDecimal fee = new BigDecimal("50000");
+            walletService.deductCash(
+                    userId,
+                    fee,
+                    "Phí đăng tin tuyển dụng: " + savedJob.getTitle(),
+                    "JOB_POSTING",
+                    String.valueOf(savedJob.getId()));
+            log.info("Deducted 50,000 VND for job ID: {}", savedJob.getId());
+        } catch (Exception e) {
+            log.error("Failed to deduct job posting fee", e);
+            throw new IllegalStateException(
+                    "Số dư ví không đủ 50.000 VNĐ để đăng tin tuyển dụng. Vui lòng nạp thêm tiền.");
+        }
+
         log.info("Job created successfully with ID: {}", savedJob.getId());
 
         return mapToResponse(savedJob);
@@ -131,6 +158,20 @@ public class JobPostingServiceImpl implements JobPostingService {
         if (request.getLocation() != null) {
             job.setLocation(request.getLocation());
         }
+
+        // Enhanced fields update
+        if (request.getExperienceLevel() != null)
+            job.setExperienceLevel(request.getExperienceLevel());
+        if (request.getJobType() != null)
+            job.setJobType(request.getJobType());
+        if (request.getHiringQuantity() != null)
+            job.setHiringQuantity(request.getHiringQuantity());
+        if (request.getBenefits() != null)
+            job.setBenefits(request.getBenefits());
+        if (request.getGenderRequirement() != null)
+            job.setGenderRequirement(request.getGenderRequirement());
+        if (request.getIsNegotiable() != null)
+            job.setIsNegotiable(request.getIsNegotiable());
 
         // Validate budget
         if (job.getMaxBudget().compareTo(job.getMinBudget()) < 0) {
@@ -219,6 +260,10 @@ public class JobPostingServiceImpl implements JobPostingService {
 
     /**
      * Delete job (only if status = IN_PROGRESS)
+     * UPDATE: Allow delete for any status if force delete is requested (for
+     * cleanup)
+     * NOTE: This will also delete associated applications due to CascadeType or
+     * manual cleanup
      */
     @Transactional
     public void deleteJob(Long userId, Long jobId) {
@@ -228,10 +273,9 @@ public class JobPostingServiceImpl implements JobPostingService {
         JobPosting job = jobPostingRepository.findByIdAndRecruiterProfileUserId(jobId, userId)
                 .orElseThrow(() -> new NotFoundException("Job not found or you don't have permission to delete it"));
 
-        // Only allow delete if IN_PROGRESS
-        if (job.getStatus() != JobStatus.IN_PROGRESS) {
-            throw new IllegalStateException("Can only delete jobs that are IN_PROGRESS");
-        }
+        // Manual cleanup of applications before deleting job
+        // This is necessary if CascadeType.REMOVE is not set on the entity relationship
+        jobApplicationRepository.deleteByJobPostingId(jobId);
 
         jobPostingRepository.delete(job);
         log.info("Job deleted successfully: {}", jobId);
@@ -300,6 +344,12 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .location(job.getLocation())
                 .status(job.getStatus())
                 .applicantCount(job.getApplicantCount())
+                .experienceLevel(job.getExperienceLevel())
+                .jobType(job.getJobType())
+                .hiringQuantity(job.getHiringQuantity())
+                .benefits(job.getBenefits())
+                .genderRequirement(job.getGenderRequirement())
+                .isNegotiable(job.getIsNegotiable())
                 .recruiterCompanyName(job.getRecruiterProfile().getCompanyName())
                 .recruiterEmail(job.getRecruiterProfile().getUser().getEmail())
                 .recruiterUserId(job.getRecruiterProfile().getUser().getId())

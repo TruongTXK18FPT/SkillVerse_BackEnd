@@ -38,4 +38,12 @@ public class UpdateJobRequest {
     private Boolean isRemote;
 
     private String location;
+
+    // Enhanced fields
+    private String experienceLevel;
+    private String jobType;
+    private Integer hiringQuantity;
+    private String benefits;
+    private String genderRequirement;
+    private Boolean isNegotiable;
 }

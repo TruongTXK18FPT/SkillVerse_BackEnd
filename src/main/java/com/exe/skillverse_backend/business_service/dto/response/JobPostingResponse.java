@@ -29,6 +29,14 @@ public class JobPostingResponse {
     private JobStatus status;
     private Integer applicantCount;
 
+    // Enhanced fields
+    private String experienceLevel;
+    private String jobType;
+    private Integer hiringQuantity;
+    private String benefits;
+    private String genderRequirement;
+    private Boolean isNegotiable;
+
     // Recruiter information
     private String recruiterCompanyName;
     private String recruiterEmail;

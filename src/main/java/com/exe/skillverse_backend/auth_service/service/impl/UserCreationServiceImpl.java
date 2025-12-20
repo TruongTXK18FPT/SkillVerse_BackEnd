@@ -46,15 +46,15 @@ public class UserCreationServiceImpl implements UserCreationService {
      */
     @Transactional
     public User createUserForMentor(String email, String password, String fullName) {
-        return createUser(email, password, fullName, PrimaryRole.MENTOR, "MENTOR", false);
+        return createUser(email, password, fullName, null, PrimaryRole.MENTOR, "MENTOR", true);
     }
 
     /**
      * Create a new user for business/recruiter registration
      */
     @Transactional
-    public User createUserForRecruiter(String email, String password, String fullName) {
-        return createUser(email, password, fullName, PrimaryRole.RECRUITER, "RECRUITER", false);
+    public User createUserForRecruiter(String email, String password, String fullName, String phone) {
+        return createUser(email, password, fullName, phone, PrimaryRole.RECRUITER, "RECRUITER", true);
     }
 
     /**
@@ -62,7 +62,7 @@ public class UserCreationServiceImpl implements UserCreationService {
      */
     @Transactional
     public User createUserForUser(String email, String password, String fullName) {
-        return createUser(email, password, fullName, PrimaryRole.USER, "USER");
+        return createUser(email, password, fullName, null, PrimaryRole.USER, "USER", true);
     }
 
     /**
@@ -89,8 +89,8 @@ public class UserCreationServiceImpl implements UserCreationService {
     /**
      * Private method to create user with specific role
      */
-    private User createUser(String email, String password, String fullName, PrimaryRole primaryRole, String roleName,
-            boolean generateOtp) {
+    private User createUser(String email, String password, String fullName, String phone, PrimaryRole primaryRole,
+            String roleName, boolean generateOtp) {
         log.info("Creating user for {}: {}", primaryRole, email);
 
         // Check if user already exists
@@ -111,6 +111,7 @@ public class UserCreationServiceImpl implements UserCreationService {
                 .password(passwordEncoder.encode(password))
                 .firstName(extractFirstName(fullName))
                 .lastName(extractLastName(fullName))
+                .phoneNumber(phone)
                 .primaryRole(primaryRole)
                 .status(UserStatus.INACTIVE)
                 .isEmailVerified(false)
@@ -142,14 +143,6 @@ public class UserCreationServiceImpl implements UserCreationService {
             log.info("Generated OTP for user: {}", email);
         }
         return user;
-    }
-
-    /**
-     * Private method to create user with specific role (with OTP generation by
-     * default)
-     */
-    private User createUser(String email, String password, String fullName, PrimaryRole primaryRole, String roleName) {
-        return createUser(email, password, fullName, primaryRole, roleName, true);
     }
 
     /**

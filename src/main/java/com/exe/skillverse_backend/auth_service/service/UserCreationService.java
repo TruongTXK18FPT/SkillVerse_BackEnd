@@ -7,7 +7,7 @@ public interface UserCreationService {
 
     User createUserForMentor(String email, String password, String fullName);
 
-    User createUserForRecruiter(String email, String password, String fullName);
+    User createUserForRecruiter(String email, String password, String fullName, String phone);
 
     User createUserForUser(String email, String password, String fullName);
 

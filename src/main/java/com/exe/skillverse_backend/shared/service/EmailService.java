@@ -18,7 +18,7 @@ public interface EmailService {
 
     void sendJobApplicationReviewed(String email, String fullName, String jobTitle);
 
-    void sendJobApplicationAccepted(String email, String fullName, String jobTitle, String acceptanceMessage);
+    void sendJobApplicationAccepted(String email, String fullName, String jobTitle, String acceptanceMessage, String contactEmail);
 
     void sendJobApplicationRejected(String email, String fullName, String jobTitle, String rejectionReason);
 

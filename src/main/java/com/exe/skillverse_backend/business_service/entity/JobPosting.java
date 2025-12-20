@@ -54,6 +54,26 @@ public class JobPosting {
     @Column(name = "applicant_count", nullable = false)
     private Integer applicantCount = 0; // Default to 0
 
+    // Enhanced fields (TopCV inspired)
+    @Column(name = "experience_level", length = 50)
+    private String experienceLevel; // e.g. "Junior", "Senior", "Intern", "All Levels"
+
+    @Column(name = "job_type", length = 50)
+    private String jobType; // e.g. "FULL_TIME", "PART_TIME", "CONTRACT", "FREELANCE"
+
+    @Column(name = "hiring_quantity")
+    private Integer hiringQuantity; // Number of positions to fill
+
+    @Column(columnDefinition = "TEXT")
+    private String benefits; // JSON array or text description of benefits
+
+    // More TopCV-like fields
+    @Column(name = "gender_requirement", length = 20)
+    private String genderRequirement; // "MALE", "FEMALE", "ANY"
+
+    @Column(name = "is_negotiable")
+    private Boolean isNegotiable = false;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "recruiter_id", nullable = false)
     private RecruiterProfile recruiterProfile;

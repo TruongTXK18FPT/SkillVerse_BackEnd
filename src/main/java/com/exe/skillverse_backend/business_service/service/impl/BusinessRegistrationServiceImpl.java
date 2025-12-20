@@ -39,7 +39,8 @@ public class BusinessRegistrationServiceImpl
                         User user = userCreationService.createUserForRecruiter(
                                         request.getEmail(),
                                         request.getPassword(),
-                                        request.getFullName());
+                                        request.getFullName(),
+                                        request.getPhone());
 
                         // 2. Create RecruiterProfile in business_service
                         createRecruiterProfile(user, request);
@@ -150,7 +151,15 @@ public class BusinessRegistrationServiceImpl
                 request.setAddress(address);
                 request.setRegion(region);
                 request.setCompanyName(companyName);
-                request.setCompanyWebsite(companyWebsite);
+
+                // Normalize website URL: ensure it starts with http:// or https://
+                String normalizedWebsite = companyWebsite;
+                if (normalizedWebsite != null && !normalizedWebsite.trim().isEmpty()
+                                && !normalizedWebsite.matches("^https?://.*")) {
+                        normalizedWebsite = "https://" + normalizedWebsite.trim();
+                }
+                request.setCompanyWebsite(normalizedWebsite);
+
                 request.setCompanyAddress(companyAddress);
                 request.setTaxCodeOrBusinessRegistrationNumber(taxCodeOrBusinessRegistrationNumber);
                 request.setContactPersonPhone(contactPersonPhone);
@@ -210,6 +219,7 @@ public class BusinessRegistrationServiceImpl
                                 .companyWebsite(request.getCompanyWebsite())
                                 .companyAddress(request.getCompanyAddress())
                                 .taxCodeOrBusinessRegistrationNumber(request.getTaxCodeOrBusinessRegistrationNumber())
+                                .companyPhone(request.getPhone())
                                 .companyDocumentsUrl(request.getCompanyDocumentsUrl())
                                 // Contact Person Information
                                 .contactPersonPhone(request.getContactPersonPhone())

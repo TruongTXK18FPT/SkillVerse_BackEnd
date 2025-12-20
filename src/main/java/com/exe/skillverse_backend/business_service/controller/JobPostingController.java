@@ -114,7 +114,8 @@ public class JobPostingController {
     }
 
     /**
-     * DELETE /api/jobs/{id} - Delete job (RECRUITER only, only if IN_PROGRESS)
+     * DELETE /api/jobs/{id} - Delete job (RECRUITER only)
+     * UPDATE: Removed status check restriction to allow cleanup of old data
      */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('RECRUITER')")

@@ -180,6 +180,8 @@ public class JobApplicationServiceImpl implements JobApplicationService {
         String userEmail = application.getUser().getEmail();
         String userFullName = getUserFullName(application.getUser());
         String jobTitle = application.getJobPosting().getTitle();
+        // Get recruiter contact email from the profile associated with the job
+        String contactEmail = application.getJobPosting().getRecruiterProfile().getUser().getEmail();
 
         try {
             if (status == JobApplicationStatus.REVIEWED) {
@@ -187,7 +189,7 @@ public class JobApplicationServiceImpl implements JobApplicationService {
                 log.info("Sent REVIEWED email to {}", userEmail);
             } else if (status == JobApplicationStatus.ACCEPTED) {
                 emailService.sendJobApplicationAccepted(userEmail, userFullName, jobTitle,
-                        request.getAcceptanceMessage());
+                        request.getAcceptanceMessage(), contactEmail);
                 log.info("Sent ACCEPTED email to {}", userEmail);
             } else if (status == JobApplicationStatus.REJECTED) {
                 emailService.sendJobApplicationRejected(userEmail, userFullName, jobTitle,
