@@ -101,35 +101,54 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
     }
 
     private List<StudySessionResponse> parseResponse(String response) {
-        // Clean response if it contains markdown code blocks
-        if (response.startsWith("```json")) {
-            response = response.substring(7);
-        } else if (response.startsWith("```")) {
-            response = response.substring(3);
+        String cleaned = response.trim();
+        
+        // Remove markdown code blocks
+        if (cleaned.startsWith("```")) {
+            int newlineIndex = cleaned.indexOf("\n");
+            if (newlineIndex != -1) {
+                cleaned = cleaned.substring(newlineIndex + 1);
+            } else {
+                // Case where ```json is the only line or something similar
+                 cleaned = cleaned.substring(3);
+            }
         }
         
-        if (response.endsWith("```")) {
-            response = response.substring(0, response.length() - 3);
+        if (cleaned.endsWith("```")) {
+            cleaned = cleaned.substring(0, cleaned.length() - 3);
         }
         
-        // Escape backslashes that might be used for markdown escaping but break JSON
-        // We only want to escape backslashes that are NOT already escaped
-        // But Jackson parser is strict. Let's try to configure ObjectMapper to be more lenient first.
+        cleaned = cleaned.trim();
         
         try {
-            return objectMapper.readValue(response, new TypeReference<List<StudySessionResponse>>() {});
+            return objectMapper.readValue(cleaned, new TypeReference<List<StudySessionResponse>>() {});
         } catch (JsonProcessingException e) {
-            log.error("Error parsing AI response: {}", response); // Log full response for debug
+            log.error("Error parsing AI response (standard): {}", response);
             
             try {
-                // Configure mapper to allow backslash escaping for non-standard JSON
+                // Configure extremely lenient mapper
                 ObjectMapper lenientMapper = new ObjectMapper();
                 lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_BACKSLASH_ESCAPING_ANY_CHARACTER.mappedFeature(), true);
+                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_UNQUOTED_FIELD_NAMES.mappedFeature(), true);
+                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_SINGLE_QUOTES.mappedFeature(), true);
+                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_LEADING_ZEROS_FOR_NUMBERS.mappedFeature(), true);
+                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_NON_NUMERIC_NUMBERS.mappedFeature(), true);
+                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_JAVA_COMMENTS.mappedFeature(), true);
+                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_TRAILING_COMMA.mappedFeature(), true);
                 lenientMapper.findAndRegisterModules();
                 
-                return lenientMapper.readValue(response, new TypeReference<List<StudySessionResponse>>() {});
+                return lenientMapper.readValue(cleaned, new TypeReference<List<StudySessionResponse>>() {});
             } catch (Exception ex) {
                  log.error("Fallback parsing failed", ex);
+                 // Last resort: Try to sanitize backslashes manually if it's the specific error
+                 if (ex.getMessage().contains("Unexpected character ('\\'")) {
+                     try {
+                         String sanitized = cleaned.replace("\\", "\\\\");
+                         return objectMapper.readValue(sanitized, new TypeReference<List<StudySessionResponse>>() {});
+                     } catch (Exception ex2) {
+                         log.error("Double fallback failed", ex2);
+                     }
+                 }
             }
             
             throw new RuntimeException("Failed to parse AI schedule");

@@ -272,18 +272,18 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .duration(parsed.metadata().getDuration())
                     .experienceLevel(parsed.metadata().getExperienceLevel())
                     .learningStyle(parsed.metadata().getLearningStyle())
-                    .roadmapMode(parsed.metadata().getRoadmapMode() != null ? parsed.metadata().getRoadmapMode()
-                            : (request.getRoadmapMode() != null ? request.getRoadmapMode().name() : null))
-                    .roadmapType(parsed.metadata().getRoadmapType() != null ? parsed.metadata().getRoadmapType()
-                            : request.getRoadmapType())
+                    .roadmapMode(truncate(parsed.metadata().getRoadmapMode() != null ? parsed.metadata().getRoadmapMode()
+                            : (request.getRoadmapMode() != null ? request.getRoadmapMode().name() : null), 20))
+                    .roadmapType(truncate(parsed.metadata().getRoadmapType() != null ? parsed.metadata().getRoadmapType()
+                            : request.getRoadmapType(), 20))
                     .target(parsed.metadata().getTarget() != null ? parsed.metadata().getTarget() : request.getTarget())
                     .finalObjective(
-                            parsed.metadata().getFinalObjective() != null ? parsed.metadata().getFinalObjective()
-                                    : request.getFinalObjective())
+                            truncate(parsed.metadata().getFinalObjective() != null ? parsed.metadata().getFinalObjective()
+                                    : request.getFinalObjective(), 100))
                     // Statistics (for premium quota)
                     .totalNodes(totalNodes)
                     .totalEstimatedHours(totalHours)
-                    .difficultyLevel(parsed.metadata().getDifficultyLevel())
+                    .difficultyLevel(truncate(parsed.metadata().getDifficultyLevel(), 20))
                     // Premium tracking
                     .isPremiumGenerated(false) // TODO: Check user premium status
                     // Full JSON
@@ -319,6 +319,15 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             log.error("❌ Failed to generate roadmap V2", e);
             throw new ApiException(ErrorCode.INTERNAL_ERROR, "Failed to generate roadmap: " + e.getMessage());
         }
+    }
+
+    /**
+     * Helper to truncate strings to database column limits
+     */
+    private String truncate(String value, int maxLength) {
+        if (value == null) return null;
+        if (value.length() <= maxLength) return value;
+        return value.substring(0, maxLength);
     }
 
     public Map<String, Long> getModeCountsGlobal() {
