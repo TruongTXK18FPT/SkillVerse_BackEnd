@@ -39,6 +39,11 @@ public class CloudinaryServiceImpl implements CloudinaryService {
 
     @Override
     public Map<String, Object> uploadImage(MultipartFile file, String folder) throws IOException {
+        return uploadImageWithOptions(file, folder, null);
+    }
+
+    @Override
+    public Map<String, Object> uploadImageWithOptions(MultipartFile file, String folder, Map<String, Object> options) throws IOException {
         log.info("Uploading image: {} to folder: {}", file.getOriginalFilename(), folder);
 
         validateFile(file, "image");
@@ -47,6 +52,10 @@ public class CloudinaryServiceImpl implements CloudinaryService {
         params.put("transformation", new Transformation()
                 .quality("auto")
                 .fetchFormat("auto"));
+        
+        if (options != null) {
+            params.putAll(options);
+        }
 
         Map<String, Object> result = cloudinary.uploader().upload(file.getBytes(), params);
 

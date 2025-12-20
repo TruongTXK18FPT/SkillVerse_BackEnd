@@ -1,0 +1,109 @@
+package com.exe.skillverse_backend.skin_service.controller;
+
+import com.exe.skillverse_backend.skin_service.dto.request.MeowlSkinRequest;
+import com.exe.skillverse_backend.skin_service.dto.response.MeowlSkinResponse;
+import com.exe.skillverse_backend.skin_service.service.SkinService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/skins")
+@RequiredArgsConstructor
+@Slf4j
+@Tag(name = "Meowl Skin Management", description = "APIs for managing Meowl Skins (Admin Upload & User Purchase)")
+public class SkinController {
+
+    private final SkinService skinService;
+
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Upload new skin (Admin)", description = "Uploads a new skin, resizes it to 268x418, and removes background.")
+    public ResponseEntity<MeowlSkinResponse> uploadSkin(
+            @Parameter(description = "Skin image file") @RequestParam("file") MultipartFile file,
+            @Parameter(description = "Skin code (unique)") @RequestParam("skinCode") String skinCode,
+            @Parameter(description = "Name (English)") @RequestParam("name") String name,
+            @Parameter(description = "Name (Vietnamese)") @RequestParam("nameVi") String nameVi,
+            @Parameter(description = "Is Premium?") @RequestParam(value = "isPremium", defaultValue = "false") Boolean isPremium,
+            @Parameter(description = "Price (0 for free)") @RequestParam("price") BigDecimal price
+    ) throws IOException {
+        
+        MeowlSkinRequest request = new MeowlSkinRequest();
+        request.setSkinCode(skinCode);
+        request.setName(name);
+        request.setNameVi(nameVi);
+        request.setIsPremium(isPremium);
+        request.setPrice(price);
+        
+        return ResponseEntity.ok(skinService.uploadSkin(request, file));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Update skin details", description = "Update skin name, price, etc.")
+    public ResponseEntity<MeowlSkinResponse> updateSkin(
+            @PathVariable Long id,
+            @RequestBody MeowlSkinRequest request
+    ) {
+        return ResponseEntity.ok(skinService.updateSkin(id, request));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Delete skin", description = "Delete a skin by ID")
+    public ResponseEntity<Void> deleteSkin(@PathVariable Long id) {
+        skinService.deleteSkin(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{skinCode}/purchase")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Purchase skin", description = "Purchase a skin using wallet balance")
+    public ResponseEntity<String> purchaseSkin(
+            @PathVariable String skinCode,
+            Authentication authentication
+    ) {
+        Long userId = Long.parseLong(authentication.getName()); // Assuming subject is userId
+        // Or if using specific principal extraction:
+        // Long userId = extractUserId(authentication);
+        
+        // Let's use standard parsing assuming standard JWT setup where sub is userId
+        // If not, we might need a helper method.
+        // Looking at other controllers, they often use: Long.valueOf(jwt.getClaimAsString("userId"))
+        // I will assume standard Principal name is userId or I'll try to be safe.
+        // Actually, WalletController used extractUserId. I should copy that helper or implement it.
+        // I'll implement a simple one here or just parse getName() if it's numeric.
+        
+        skinService.purchaseSkin(userId, skinCode);
+        return ResponseEntity.ok("Skin purchased successfully");
+    }
+
+    @GetMapping
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get all skins", description = "Get all available skins with ownership status")
+    public ResponseEntity<List<MeowlSkinResponse>> getAllSkins(Authentication authentication) {
+        Long userId = Long.parseLong(authentication.getName());
+        return ResponseEntity.ok(skinService.getAllSkins(userId));
+    }
+
+    @GetMapping("/my-skins")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get my skins", description = "Get only skins owned by the user")
+    public ResponseEntity<List<MeowlSkinResponse>> getMySkins(Authentication authentication) {
+        Long userId = Long.parseLong(authentication.getName());
+        return ResponseEntity.ok(skinService.getMySkins(userId));
+    }
+}

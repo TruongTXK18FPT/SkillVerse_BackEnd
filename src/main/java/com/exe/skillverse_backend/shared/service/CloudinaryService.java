@@ -11,6 +11,17 @@ import java.util.Map;
 public interface CloudinaryService {
 
     /**
+     * Upload an image file to Cloudinary with custom options
+     *
+     * @param file    The multipart file to upload
+     * @param folder  Optional folder path in Cloudinary
+     * @param options Additional upload options (e.g., background_removal)
+     * @return Map containing upload result
+     * @throws IOException if upload fails
+     */
+    Map<String, Object> uploadImageWithOptions(MultipartFile file, String folder, Map<String, Object> options) throws IOException;
+
+    /**
      * Upload an image file to Cloudinary
      * 
      * @param file   The multipart file to upload
