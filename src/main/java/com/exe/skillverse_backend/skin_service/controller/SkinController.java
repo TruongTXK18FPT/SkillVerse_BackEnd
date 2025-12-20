@@ -76,19 +76,21 @@ public class SkinController {
             @PathVariable String skinCode,
             Authentication authentication
     ) {
-        Long userId = Long.parseLong(authentication.getName()); // Assuming subject is userId
-        // Or if using specific principal extraction:
-        // Long userId = extractUserId(authentication);
-        
-        // Let's use standard parsing assuming standard JWT setup where sub is userId
-        // If not, we might need a helper method.
-        // Looking at other controllers, they often use: Long.valueOf(jwt.getClaimAsString("userId"))
-        // I will assume standard Principal name is userId or I'll try to be safe.
-        // Actually, WalletController used extractUserId. I should copy that helper or implement it.
-        // I'll implement a simple one here or just parse getName() if it's numeric.
-        
+        Long userId = Long.parseLong(authentication.getName());
         skinService.purchaseSkin(userId, skinCode);
         return ResponseEntity.ok("Skin purchased successfully");
+    }
+
+    @PostMapping("/{skinCode}/select")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Select skin", description = "Select a skin to be equipped")
+    public ResponseEntity<String> selectSkin(
+            @PathVariable String skinCode,
+            Authentication authentication
+    ) {
+        Long userId = Long.parseLong(authentication.getName());
+        skinService.selectSkin(userId, skinCode);
+        return ResponseEntity.ok("Skin selected successfully");
     }
 
     @GetMapping

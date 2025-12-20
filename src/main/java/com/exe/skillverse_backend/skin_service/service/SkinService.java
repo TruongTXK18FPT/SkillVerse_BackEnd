@@ -15,5 +15,6 @@ public interface SkinService {
     void purchaseSkin(Long userId, String skinCode);
     List<MeowlSkinResponse> getAllSkins(Long userId); // userId to check ownership
     List<MeowlSkinResponse> getMySkins(Long userId);
+    void selectSkin(Long userId, String skinCode);
     MeowlSkin getSkinByCode(String skinCode);
 }

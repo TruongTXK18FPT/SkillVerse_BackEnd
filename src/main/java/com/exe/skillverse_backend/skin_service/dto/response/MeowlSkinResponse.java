@@ -15,4 +15,5 @@ public class MeowlSkinResponse {
     private boolean isPremium;
     private BigDecimal price;
     private boolean isOwned;
+    private boolean isSelected;
 }

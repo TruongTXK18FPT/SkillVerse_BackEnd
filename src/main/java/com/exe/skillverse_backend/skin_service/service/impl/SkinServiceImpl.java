@@ -89,7 +89,7 @@ public class SkinServiceImpl implements SkinService {
                 .build();
 
         skin = skinRepository.save(skin);
-        return mapToResponse(skin, false);
+        return mapToResponse(skin, false, false);
     }
 
     @Override
@@ -105,7 +105,7 @@ public class SkinServiceImpl implements SkinService {
         // Image update is separate usually, or handled if file is provided
         
         skin = skinRepository.save(skin);
-        return mapToResponse(skin, false);
+        return mapToResponse(skin, false, false);
     }
 
     @Override
@@ -160,7 +160,7 @@ public class SkinServiceImpl implements SkinService {
         UserSkin userSkin = UserSkin.builder()
                 .user(user)
                 .skin(skin)
-                .isActive(true)
+                .isActive(false) // Purchased but not equipped by default
                 .build();
 
         userSkinRepository.save(userSkin);
@@ -169,20 +169,65 @@ public class SkinServiceImpl implements SkinService {
     @Override
     public List<MeowlSkinResponse> getAllSkins(Long userId) {
         List<MeowlSkin> skins = skinRepository.findAll();
-        List<Long> ownedSkinIds = userSkinRepository.findByUserId(userId).stream()
-                .map(us -> us.getSkin().getId())
-                .collect(Collectors.toList());
+        List<UserSkin> userSkins = userSkinRepository.findByUserId(userId);
+        
+        // Map skinId -> UserSkin
+        Map<Long, UserSkin> userSkinMap = userSkins.stream()
+            .collect(Collectors.toMap(us -> us.getSkin().getId(), us -> us));
 
         return skins.stream()
-                .map(skin -> mapToResponse(skin, ownedSkinIds.contains(skin.getId())))
+                .map(skin -> {
+                    UserSkin us = userSkinMap.get(skin.getId());
+                    boolean isOwned = us != null;
+                    boolean isSelected = us != null && us.isActive();
+                    return mapToResponse(skin, isOwned, isSelected);
+                })
                 .collect(Collectors.toList());
     }
 
     @Override
     public List<MeowlSkinResponse> getMySkins(Long userId) {
         return userSkinRepository.findByUserId(userId).stream()
-                .map(us -> mapToResponse(us.getSkin(), true))
+                .map(us -> mapToResponse(us.getSkin(), true, us.isActive()))
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public void selectSkin(Long userId, String skinCode) {
+        if ("default".equals(skinCode)) {
+             List<UserSkin> userSkins = userSkinRepository.findByUserId(userId);
+             for (UserSkin us : userSkins) {
+                 if (us.isActive()) {
+                     us.setActive(false);
+                     userSkinRepository.save(us);
+                 }
+             }
+             return;
+        }
+
+        MeowlSkin skin = skinRepository.findBySkinCode(skinCode)
+                .orElseThrow(() -> new IllegalArgumentException("Skin not found"));
+        
+        List<UserSkin> userSkins = userSkinRepository.findByUserId(userId);
+        
+        boolean found = false;
+        for (UserSkin us : userSkins) {
+            if (us.getSkin().getId().equals(skin.getId())) {
+                us.setActive(true);
+                found = true;
+            } else {
+                if (us.isActive()) {
+                    us.setActive(false);
+                }
+            }
+        }
+        
+        if (!found) {
+             throw new IllegalStateException("User does not own this skin");
+        }
+        
+        userSkinRepository.saveAll(userSkins);
     }
 
     @Override
@@ -191,7 +236,7 @@ public class SkinServiceImpl implements SkinService {
                 .orElseThrow(() -> new IllegalArgumentException("Skin not found"));
     }
 
-    private MeowlSkinResponse mapToResponse(MeowlSkin skin, boolean isOwned) {
+    private MeowlSkinResponse mapToResponse(MeowlSkin skin, boolean isOwned, boolean isSelected) {
         return MeowlSkinResponse.builder()
                 .id(skin.getId())
                 .skinCode(skin.getSkinCode())
@@ -201,6 +246,7 @@ public class SkinServiceImpl implements SkinService {
                 .price(skin.getPrice())
                 .isPremium(skin.isPremium())
                 .isOwned(isOwned)
+                .isSelected(isSelected)
                 .build();
     }
 
