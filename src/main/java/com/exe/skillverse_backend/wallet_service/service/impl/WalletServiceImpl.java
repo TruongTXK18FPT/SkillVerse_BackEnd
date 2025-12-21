@@ -12,6 +12,9 @@ import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.wallet_service.service.impl.WalletEmailServiceImpl;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -37,6 +40,8 @@ public class WalletServiceImpl implements WalletService {
         private final UserRepository userRepository;
         private final UserProfileRepository userProfileRepository;
         private final PasswordEncoder passwordEncoder;
+        private final WalletEmailServiceImpl walletEmailService;
+        private final NotificationService notificationService;
 
         /**
          * Tạo ví mới cho user (tự động khi register)
@@ -745,4 +750,109 @@ public class WalletServiceImpl implements WalletService {
                         return response;
                 });
         }
+
+
+
+    // ... constructors ...
+
+    /**
+     * Gift user cash or coin from admin
+     */
+    @Transactional
+    @Override
+    public WalletTransaction giftUser(Long userId, BigDecimal cashAmount, Long coinAmount, String reason) {
+        if (cashAmount == null) cashAmount = BigDecimal.ZERO;
+        if (coinAmount == null) coinAmount = 0L;
+
+        if (cashAmount.compareTo(BigDecimal.ZERO) <= 0 && coinAmount <= 0) {
+            throw new IllegalArgumentException("Phải nhập số tiền hoặc xu hợp lệ");
+        }
+
+        Wallet wallet = walletRepository.findByUserIdWithLock(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+
+        WalletTransaction lastTransaction = null;
+
+        // 1. Process Cash Gift
+        if (cashAmount.compareTo(BigDecimal.ZERO) > 0) {
+            // Use receiveGift to update balance without affecting totalDeposited
+            wallet.receiveGift(cashAmount);
+            walletRepository.save(wallet);
+
+            WalletTransaction cashTx = WalletTransaction.builder()
+                    .wallet(wallet)
+                    .transactionType(WalletTransaction.TransactionType.ADMIN_ADJUSTMENT)
+                    .currencyType(WalletTransaction.CurrencyType.CASH)
+                    .cashAmount(cashAmount)
+                    .coinAmount(0L)
+                    .cashBalanceAfter(wallet.getCashBalance())
+                    .coinBalanceAfter(wallet.getCoinBalance())
+                    .description(reason != null && !reason.isEmpty() ? "Admin Gift: " + reason : "Admin Gift: Tiền thưởng từ Admin")
+                    .referenceType("ADMIN_GIFT")
+                    .referenceId("CASH_" + System.currentTimeMillis())
+                    .status(WalletTransaction.TransactionStatus.COMPLETED)
+                    .build();
+
+            lastTransaction = transactionRepository.save(cashTx);
+        }
+
+        // 2. Process Coin Gift
+        if (coinAmount > 0) {
+            wallet.earnCoins(coinAmount);
+            // Note: earnCoins updates lastTransactionAt and totalCoinsEarned
+            walletRepository.save(wallet);
+
+            WalletTransaction coinTx = WalletTransaction.builder()
+                    .wallet(wallet)
+                    .transactionType(WalletTransaction.TransactionType.ADMIN_ADJUSTMENT)
+                    .currencyType(WalletTransaction.CurrencyType.COIN)
+                    .cashAmount(BigDecimal.ZERO)
+                    .coinAmount(coinAmount)
+                    .cashBalanceAfter(wallet.getCashBalance()) // Latest balance
+                    .coinBalanceAfter(wallet.getCoinBalance())
+                    .description(reason != null && !reason.isEmpty() ? "Admin Gift: " + reason : "Admin Gift: Xu thưởng từ Admin")
+                    .referenceType("ADMIN_GIFT")
+                    .referenceId("COIN_" + System.currentTimeMillis())
+                    .status(WalletTransaction.TransactionStatus.COMPLETED)
+                    .build();
+
+            lastTransaction = transactionRepository.save(coinTx);
+        }
+
+        // Send Email and Notification
+        try {
+            walletEmailService.sendAdminGiftEmail(wallet.getUser(), cashAmount, coinAmount, reason);
+            
+            // Create notification
+            String notificationTitle = "🎁 Bạn có quà tặng mới!";
+            String notificationMessage = "";
+            if (cashAmount.compareTo(BigDecimal.ZERO) > 0 && coinAmount > 0) {
+                notificationMessage = String.format("Bạn đã nhận được %s VNĐ và %d Xu từ Admin. Lý do: %s", 
+                    java.text.NumberFormat.getCurrencyInstance(new java.util.Locale("vi", "VN")).format(cashAmount), 
+                    coinAmount, 
+                    reason != null ? reason : "Quà tặng");
+            } else if (cashAmount.compareTo(BigDecimal.ZERO) > 0) {
+                notificationMessage = String.format("Bạn đã nhận được %s VNĐ từ Admin. Lý do: %s", 
+                    java.text.NumberFormat.getCurrencyInstance(new java.util.Locale("vi", "VN")).format(cashAmount), 
+                    reason != null ? reason : "Quà tặng");
+            } else if (coinAmount > 0) {
+                notificationMessage = String.format("Bạn đã nhận được %d Xu từ Admin. Lý do: %s", 
+                    coinAmount, 
+                    reason != null ? reason : "Quà tặng");
+            }
+            
+            notificationService.createNotification(
+                userId, 
+                notificationTitle, 
+                notificationMessage, 
+                com.exe.skillverse_backend.notification_service.entity.NotificationType.SYSTEM,
+                lastTransaction != null ? lastTransaction.getTransactionId().toString() : "GIFT"
+            );
+        } catch (Exception e) {
+            log.error("Failed to send gift notification/email: {}", e.getMessage());
+            // Don't fail the transaction just because notification failed
+        }
+
+        return lastTransaction;
+    }
 }

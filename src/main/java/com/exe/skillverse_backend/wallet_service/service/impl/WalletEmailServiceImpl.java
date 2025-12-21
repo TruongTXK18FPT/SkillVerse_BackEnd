@@ -188,7 +188,125 @@ public class WalletEmailServiceImpl {
         }
     }
 
+    /**
+     * Send Admin Gift notification (to user)
+     */
+    @Async
+    public void sendAdminGiftEmail(User user, BigDecimal cashAmount, Long coinAmount, String reason) {
+        try {
+            String userName = (user.getFirstName() != null ? user.getFirstName() : user.getEmail());
+            String html = buildAdminGiftHtml(
+                    userName,
+                    cashAmount != null && cashAmount.compareTo(BigDecimal.ZERO) > 0 ? formatCurrency(cashAmount) : null,
+                    coinAmount != null && coinAmount > 0 ? coinAmount + " Coins" : null,
+                    reason != null && !reason.isEmpty() ? reason : "Quà tặng từ Admin");
+            sendHtmlEmail(user.getEmail(), "🎁 Bạn Nhận Được Quà Tặng Từ SkillVerse", html);
+            log.info("✅ Sent admin gift email to {}", user.getEmail());
+        } catch (Exception e) {
+            log.error("❌ Failed to send admin gift email: {}", e.getMessage());
+        }
+    }
+
     // ==================== HTML EMAIL BUILDERS ====================
+
+    private String buildAdminGiftHtml(String userName, String cashAmount, String coinAmount, String reason) {
+        StringBuilder giftContent = new StringBuilder();
+        if (cashAmount != null) {
+            giftContent.append(String.format("<div class=\"gift-item cash\">💰 %s</div>", cashAmount));
+        }
+        if (coinAmount != null) {
+            giftContent.append(String.format("<div class=\"gift-item coin\">🪙 %s</div>", coinAmount));
+        }
+
+        return String.format(
+                """
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta charset="UTF-8">
+                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                            <style>
+                                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; margin: 0; padding: 0; line-height: 1.6; }
+                                .container { max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+                                
+                                /* Header */
+                                .header { background: linear-gradient(135deg, #8b5cf6 0%%, #3b82f6 100%%); padding: 40px 20px; text-align: center; color: white; }
+                                .header-icon { font-size: 48px; margin-bottom: 10px; display: block; }
+                                .header h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; }
+                                
+                                /* Content */
+                                .content { padding: 40px 30px; color: #374151; }
+                                .greeting { font-size: 18px; margin-bottom: 15px; }
+                                .message { color: #6b7280; font-size: 16px; margin-bottom: 30px; }
+                                
+                                /* Gift Card */
+                                .gift-card { background: #fdf2f8; border: 2px dashed #ec4899; border-radius: 16px; padding: 25px; text-align: center; margin: 0 auto 30px; position: relative; }
+                                .gift-title { color: #db2777; font-size: 14px; text-transform: uppercase; font-weight: 700; letter-spacing: 1px; margin-bottom: 15px; }
+                                .gift-items { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+                                .gift-item { font-size: 28px; font-weight: 800; color: #111827; display: flex; align-items: center; gap: 10px; }
+                                .gift-item.cash { color: #059669; }
+                                .gift-item.coin { color: #d97706; }
+                                
+                                /* Reason */
+                                .reason-container { background-color: #f9fafb; border-left: 4px solid #8b5cf6; padding: 15px 20px; border-radius: 0 8px 8px 0; margin-bottom: 30px; }
+                                .reason-label { font-size: 12px; color: #6b7280; text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 5px; }
+                                .reason-text { color: #1f2937; font-style: italic; font-weight: 500; }
+                                
+                                /* Button */
+                                .btn-container { text-align: center; margin-top: 10px; }
+                                .btn { display: inline-block; background: linear-gradient(135deg, #8b5cf6 0%%, #6366f1 100%%); color: white; text-decoration: none; padding: 16px 40px; border-radius: 50px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3); transition: all 0.3s ease; }
+                                .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4); }
+                                
+                                /* Footer */
+                                .footer { background-color: #f9fafb; padding: 25px; text-align: center; border-top: 1px solid #e5e7eb; }
+                                .footer p { margin: 5px 0; font-size: 13px; color: #9ca3af; }
+                                .social-links { margin-top: 15px; }
+                                .social-link { color: #6b7280; text-decoration: none; margin: 0 10px; font-size: 12px; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="container">
+                                <div class="header">
+                                    <span class="header-icon">🎁</span>
+                                    <h1>Bạn Nhận Được Quà Tặng Mới!</h1>
+                                </div>
+                                
+                                <div class="content">
+                                    <p class="greeting">Xin chào <strong>%s</strong>,</p>
+                                    <p class="message">SkillVerse xin trân trọng gửi tặng bạn một phần quà đặc biệt. Hy vọng món quà này sẽ tiếp thêm động lực cho hành trình học tập và phát triển của bạn!</p>
+                                    
+                                    <div class="gift-card">
+                                        <div class="gift-title">Nội Dung Quà Tặng</div>
+                                        <div class="gift-items">
+                                            %s
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="reason-container">
+                                        <span class="reason-label">Lời nhắn:</span>
+                                        <span class="reason-text">"%s"</span>
+                                    </div>
+                                    
+                                    <div class="btn-container">
+                                        <a href="https://skillverse.vn/my-wallet" class="btn">Kiểm Tra Ví Ngay</a>
+                                    </div>
+                                </div>
+                                
+                                <div class="footer">
+                                    <p>© 2025 SkillVerse. All rights reserved.</p>
+                                    <p>Lô E2a-7, Đường D1, Đ. D1, Long Thạnh Mỹ, Thành Phố Thủ Đức, TP.HCM</p>
+                                    <div class="social-links">
+                                        <a href="https://skillverse.vn" class="social-link">Website</a> • 
+                                        <a href="#" class="social-link">Điều khoản</a> • 
+                                        <a href="#" class="social-link">Hỗ trợ</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                        """,
+                userName, giftContent.toString(), reason);
+    }
 
     private String buildDepositSuccessHtml(String userName, String amount, String transactionId,
             String currentBalance) {

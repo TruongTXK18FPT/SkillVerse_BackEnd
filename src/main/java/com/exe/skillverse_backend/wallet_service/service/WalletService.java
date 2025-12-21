@@ -37,4 +37,5 @@ public interface WalletService {
     WalletTransaction payMentorForCourse(Long mentorId, BigDecimal amount, Long courseId);
     Map<String, Object> getSystemWalletStats();
     Page<WalletTransactionResponse> getAllTransactionsAdmin(String type, Pageable pageable);
+    WalletTransaction giftUser(Long userId, BigDecimal cashAmount, Long coinAmount, String reason);
 }

@@ -229,6 +229,15 @@ public class WalletTransaction {
      * Giao dịch có tăng số dư không (deposit, earn, receive)
      */
     public boolean isCredit() {
+        // Special case for ADMIN_ADJUSTMENT: Check reference type or assume positive if not explicitly negative
+        // But since we store amount as positive usually, we need context.
+        // However, for Admin Gift, we used ADMIN_ADJUSTMENT.
+        // Let's assume ADMIN_ADJUSTMENT is CREDIT if it was a gift.
+        if (transactionType == TransactionType.ADMIN_ADJUSTMENT) {
+             // For now, treat as credit if referenceType contains "GIFT" or "BONUS"
+             return referenceType != null && (referenceType.contains("GIFT") || referenceType.contains("BONUS"));
+        }
+
         return transactionType == TransactionType.DEPOSIT_CASH ||
                transactionType == TransactionType.MENTOR_BOOKING ||
                transactionType == TransactionType.EARN_COINS ||

@@ -200,6 +200,29 @@ public class AdminWalletController {
         return ResponseEntity.ok(Map.of("message", "Đã xử lý các yêu cầu hết hạn"));
     }
 
+    /**
+     * Gift cash or coins to user
+     */
+    @PostMapping("/users/gift")
+    @Operation(summary = "Gift cash/coins", description = "Admin gifts cash or coins to user")
+    public ResponseEntity<WalletTransactionResponse> giftUser(
+            @jakarta.validation.Valid @RequestBody com.exe.skillverse_backend.wallet_service.dto.request.AdminGiftRequest request,
+            Authentication authentication) {
+        Long adminId = extractUserId(authentication);
+        
+        com.exe.skillverse_backend.wallet_service.entity.WalletTransaction transaction = walletService.giftUser(
+                request.getUserId(), 
+                request.getCashAmount(), 
+                request.getCoinAmount(), 
+                request.getReason()
+        );
+
+        log.info("🎁 Admin {} gifted user {}: Cash={}, Coin={}, Reason={}", 
+                adminId, request.getUserId(), request.getCashAmount(), request.getCoinAmount(), request.getReason());
+                
+        return ResponseEntity.ok(WalletTransactionResponse.fromEntity(transaction));
+    }
+
     // ==================== HELPER METHODS ====================
 
     private Long extractUserId(Authentication authentication) {

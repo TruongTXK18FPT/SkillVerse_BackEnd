@@ -176,6 +176,18 @@ public class Wallet {
     }
     
     /**
+     * Nhận tiền quà tặng/thưởng (chỉ cộng số dư, không tính vào totalDeposited)
+     */
+    public void receiveGift(BigDecimal amount) {
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Số tiền nhận phải lớn hơn 0");
+        }
+        this.cashBalance = this.cashBalance.add(amount);
+        // Không cộng vào totalDeposited vì đây là quà tặng/thưởng
+        this.lastTransactionAt = LocalDateTime.now();
+    }
+
+    /**
      * Thêm Coin vào ví (từ mua Coin hoặc kiếm được)
      */
     public void addCoins(Long coins) {
