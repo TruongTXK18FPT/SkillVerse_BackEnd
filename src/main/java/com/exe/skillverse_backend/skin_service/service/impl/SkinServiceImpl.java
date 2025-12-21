@@ -4,6 +4,7 @@ import com.cloudinary.Transformation;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.skin_service.dto.request.MeowlSkinRequest;
 import com.exe.skillverse_backend.skin_service.dto.response.MeowlSkinResponse;
 import com.exe.skillverse_backend.skin_service.entity.MeowlSkin;
@@ -46,6 +47,7 @@ public class SkinServiceImpl implements SkinService {
     private final CloudinaryService cloudinaryService;
     private final WalletService walletService;
     private final UserRepository userRepository;
+    private final PremiumService premiumService;
 
     @Value("${removebg.api-key}")
     private String removeBgApiKey;
@@ -151,15 +153,11 @@ public class SkinServiceImpl implements SkinService {
              // Free skin, no deduction
         }
 
-        // If Premium only? 
+        // If Premium only
         if (skin.isPremium()) {
-             // Check if user is premium? Or is it just a tag?
-             // User entity has `PrimaryRole` but maybe not "Premium" status directly visible here.
-             // Assuming purchase is allowed if they have money, or if "isPremium" means it costs money/premium currency?
-             // The requirement says "mua premium là sở hữu được".
-             // If this means "Buying the Premium Plan gives you this skin", that's different.
-             // But here I am implementing "Purchase Skin".
-             // I will assume if it has a price, they pay.
+             if (!premiumService.hasActivePremiumSubscription(userId)) {
+                 throw new IllegalStateException("This skin is reserved for Premium members only.");
+             }
         }
 
         UserSkin userSkin = UserSkin.builder()
