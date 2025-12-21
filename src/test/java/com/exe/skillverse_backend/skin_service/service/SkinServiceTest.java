@@ -9,6 +9,7 @@ import com.exe.skillverse_backend.skin_service.entity.UserSkin;
 import com.exe.skillverse_backend.skin_service.repository.MeowlSkinRepository;
 import com.exe.skillverse_backend.skin_service.repository.UserSkinRepository;
 import com.exe.skillverse_backend.skin_service.service.impl.SkinServiceImpl;
+import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -88,7 +89,7 @@ class SkinServiceTest {
 
         skinService.purchaseSkin(1L, "regular_skin");
 
-        verify(walletService).deductCash(eq(1L), eq(BigDecimal.valueOf(100)), anyString(), anyString(), anyString());
+        verify(walletService).deductCoins(eq(1L), eq(100L), eq(WalletTransaction.TransactionType.SPEND_COINS), anyString(), anyString(), anyString());
         verify(userSkinRepository).save(any(UserSkin.class));
     }
 
@@ -101,7 +102,7 @@ class SkinServiceTest {
 
         skinService.purchaseSkin(1L, "premium_skin");
 
-        verify(walletService).deductCash(eq(1L), eq(BigDecimal.valueOf(200)), anyString(), anyString(), anyString());
+        verify(walletService).deductCoins(eq(1L), eq(200L), eq(WalletTransaction.TransactionType.SPEND_COINS), anyString(), anyString(), anyString());
         verify(userSkinRepository).save(any(UserSkin.class));
     }
 

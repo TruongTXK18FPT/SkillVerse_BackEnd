@@ -12,6 +12,7 @@ import com.exe.skillverse_backend.skin_service.entity.UserSkin;
 import com.exe.skillverse_backend.skin_service.repository.MeowlSkinRepository;
 import com.exe.skillverse_backend.skin_service.repository.UserSkinRepository;
 import com.exe.skillverse_backend.skin_service.service.SkinService;
+import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -144,8 +145,9 @@ public class SkinServiceImpl implements SkinService {
 
         // Check if free
         if (skin.getPrice().compareTo(java.math.BigDecimal.ZERO) > 0) {
-            // Deduct balance
-            walletService.deductCash(userId, skin.getPrice(), 
+            // Deduct coins
+            walletService.deductCoins(userId, skin.getPrice().longValue(), 
+                    WalletTransaction.TransactionType.SPEND_COINS,
                     "Purchase skin: " + skin.getName(), 
                     "SKIN_PURCHASE", 
                     "SKIN_" + skin.getId());
