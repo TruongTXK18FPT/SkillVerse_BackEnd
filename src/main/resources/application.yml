@@ -181,7 +181,8 @@ cloudinary:
     use-filename: true
     unique-filename: true
     overwrite: false
-
+removebg:
+  api-key: ${REMOVE_BG_API_KEY}
 # Portfolio CV Generation AI Configuration (separate Mistral API key)
 portfolio:
   ai:

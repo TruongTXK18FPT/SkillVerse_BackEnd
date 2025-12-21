@@ -14,8 +14,14 @@ import com.exe.skillverse_backend.skin_service.service.SkinService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
@@ -41,6 +47,9 @@ public class SkinServiceImpl implements SkinService {
     private final WalletService walletService;
     private final UserRepository userRepository;
 
+    @Value("${removebg.api-key}")
+    private String removeBgApiKey;
+
     @Override
     @Transactional
     public MeowlSkinResponse uploadSkin(MeowlSkinRequest request, MultipartFile file) throws IOException {
@@ -48,12 +57,17 @@ public class SkinServiceImpl implements SkinService {
             throw new IllegalArgumentException("Skin code already exists: " + request.getSkinCode());
         }
 
-        // 1. Resize Image
-        BufferedImage originalImage = ImageIO.read(file.getInputStream());
-        BufferedImage resizedImage = resizeImage(originalImage, 268, 418);
+        // 1. Remove Background
+        byte[] originalBytes = file.getBytes();
+        byte[] bgRemovedBytes = removeBackground(originalBytes);
 
-        // 2. Remove Background (Mock/Placeholder) -> Now handled by Cloudinary
-        // BufferedImage processedImage = removeBackground(resizedImage);
+        // 2. Resize Image
+        ByteArrayInputStream bais = new ByteArrayInputStream(bgRemovedBytes);
+        BufferedImage bgRemovedImage = ImageIO.read(bais);
+        if (bgRemovedImage == null) {
+            bgRemovedImage = ImageIO.read(file.getInputStream());
+        }
+        BufferedImage resizedImage = resizeImage(bgRemovedImage, 268, 418);
 
         // 3. Convert back to MultipartFile or byte array for Cloudinary
         ByteArrayOutputStream os = new ByteArrayOutputStream();
@@ -288,10 +302,45 @@ public class SkinServiceImpl implements SkinService {
         return outputImage;
     }
 
-    private BufferedImage removeBackground(BufferedImage image) {
-        // TODO: Implement background removal logic (e.g. using external API or AI library)
-        // For now, return original image as placeholder
-        return image;
+    private byte[] removeBackground(byte[] imageBytes) {
+        if (removeBgApiKey == null || removeBgApiKey.isBlank()) {
+            log.warn("Remove.bg API key is missing. Skipping background removal.");
+            return imageBytes;
+        }
+
+        try {
+            RestTemplate restTemplate = new RestTemplate();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("X-Api-Key", removeBgApiKey);
+            headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+            MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+            body.add("image_file", new ByteArrayResource(imageBytes) {
+                @Override
+                public String getFilename() {
+                    return "image.png";
+                }
+            });
+            body.add("size", "auto");
+
+            HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+
+            ResponseEntity<byte[]> response = restTemplate.postForEntity(
+                    "https://api.remove.bg/v1.0/removebg",
+                    requestEntity,
+                    byte[].class
+            );
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                log.info("Background removed successfully via Remove.bg");
+                return response.getBody();
+            } else {
+                log.error("Remove.bg API failed with status: {}", response.getStatusCode());
+            }
+        } catch (Exception e) {
+            log.error("Failed to remove background via Remove.bg", e);
+        }
+        return imageBytes; // Fallback to original
     }
 
     // Helper class for MultipartFile

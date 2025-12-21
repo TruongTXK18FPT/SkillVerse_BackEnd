@@ -54,6 +54,9 @@ env:
   # FPT.AI Speech Configuration
   FPT_AI_KEY: ${{ secrets.FPT_AI_KEY }}
 
+  # Remove.bg Configuration
+  REMOVE_BG_API_KEY: ${{ secrets.REMOVE_BG_API_KEY }}
+
 
 jobs:
   # Job 1: Code Quality & Testing
@@ -415,6 +418,7 @@ jobs:
             -e CLOUDINARY_API_KEY="${CLOUDINARY_API_KEY}" \
             -e CLOUDINARY_API_SECRET="${CLOUDINARY_API_SECRET}" \
             -e CLOUDINARY_URL="${CLOUDINARY_URL}" \
+            -e REMOVE_BG_API_KEY="${REMOVE_BG_API_KEY}" \
             skillverse-backend:${{ github.sha }}
             
           echo "⏳ Waiting for application to start..."
@@ -531,6 +535,7 @@ jobs:
           echo "CLOUDINARY_API_KEY='${{ secrets.CLOUDINARY_API_KEY }}'" >> .env
           echo "CLOUDINARY_API_SECRET='${{ secrets.CLOUDINARY_API_SECRET }}'" >> .env
           echo "CLOUDINARY_URL='${{ secrets.CLOUDINARY_URL }}'" >> .env
+          echo "REMOVE_BG_API_KEY='${{ secrets.REMOVE_BG_API_KEY }}'" >> .env
 
           # Debug: Verify critical secrets are set (without exposing values)
           echo "🔍 Verifying critical environment variables..."
@@ -639,6 +644,7 @@ jobs:
               -e CLOUDINARY_API_KEY="$CLOUDINARY_API_KEY" \
               -e CLOUDINARY_API_SECRET="$CLOUDINARY_API_SECRET" \
               -e CLOUDINARY_URL="$CLOUDINARY_URL" \
+              -e REMOVE_BG_API_KEY="$REMOVE_BG_API_KEY" \
               -e PAYOS_CLIENT_ID="$PAYOS_CLIENT_ID" \
               -e PAYOS_API_KEY="$PAYOS_API_KEY" \
               -e PAYOS_CHECKSUM_KEY="$PAYOS_CHECKSUM_KEY" \
