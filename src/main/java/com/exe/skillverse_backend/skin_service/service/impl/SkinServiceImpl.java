@@ -62,19 +62,10 @@ public class SkinServiceImpl implements SkinService {
         
         MultipartFile processedFile = new CustomMultipartFile(imageBytes, file.getOriginalFilename(), file.getContentType());
 
-        // Use Cloudinary AI Background Removal (Only for new uploads as requested)
+        // Standard upload without background removal
         Map<String, Object> options = new HashMap<>();
-        
-        // Use Transformation to enforce background removal on the main asset
-        // 'effect' -> 'bgremoval' (or 'background_removal' depending on add-on)
-        // quality: auto, fetch_format: auto are standard optimizations
-        options.put("transformation", new Transformation()
-                .effect("bgremoval")
-                .quality("auto")
-                .fetchFormat("auto"));
-        
-        // Also set the flag just in case
-        options.put("background_removal", "cloudinary_ai");
+        options.put("quality", "auto");
+        options.put("fetch_format", "auto");
 
         Map<String, Object> uploadResult = cloudinaryService.uploadImageWithOptions(processedFile, "meowl-skin", options);
         String imageUrl = (String) uploadResult.get("secure_url");
