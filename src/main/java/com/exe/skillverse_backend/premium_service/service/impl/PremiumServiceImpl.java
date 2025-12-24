@@ -17,6 +17,7 @@ import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRep
 import com.exe.skillverse_backend.premium_service.repository.SubscriptionCancellationRepository;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.premium_service.service.PremiumEmailService;
+import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
@@ -237,7 +238,7 @@ public class PremiumServiceImpl implements PremiumService {
                 LocalDateTime renewalWindow = now.plusDays(3); // Renew 3 days before expiry
 
                 List<UserSubscription> subscriptionsToRenew = userSubscriptionRepository
-                                .findSubscriptionsForAutoRenewal(now, renewalWindow);
+                                .findSubscriptionsForAutoRenewal(now, renewalWindow, UserSubscription.SubscriptionStatus.ACTIVE);
 
                 log.info("Found {} subscriptions eligible for auto-renewal", subscriptionsToRenew.size());
 
@@ -297,6 +298,9 @@ public class PremiumServiceImpl implements PremiumService {
                         log.info("✅ Auto-renewed subscription {} until {}",
                                         subscription.getId(),
                                         newEndDate);
+
+                        // Send auto-renewal success email
+                        premiumEmailService.sendAutoRenewalSuccessEmail(user, subscription, price);
 
                 } catch (Exception e) {
                         log.error("❌ Auto-renewal failed for subscription {}: Insufficient balance. Disabling auto-renewal.",

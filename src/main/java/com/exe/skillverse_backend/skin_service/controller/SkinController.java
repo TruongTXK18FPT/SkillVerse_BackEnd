@@ -30,7 +30,7 @@ public class SkinController {
     private final SkinService skinService;
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Upload new skin (Admin)", description = "Uploads a new skin, resizes it to 268x418, and removes background.")
     public ResponseEntity<MeowlSkinResponse> uploadSkin(
             @Parameter(description = "Skin image file") @RequestParam("file") MultipartFile file,
@@ -52,7 +52,7 @@ public class SkinController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Update skin details", description = "Update skin name, price, etc.")
     public ResponseEntity<MeowlSkinResponse> updateSkin(
             @PathVariable Long id,
@@ -62,7 +62,7 @@ public class SkinController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Delete skin", description = "Delete a skin by ID")
     public ResponseEntity<Void> deleteSkin(@PathVariable Long id) {
         skinService.deleteSkin(id);
@@ -118,7 +118,7 @@ public class SkinController {
     }
 
     @GetMapping("/stats")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Get skin stats", description = "Get all skins with purchase counts for admin")
     public ResponseEntity<List<MeowlSkinResponse>> getSkinStats() {
         return ResponseEntity.ok(skinService.getSkinLeaderboard(null));

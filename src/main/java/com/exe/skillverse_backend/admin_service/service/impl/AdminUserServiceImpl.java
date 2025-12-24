@@ -29,6 +29,12 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import com.exe.skillverse_backend.admin_service.dto.request.AddRoleRequest;
+import com.exe.skillverse_backend.auth_service.entity.Role;
+import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
+import java.util.HashSet;
+import java.util.Set;
+
 /**
  * Implementation of AdminUserService for managing users
  */
@@ -38,6 +44,7 @@ import java.util.stream.Collectors;
 public class AdminUserServiceImpl implements AdminUserService {
 
         private final UserRepository userRepository;
+        private final RoleRepository roleRepository;
         private final PasswordEncoder passwordEncoder;
         private final UserProfileService userProfileService;
         private final EntityManager entityManager;
@@ -142,6 +149,30 @@ public class AdminUserServiceImpl implements AdminUserService {
 
         @Override
         @Transactional
+        public AdminUserResponse addRolesToUser(AddRoleRequest request) {
+                log.info("Adding roles to user - userId: {}, roles: {}", request.getUserId(), request.getRoles());
+
+                User user = userRepository.findById(request.getUserId())
+                                .orElseThrow(() -> new RuntimeException(
+                                                "User not found with id: " + request.getUserId()));
+
+                if (request.getRoles() != null && !request.getRoles().isEmpty()) {
+                    for (String roleName : request.getRoles()) {
+                        Role role = roleRepository.findByName(roleName)
+                            .orElseThrow(() -> new RuntimeException("Role not found: " + roleName));
+                        user.getRoles().add(role);
+                    }
+                }
+
+                user.setUpdatedAt(LocalDateTime.now());
+                User updatedUser = userRepository.save(user);
+
+                log.info("Successfully added roles for userId: {}", request.getUserId());
+                return convertToAdminUserResponse(updatedUser);
+        }
+
+        @Override
+        @Transactional
         public void deleteUser(Long userId) {
                 log.info("Deleting user with userId: {}", userId);
 
@@ -223,6 +254,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                                 .fullName(fullName)
                                 .phoneNumber(user.getPhoneNumber())
                                 .primaryRole(user.getPrimaryRole())
+                                .roles(user.getRoles().stream().map(Role::getName).collect(Collectors.toList()))
                                 .status(user.getStatus())
                                 .isEmailVerified(user.isEmailVerified())
                                 .authProvider(user.getAuthProvider())
@@ -326,6 +358,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                                 .fullName(fullName)
                                 .phoneNumber(user.getPhoneNumber())
                                 .primaryRole(user.getPrimaryRole())
+                                .roles(user.getRoles().stream().map(Role::getName).collect(Collectors.toList()))
                                 .status(user.getStatus())
                                 .isEmailVerified(user.isEmailVerified())
                                 .createdAt(user.getCreatedAt())

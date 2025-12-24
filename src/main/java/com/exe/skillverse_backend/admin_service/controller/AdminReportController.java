@@ -47,7 +47,7 @@ import java.util.List;
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Admin Reports", description = "Download CSV reports for users and transactions")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
 public class AdminReportController {
 
     private final AdminUserService adminUserService;
@@ -59,6 +59,7 @@ public class AdminReportController {
 
     @GetMapping(value = "/users", produces = "text/csv;charset=UTF-8")
     @Operation(summary = "Tải báo cáo người dùng (CSV)", description = "Xuất danh sách người dùng kèm thống kê dưới dạng CSV, hỗ trợ tiếng Việt")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<byte[]> downloadUsersReport(
             @RequestParam(required = false) PrimaryRole role,
             @RequestParam(required = false) UserStatus status,
@@ -99,6 +100,7 @@ public class AdminReportController {
 
     @GetMapping(value = "/users/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
     @Operation(summary = "Tải báo cáo người dùng (PDF)", description = "Xuất PDF thiết kế đẹp cho danh sách người dùng")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<byte[]> downloadUsersReportPdf(
             @RequestParam(required = false) PrimaryRole role,
             @RequestParam(required = false) UserStatus status,
@@ -180,6 +182,7 @@ public class AdminReportController {
 
     @GetMapping(value = "/transactions", produces = "text/csv;charset=UTF-8")
     @Operation(summary = "Tải báo cáo giao dịch (CSV)", description = "Xuất danh sách giao dịch thanh toán và ví dưới dạng CSV, hỗ trợ tiếng Việt")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
     public ResponseEntity<byte[]> downloadTransactionsReport(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Long userId,
@@ -258,6 +261,7 @@ public class AdminReportController {
 
     @GetMapping(value = "/transactions/pdf", produces = MediaType.APPLICATION_PDF_VALUE)
     @Operation(summary = "Tải báo cáo giao dịch (PDF)", description = "Xuất PDF thiết kế đẹp cho danh sách giao dịch")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
     public ResponseEntity<byte[]> downloadTransactionsReportPdf(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Long userId,

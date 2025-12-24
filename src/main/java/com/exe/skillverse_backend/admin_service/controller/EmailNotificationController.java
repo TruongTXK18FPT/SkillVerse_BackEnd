@@ -44,7 +44,7 @@ public class EmailNotificationController {
      * @return Email sending report with success/failure statistics
      */
     @PostMapping("/send")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SUPPORT_ADMIN')")
     @Operation(summary = "Send bulk email notification", description = "Send HTML email to multiple users filtered by role. Supports batch processing to prevent server overload.")
     public ResponseEntity<EmailSendingReport> sendBulkEmail(@Valid @RequestBody EmailNotificationRequest request) {
         log.info("📧 Admin sending bulk email: subject='{}', targetRole={}, type={}",
@@ -100,7 +100,7 @@ public class EmailNotificationController {
      * @return Map with recipient count and sample emails
      */
     @GetMapping("/preview-recipients")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SUPPORT_ADMIN')")
     @Operation(summary = "Preview email recipients", description = "Get count and sample of users who will receive the email based on role filter")
     public ResponseEntity<Map<String, Object>> previewRecipients(
             @RequestParam(required = false) EmailNotificationRequest.TargetRole targetRole) {
@@ -133,7 +133,7 @@ public class EmailNotificationController {
      * @return Statistics about email sending operations
      */
     @GetMapping("/statistics")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SUPPORT_ADMIN')")
     @Operation(summary = "Get email statistics", description = "Get statistics about user counts by role for email targeting")
     public ResponseEntity<Map<String, Object>> getEmailStatistics() {
         log.info("📊 Fetching email statistics");

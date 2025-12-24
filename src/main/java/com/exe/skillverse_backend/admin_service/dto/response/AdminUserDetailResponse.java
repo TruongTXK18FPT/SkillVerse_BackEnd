@@ -28,6 +28,7 @@ public class AdminUserDetailResponse {
     private String fullName;
     private String phoneNumber;
     private PrimaryRole primaryRole;
+    private List<String> roles; // All assigned roles
     private UserStatus status;
     private boolean isEmailVerified;
     private AuthProvider authProvider;

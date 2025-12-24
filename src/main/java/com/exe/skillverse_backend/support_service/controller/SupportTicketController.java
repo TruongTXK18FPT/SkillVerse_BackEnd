@@ -130,9 +130,9 @@ public class SupportTicketController {
          * Get all tickets with filters (Admin)
          */
         @GetMapping("/admin/tickets")
-        @PreAuthorize("hasRole('ADMIN')")
-        @Operation(summary = "Get all tickets (Admin)", description = "Get all tickets with optional filters")
-        public ResponseEntity<Page<TicketResponse>> getAllTickets(
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SUPPORT_ADMIN')")
+    @Operation(summary = "Get all tickets (Admin)", description = "Get all tickets with optional filters")
+    public ResponseEntity<Page<TicketResponse>> getAllTickets(
                         @RequestParam(required = false) String status,
                         @RequestParam(required = false) String category,
                         @RequestParam(required = false) String priority,
@@ -149,9 +149,9 @@ public class SupportTicketController {
          * Get ticket by ID (Admin)
          */
         @GetMapping("/admin/tickets/{id}")
-        @PreAuthorize("hasRole('ADMIN')")
-        @Operation(summary = "Get ticket by ID (Admin)", description = "Get detailed ticket information")
-        public ResponseEntity<TicketResponse> getTicketById(@PathVariable Long id) {
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SUPPORT_ADMIN')")
+    @Operation(summary = "Get ticket by ID (Admin)", description = "Get detailed ticket information")
+    public ResponseEntity<TicketResponse> getTicketById(@PathVariable Long id) {
                 TicketResponse ticket = ticketService.getTicketById(id);
                 return ResponseEntity.ok(ticket);
         }
@@ -160,9 +160,9 @@ public class SupportTicketController {
          * Update ticket (Admin)
          */
         @PutMapping("/admin/tickets/{id}")
-        @PreAuthorize("hasRole('ADMIN')")
-        @Operation(summary = "Update ticket (Admin)", description = "Update ticket status, priority, response, or assignment")
-        public ResponseEntity<TicketResponse> updateTicket(
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SUPPORT_ADMIN')")
+    @Operation(summary = "Update ticket (Admin)", description = "Update ticket status, priority, response, or assignment")
+    public ResponseEntity<TicketResponse> updateTicket(
                         @PathVariable Long id,
                         @RequestBody UpdateTicketRequest request) {
                 TicketResponse ticket = ticketService.updateTicket(id, request);
@@ -173,9 +173,9 @@ public class SupportTicketController {
          * Get tickets assigned to admin
          */
         @GetMapping("/admin/tickets/assigned/{adminId}")
-        @PreAuthorize("hasRole('ADMIN')")
-        @Operation(summary = "Get assigned tickets (Admin)", description = "Get tickets assigned to a specific admin")
-        public ResponseEntity<Page<TicketResponse>> getAssignedTickets(
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SUPPORT_ADMIN')")
+    @Operation(summary = "Get assigned tickets (Admin)", description = "Get tickets assigned to a specific admin")
+    public ResponseEntity<Page<TicketResponse>> getAssignedTickets(
                         @PathVariable Long adminId,
                         @RequestParam(defaultValue = "0") int page,
                         @RequestParam(defaultValue = "20") int size) {
@@ -190,9 +190,9 @@ public class SupportTicketController {
          * Get ticket statistics (Admin dashboard)
          */
         @GetMapping("/admin/tickets/stats")
-        @PreAuthorize("hasRole('ADMIN')")
-        @Operation(summary = "Get ticket statistics", description = "Get ticket statistics for admin dashboard")
-        public ResponseEntity<TicketStatsResponse> getTicketStats() {
+    @PreAuthorize("hasRole('ADMIN') or hasRole('SUPPORT_ADMIN')")
+    @Operation(summary = "Get ticket statistics", description = "Get ticket statistics for admin dashboard")
+    public ResponseEntity<TicketStatsResponse> getTicketStats() {
                 TicketStatsResponse stats = ticketService.getTicketStats();
                 return ResponseEntity.ok(stats);
         }

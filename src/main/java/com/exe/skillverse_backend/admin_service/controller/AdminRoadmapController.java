@@ -28,7 +28,7 @@ public class AdminRoadmapController {
     private final AiRoadmapService aiRoadmapService;
 
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Get All Roadmaps", description = "Retrieve all roadmap sessions (Admin only)")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Successfully retrieved all roadmaps"),

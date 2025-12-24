@@ -25,13 +25,14 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Admin - AI Expert Prompts", description = "Manage expert personas and prompts")
+@PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
 public class ExpertPromptAdminController {
 
     private final ExpertPromptConfigRepository expertPromptConfigRepository;
     private final ExpertPromptMediaService expertPromptMediaService;
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Create new Expert Prompt", description = "Add a new industry/role and its expert system prompt")
     public ResponseEntity<ExpertPromptConfig> createExpertPrompt(@Valid @RequestBody ExpertPromptRequest request) {
         // Check duplicate
@@ -63,7 +64,7 @@ public class ExpertPromptAdminController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Update Expert Prompt", description = "Update an existing prompt configuration")
     public ResponseEntity<ExpertPromptConfig> updateExpertPrompt(
             @PathVariable Long id,
@@ -117,14 +118,14 @@ public class ExpertPromptAdminController {
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "List all Expert Prompts", description = "Get all prompt configurations")
     public ResponseEntity<List<ExpertPromptConfig>> getAllPrompts() {
         return ResponseEntity.ok(expertPromptConfigRepository.findAll());
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Get Expert Prompt by ID")
     public ResponseEntity<ExpertPromptConfig> getPromptById(@PathVariable Long id) {
         return ResponseEntity.ok(expertPromptConfigRepository.findById(id)
@@ -132,7 +133,7 @@ public class ExpertPromptAdminController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Delete Expert Prompt")
     public ResponseEntity<Void> deletePrompt(@PathVariable Long id) {
         if (!expertPromptConfigRepository.existsById(id)) {
@@ -144,7 +145,7 @@ public class ExpertPromptAdminController {
     // ==================== MEDIA MANAGEMENT ====================
 
     @PostMapping(value = "/{id}/media", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Upload media for Expert Prompt", description = "Upload an icon/image for a specific expert role to Cloudinary")
     public ResponseEntity<Map<String, String>> uploadMedia(
             @PathVariable Long id,
@@ -157,7 +158,7 @@ public class ExpertPromptAdminController {
     }
 
     @DeleteMapping("/{id}/media")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Delete media for Expert Prompt", description = "Remove the media URL from expert prompt config")
     public ResponseEntity<Map<String, String>> deleteMedia(@PathVariable Long id) {
         expertPromptMediaService.deleteMedia(id);
@@ -165,7 +166,7 @@ public class ExpertPromptAdminController {
     }
 
     @PutMapping("/{id}/media-url")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Update media URL directly", description = "Set media URL directly (for admin to paste Cloudinary URL)")
     public ResponseEntity<Map<String, String>> updateMediaUrl(
             @PathVariable Long id,

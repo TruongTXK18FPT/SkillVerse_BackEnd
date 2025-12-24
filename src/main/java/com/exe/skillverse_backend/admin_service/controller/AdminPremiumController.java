@@ -26,7 +26,7 @@ import java.util.List;
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Admin Premium Management", description = "Admin endpoints for managing premium plans")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
 public class AdminPremiumController {
 
     private final AdminPremiumService adminPremiumService;

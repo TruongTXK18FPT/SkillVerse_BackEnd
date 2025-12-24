@@ -72,6 +72,257 @@ public class PremiumEmailServiceImpl implements PremiumEmailService {
     }
 
     /**
+     * Send auto-renewal success email
+     */
+    @Async("emailTaskExecutor")
+    public void sendAutoRenewalSuccessEmail(
+            User user,
+            UserSubscription subscription,
+            BigDecimal renewalAmount) {
+
+        try {
+            String userName = getUserDisplayName(user);
+            PremiumPlan plan = subscription.getPlan();
+
+            String htmlContent = buildAutoRenewalSuccessHtml(
+                    userName,
+                    plan.getDisplayName(),
+                    plan.getPlanType().name(),
+                    formatCurrency(renewalAmount),
+                    subscription.getStartDate().format(DATE_FORMATTER),
+                    subscription.getEndDate().format(DATE_FORMATTER),
+                    subscription.getIsStudentSubscription(),
+                    getPlanFeatures(plan.getPlanType()));
+
+            String subject = "♻️ Gia Hạn Premium Thành Công - " + plan.getDisplayName();
+            emailService.sendHtmlEmail(user.getEmail(), subject, htmlContent);
+
+            log.info("✅ Auto-renewal email sent to {} for plan: {}", user.getEmail(), plan.getDisplayName());
+
+        } catch (Exception e) {
+            log.error("❌ Failed to send auto-renewal email to {}: {}", user.getEmail(), e.getMessage());
+        }
+    }
+
+    /**
+     * Send auto-renewal failed email (insufficient balance)
+     */
+    @Async("emailTaskExecutor")
+    public void sendAutoRenewalFailedEmail(
+            User user,
+            UserSubscription subscription,
+            BigDecimal renewalAmount) {
+
+        try {
+            String userName = getUserDisplayName(user);
+            PremiumPlan plan = subscription.getPlan();
+
+            String htmlContent = buildAutoRenewalFailedHtml(
+                    userName,
+                    plan.getDisplayName(),
+                    formatCurrency(renewalAmount),
+                    subscription.getEndDate().format(DATE_FORMATTER));
+
+            String subject = "❌ Gia Hạn Premium Thất Bại - " + plan.getDisplayName();
+            emailService.sendHtmlEmail(user.getEmail(), subject, htmlContent);
+
+            log.info("⚠️ Auto-renewal failed email sent to {} for plan: {}", user.getEmail(), plan.getDisplayName());
+
+        } catch (Exception e) {
+            log.error("❌ Failed to send auto-renewal failed email to {}: {}", user.getEmail(), e.getMessage());
+        }
+    }
+
+    /**
+     * Build HTML content for auto-renewal success email
+     */
+    private String buildAutoRenewalSuccessHtml(
+            String userName,
+            String planName,
+            String planType,
+            String renewalAmount,
+            String startDate,
+            String endDate,
+            boolean isStudentDiscount,
+            String features) {
+
+        String discountBadge = isStudentDiscount
+                ? "<div class=\"discount-badge\">🎓 Giảm giá sinh viên đã áp dụng</div>"
+                : "";
+
+        String brandGradient = "linear-gradient(135deg, #10b981 0%, #059669 100%)"; // Green gradient for renewal
+        String brandColor = "#10b981";
+
+        return String.format(
+                """
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta charset="UTF-8">
+                            <style>
+                                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background-color: #f5f5f7; margin: 0; padding: 20px; }
+                                .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 24px rgba(17,24,39,0.08); }
+                                .header { background: %s; padding: 32px 30px; text-align: center; color: white; }
+                                .header h1 { margin: 0; font-size: 32px; font-weight: bold; }
+                                .header .plan-name { font-size: 24px; margin-top: 10px; opacity: 0.95; }
+                                .content { padding: 30px; }
+                                .success-icon { font-size: 64px; text-align: center; margin: 20px 0; }
+                                .discount-badge { background: %s; color: white; padding: 8px 16px; border-radius: 20px; display: inline-block; margin: 15px 0; font-weight: bold; }
+                                .info-box { background: #f9fafb; border-left: 4px solid %s; padding: 20px; margin: 20px 0; border-radius: 8px; }
+                                .info-row { display: flex; justify-content: space-between; margin: 10px 0; }
+                                .info-label { font-weight: 600; color: #374151; }
+                                .info-value { color: #6b7280; }
+                                .features-box { background: %s; color: white; padding: 25px; border-radius: 8px; margin: 25px 0; }
+                                .features-box h3 { margin-top: 0; font-size: 20px; }
+                                .features-list { list-style: none; padding: 0; margin: 15px 0; }
+                                .features-list li { padding: 8px 0; padding-left: 25px; position: relative; }
+                                .features-list li:before { content: "✓"; position: absolute; left: 0; font-weight: bold; color: #a5b4fc; }
+                                .button { display: inline-block; background: %s; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: 600; }
+                                .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
+                                .price { font-size: 36px; color: %s; font-weight: bold; text-align: center; margin: 20px 0; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="container">
+                                <div class="header">
+                                    <h1>♻️ Gia Hạn Thành Công!</h1>
+                                    <div class="plan-name">%s</div>
+                                </div>
+                                <div class="content">
+                                    <div class="success-icon">✅</div>
+                                    <p style="text-align: center; font-size: 18px;">Xin chào <strong>%s</strong>,</p>
+                                    <p style="text-align: center;">Gói Premium của bạn đã được gia hạn tự động thành công.</p>
+
+                                    %s
+
+                                    <div class="price">%s</div>
+
+                                    <div class="info-box">
+                                        <div class="info-row">
+                                            <span class="info-label">Gói gia hạn:</span>
+                                            <span class="info-value"><strong>%s</strong></span>
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">Phương thức:</span>
+                                            <span class="info-value">Ví SkillVerse (Tự động)</span>
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">Chu kỳ mới:</span>
+                                            <span class="info-value">%s</span>
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">Hết hạn:</span>
+                                            <span class="info-value">%s</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="features-box">
+                                        <h3>🌟 Tiếp Tục Tận Hưởng</h3>
+                                        %s
+                                    </div>
+
+                                    <p style="text-align: center;">
+                                        <a href="https://skillverse.vn/premium" class="button">Vào Học Ngay</a>
+                                    </p>
+
+                                    <p style="color: #6b7280; font-size: 14px; margin-top: 30px; text-align: center;">
+                                        💡 <strong>Mẹo:</strong> Bạn có thể quản lý cài đặt gia hạn trong phần "Tài khoản" → "Premium"
+                                    </p>
+                                </div>
+                                <div class="footer">
+                                    <p>Cảm ơn bạn đã đồng hành cùng SkillVerse! 🚀</p>
+                                    <p>Nếu có thắc mắc, vui lòng liên hệ support@skillverse.vn</p>
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                        """,
+                brandGradient, brandColor,
+                brandColor, brandGradient, brandColor, brandColor,
+                planName, userName, discountBadge, renewalAmount,
+                planName, startDate, endDate, features);
+    }
+
+    /**
+     * Build HTML content for auto-renewal failed email
+     */
+    private String buildAutoRenewalFailedHtml(
+            String userName,
+            String planName,
+            String amount,
+            String expiryDate) {
+
+        String brandGradient = "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)"; // Red gradient
+        String brandColor = "#ef4444";
+
+        return String.format(
+                """
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta charset="UTF-8">
+                            <style>
+                                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background-color: #f5f5f7; margin: 0; padding: 20px; }
+                                .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 24px rgba(17,24,39,0.08); }
+                                .header { background: %s; padding: 32px 30px; text-align: center; color: white; }
+                                .header h1 { margin: 0; font-size: 32px; font-weight: bold; }
+                                .header .plan-name { font-size: 24px; margin-top: 10px; opacity: 0.95; }
+                                .content { padding: 30px; }
+                                .fail-icon { font-size: 64px; text-align: center; margin: 20px 0; }
+                                .info-box { background: #fef2f2; border-left: 4px solid %s; padding: 20px; margin: 20px 0; border-radius: 8px; }
+                                .info-row { display: flex; justify-content: space-between; margin: 10px 0; }
+                                .info-label { font-weight: 600; color: #374151; }
+                                .info-value { color: #6b7280; }
+                                .button { display: inline-block; background: %s; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: 600; }
+                                .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="container">
+                                <div class="header">
+                                    <h1>⚠️ Gia Hạn Thất Bại</h1>
+                                    <div class="plan-name">%s</div>
+                                </div>
+                                <div class="content">
+                                    <div class="fail-icon">❌</div>
+                                    <p style="text-align: center; font-size: 18px;">Xin chào <strong>%s</strong>,</p>
+                                    <p style="text-align: center;">Chúng tôi không thể gia hạn gói Premium của bạn do số dư ví không đủ.</p>
+
+                                    <div class="info-box">
+                                        <div class="info-row">
+                                            <span class="info-label">Số tiền cần thanh toán:</span>
+                                            <span class="info-value"><strong>%s</strong></span>
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">Lý do:</span>
+                                            <span class="info-value">Số dư ví không đủ</span>
+                                        </div>
+                                        <div class="info-row">
+                                            <span class="info-label">Hết hạn vào:</span>
+                                            <span class="info-value">%s</span>
+                                        </div>
+                                    </div>
+
+                                    <p style="text-align: center; margin-top: 20px;">
+                                        Vui lòng nạp thêm tiền vào ví để tiếp tục sử dụng dịch vụ Premium không gián đoạn.
+                                    </p>
+
+                                    <p style="text-align: center;">
+                                        <a href="https://skillverse.vn/wallet" class="button">Nạp Tiền Ngay</a>
+                                    </p>
+                                </div>
+                                <div class="footer">
+                                    <p>Nếu bạn cần hỗ trợ, vui lòng liên hệ support@skillverse.vn</p>
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                        """,
+                brandGradient, brandColor, brandColor,
+                planName, userName, amount, expiryDate);
+    }
+
+    /**
      * Build HTML content for premium purchase success email
      */
     private String buildPremiumPurchaseSuccessHtml(

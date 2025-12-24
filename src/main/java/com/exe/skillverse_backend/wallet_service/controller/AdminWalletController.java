@@ -26,7 +26,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/wallet")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
 @Tag(name = "Admin - Wallet", description = "Admin wallet & withdrawal management")
 public class AdminWalletController {
 

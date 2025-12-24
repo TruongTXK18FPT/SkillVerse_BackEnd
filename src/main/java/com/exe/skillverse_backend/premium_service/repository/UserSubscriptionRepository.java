@@ -98,11 +98,12 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
          * Find subscriptions eligible for auto-renewal
          */
         @Query("SELECT s FROM UserSubscription s WHERE s.autoRenew = true " +
-                        "AND s.isActive = true AND s.status = 'ACTIVE' " +
+                        "AND s.isActive = true AND s.status = :status " +
                         "AND s.endDate BETWEEN :now AND :renewalWindow")
         List<UserSubscription> findSubscriptionsForAutoRenewal(
                         @Param("now") LocalDateTime now,
-                        @Param("renewalWindow") LocalDateTime renewalWindow);
+                        @Param("renewalWindow") LocalDateTime renewalWindow,
+                        @Param("status") UserSubscription.SubscriptionStatus status);
 
         /**
          * Find student subscriptions

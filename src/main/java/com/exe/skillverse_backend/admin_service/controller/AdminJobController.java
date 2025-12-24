@@ -22,21 +22,21 @@ public class AdminJobController {
     private final AdminJobService adminJobService;
 
     @GetMapping("/pending")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('RECRUITMENT_ADMIN')")
     @Operation(summary = "Get pending jobs", description = "List all jobs waiting for approval")
     public ResponseEntity<List<JobPostingResponse>> getPendingJobs() {
         return ResponseEntity.ok(adminJobService.getPendingJobs());
     }
 
     @PostMapping("/{jobId}/approve")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('RECRUITMENT_ADMIN')")
     @Operation(summary = "Approve job", description = "Approve a job posting")
     public ResponseEntity<JobPostingResponse> approveJob(@PathVariable Long jobId) {
         return ResponseEntity.ok(adminJobService.approveJob(jobId));
     }
 
     @PostMapping("/{jobId}/reject")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('RECRUITMENT_ADMIN')")
     @Operation(summary = "Reject job", description = "Reject a job posting and refund fee")
     public ResponseEntity<JobPostingResponse> rejectJob(
             @PathVariable Long jobId,

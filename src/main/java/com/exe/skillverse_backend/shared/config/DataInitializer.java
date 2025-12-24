@@ -90,6 +90,22 @@ public class DataInitializer implements CommandLineRunner {
                                 log.info("✅ Created RECRUITER role");
                         }
 
+                        // Initialize Sub-Admin Roles
+                        String[] subAdminRoles = {
+                            "USER_ADMIN", "CONTENT_ADMIN", "COMMUNITY_ADMIN", 
+                            "FINANCE_ADMIN", "PREMIUM_ADMIN", "AI_ADMIN", 
+                            "SUPPORT_ADMIN", "SYSTEM_ADMIN"
+                        };
+
+                        for (String roleName : subAdminRoles) {
+                            if (!roleRepository.existsByName(roleName)) {
+                                Role role = new Role();
+                                role.setName(roleName);
+                                roleRepository.save(role);
+                                log.info("✅ Created {} role", roleName);
+                            }
+                        }
+
                         log.info("🎉 All roles initialized successfully");
 
                 } catch (Exception e) {

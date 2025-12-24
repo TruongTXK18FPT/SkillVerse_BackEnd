@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.admin_service.dto.request.ResetPasswordRequest
 import com.exe.skillverse_backend.admin_service.dto.request.UpdateUserProfileRequest;
 import com.exe.skillverse_backend.admin_service.dto.request.UpdateUserRoleRequest;
 import com.exe.skillverse_backend.admin_service.dto.request.UpdateUserStatusRequest;
+import com.exe.skillverse_backend.admin_service.dto.request.AddRoleRequest;
 import com.exe.skillverse_backend.admin_service.dto.response.AdminUserDetailResponse;
 import com.exe.skillverse_backend.admin_service.dto.response.AdminUserListResponse;
 import com.exe.skillverse_backend.admin_service.dto.response.AdminUserResponse;
@@ -29,7 +30,7 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Admin User Management", description = "APIs for managing all system users")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
 public class AdminUserController {
 
     private final AdminUserService adminUserService;
@@ -94,6 +95,18 @@ public class AdminUserController {
         log.info("PUT /api/admin/users/role - userId: {}, role: {}", 
                  request.getUserId(), request.getPrimaryRole());
         AdminUserResponse response = adminUserService.updateUserRole(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/roles/add")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Add roles to user", description = "Add additional roles to a user (for Sub-Admins)")
+    public ResponseEntity<AdminUserResponse> addRolesToUser(
+        @Valid @RequestBody AddRoleRequest request
+    ) {
+        log.info("PUT /api/admin/users/roles/add - userId: {}, roles: {}", 
+                 request.getUserId(), request.getRoles());
+        AdminUserResponse response = adminUserService.addRolesToUser(request);
         return ResponseEntity.ok(response);
     }
 

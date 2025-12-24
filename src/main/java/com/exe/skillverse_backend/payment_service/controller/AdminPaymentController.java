@@ -26,7 +26,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/payments")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
 @Tag(name = "Admin - Payments", description = "Admin payment transaction management")
 public class AdminPaymentController {
 

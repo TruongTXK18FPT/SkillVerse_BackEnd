@@ -24,6 +24,7 @@ public class AdminUserResponse {
     private String fullName;
     private String phoneNumber;
     private PrimaryRole primaryRole;
+    private java.util.List<String> roles;
     private UserStatus status;
     private boolean isEmailVerified;
     private LocalDateTime createdAt;

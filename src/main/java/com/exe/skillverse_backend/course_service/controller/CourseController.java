@@ -234,7 +234,7 @@ public class CourseController {
     }
 
     @PostMapping("/{courseId}/approve")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
     @Operation(summary = "Approve a course (Admin only)")
     public ResponseEntity<CourseDetailDTO> approveCourse(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
@@ -246,7 +246,7 @@ public class CourseController {
     }
 
     @PostMapping("/{courseId}/reject")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
     @Operation(summary = "Reject a course (Admin only)")
     public ResponseEntity<CourseDetailDTO> rejectCourse(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
@@ -259,7 +259,7 @@ public class CourseController {
     }
 
     @GetMapping("/pending")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
     @Operation(summary = "List courses pending approval (Admin only)")
     public ResponseEntity<PageResponse<CourseSummaryDTO>> listPendingCourses(
             @PageableDefault(size = 20) Pageable pageable) {

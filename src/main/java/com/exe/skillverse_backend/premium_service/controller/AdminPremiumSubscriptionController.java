@@ -22,7 +22,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/premium")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
 @Tag(name = "Admin - Premium Subscriptions", description = "Admin premium subscription management")
 public class AdminPremiumSubscriptionController {
     

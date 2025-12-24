@@ -10,6 +10,8 @@ import com.exe.skillverse_backend.admin_service.dto.response.AdminUserResponse;
 import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 
+import com.exe.skillverse_backend.admin_service.dto.request.AddRoleRequest;
+
 /**
  * Service interface for admin user management operations
  */
@@ -46,11 +48,18 @@ public interface AdminUserService {
     AdminUserResponse updateUserStatus(UpdateUserStatusRequest request);
     
     /**
-     * Update user role
+     * Update user role (Primary Role)
      * @param request UpdateUserRoleRequest
      * @return Updated AdminUserResponse
      */
     AdminUserResponse updateUserRole(UpdateUserRoleRequest request);
+
+    /**
+     * Add additional roles to user
+     * @param request AddRoleRequest
+     * @return Updated AdminUserResponse
+     */
+    AdminUserResponse addRolesToUser(AddRoleRequest request);
     
     /**
      * Update user profile information

@@ -44,7 +44,7 @@ public class AdminApplicationController {
             @ApiResponse(responseCode = "400", description = "Invalid request or processing failed", content = @Content),
             @ApiResponse(responseCode = "403", description = "Access denied - admin role required", content = @Content)
     })
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<AdminApprovalResponse> processApplication(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @RequestBody ApplicationActionRequest request) {
@@ -82,7 +82,7 @@ public class AdminApplicationController {
             @ApiResponse(responseCode = "400", description = "Invalid status filter", content = @Content),
             @ApiResponse(responseCode = "403", description = "Access denied - admin role required", content = @Content)
     })
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<ApplicationsResponse> getApplications(
             @Parameter(description = "Status filter: PENDING, APPROVED, REJECTED, or ALL (default)", example = "PENDING") @RequestParam(defaultValue = "ALL") String status) {
         try {
