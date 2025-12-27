@@ -63,7 +63,9 @@ public class SecurityConfig {
                         "/api/v1/support/tickets",
                         "/api/v1/support/tickets/code/**",
                         "/api/v1/support/tickets/email/**",
-                        "/api/v1/support/chat/**"
+                        "/api/v1/support/chat/**",
+                        // Sliders
+                        "/api/public/sliders"
         };
 
         private static final String[] SWAGGER_ENDPOINTS = {
