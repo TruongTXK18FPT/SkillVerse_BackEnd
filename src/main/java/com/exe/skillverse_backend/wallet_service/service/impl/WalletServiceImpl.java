@@ -436,19 +436,22 @@ public class WalletServiceImpl implements WalletService {
                                 .orElseThrow(() -> new IllegalArgumentException(
                                                 "Wallet not found for user: " + userId));
 
-                // Check if sufficient balance
-                if (wallet.getCashBalance().compareTo(cashAmount) < 0) {
+                BigDecimal oldBalance = wallet.getCashBalance();
+                if (oldBalance.compareTo(cashAmount) < 0) {
+                        log.error("Insufficient balance. User: {}, Balance: {}, Required: {}", userId, oldBalance,
+                                        cashAmount);
                         throw new IllegalArgumentException(String.format(
                                         "Insufficient balance. Available: %s VND, Required: %s VND",
-                                        wallet.getCashBalance(), cashAmount));
+                                        oldBalance, cashAmount));
                 }
 
-                // Deduct amount from cash balance
-                BigDecimal newBalance = wallet.getCashBalance().subtract(cashAmount);
+                BigDecimal newBalance = oldBalance.subtract(cashAmount);
                 wallet.setCashBalance(newBalance);
                 walletRepository.save(wallet);
 
-                // Create debit transaction
+                log.info("Wallet Update - User: {}, Old Balance: {}, Deducted: {}, New Balance: {}",
+                                userId, oldBalance, cashAmount, newBalance);
+
                 WalletTransaction transaction = WalletTransaction.builder()
                                 .wallet(wallet)
                                 .transactionType(WalletTransaction.TransactionType.PURCHASE_PREMIUM)
@@ -751,108 +754,115 @@ public class WalletServiceImpl implements WalletService {
                 });
         }
 
+        // ... constructors ...
 
+        /**
+         * Gift user cash or coin from admin
+         */
+        @Transactional
+        @Override
+        public WalletTransaction giftUser(Long userId, BigDecimal cashAmount, Long coinAmount, String reason) {
+                if (cashAmount == null)
+                        cashAmount = BigDecimal.ZERO;
+                if (coinAmount == null)
+                        coinAmount = 0L;
 
-    // ... constructors ...
+                if (cashAmount.compareTo(BigDecimal.ZERO) <= 0 && coinAmount <= 0) {
+                        throw new IllegalArgumentException("Phải nhập số tiền hoặc xu hợp lệ");
+                }
 
-    /**
-     * Gift user cash or coin from admin
-     */
-    @Transactional
-    @Override
-    public WalletTransaction giftUser(Long userId, BigDecimal cashAmount, Long coinAmount, String reason) {
-        if (cashAmount == null) cashAmount = BigDecimal.ZERO;
-        if (coinAmount == null) coinAmount = 0L;
+                Wallet wallet = walletRepository.findByUserIdWithLock(userId)
+                                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
 
-        if (cashAmount.compareTo(BigDecimal.ZERO) <= 0 && coinAmount <= 0) {
-            throw new IllegalArgumentException("Phải nhập số tiền hoặc xu hợp lệ");
+                WalletTransaction lastTransaction = null;
+
+                // 1. Process Cash Gift
+                if (cashAmount.compareTo(BigDecimal.ZERO) > 0) {
+                        // Use receiveGift to update balance without affecting totalDeposited
+                        wallet.receiveGift(cashAmount);
+                        walletRepository.save(wallet);
+
+                        WalletTransaction cashTx = WalletTransaction.builder()
+                                        .wallet(wallet)
+                                        .transactionType(WalletTransaction.TransactionType.ADMIN_ADJUSTMENT)
+                                        .currencyType(WalletTransaction.CurrencyType.CASH)
+                                        .cashAmount(cashAmount)
+                                        .coinAmount(0L)
+                                        .cashBalanceAfter(wallet.getCashBalance())
+                                        .coinBalanceAfter(wallet.getCoinBalance())
+                                        .description(reason != null && !reason.isEmpty() ? "Admin Gift: " + reason
+                                                        : "Admin Gift: Tiền thưởng từ Admin")
+                                        .referenceType("ADMIN_GIFT")
+                                        .referenceId("CASH_" + System.currentTimeMillis())
+                                        .status(WalletTransaction.TransactionStatus.COMPLETED)
+                                        .build();
+
+                        lastTransaction = transactionRepository.save(cashTx);
+                }
+
+                // 2. Process Coin Gift
+                if (coinAmount > 0) {
+                        wallet.earnCoins(coinAmount);
+                        // Note: earnCoins updates lastTransactionAt and totalCoinsEarned
+                        walletRepository.save(wallet);
+
+                        WalletTransaction coinTx = WalletTransaction.builder()
+                                        .wallet(wallet)
+                                        .transactionType(WalletTransaction.TransactionType.ADMIN_ADJUSTMENT)
+                                        .currencyType(WalletTransaction.CurrencyType.COIN)
+                                        .cashAmount(BigDecimal.ZERO)
+                                        .coinAmount(coinAmount)
+                                        .cashBalanceAfter(wallet.getCashBalance()) // Latest balance
+                                        .coinBalanceAfter(wallet.getCoinBalance())
+                                        .description(reason != null && !reason.isEmpty() ? "Admin Gift: " + reason
+                                                        : "Admin Gift: Xu thưởng từ Admin")
+                                        .referenceType("ADMIN_GIFT")
+                                        .referenceId("COIN_" + System.currentTimeMillis())
+                                        .status(WalletTransaction.TransactionStatus.COMPLETED)
+                                        .build();
+
+                        lastTransaction = transactionRepository.save(coinTx);
+                }
+
+                // Send Email and Notification
+                try {
+                        walletEmailService.sendAdminGiftEmail(wallet.getUser(), cashAmount, coinAmount, reason);
+
+                        // Create notification
+                        String notificationTitle = "🎁 Bạn có quà tặng mới!";
+                        String notificationMessage = "";
+                        if (cashAmount.compareTo(BigDecimal.ZERO) > 0 && coinAmount > 0) {
+                                notificationMessage = String.format(
+                                                "Bạn đã nhận được %s VNĐ và %d Xu từ Admin. Lý do: %s",
+                                                java.text.NumberFormat
+                                                                .getCurrencyInstance(new java.util.Locale("vi", "VN"))
+                                                                .format(cashAmount),
+                                                coinAmount,
+                                                reason != null ? reason : "Quà tặng");
+                        } else if (cashAmount.compareTo(BigDecimal.ZERO) > 0) {
+                                notificationMessage = String.format("Bạn đã nhận được %s VNĐ từ Admin. Lý do: %s",
+                                                java.text.NumberFormat
+                                                                .getCurrencyInstance(new java.util.Locale("vi", "VN"))
+                                                                .format(cashAmount),
+                                                reason != null ? reason : "Quà tặng");
+                        } else if (coinAmount > 0) {
+                                notificationMessage = String.format("Bạn đã nhận được %d Xu từ Admin. Lý do: %s",
+                                                coinAmount,
+                                                reason != null ? reason : "Quà tặng");
+                        }
+
+                        notificationService.createNotification(
+                                        userId,
+                                        notificationTitle,
+                                        notificationMessage,
+                                        com.exe.skillverse_backend.notification_service.entity.NotificationType.SYSTEM,
+                                        lastTransaction != null ? lastTransaction.getTransactionId().toString()
+                                                        : "GIFT");
+                } catch (Exception e) {
+                        log.error("Failed to send gift notification/email: {}", e.getMessage());
+                        // Don't fail the transaction just because notification failed
+                }
+
+                return lastTransaction;
         }
-
-        Wallet wallet = walletRepository.findByUserIdWithLock(userId)
-                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
-
-        WalletTransaction lastTransaction = null;
-
-        // 1. Process Cash Gift
-        if (cashAmount.compareTo(BigDecimal.ZERO) > 0) {
-            // Use receiveGift to update balance without affecting totalDeposited
-            wallet.receiveGift(cashAmount);
-            walletRepository.save(wallet);
-
-            WalletTransaction cashTx = WalletTransaction.builder()
-                    .wallet(wallet)
-                    .transactionType(WalletTransaction.TransactionType.ADMIN_ADJUSTMENT)
-                    .currencyType(WalletTransaction.CurrencyType.CASH)
-                    .cashAmount(cashAmount)
-                    .coinAmount(0L)
-                    .cashBalanceAfter(wallet.getCashBalance())
-                    .coinBalanceAfter(wallet.getCoinBalance())
-                    .description(reason != null && !reason.isEmpty() ? "Admin Gift: " + reason : "Admin Gift: Tiền thưởng từ Admin")
-                    .referenceType("ADMIN_GIFT")
-                    .referenceId("CASH_" + System.currentTimeMillis())
-                    .status(WalletTransaction.TransactionStatus.COMPLETED)
-                    .build();
-
-            lastTransaction = transactionRepository.save(cashTx);
-        }
-
-        // 2. Process Coin Gift
-        if (coinAmount > 0) {
-            wallet.earnCoins(coinAmount);
-            // Note: earnCoins updates lastTransactionAt and totalCoinsEarned
-            walletRepository.save(wallet);
-
-            WalletTransaction coinTx = WalletTransaction.builder()
-                    .wallet(wallet)
-                    .transactionType(WalletTransaction.TransactionType.ADMIN_ADJUSTMENT)
-                    .currencyType(WalletTransaction.CurrencyType.COIN)
-                    .cashAmount(BigDecimal.ZERO)
-                    .coinAmount(coinAmount)
-                    .cashBalanceAfter(wallet.getCashBalance()) // Latest balance
-                    .coinBalanceAfter(wallet.getCoinBalance())
-                    .description(reason != null && !reason.isEmpty() ? "Admin Gift: " + reason : "Admin Gift: Xu thưởng từ Admin")
-                    .referenceType("ADMIN_GIFT")
-                    .referenceId("COIN_" + System.currentTimeMillis())
-                    .status(WalletTransaction.TransactionStatus.COMPLETED)
-                    .build();
-
-            lastTransaction = transactionRepository.save(coinTx);
-        }
-
-        // Send Email and Notification
-        try {
-            walletEmailService.sendAdminGiftEmail(wallet.getUser(), cashAmount, coinAmount, reason);
-            
-            // Create notification
-            String notificationTitle = "🎁 Bạn có quà tặng mới!";
-            String notificationMessage = "";
-            if (cashAmount.compareTo(BigDecimal.ZERO) > 0 && coinAmount > 0) {
-                notificationMessage = String.format("Bạn đã nhận được %s VNĐ và %d Xu từ Admin. Lý do: %s", 
-                    java.text.NumberFormat.getCurrencyInstance(new java.util.Locale("vi", "VN")).format(cashAmount), 
-                    coinAmount, 
-                    reason != null ? reason : "Quà tặng");
-            } else if (cashAmount.compareTo(BigDecimal.ZERO) > 0) {
-                notificationMessage = String.format("Bạn đã nhận được %s VNĐ từ Admin. Lý do: %s", 
-                    java.text.NumberFormat.getCurrencyInstance(new java.util.Locale("vi", "VN")).format(cashAmount), 
-                    reason != null ? reason : "Quà tặng");
-            } else if (coinAmount > 0) {
-                notificationMessage = String.format("Bạn đã nhận được %d Xu từ Admin. Lý do: %s", 
-                    coinAmount, 
-                    reason != null ? reason : "Quà tặng");
-            }
-            
-            notificationService.createNotification(
-                userId, 
-                notificationTitle, 
-                notificationMessage, 
-                com.exe.skillverse_backend.notification_service.entity.NotificationType.SYSTEM,
-                lastTransaction != null ? lastTransaction.getTransactionId().toString() : "GIFT"
-            );
-        } catch (Exception e) {
-            log.error("Failed to send gift notification/email: {}", e.getMessage());
-            // Don't fail the transaction just because notification failed
-        }
-
-        return lastTransaction;
-    }
 }

@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.business_service.controller;
 
 import com.exe.skillverse_backend.business_service.dto.request.CreateJobRequest;
+import com.exe.skillverse_backend.business_service.dto.request.ReopenJobRequest;
 import com.exe.skillverse_backend.business_service.dto.request.UpdateJobRequest;
 import com.exe.skillverse_backend.business_service.dto.response.JobPostingResponse;
 import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
@@ -131,19 +132,24 @@ public class JobPostingController {
     }
 
     /**
-     * POST /api/jobs/{id}/reopen - Reopen closed job (RECRUITER only, hard delete
-     * applications)
+     * POST /api/jobs/{id}/reopen - Reopen a closed job
+     * FEE: 20,000 VND (unless reopened within 5 mins of closing)
      */
     @PostMapping("/{id}/reopen")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<JobPostingResponse> reopenJob(
             @PathVariable Long id,
+            @RequestBody(required = false) ReopenJobRequest request,
             Authentication authentication) {
 
         Long userId = Long.parseLong(authentication.getName());
         log.info("POST /api/jobs/{}/reopen - Reopening job by user ID: {}", id, userId);
 
-        JobPostingResponse response = jobPostingService.reopenJob(userId, id);
+        if (request == null) {
+            request = new ReopenJobRequest();
+        }
+
+        JobPostingResponse response = jobPostingService.reopenJob(userId, id, request);
         return ResponseEntity.ok(response);
     }
 }

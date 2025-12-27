@@ -84,6 +84,9 @@ public class JobPosting {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    @Column(name = "closed_at")
+    private LocalDateTime closedAt;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

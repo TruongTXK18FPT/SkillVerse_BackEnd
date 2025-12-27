@@ -7,13 +7,15 @@ import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
 
 import java.util.List;
 
+import com.exe.skillverse_backend.business_service.dto.request.ReopenJobRequest;
+
 public interface JobPostingService {
 
     JobPostingResponse createJob(Long userId, CreateJobRequest request);
 
     JobPostingResponse updateJob(Long userId, Long jobId, UpdateJobRequest request);
 
-    JobPostingResponse changeStatus(Long userId, Long jobId, JobStatus newStatus);
+    JobPostingResponse changeStatus(Long userId, Long jobId, JobStatus status);
 
     List<JobPostingResponse> getMyJobs(Long userId);
 
@@ -23,5 +25,5 @@ public interface JobPostingService {
 
     void deleteJob(Long userId, Long jobId);
 
-    JobPostingResponse reopenJob(Long userId, Long jobId);
+    JobPostingResponse reopenJob(Long userId, Long jobId, ReopenJobRequest request);
 }

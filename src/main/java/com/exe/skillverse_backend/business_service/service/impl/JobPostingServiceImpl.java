@@ -22,8 +22,14 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import java.math.BigDecimal;
+
+import com.exe.skillverse_backend.business_service.dto.request.ReopenJobRequest;
 
 @Service
 @Slf4j
@@ -51,6 +57,11 @@ public class JobPostingServiceImpl implements JobPostingService {
         // Validate location if not remote
         if (!request.getIsRemote() && (request.getLocation() == null || request.getLocation().trim().isEmpty())) {
             throw new IllegalArgumentException("Location is required for non-remote jobs");
+        }
+
+        // Validate deadline (Max 90 days)
+        if (request.getDeadline().isAfter(LocalDate.now().plusDays(90))) {
+            throw new IllegalArgumentException("Deadline cannot be more than 90 days from today");
         }
 
         // Find recruiter profile
@@ -123,6 +134,7 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .orElseThrow(() -> new NotFoundException("Job not found or you don't have permission to edit it"));
 
         // Validate status - only allow edit if IN_PROGRESS or CLOSED
+        // UPDATE: Allow editing CLOSED jobs (User can edit then reopen for a fee)
         if (job.getStatus() == JobStatus.OPEN) {
             throw new IllegalStateException(
                     "Cannot edit job while it is OPEN. Close it first or change only the status.");
@@ -150,6 +162,10 @@ public class JobPostingServiceImpl implements JobPostingService {
             job.setMaxBudget(request.getMaxBudget());
         }
         if (request.getDeadline() != null) {
+            // Validate deadline (Max 90 days)
+            if (request.getDeadline().isAfter(LocalDate.now().plusDays(90))) {
+                throw new IllegalArgumentException("Deadline cannot be more than 90 days from today");
+            }
             job.setDeadline(request.getDeadline());
         }
         if (request.getIsRemote() != null) {
@@ -205,6 +221,11 @@ public class JobPostingServiceImpl implements JobPostingService {
         JobStatus currentStatus = job.getStatus();
         if (currentStatus == JobStatus.CLOSED && newStatus != JobStatus.CLOSED) {
             throw new IllegalStateException("Cannot change status of a CLOSED job. Use reopen instead.");
+        }
+
+        // Update closedAt if status is changing to CLOSED
+        if (newStatus == JobStatus.CLOSED) {
+            job.setClosedAt(LocalDateTime.now());
         }
 
         job.setStatus(newStatus);
@@ -282,10 +303,11 @@ public class JobPostingServiceImpl implements JobPostingService {
     }
 
     /**
-     * Reopen job (hard delete all applications, set status to OPEN)
+     * Reopen job (optionally delete applications, set status to OPEN)
+     * FEE: 20,000 VND (unless reopened within 5 mins of closing - GRACE PERIOD)
      */
     @Transactional
-    public JobPostingResponse reopenJob(Long userId, Long jobId) {
+    public JobPostingResponse reopenJob(Long userId, Long jobId, ReopenJobRequest request) {
         log.info("Reopening job ID: {} by user ID: {}", jobId, userId);
 
         // Find job and validate ownership
@@ -297,13 +319,88 @@ public class JobPostingServiceImpl implements JobPostingService {
             throw new IllegalStateException("Can only reopen CLOSED jobs");
         }
 
-        // Hard delete all applications
-        jobApplicationRepository.deleteByJobPostingId(jobId);
-        log.info("Deleted all applications for job ID: {}", jobId);
+        // Check Grace Period (5 minutes from CLOSING time)
+        // STRICT RULE: If job was EDITED after closing (updatedAt > closedAt), Grace
+        // Period is VOIDED.
+        boolean isFreeReopen = false;
+        if (job.getClosedAt() != null) {
+            LocalDateTime now = LocalDateTime.now();
+            long secondsSinceClose = ChronoUnit.SECONDS.between(job.getClosedAt(), now);
+            log.info("Grace Period Check - JobID: {}, ClosedAt: {}, Now: {}, SecondsDiff: {}",
+                    jobId, job.getClosedAt(), now, secondsSinceClose);
 
-        // Reset applicant count and set status to OPEN
-        job.setApplicantCount(0);
+            // Check if edited after closing (allow 1 second buffer for execution time diff)
+            boolean wasEditedAfterClose = false;
+            if (job.getUpdatedAt().isAfter(job.getClosedAt().plusSeconds(1))) {
+                wasEditedAfterClose = true;
+                log.info("Job ID {} was edited after closing. Grace period voided. UpdatedAt: {}", jobId,
+                        job.getUpdatedAt());
+            }
+
+            // Grace period: 5 minutes (300 seconds)
+            if (secondsSinceClose >= 0 && secondsSinceClose <= 300 && !wasEditedAfterClose) {
+                isFreeReopen = true;
+                log.info("DECISION: FREE REOPEN (Within 300s grace period and no edits)");
+            } else {
+                log.info("DECISION: PAID REOPEN (Time > 300s or Edited). Seconds: {}, Edited: {}", secondsSinceClose,
+                        wasEditedAfterClose);
+            }
+        } else {
+            // Fallback for legacy jobs without closedAt (treat as expired grace period)
+            log.info("Job ID {} has no closedAt timestamp. Treating as paid reopen.", jobId);
+        }
+
+        // Deduct Reopen Fee (20,000 VND) if not free
+        if (!isFreeReopen) {
+            try {
+                BigDecimal fee = new BigDecimal("20000");
+                log.info("Attempting to deduct fee: {} for User: {}", fee, userId);
+
+                walletService.deductCash(
+                        userId,
+                        fee,
+                        "Phí mở lại tin tuyển dụng: " + job.getTitle(),
+                        "JOB_REOPEN",
+                        String.valueOf(job.getId()));
+
+                log.info("SUCCESS: Deducted 20,000 VND for reopening job ID: {}", job.getId());
+            } catch (Exception e) {
+                log.error("Failed to deduct job reopen fee", e);
+                throw new IllegalStateException(
+                        "Số dư ví không đủ 20.000 VNĐ để mở lại tin tuyển dụng. Vui lòng nạp thêm tiền.");
+            }
+        }
+
+        // Handle applications (delete or keep)
+        if (Boolean.TRUE.equals(request.getClearApplications())) {
+            jobApplicationRepository.deleteByJobPostingId(jobId);
+            log.info("Deleted all applications for job ID: {}", jobId);
+            job.setApplicantCount(0);
+        } else {
+            log.info("Keeping existing applications for job ID: {}", jobId);
+        }
+
+        // Set status to OPEN and clear closedAt
         job.setStatus(JobStatus.OPEN);
+        job.setClosedAt(null);
+
+        // Handle Deadline
+        if (request.getDeadline() != null) {
+            // Validate deadline (Max 90 days)
+            if (request.getDeadline().isAfter(LocalDate.now().plusDays(90))) {
+                throw new IllegalArgumentException("Deadline cannot be more than 90 days from today");
+            }
+            if (request.getDeadline().isBefore(LocalDate.now())) {
+                throw new IllegalArgumentException("Deadline must be in the future");
+            }
+            job.setDeadline(request.getDeadline());
+        } else {
+            // Default behavior: Auto-extend by 30 days if expired
+            if (job.getDeadline().isBefore(LocalDate.now())) {
+                job.setDeadline(LocalDate.now().plusDays(30));
+                log.info("Deadline expired, auto-extended by 30 days for job ID: {}", jobId);
+            }
+        }
 
         JobPosting reopenedJob = jobPostingRepository.save(job);
         log.info("Job reopened successfully: {}", jobId);
