@@ -11,6 +11,8 @@ import java.util.UUID;
 public interface SliderRepository extends JpaRepository<Slider, UUID> {
     List<Slider> findByIsActiveTrueOrderByDisplayOrderAsc();
 
+    List<Slider> findByIsActiveTrueAndIsLoginOrderByDisplayOrderAsc(Boolean isLogin);
+
     List<Slider> findAllByOrderByDisplayOrderAsc();
 
     boolean existsByDisplayOrder(Integer displayOrder);

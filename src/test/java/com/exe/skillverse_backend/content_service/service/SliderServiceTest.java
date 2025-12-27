@@ -16,6 +16,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,6 +52,7 @@ class SliderServiceTest {
                 .publicId("test_public_id")
                 .displayOrder(1)
                 .isActive(true)
+                .isLogin(false)
                 .build();
 
         mockFile = mock(MultipartFile.class);
@@ -207,5 +209,124 @@ class SliderServiceTest {
         // Assert
         verify(cloudinaryService).deleteFile(eq("test_public_id"), eq("image"));
         verify(sliderRepository).delete(slider);
+    }
+
+    @Test
+    void getSliders_PublicNotLoggedIn_ReturnsPublicSliders() {
+        // Arrange
+        when(sliderRepository.findByIsActiveTrueAndIsLoginOrderByDisplayOrderAsc(false))
+                .thenReturn(List.of(slider));
+
+        // Act
+        List<SliderResponse> result = sliderService.getSliders(true, false);
+
+        // Assert
+        assertEquals(1, result.size());
+        verify(sliderRepository).findByIsActiveTrueAndIsLoginOrderByDisplayOrderAsc(false);
+    }
+
+    @Test
+    void getSliders_PublicLoggedIn_ReturnsLoggedInSliders() {
+        // Arrange
+        when(sliderRepository.findByIsActiveTrueAndIsLoginOrderByDisplayOrderAsc(true))
+                .thenReturn(List.of(slider));
+
+        // Act
+        List<SliderResponse> result = sliderService.getSliders(true, true);
+
+        // Assert
+        assertEquals(1, result.size());
+        verify(sliderRepository).findByIsActiveTrueAndIsLoginOrderByDisplayOrderAsc(true);
+    }
+
+    @Test
+    void getSliders_Admin_ReturnsAllSliders() {
+        // Arrange
+        when(sliderRepository.findAllByOrderByDisplayOrderAsc())
+                .thenReturn(List.of(slider));
+
+        // Act
+        List<SliderResponse> result = sliderService.getSliders(false, null);
+
+        // Assert
+        assertEquals(1, result.size());
+        verify(sliderRepository).findAllByOrderByDisplayOrderAsc();
+    }
+
+    @Test
+    void getSlider_Success() {
+        // Arrange
+        UUID id = slider.getId();
+        when(sliderRepository.findById(id)).thenReturn(Optional.of(slider));
+
+        // Act
+        SliderResponse result = sliderService.getSlider(id);
+
+        // Assert
+        assertNotNull(result);
+        assertEquals(slider.getTitle(), result.getTitle());
+        verify(sliderRepository).findById(id);
+    }
+
+    @Test
+    void getSlider_NotFound_ThrowsException() {
+        // Arrange
+        UUID id = UUID.randomUUID();
+        when(sliderRepository.findById(id)).thenReturn(Optional.empty());
+
+        // Act & Assert
+        RuntimeException exception = assertThrows(RuntimeException.class, () -> {
+            sliderService.getSlider(id);
+        });
+
+        assertTrue(exception.getMessage().contains("Slider not found"));
+    }
+
+    @Test
+    void updateSliderOrder_Success() {
+        // Arrange
+        UUID id1 = UUID.randomUUID();
+        UUID id2 = UUID.randomUUID();
+        List<UUID> sliderIds = List.of(id1, id2);
+
+        Slider slider1 = new Slider();
+        slider1.setId(id1);
+        Slider slider2 = new Slider();
+        slider2.setId(id2);
+
+        when(sliderRepository.findById(id1)).thenReturn(Optional.of(slider1));
+        when(sliderRepository.findById(id2)).thenReturn(Optional.of(slider2));
+
+        // Act
+        sliderService.updateSliderOrder(sliderIds);
+
+        // Assert
+        verify(sliderRepository).save(slider1);
+        verify(sliderRepository).save(slider2);
+        assertEquals(0, slider1.getDisplayOrder());
+        assertEquals(1, slider2.getDisplayOrder());
+    }
+
+    @Test
+    void createSlider_WithIsLogin_Success() throws IOException {
+        // Arrange
+        SliderRequest request = SliderRequest.builder()
+                .title("Login Slider")
+                .isLogin(true)
+                .image(mockFile)
+                .build();
+
+        Map<String, Object> uploadResult = new HashMap<>();
+        uploadResult.put("secure_url", "url");
+        uploadResult.put("public_id", "id");
+
+        when(cloudinaryService.uploadImageWithOptions(any(), eq("sliders"), anyMap())).thenReturn(uploadResult);
+        when(sliderRepository.save(any(Slider.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        // Act
+        SliderResponse result = sliderService.createSlider(request);
+
+        // Assert
+        assertTrue(result.getIsLogin());
     }
 }

@@ -20,6 +20,7 @@ public class SliderResponse {
     private String ctaText;
     private String ctaLink;
     private Boolean isActive;
+    private Boolean isLogin;
     private Integer displayOrder;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

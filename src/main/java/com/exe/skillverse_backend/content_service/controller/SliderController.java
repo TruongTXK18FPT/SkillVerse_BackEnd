@@ -28,15 +28,16 @@ public class SliderController {
 
     @GetMapping("/public/sliders")
     @Operation(summary = "Get active sliders", description = "Get list of active sliders for home page")
-    public ResponseEntity<List<SliderResponse>> getPublicSliders() {
-        return ResponseEntity.ok(sliderService.getAllSliders(true));
+    public ResponseEntity<List<SliderResponse>> getPublicSliders(
+            @RequestParam(required = false, defaultValue = "false") Boolean isLogin) {
+        return ResponseEntity.ok(sliderService.getSliders(true, isLogin));
     }
 
     @GetMapping("/admin/sliders")
     @PreAuthorize("hasRole('ADMIN') or hasRole('SYSTEM_ADMIN')")
     @Operation(summary = "Get all sliders", description = "Get list of all sliders (admin)")
     public ResponseEntity<List<SliderResponse>> getAllSliders() {
-        return ResponseEntity.ok(sliderService.getAllSliders(false));
+        return ResponseEntity.ok(sliderService.getSliders(false, null));
     }
 
     @PostMapping(value = "/admin/sliders", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

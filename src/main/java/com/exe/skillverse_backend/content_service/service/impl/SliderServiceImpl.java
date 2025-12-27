@@ -64,6 +64,7 @@ public class SliderServiceImpl implements SliderService {
                 .ctaText(request.getCtaText())
                 .ctaLink(request.getCtaLink())
                 .isActive(true)
+                .isLogin(request.getIsLogin() != null ? request.getIsLogin() : false)
                 .build();
 
         Slider savedSlider = sliderRepository.save(slider);
@@ -95,6 +96,8 @@ public class SliderServiceImpl implements SliderService {
         }
         if (request.getIsActive() != null)
             slider.setIsActive(request.getIsActive());
+        if (request.getIsLogin() != null)
+            slider.setIsLogin(request.getIsLogin());
         if (request.getCtaText() != null)
             slider.setCtaText(request.getCtaText());
         if (request.getCtaLink() != null)
@@ -141,10 +144,14 @@ public class SliderServiceImpl implements SliderService {
     }
 
     @Override
-    public List<SliderResponse> getAllSliders(boolean onlyActive) {
+    public List<SliderResponse> getSliders(Boolean isActive, Boolean isLogin) {
         List<Slider> sliders;
-        if (onlyActive) {
-            sliders = sliderRepository.findByIsActiveTrueOrderByDisplayOrderAsc();
+        if (Boolean.TRUE.equals(isActive)) {
+            if (isLogin != null) {
+                sliders = sliderRepository.findByIsActiveTrueAndIsLoginOrderByDisplayOrderAsc(isLogin);
+            } else {
+                sliders = sliderRepository.findByIsActiveTrueOrderByDisplayOrderAsc();
+            }
         } else {
             sliders = sliderRepository.findAllByOrderByDisplayOrderAsc();
         }
@@ -173,6 +180,7 @@ public class SliderServiceImpl implements SliderService {
                 .ctaText(slider.getCtaText())
                 .ctaLink(slider.getCtaLink())
                 .isActive(slider.getIsActive())
+                .isLogin(slider.getIsLogin())
                 .displayOrder(slider.getDisplayOrder())
                 .createdAt(slider.getCreatedAt())
                 .updatedAt(slider.getUpdatedAt())

@@ -16,7 +16,7 @@ public interface SliderService {
 
     SliderResponse getSlider(UUID id);
 
-    List<SliderResponse> getAllSliders(boolean onlyActive);
+    List<SliderResponse> getSliders(Boolean isActive, Boolean isLogin);
 
     void updateSliderOrder(List<UUID> sliderIds);
 }

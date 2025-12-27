@@ -37,6 +37,10 @@ public class Slider {
     @Builder.Default
     private Boolean isActive = true;
 
+    @Builder.Default
+    @Column(name = "is_login")
+    private Boolean isLogin = false;
+
     private Integer displayOrder;
 
     @CreationTimestamp

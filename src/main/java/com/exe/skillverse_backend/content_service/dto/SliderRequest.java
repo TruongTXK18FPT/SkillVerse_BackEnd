@@ -27,6 +27,8 @@ public class SliderRequest {
 
     private Boolean isActive;
 
+    private Boolean isLogin;
+
     @Size(max = 50, message = "CTA Text must not exceed 50 characters")
     private String ctaText;
 
