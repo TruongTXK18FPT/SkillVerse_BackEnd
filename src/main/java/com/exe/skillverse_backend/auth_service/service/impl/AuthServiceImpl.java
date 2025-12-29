@@ -126,7 +126,7 @@ public class AuthServiceImpl implements AuthService {
                 try {
                         // Find user by email
                         User user = userRepository.findByEmail(request.getEmail())
-                                        .orElseThrow(() -> new AuthenticationException("Invalid credentials"));
+                                        .orElseThrow(() -> new AuthenticationException("Email does not exist"));
 
                         // Check user status - only ACTIVE users can login
                         if (user.getStatus() != UserStatus.ACTIVE) {
@@ -146,7 +146,7 @@ public class AuthServiceImpl implements AuthService {
 
                         // Verify password
                         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-                                throw new AuthenticationException("Invalid credentials");
+                                throw new AuthenticationException("Incorrect email or password");
                         }
 
                         // Generate tokens
@@ -608,13 +608,13 @@ public class AuthServiceImpl implements AuthService {
 
                                 if (isRecruiter) {
                                         log.warn("RECRUITER attempted Google login: {}", email);
-                                        throw new RuntimeException(
+                                        throw new AuthenticationException(
                                                         "Business/Recruiter accounts must use email/password login.");
                                 }
 
                                 if (!isStudent && !isMentor) {
                                         log.warn("Unauthorized role attempted Google login: {}", email);
-                                        throw new RuntimeException(
+                                        throw new AuthenticationException(
                                                         "Only Student and Approved Mentor accounts can use Google Login.");
                                 }
 
@@ -628,17 +628,17 @@ public class AuthServiceImpl implements AuthService {
                                                                 mentorProfile.get()
                                                                                 .getApplicationStatus() == ApplicationStatus.REJECTED) {
                                                         String reason = mentorProfile.get().getRejectionReason();
-                                                        throw new RuntimeException(
+                                                        throw new AuthenticationException(
                                                                         "Your Mentor application was rejected. Reason: "
                                                                                         +
                                                                                         (reason != null ? reason
                                                                                                         : "Not specified"));
                                                 }
 
-                                                throw new RuntimeException(
+                                                throw new AccountPendingApprovalException(
                                                                 "Your Mentor account is pending approval. Please check your email for updates.");
                                         }
-                                        throw new RuntimeException(
+                                        throw new AuthenticationException(
                                                         "Your account is not active. Please contact support.");
                                 }
 
@@ -702,10 +702,12 @@ public class AuthServiceImpl implements AuthService {
 
                 } catch (IllegalArgumentException e) {
                         log.error("Invalid Google token: {}", e.getMessage());
-                        throw new RuntimeException("Invalid Google ID token: " + e.getMessage());
+                        throw new AuthenticationException("Invalid Google ID token: " + e.getMessage());
+                } catch (AuthenticationException e) {
+                        throw e;
                 } catch (Exception e) {
                         log.error("Google authentication failed", e);
-                        throw new RuntimeException("Google authentication failed: " + e.getMessage());
+                        throw new AuthenticationException("Google authentication failed: " + e.getMessage());
                 }
         }
 

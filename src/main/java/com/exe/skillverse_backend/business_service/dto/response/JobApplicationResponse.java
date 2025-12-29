@@ -35,4 +35,10 @@ public class JobApplicationResponse {
     private BigDecimal maxBudget;
     private Boolean isRemote;
     private String location;
+
+    // Premium feature
+    private Boolean isHighlighted;
+
+    // Portfolio link
+    private String portfolioSlug;
 }

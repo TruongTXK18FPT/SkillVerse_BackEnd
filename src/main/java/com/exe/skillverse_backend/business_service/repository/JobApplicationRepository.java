@@ -1,6 +1,8 @@
 package com.exe.skillverse_backend.business_service.repository;
 
 import com.exe.skillverse_backend.business_service.entity.JobApplication;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -46,7 +48,7 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
             "JOIN FETCH ja.user u " +
             "WHERE ja.jobPosting.id = :jobId " +
             "ORDER BY ja.appliedAt DESC")
-    List<JobApplication> findByJobPostingIdWithUserOrderByAppliedAtDesc(@Param("jobId") Long jobId);
+    Page<JobApplication> findByJobPostingIdWithUserOrderByAppliedAtDesc(@Param("jobId") Long jobId, Pageable pageable);
 
     /**
      * Find application by job ID and user ID (for duplicate check)

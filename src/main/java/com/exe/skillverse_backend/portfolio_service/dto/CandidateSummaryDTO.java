@@ -1,0 +1,26 @@
+package com.exe.skillverse_backend.portfolio_service.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class CandidateSummaryDTO {
+    private Long userId;
+    private String fullName;
+    private String professionalTitle;
+    private String avatarUrl;
+    private String customUrlSlug;
+    private String topSkills; // Keep as JSON string or convert to List<String> if preferred, matching entity
+                              // for now
+    private boolean isHighlighted;
+    private Double hourlyRate;
+    private String preferredCurrency;
+    private Integer totalProjects;
+}

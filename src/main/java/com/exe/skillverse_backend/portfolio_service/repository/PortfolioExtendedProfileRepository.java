@@ -1,6 +1,8 @@
 package com.exe.skillverse_backend.portfolio_service.repository;
 
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -27,7 +29,7 @@ public interface PortfolioExtendedProfileRepository extends JpaRepository<Portfo
     List<PortfolioExtendedProfile> findPublicPortfoliosByLocation(@Param("location") String location);
 
     @Query("SELECT p FROM PortfolioExtendedProfile p WHERE p.isPublic = true AND p.allowJobOffers = true")
-    List<PortfolioExtendedProfile> findPortfoliosOpenToOffers();
+    Page<PortfolioExtendedProfile> findPortfoliosOpenToOffers(Pageable pageable);
 
     @Query("SELECT COUNT(p) FROM PortfolioExtendedProfile p WHERE p.userId = :userId")
     long countByUserId(@Param("userId") Long userId);

@@ -12,10 +12,16 @@ import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
 import com.exe.skillverse_backend.business_service.repository.JobApplicationRepository;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.service.JobApplicationService;
+import com.exe.skillverse_backend.premium_service.dto.response.UsageCheckResult;
+import com.exe.skillverse_backend.premium_service.entity.FeatureType;
+import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.EmailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +38,8 @@ public class JobApplicationServiceImpl implements JobApplicationService {
     private final JobPostingRepository jobPostingRepository;
     private final UserRepository userRepository;
     private final EmailService emailService;
+    private final UsageLimitService usageLimitService;
+    private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
 
     /**
      * Apply to a job (duplicate prevention, increment applicant count)
@@ -101,7 +109,7 @@ public class JobApplicationServiceImpl implements JobApplicationService {
      * Get all applicants for a job (recruiter only)
      */
     @Transactional(readOnly = true)
-    public List<JobApplicationResponse> getJobApplicants(Long userId, Long jobId) {
+    public Page<JobApplicationResponse> getJobApplicants(Long userId, Long jobId, Pageable pageable) {
         log.info("Fetching applicants for job ID: {} by user ID: {}", jobId, userId);
 
         // Validate ownership
@@ -111,11 +119,9 @@ public class JobApplicationServiceImpl implements JobApplicationService {
 
         // OPTIMIZED: Uses JOIN FETCH to prevent N+1 queries when loading applicant user
         // details
-        List<JobApplication> applications = jobApplicationRepository
-                .findByJobPostingIdWithUserOrderByAppliedAtDesc(jobId);
-        return applications.stream()
-                .map(this::mapToResponse)
-                .collect(Collectors.toList());
+        Page<JobApplication> applications = jobApplicationRepository
+                .findByJobPostingIdWithUserOrderByAppliedAtDesc(jobId, pageable);
+        return applications.map(this::mapToResponse);
     }
 
     /**
@@ -227,6 +233,17 @@ public class JobApplicationServiceImpl implements JobApplicationService {
 
     private JobApplicationResponse mapToResponse(JobApplication application) {
         JobPosting job = application.getJobPosting();
+
+        // Check premium status
+        UsageCheckResult usageCheck = usageLimitService.canUseFeature(application.getUser().getId(),
+                FeatureType.PRIORITY_SUPPORT);
+        boolean isHighlighted = Boolean.TRUE.equals(usageCheck.getAllowed());
+
+        // Get portfolio slug
+        String portfolioSlug = portfolioExtendedProfileRepository.findByUserId(application.getUser().getId())
+                .map(p -> p.getCustomUrlSlug())
+                .orElse(null);
+
         return JobApplicationResponse.builder()
                 .id(application.getId())
                 .jobId(job.getId())
@@ -247,6 +264,8 @@ public class JobApplicationServiceImpl implements JobApplicationService {
                 .maxBudget(job.getMaxBudget())
                 .isRemote(job.getIsRemote())
                 .location(job.getLocation())
+                .isHighlighted(isHighlighted)
+                .portfolioSlug(portfolioSlug)
                 .build();
     }
 }

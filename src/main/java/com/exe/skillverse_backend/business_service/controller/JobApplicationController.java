@@ -7,6 +7,9 @@ import com.exe.skillverse_backend.business_service.service.JobApplicationService
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -60,14 +63,17 @@ public class JobApplicationController {
      */
     @GetMapping("/{jobId}/applicants")
     @PreAuthorize("hasRole('RECRUITER')")
-    public ResponseEntity<List<JobApplicationResponse>> getJobApplicants(
+    public ResponseEntity<Page<JobApplicationResponse>> getJobApplicants(
             @PathVariable Long jobId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "3") int size,
             Authentication authentication) {
 
         Long userId = Long.parseLong(authentication.getName());
         log.info("GET /api/jobs/{}/applicants - Fetching applicants by recruiter user ID: {}", jobId, userId);
 
-        List<JobApplicationResponse> response = jobApplicationService.getJobApplicants(userId, jobId);
+        Pageable pageable = PageRequest.of(page, size);
+        Page<JobApplicationResponse> response = jobApplicationService.getJobApplicants(userId, jobId, pageable);
         return ResponseEntity.ok(response);
     }
 
