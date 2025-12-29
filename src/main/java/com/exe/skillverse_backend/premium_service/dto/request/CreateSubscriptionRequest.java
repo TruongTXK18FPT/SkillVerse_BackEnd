@@ -42,4 +42,7 @@ public class CreateSubscriptionRequest {
 
     @Schema(description = "Coupon code for additional discounts")
     private String couponCode;
+
+    @Schema(description = "Target User ID (for parents buying for children)", example = "123")
+    private Long targetUserId;
 }

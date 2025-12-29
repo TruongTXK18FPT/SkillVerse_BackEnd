@@ -13,6 +13,8 @@ import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.course_service.entity.ModuleProgress;
 import com.exe.skillverse_backend.course_service.entity.CoursePurchase;
 import com.exe.skillverse_backend.course_service.entity.Certificate;
+import com.exe.skillverse_backend.study_service.entity.StudySession;
+import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
 
 import com.exe.skillverse_backend.shared.entity.Media;
 
@@ -167,6 +169,20 @@ public class User {
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private Set<Certificate> certificates = new HashSet<>();
+
+    // 9) Study Sessions
+    @Builder.Default
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private Set<StudySession> studySessions = new HashSet<>();
+
+    // 10) Roadmap Sessions
+    @Builder.Default
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private Set<RoadmapSession> roadmapSessions = new HashSet<>();
 
     @PreUpdate
     protected void onUpdate() {

@@ -399,13 +399,26 @@ public class AdminUserServiceImpl implements AdminUserService {
                                         "DELETE FROM support_tickets WHERE user_id = ?1 OR assigned_to = ?1")
                                         .setParameter(1, userId).executeUpdate();
 
+                        // Notification Service
+                        entityManager.createNativeQuery("DELETE FROM notifications WHERE user_id = ?1 OR sender_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
                         // AI Service
                         entityManager.createNativeQuery("DELETE FROM chat_messages WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM roadmap_sessions WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
+                        // Study Service (Tasks & Sessions)
+                        entityManager.createNativeQuery("DELETE FROM task_study_sessions WHERE session_id IN (SELECT id FROM study_sessions WHERE user_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM tasks WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM task_columns WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM study_sessions WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
 
-                        // Premium Service
+                        // AI Service
                         entityManager.createNativeQuery("DELETE FROM user_usage_tracking WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM subscription_cancellations WHERE user_id = ?1")
@@ -489,6 +502,10 @@ public class AdminUserServiceImpl implements AdminUserService {
                         entityManager.createNativeQuery("DELETE FROM refresh_tokens WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM user_roles WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
+                        // Parent Service
+                        entityManager.createNativeQuery("DELETE FROM parent_student_links WHERE parent_id = ?1 OR student_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
 
                         // Finally delete the user itself

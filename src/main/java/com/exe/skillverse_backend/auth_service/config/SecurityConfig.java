@@ -65,7 +65,9 @@ public class SecurityConfig {
                         "/api/v1/support/tickets/email/**",
                         "/api/v1/support/chat/**",
                         // Sliders
-                        "/api/public/sliders"
+                        "/api/public/sliders",
+                        // WebSocket
+                        "/ws/**"
         };
 
         private static final String[] SWAGGER_ENDPOINTS = {
@@ -96,6 +98,7 @@ public class SecurityConfig {
                                 // Public authentication endpoints
                                 .requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll()
                                 .requestMatchers(HttpMethod.GET, PUBLIC_ENDPOINTS).permitAll()
+                                .requestMatchers("/ws/**").permitAll()
 
                                 // Community posts: allow public GET only
                                 .requestMatchers(HttpMethod.GET, "/api/posts", "/api/posts/**").permitAll()

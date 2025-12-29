@@ -4,6 +4,7 @@ public enum PrimaryRole {
     USER, // Regular user with basic access
     MENTOR, // Approved mentor who can offer services
     RECRUITER, // Approved recruiter who can post jobs
+    PARENT, // Parent who can monitor and fund students
     ADMIN, // Administrator with full access (Super Admin)
     
     // Sub-Admin Roles

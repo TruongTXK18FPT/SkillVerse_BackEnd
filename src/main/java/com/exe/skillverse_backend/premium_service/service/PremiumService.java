@@ -89,6 +89,13 @@ public interface PremiumService {
     UserSubscriptionResponse purchaseWithWalletCash(Long userId, Long planId, boolean applyStudentDiscount);
 
     /**
+     * Purchase premium subscription using wallet cash for another user (gift)
+     * Parent can buy for their linked children
+     * Throws exception if insufficient balance or no valid link
+     */
+    UserSubscriptionResponse purchaseWithWalletCash(Long buyerId, Long planId, boolean applyStudentDiscount, Long targetUserId);
+
+    /**
      * Enable auto-renewal for subscription
      */
     void enableAutoRenewal(Long userId);

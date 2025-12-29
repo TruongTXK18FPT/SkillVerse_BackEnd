@@ -9,6 +9,8 @@ public interface UserCreationService {
 
     User createUserForRecruiter(String email, String password, String fullName, String phone);
 
+    User createUserForParent(String email, String password, String fullName, String phone);
+
     User createUserForUser(String email, String password, String fullName);
 
     boolean emailExists(String email);

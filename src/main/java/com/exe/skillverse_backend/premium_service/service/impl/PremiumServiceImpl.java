@@ -20,6 +20,9 @@ import com.exe.skillverse_backend.premium_service.service.PremiumEmailService;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.exe.skillverse_backend.parent_service.repository.ParentStudentLinkRepository;
+import com.exe.skillverse_backend.parent_service.entity.ParentStudentLink;
+import com.exe.skillverse_backend.parent_service.entity.enums.LinkStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
@@ -50,6 +53,7 @@ public class PremiumServiceImpl implements PremiumService {
         private final UserProfileService userProfileService;
         private final PremiumEmailService premiumEmailService;
         private final NotificationServiceImpl notificationService;
+        private final ParentStudentLinkRepository parentStudentLinkRepository;
 
         private static final List<String> STUDENT_EMAIL_DOMAINS = List.of(
                         ".edu", ".edu.vn", ".ac.uk", "university.", "student.", ".edu.au");
@@ -85,6 +89,21 @@ public class PremiumServiceImpl implements PremiumService {
 
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
+
+                if (request.getTargetUserId() != null) {
+                        Long targetId = request.getTargetUserId();
+                        log.info("Parent {} is buying for child {}", userId, targetId);
+                        
+                        ParentStudentLink link = parentStudentLinkRepository.findByParentIdAndStudentId(userId, targetId)
+                                .orElseThrow(() -> new RuntimeException("No link found between parent and student"));
+                                
+                        if (link.getStatus() != LinkStatus.ACTIVE) {
+                                throw new RuntimeException("Link is not active");
+                        }
+                        
+                        user = userRepository.findById(targetId)
+                                .orElseThrow(() -> new RuntimeException("Target student not found"));
+                }
 
                 PremiumPlan plan = premiumPlanRepository.findById(request.getPlanId())
                                 .filter(p -> p.getIsActive())
@@ -445,56 +464,85 @@ public class PremiumServiceImpl implements PremiumService {
         @Override
         @Transactional
         public UserSubscriptionResponse purchaseWithWalletCash(Long userId, Long planId, boolean applyStudentDiscount) {
-                log.info("💰 User {} purchasing premium plan {} with wallet cash", userId, planId);
+                // Delegate to the overloaded method with null targetUserId (self-purchase)
+                return purchaseWithWalletCash(userId, planId, applyStudentDiscount, null);
+        }
 
-                // 1. Validate user
-                User user = userRepository.findById(userId)
-                                .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
+        @Override
+        @Transactional
+        public UserSubscriptionResponse purchaseWithWalletCash(Long buyerId, Long planId, boolean applyStudentDiscount, Long targetUserId) {
+                log.info("💰 User {} purchasing premium plan {} with wallet cash (target: {})", buyerId, planId, targetUserId);
+
+                // 1. Validate buyer
+                User buyer = userRepository.findById(buyerId)
+                                .orElseThrow(() -> new RuntimeException("Buyer not found with ID: " + buyerId));
+
+                // 2. Determine the actual recipient
+                User recipient;
+                if (targetUserId != null && !targetUserId.equals(buyerId)) {
+                        // This is a gift purchase - validate the link
+                        log.info("🎁 Parent {} is gifting premium to child {}", buyerId, targetUserId);
+                        
+                        ParentStudentLink link = parentStudentLinkRepository.findByParentIdAndStudentId(buyerId, targetUserId)
+                                .orElseThrow(() -> new RuntimeException("Không tìm thấy liên kết giữa phụ huynh và học sinh. Vui lòng kết nối trước khi mua."));
+                                
+                        if (link.getStatus() != LinkStatus.ACTIVE) {
+                                throw new RuntimeException("Liên kết chưa được kích hoạt. Học sinh cần chấp nhận lời mời kết nối.");
+                        }
+                        
+                        recipient = userRepository.findById(targetUserId)
+                                .orElseThrow(() -> new RuntimeException("Không tìm thấy học sinh với ID: " + targetUserId));
+                } else {
+                        // Self-purchase
+                        recipient = buyer;
+                }
 
                 // 2. Validate plan
                 PremiumPlan plan = premiumPlanRepository.findById(planId)
                                 .filter(p -> p.getIsActive())
                                 .orElseThrow(() -> new RuntimeException("Premium plan not found: " + planId));
 
-                // 3. Check existing subscription
+                // 3. Check existing subscription for RECIPIENT
                 Optional<UserSubscription> existingSubscription = userSubscriptionRepository
-                                .findByUserAndIsActiveTrue(user);
+                                .findByUserAndIsActiveTrue(recipient);
 
                 if (existingSubscription.isPresent()) {
                         PremiumPlan existingPlan = existingSubscription.get().getPlan();
                         if (existingPlan.getPlanType() != PremiumPlan.PlanType.FREE_TIER) {
-                                throw new RuntimeException("User already has an active premium subscription");
+                                throw new RuntimeException("Người nhận đã có gói Premium đang hoạt động");
                         }
                         // Deactivate FREE_TIER to allow upgrading
                         UserSubscription activeSub = existingSubscription.get();
-                        activeSub.cancel("Upgrading from Free Tier via Wallet");
+                        activeSub.cancel("Upgrading from Free Tier via Wallet" + (targetUserId != null ? " (Gift from " + buyerId + ")" : ""));
                         userSubscriptionRepository.save(activeSub);
                 }
 
-                // 4. Calculate price (with student discount if applicable)
-                boolean isStudentEligible = applyStudentDiscount && isValidStudentEmail(user.getEmail());
+                // 4. Calculate price (with student discount if applicable - based on RECIPIENT's email)
+                boolean isStudentEligible = applyStudentDiscount && isValidStudentEmail(recipient.getEmail());
                 BigDecimal finalPrice = isStudentEligible ? plan.getStudentPrice() : plan.getPrice();
 
                 log.info("💵 Plan price: {} VND (student discount: {})", finalPrice, isStudentEligible);
 
-                // 5. Deduct cash from wallet using WalletService
-                String purchaseDescription = String.format("Mua gói Premium: %s", plan.getDisplayName());
+                // 5. Deduct cash from BUYER's wallet
+                String purchaseDescription = targetUserId != null 
+                        ? String.format("Mua gói Premium: %s cho %s %s", plan.getDisplayName(), recipient.getFirstName(), recipient.getLastName())
+                        : String.format("Mua gói Premium: %s", plan.getDisplayName());
                 try {
-                        walletService.deductCash(userId, finalPrice, purchaseDescription,
+                        walletService.deductCash(buyerId, finalPrice, purchaseDescription,
                                         "PREMIUM_SUBSCRIPTION", planId.toString());
                 } catch (Exception e) {
                         log.error("Failed to deduct wallet balance: {}", e.getMessage());
-                        throw new RuntimeException("Insufficient wallet balance or payment failed: " + e.getMessage());
+                        throw new RuntimeException("Số dư ví không đủ hoặc thanh toán thất bại: " + e.getMessage());
                 }
 
                 log.info("💳 Wallet payment processed successfully");
 
-                // 8. Create and activate subscription immediately
+                // 8. Create and activate subscription for RECIPIENT
                 LocalDateTime startDate = LocalDateTime.now();
                 LocalDateTime endDate = startDate.plusMonths(plan.getDurationMonths());
 
                 UserSubscription subscription = UserSubscription.builder()
-                                .user(user)
+                                .user(recipient)
                                 .plan(plan)
                                 .startDate(startDate)
                                 .endDate(endDate)
@@ -506,22 +554,37 @@ public class PremiumServiceImpl implements PremiumService {
 
                 subscription = userSubscriptionRepository.save(subscription);
 
-                log.info("✅ Premium subscription activated for user {} via wallet payment", userId);
+                log.info("✅ Premium subscription activated for user {} via wallet payment (buyer: {})", recipient.getId(), buyerId);
 
-                // Send premium purchase success email
+                // Send premium purchase success email to RECIPIENT
                 premiumEmailService.sendPremiumPurchaseSuccessEmail(
-                                user,
+                                recipient,
                                 subscription,
                                 finalPrice,
                                 "WALLET");
 
                 try {
+                        // Notify recipient
+                        String notifyMessage = targetUserId != null 
+                                ? "Bạn đã được " + buyer.getFirstName() + " " + buyer.getLastName() + " tặng gói Premium " + plan.getDisplayName() + "!"
+                                : "Bạn đã đăng ký gói Premium " + plan.getDisplayName() + " thành công bằng ví.";
+                        
                         notificationService.createNotification(
-                                        user.getId(),
+                                        recipient.getId(),
                                         "Đăng ký Premium thành công",
-                                        "Bạn đã đăng ký gói Premium " + plan.getDisplayName() + " thành công bằng ví.",
+                                        notifyMessage,
                                         NotificationType.PREMIUM_PURCHASE,
                                         String.valueOf(subscription.getId()));
+                                        
+                        // Also notify buyer if gift purchase
+                        if (targetUserId != null && !targetUserId.equals(buyerId)) {
+                                notificationService.createNotification(
+                                        buyerId,
+                                        "Tặng Premium thành công",
+                                        "Bạn đã tặng gói Premium " + plan.getDisplayName() + " cho " + recipient.getFirstName() + " " + recipient.getLastName() + " thành công!",
+                                        NotificationType.PREMIUM_PURCHASE,
+                                        String.valueOf(subscription.getId()));
+                        }
                 } catch (Exception e) {
                         log.error("Failed to create notification for premium purchase: {}", e.getMessage());
                 }

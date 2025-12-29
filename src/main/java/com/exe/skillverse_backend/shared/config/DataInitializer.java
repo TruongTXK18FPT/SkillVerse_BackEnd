@@ -7,6 +7,7 @@ import java.util.Set;
 
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.annotation.Order;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
@@ -43,10 +44,12 @@ public class DataInitializer implements CommandLineRunner {
         private final QuizRepository quizRepository;
         private final AssignmentRepository assignmentRepository;
         private final UserProfileService userProfileService;
+        private final JdbcTemplate jdbcTemplate;
 
         @Override
         public void run(String... args) throws Exception {
                 log.info("🚀 [ORDER 1] DataInitializer starting...");
+                fixDatabaseConstraints();
                 initializeRoles();
                 initializeUsers();
                 initializePremiumPlans();
@@ -54,6 +57,26 @@ public class DataInitializer implements CommandLineRunner {
                 log.info("✅ [ORDER 1] DataInitializer completed");
                 // initializeProfiles(); // Temporarily disabled - profiles can be created via
                 // API
+        }
+
+        private void fixDatabaseConstraints() {
+                try {
+                        log.info("🔧 Fixing database constraints...");
+
+                        // Fix users_primary_role_check
+                        String dropConstraintSql = "ALTER TABLE users DROP CONSTRAINT IF EXISTS users_primary_role_check";
+                        jdbcTemplate.execute(dropConstraintSql);
+
+                        String addConstraintSql = "ALTER TABLE users ADD CONSTRAINT users_primary_role_check " +
+                                        "CHECK (primary_role IN ('USER', 'MENTOR', 'RECRUITER', 'PARENT', 'ADMIN', " +
+                                        "'USER_ADMIN', 'CONTENT_ADMIN', 'COMMUNITY_ADMIN', 'FINANCE_ADMIN', " +
+                                        "'PREMIUM_ADMIN', 'AI_ADMIN', 'SUPPORT_ADMIN', 'SYSTEM_ADMIN'))";
+                        jdbcTemplate.execute(addConstraintSql);
+
+                        log.info("✅ Database constraints fixed successfully");
+                } catch (Exception e) {
+                        log.error("⚠️ Failed to fix database constraints: {}", e.getMessage());
+                }
         }
 
         private void initializeRoles() {
@@ -88,6 +111,14 @@ public class DataInitializer implements CommandLineRunner {
                                 recruiterRole.setName("RECRUITER");
                                 roleRepository.save(recruiterRole);
                                 log.info("✅ Created RECRUITER role");
+                        }
+
+                        // Create PARENT role if it doesn't exist
+                        if (!roleRepository.existsByName("PARENT")) {
+                                Role parentRole = new Role();
+                                parentRole.setName("PARENT");
+                                roleRepository.save(parentRole);
+                                log.info("✅ Created PARENT role");
                         }
 
                         // Initialize Sub-Admin Roles

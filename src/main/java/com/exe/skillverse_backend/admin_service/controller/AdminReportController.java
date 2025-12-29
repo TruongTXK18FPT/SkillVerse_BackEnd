@@ -39,12 +39,13 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.springframework.context.annotation.Lazy;
+
 /**
  * Admin CSV Reports: Users and Transactions
  */
 @RestController
 @RequestMapping("/api/admin/reports")
-@RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Admin Reports", description = "Download CSV reports for users and transactions")
 @PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
@@ -53,6 +54,15 @@ public class AdminReportController {
     private final AdminUserService adminUserService;
     private final PaymentService paymentService;
     private final WalletService walletService;
+
+    public AdminReportController(
+            AdminUserService adminUserService,
+            @Lazy PaymentService paymentService,
+            WalletService walletService) {
+        this.adminUserService = adminUserService;
+        this.paymentService = paymentService;
+        this.walletService = walletService;
+    }
 
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
     private static final String LOGO_PATH = "c:/WorkSpace/EXE201/SkillVerse_BackEnd/src/assets/skillverse.png";

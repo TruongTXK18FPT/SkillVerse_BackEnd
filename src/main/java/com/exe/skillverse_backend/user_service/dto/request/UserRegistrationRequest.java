@@ -16,4 +16,10 @@ public class UserRegistrationRequest extends BaseRegistrationRequest {
     // Additional user-specific fields
     @Size(max = 1000, message = "Social links must not exceed 1000 characters")
     private String socialLinks;
+
+    // Role field (optional, defaults to USER if null)
+    private String role;
+
+    // Parent specific field
+    private String childEmail;
 }

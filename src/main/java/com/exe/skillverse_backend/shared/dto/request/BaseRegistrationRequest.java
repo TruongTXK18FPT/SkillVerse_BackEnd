@@ -52,4 +52,16 @@ public abstract class BaseRegistrationRequest {
     @Size(max = 100, message = "Region must not exceed 100 characters")
     @Schema(description = "User region/location", example = "Vietnamese")
     private String region;
+
+    @Schema(description = "User's first name", example = "John")
+    private String firstName;
+
+    @Schema(description = "User's last name", example = "Doe")
+    private String lastName;
+
+    @Schema(description = "User's phone number", example = "+1234567890")
+    private String phoneNumber;
+
+    @Schema(description = "User's role (optional)", example = "PARENT")
+    private String role;
 }

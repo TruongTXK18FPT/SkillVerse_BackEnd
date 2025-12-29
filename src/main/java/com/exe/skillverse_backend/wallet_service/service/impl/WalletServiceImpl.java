@@ -14,9 +14,13 @@ import com.exe.skillverse_backend.wallet_service.service.WalletService;
 
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.wallet_service.service.impl.WalletEmailServiceImpl;
+import com.exe.skillverse_backend.payment_service.service.PaymentService;
+import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
+import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -42,6 +46,7 @@ public class WalletServiceImpl implements WalletService {
         private final PasswordEncoder passwordEncoder;
         private final WalletEmailServiceImpl walletEmailService;
         private final NotificationService notificationService;
+        private final ObjectProvider<PaymentService> paymentServiceProvider;
 
         /**
          * Tạo ví mới cho user (tự động khi register)
@@ -372,9 +377,18 @@ public class WalletServiceImpl implements WalletService {
                         String paymentMethod,
                         String returnUrl,
                         String cancelUrl) {
-                // This would integrate with PaymentService
-                // For now, throw not implemented
-                throw new UnsupportedOperationException("Deposit payment integration not yet implemented");
+                
+                CreatePaymentRequest request = CreatePaymentRequest.builder()
+                        .amount(amount)
+                        .currency("VND")
+                        .type(PaymentTransaction.PaymentType.WALLET_TOPUP)
+                        .paymentMethod(PaymentTransaction.PaymentMethod.valueOf(paymentMethod))
+                        .description("Deposit to wallet")
+                        .successUrl(returnUrl)
+                        .cancelUrl(cancelUrl)
+                        .build();
+
+                return paymentServiceProvider.getObject().createPayment(userId, request);
         }
 
         /**
