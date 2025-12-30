@@ -35,6 +35,10 @@ public class ParentController {
 
     private User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()
+                || "anonymousUser".equalsIgnoreCase(authentication.getName())) {
+            throw new ApiException(ErrorCode.UNAUTHORIZED, "Unauthenticated");
+        }
         String principalName = authentication.getName();
         
         try {

@@ -186,7 +186,15 @@ public class ParentServiceImpl implements ParentService {
         List<ParentStudentLink> links = linkRepository.findByParentIdAndStatus(parentId, LinkStatus.ACTIVE);
         
         List<StudentOverviewDTO> students = links.stream()
-                .map(link -> getStudentOverview(link.getStudent()))
+                .map(link -> {
+                    try {
+                        return getStudentOverview(link.getStudent());
+                    } catch (Exception e) {
+                        log.error("Failed to build student overview for parent {} and student {}", parentId, link.getStudent().getId(), e);
+                        return null; // Skip this student but continue others
+                    }
+                })
+                .filter(overview -> overview != null)
                 .collect(Collectors.toList());
 
         return ParentDashboardResponse.builder()
