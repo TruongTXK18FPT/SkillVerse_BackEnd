@@ -49,6 +49,12 @@ class ParentServiceImplTest {
     @Mock
     private UserMapper userMapper;
 
+    @Mock
+    private NotificationService notificationService;
+
+    @Mock
+    private UserProfileRepository userProfileRepository;
+
     @InjectMocks
     private ParentServiceImpl parentService;
 
@@ -59,6 +65,7 @@ class ParentServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        MockitoAnnotations.openMocks(this);
         parent = User.builder()
                 .id(1L)
                 .email("parent@test.com")

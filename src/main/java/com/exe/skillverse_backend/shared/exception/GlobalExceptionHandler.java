@@ -98,14 +98,14 @@ public class GlobalExceptionHandler {
          */
         @ExceptionHandler(AuthenticationException.class)
         public ResponseEntity<ErrorResponse> handleAuthentication(
-                        AuthenticationException ex, HttpServletRequest req) {
+                AuthenticationException ex, HttpServletRequest req) {
                 var body = ErrorResponse.builder()
-                                .code(ErrorCode.UNAUTHORIZED.code)
-                                .message(ex.getMessage())
-                                .status(ErrorCode.UNAUTHORIZED.status.value())
-                                .timestamp(Instant.now())
-                                .path(req.getRequestURI())
-                                .build();
+                        .code(ErrorCode.UNAUTHORIZED.code)
+                        .message(ex.getMessage())
+                        .status(ErrorCode.UNAUTHORIZED.status.value())
+                        .timestamp(Instant.now())
+                        .path(req.getRequestURI())
+                        .build();
                 return ResponseEntity.status(ErrorCode.UNAUTHORIZED.status).body(body);
         }
 
@@ -118,14 +118,14 @@ public class GlobalExceptionHandler {
          */
         @ExceptionHandler(AccountPendingApprovalException.class)
         public ResponseEntity<ErrorResponse> handleAccountPendingApproval(
-                        AccountPendingApprovalException ex, HttpServletRequest req) {
+                AccountPendingApprovalException ex, HttpServletRequest req) {
                 var body = ErrorResponse.builder()
-                                .code(ErrorCode.FORBIDDEN.code)
-                                .message(ex.getMessage())
-                                .status(ErrorCode.FORBIDDEN.status.value())
-                                .timestamp(Instant.now())
-                                .path(req.getRequestURI())
-                                .build();
+                        .code(ErrorCode.FORBIDDEN.code)
+                        .message(ex.getMessage())
+                        .status(ErrorCode.FORBIDDEN.status.value())
+                        .timestamp(Instant.now())
+                        .path(req.getRequestURI())
+                        .build();
                 return ResponseEntity.status(ErrorCode.FORBIDDEN.status).body(body);
         }
 
@@ -138,14 +138,14 @@ public class GlobalExceptionHandler {
          */
         @ExceptionHandler(MaxUploadSizeExceededException.class)
         public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceeded(
-                        MaxUploadSizeExceededException ex, HttpServletRequest req) {
+                MaxUploadSizeExceededException ex, HttpServletRequest req) {
                 var body = ErrorResponse.builder()
-                                .code(ErrorCode.BAD_REQUEST.code)
-                                .message("File size exceeds the maximum allowed limit of 500MB")
-                                .status(ErrorCode.BAD_REQUEST.status.value())
-                                .timestamp(Instant.now())
-                                .path(req.getRequestURI())
-                                .build();
+                        .code(ErrorCode.BAD_REQUEST.code)
+                        .message("File size exceeds the maximum allowed limit of 500MB")
+                        .status(ErrorCode.BAD_REQUEST.status.value())
+                        .timestamp(Instant.now())
+                        .path(req.getRequestURI())
+                        .build();
                 return ResponseEntity.status(ErrorCode.BAD_REQUEST.status).body(body);
         }
 
@@ -158,13 +158,11 @@ public class GlobalExceptionHandler {
          */
         @ExceptionHandler(UsageLimitExceededException.class)
         public ResponseEntity<ErrorResponse> handleUsageLimitExceeded(
-                        UsageLimitExceededException ex,
-                        HttpServletRequest req) {
-
+                UsageLimitExceededException ex,
+                HttpServletRequest req) {
                 Map<String, Object> details = new HashMap<>();
                 details.put("featureType", ex.getFeatureType().name());
                 details.put("featureName", ex.getFeatureType().getDisplayNameVi());
-
                 if (ex.getCheckResult() != null) {
                         var result = ex.getCheckResult();
                         details.put("currentUsage", result.getCurrentUsage());
@@ -174,16 +172,14 @@ public class GlobalExceptionHandler {
                         details.put("timeUntilReset", result.getTimeUntilReset());
                         details.put("upgradeMessage", "Nâng cấp lên Premium để tăng giới hạn sử dụng!");
                 }
-
                 var body = ErrorResponse.builder()
-                                .code("USAGE_LIMIT_EXCEEDED")
-                                .message(ex.getMessage())
-                                .status(429) // Too Many Requests
-                                .timestamp(Instant.now())
-                                .path(req.getRequestURI())
-                                .details(details)
-                                .build();
-
+                        .code("USAGE_LIMIT_EXCEEDED")
+                        .message(ex.getMessage())
+                        .status(429) // Too Many Requests
+                        .timestamp(Instant.now())
+                        .path(req.getRequestURI())
+                        .details(details)
+                        .build();
                 return ResponseEntity.status(429).body(body);
         }
 
@@ -196,14 +192,14 @@ public class GlobalExceptionHandler {
          */
         @ExceptionHandler(Exception.class)
         public ResponseEntity<ErrorResponse> handleUnexpected(
-                        Exception ex, HttpServletRequest req) {
+                Exception ex, HttpServletRequest req) {
                 var body = ErrorResponse.builder()
-                                .code(ErrorCode.INTERNAL_ERROR.code)
-                                .message(ex.getMessage() != null ? ex.getMessage() : "Unexpected error")
-                                .status(ErrorCode.INTERNAL_ERROR.status.value())
-                                .timestamp(Instant.now())
-                                .path(req.getRequestURI())
-                                .build();
+                        .code(ErrorCode.INTERNAL_ERROR.code)
+                        .message(ex.getMessage() != null ? ex.getMessage() : "Unexpected error")
+                        .status(ErrorCode.INTERNAL_ERROR.status.value())
+                        .timestamp(Instant.now())
+                        .path(req.getRequestURI())
+                        .build();
                 return ResponseEntity.status(ErrorCode.INTERNAL_ERROR.status).body(body);
         }
 
