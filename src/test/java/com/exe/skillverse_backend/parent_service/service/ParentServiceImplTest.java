@@ -13,16 +13,24 @@ import com.exe.skillverse_backend.parent_service.dto.response.ParentDashboardRes
 import com.exe.skillverse_backend.parent_service.dto.response.ParentStudentLinkResponse;
 import com.exe.skillverse_backend.parent_service.entity.ParentStudentLink;
 import com.exe.skillverse_backend.parent_service.entity.enums.LinkStatus;
+import com.exe.skillverse_backend.parent_service.repository.LearningReportRepository;
 import com.exe.skillverse_backend.parent_service.repository.ParentStudentLinkRepository;
 import com.exe.skillverse_backend.parent_service.service.impl.ParentServiceImpl;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.shared.service.EmailService;
+import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
+import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
+import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioProjectRepository;
+import com.exe.skillverse_backend.study_service.repository.TaskRepository;
+import com.exe.skillverse_backend.ai_service.service.AiChatbotService;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
+import org.springframework.ai.chat.model.ChatModel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -47,6 +55,9 @@ class ParentServiceImplTest {
     private UserRepository userRepository;
 
     @Mock
+    private LearningReportRepository learningReportRepository;
+
+    @Mock
     private CourseEnrollmentRepository enrollmentRepository;
 
     @Mock
@@ -56,7 +67,31 @@ class ParentServiceImplTest {
     private NotificationService notificationService;
 
     @Mock
+    private EmailService emailService;
+
+    @Mock
     private UserProfileRepository userProfileRepository;
+
+    @Mock
+    private UserSubscriptionRepository subscriptionRepository;
+
+    @Mock
+    private StudySessionRepository studySessionRepository;
+
+    @Mock
+    private RoadmapSessionRepository roadmapSessionRepository;
+
+    @Mock
+    private PortfolioProjectRepository portfolioProjectRepository;
+
+    @Mock
+    private TaskRepository taskRepository;
+
+    @Mock
+    private AiChatbotService aiChatbotService;
+
+    @Mock
+    private ChatModel mistralChatModel;
 
     @InjectMocks
     private ParentServiceImpl parentService;
@@ -68,7 +103,6 @@ class ParentServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        MockitoAnnotations.openMocks(this);
         parent = User.builder()
                 .id(1L)
                 .email("parent@test.com")
@@ -93,16 +127,28 @@ class ParentServiceImplTest {
         linkRequest = new LinkStudentRequest("INVITE123", "student@test.com");
     }
 
+    private void stubUserDtoMapping() {
+        when(userMapper.toDto(any(User.class))).thenReturn(new UserDto());
+        when(userProfileRepository.findByUserId(anyLong())).thenReturn(Optional.empty());
+    }
+
+    private void stubStudentOverviewDependencies() {
+        stubUserDtoMapping();
+        when(studySessionRepository.findByUserId(anyLong())).thenReturn(Collections.emptyList());
+        when(roadmapSessionRepository.findByUserIdOrderByCreatedAtDesc(anyLong())).thenReturn(Collections.emptyList());
+        when(taskRepository.findByUserId(anyLong())).thenReturn(Collections.emptyList());
+    }
+
     // --- sendLinkRequest Tests ---
 
     @Test
     void sendLinkRequest_Success() {
+        stubUserDtoMapping();
         when(userRepository.findById(parent.getId())).thenReturn(Optional.of(parent));
         when(userRepository.findByEmail(student.getEmail())).thenReturn(Optional.of(student));
         when(linkRepository.existsByParentIdAndStudentId(parent.getId(), student.getId())).thenReturn(false);
         when(linkRepository.findByStudentId(student.getId())).thenReturn(Collections.emptyList());
         when(linkRepository.save(any(ParentStudentLink.class))).thenReturn(link);
-        when(userMapper.toDto(any(User.class))).thenReturn(new UserDto());
 
         ParentStudentLinkResponse response = parentService.sendLinkRequest(parent.getId(), linkRequest);
 
@@ -163,10 +209,10 @@ class ParentServiceImplTest {
     @Test
     void updateLinkStatus_Success() {
         UpdateLinkStatusRequest request = new UpdateLinkStatusRequest(LinkStatus.ACTIVE);
+        stubUserDtoMapping();
         
         when(linkRepository.findById(link.getId())).thenReturn(Optional.of(link));
         when(linkRepository.save(any(ParentStudentLink.class))).thenReturn(link);
-        when(userMapper.toDto(any(User.class))).thenReturn(new UserDto());
 
         // Assuming student calls this
         ParentStudentLinkResponse response = parentService.updateLinkStatus(student.getId(), link.getId(), request);
@@ -191,6 +237,7 @@ class ParentServiceImplTest {
     @Test
     void getParentDashboard_Success() {
         link.setStatus(LinkStatus.ACTIVE);
+        stubStudentOverviewDependencies();
         when(linkRepository.findByParentIdAndStatus(parent.getId(), LinkStatus.ACTIVE))
                 .thenReturn(Collections.singletonList(link));
         
@@ -200,8 +247,6 @@ class ParentServiceImplTest {
         
         when(enrollmentRepository.findByUserId(eq(student.getId()), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(Collections.singletonList(enrollment)));
-        
-        when(userMapper.toDto(student)).thenReturn(new UserDto());
 
         ParentDashboardResponse response = parentService.getParentDashboard(parent.getId());
 
@@ -214,6 +259,7 @@ class ParentServiceImplTest {
     @Test
     void getParentDashboard_BehindStatus() {
         link.setStatus(LinkStatus.ACTIVE);
+        stubStudentOverviewDependencies();
         when(linkRepository.findByParentIdAndStatus(parent.getId(), LinkStatus.ACTIVE))
                 .thenReturn(Collections.singletonList(link));
         
@@ -223,8 +269,6 @@ class ParentServiceImplTest {
         
         when(enrollmentRepository.findByUserId(eq(student.getId()), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(Collections.singletonList(enrollment)));
-        
-        when(userMapper.toDto(student)).thenReturn(new UserDto());
 
         ParentDashboardResponse response = parentService.getParentDashboard(parent.getId());
 
@@ -236,8 +280,8 @@ class ParentServiceImplTest {
 
     @Test
     void getStudentLinks_Success() {
+        stubUserDtoMapping();
         when(linkRepository.findByStudentId(student.getId())).thenReturn(Collections.singletonList(link));
-        when(userMapper.toDto(any(User.class))).thenReturn(new UserDto());
 
         List<ParentStudentLinkResponse> responses = parentService.getStudentLinks(student.getId());
 
