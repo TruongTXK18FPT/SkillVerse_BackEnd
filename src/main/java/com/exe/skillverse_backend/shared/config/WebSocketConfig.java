@@ -7,11 +7,13 @@ import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBr
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 
+import java.util.Arrays;
+
 @Configuration
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    @Value("${cors.allowed.origins:http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,https://skillverse.vn,https://www.skillverse.vn}")
+    @Value("${cors.allowed.origins:http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,http://localhost:52514,https://skillverse.vn,https://www.skillverse.vn}")
     private String allowedOrigins;
 
     @Override
@@ -27,15 +29,18 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        String[] origins = allowedOrigins.split(",");
+        String[] origins = Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toArray(String[]::new);
         
         // Register the /ws endpoint for WebSocket connections with SockJS
         registry.addEndpoint("/ws")
-                .setAllowedOrigins("http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000")
+                .setAllowedOriginPatterns(origins)
                 .withSockJS();
         
         // Also add without SockJS for native WebSocket clients
         registry.addEndpoint("/ws")
-                .setAllowedOrigins("http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000");
+                .setAllowedOriginPatterns(origins);
     }
 }

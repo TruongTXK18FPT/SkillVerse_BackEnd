@@ -84,11 +84,14 @@ email:
   from-name: ${EMAIL_FROM_NAME:SkillVerse}
 
 cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
-  allowed-methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS,PATCH}
-  allowed-headers: ${CORS_ALLOWED_HEADERS:*}
-  allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
-  max-age: ${CORS_MAX_AGE:3600}
+  allowed:
+    origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000,http://localhost:52514,https://skillverse.vn,https://www.skillverse.vn}
+    methods: ${CORS_ALLOWED_METHODS:GET,POST,PUT,DELETE,OPTIONS,PATCH}
+    headers: ${CORS_ALLOWED_HEADERS:*}
+  allow:
+    credentials: ${CORS_ALLOW_CREDENTIALS:true}
+  max:
+    age: ${CORS_MAX_AGE:3600}
 
 logging:
   level:
