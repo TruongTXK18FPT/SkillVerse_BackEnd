@@ -470,13 +470,18 @@ public class AdminUserServiceImpl implements AdminUserService {
                                         .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM audit_logs WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
+
+                        // User Service - clear profile references before deleting media
+                        entityManager.createNativeQuery("UPDATE user_profiles SET avatar_media_id = NULL WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM user_profiles WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
                         entityManager.createNativeQuery("DELETE FROM media WHERE uploaded_by = ?1")
                                         .setParameter(1, userId).executeUpdate();
 
-                        // User Service
+                        // User Service (remaining)
                         entityManager.createNativeQuery("DELETE FROM user_skills WHERE user_id = ?1")
-                                        .setParameter(1, userId).executeUpdate();
-                        entityManager.createNativeQuery("DELETE FROM user_profiles WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
 
                         // Course Service
