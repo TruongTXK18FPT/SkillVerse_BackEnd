@@ -44,6 +44,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.Pageable;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -181,7 +182,7 @@ public class ParentServiceImpl implements ParentService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
     public ParentDashboardResponse getParentDashboard(Long parentId) {
         List<ParentStudentLink> links = linkRepository.findByParentIdAndStatus(parentId, LinkStatus.ACTIVE);
         
@@ -269,7 +270,12 @@ public class ParentServiceImpl implements ParentService {
     }
 
     private StudentOverviewDTO getStudentOverview(User student) {
-        List<CourseEnrollment> enrollments = enrollmentRepository.findByUserId(student.getId(), Pageable.unpaged()).getContent();
+        List<CourseEnrollment> enrollments = List.of();
+        try {
+            enrollments = enrollmentRepository.findByUserId(student.getId(), Pageable.unpaged()).getContent();
+        } catch (Exception e) {
+            log.error("Failed to load enrollments for student {}", student.getId(), e);
+        }
         
         long completed = enrollments.stream().filter(e -> e.getStatus() == EnrollmentStatus.COMPLETED).count();
         long inProgress = enrollments.stream().filter(e -> e.getStatus() == EnrollmentStatus.ENROLLED).count();
@@ -304,7 +310,12 @@ public class ParentServiceImpl implements ParentService {
         LocalDateTime startOfWeek = now.minusDays(now.getDayOfWeek().getValue() - 1).truncatedTo(ChronoUnit.DAYS);
         LocalDateTime startOfMonth = now.withDayOfMonth(1).truncatedTo(ChronoUnit.DAYS);
 
-        List<StudySession> sessions = studySessionRepository.findByUserId(student.getId());
+        List<StudySession> sessions = List.of();
+        try {
+            sessions = studySessionRepository.findByUserId(student.getId());
+        } catch (Exception e) {
+            log.error("Failed to load study sessions for student {}", student.getId(), e);
+        }
         long todayMins = sessions.stream()
             .filter(s -> s.getStartTime() != null && s.getStartTime().isAfter(startOfDay))
             .mapToLong(s -> {
@@ -331,7 +342,12 @@ public class ParentServiceImpl implements ParentService {
             }).sum();
 
         // Roadmap & Chat - count actual chat sessions from AI chatbot
-        int totalRoadmaps = roadmapSessionRepository.findByUserIdOrderByCreatedAtDesc(student.getId()).size();
+        int totalRoadmaps = 0;
+        try {
+            totalRoadmaps = roadmapSessionRepository.findByUserIdOrderByCreatedAtDesc(student.getId()).size();
+        } catch (Exception e) {
+            log.error("Failed to load roadmaps for student {}", student.getId(), e);
+        }
         int chatSessionsCount = 0;
         try {
             List<ChatSessionSummary> chatSessions = aiChatbotService.getUserSessions(student.getId());
@@ -341,12 +357,22 @@ public class ParentServiceImpl implements ParentService {
         }
 
         // Jobs/Tasks
-        long completedJobs = taskRepository.findByUserId(student.getId()).stream()
-            .filter(t -> "DONE".equalsIgnoreCase(t.getStatus()) || "COMPLETED".equalsIgnoreCase(t.getStatus()))
-            .count();
+        long completedJobs = 0;
+        try {
+            completedJobs = taskRepository.findByUserId(student.getId()).stream()
+                .filter(t -> "DONE".equalsIgnoreCase(t.getStatus()) || "COMPLETED".equalsIgnoreCase(t.getStatus()))
+                .count();
+        } catch (Exception e) {
+            log.error("Failed to load tasks for student {}", student.getId(), e);
+        }
 
         // Portfolio
-        boolean portfolioCreated = portfolioProjectRepository.countByUserId(student.getId()) > 0;
+        boolean portfolioCreated = false;
+        try {
+            portfolioCreated = portfolioProjectRepository.countByUserId(student.getId()) > 0;
+        } catch (Exception e) {
+            log.error("Failed to load portfolio info for student {}", student.getId(), e);
+        }
 
         return StudentOverviewDTO.builder()
                 .studentInfo(studentDto)
