@@ -49,6 +49,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -58,6 +59,8 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class ParentServiceImpl implements ParentService {
+
+    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     private final ParentStudentLinkRepository linkRepository;
     private final LearningReportRepository learningReportRepository;
@@ -433,18 +436,23 @@ public class ParentServiceImpl implements ParentService {
             dto.setLastName("");
             dto.setFullName(emailName);
         }
-        
+
         userProfileRepository.findByUserId(user.getId()).ifPresent(profile -> {
             if (profile.getAvatarMedia() != null) {
                 dto.setAvatarUrl(profile.getAvatarMedia().getUrl());
             }
-            // Also try to get name from profile if user entity is empty
-            if ((dto.getFirstName() == null || dto.getFirstName().isEmpty()) && profile.getFullName() != null) {
-                 dto.setFullName(profile.getFullName());
-                 // Simple split attempt
-                 String[] parts = profile.getFullName().split(" ", 2);
-                 dto.setFirstName(parts[0]);
-                 if (parts.length > 1) dto.setLastName(parts[1]);
+            // Prefer full name from profile when available (even if firstName is an email-like placeholder)
+            if (profile.getFullName() != null && !profile.getFullName().trim().isEmpty()) {
+                dto.setFullName(profile.getFullName().trim());
+                String[] parts = profile.getFullName().trim().split(" ", 2);
+                dto.setFirstName(parts[0]);
+                if (parts.length > 1) dto.setLastName(parts[1]);
+            } else if ((dto.getFirstName() == null || dto.getFirstName().isEmpty()) && profile.getFullName() != null) {
+                // Legacy fallback if we only had firstName empty
+                dto.setFullName(profile.getFullName());
+                String[] parts = profile.getFullName().split(" ", 2);
+                dto.setFirstName(parts[0]);
+                if (parts.length > 1) dto.setLastName(parts[1]);
             }
         });
         return dto;
@@ -459,7 +467,7 @@ public class ParentServiceImpl implements ParentService {
 
         User student = userRepository.findById(studentId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Student not found"));
-        String studentName = student.getFullName() != null ? student.getFullName() : student.getEmail().split("@")[0];
+        String studentName = resolveStudentName(student, null);
 
         // Gather student data
         List<RoadmapSessionSummary> roadmaps = getStudentRoadmaps(parentId, studentId);
@@ -593,10 +601,12 @@ public class ParentServiceImpl implements ParentService {
 
     private LearningReport saveLearningReport(User parent, User student, String studentName,
             String reportContent, LearningReportResponse.ReportSections sections, boolean isAiGenerated) {
+        LocalDateTime generatedAt = LocalDateTime.now(VN_ZONE);
+        String resolvedName = resolveStudentName(student, studentName);
         LearningReport report = LearningReport.builder()
                 .parent(parent)
                 .student(student)
-                .studentName(studentName)
+                .studentName(resolvedName)
                 .reportContent(reportContent)
                 .goalsSection(sections.getLearningGoals())
                 .resultsSection(sections.getAchievements())
@@ -604,6 +614,7 @@ public class ParentServiceImpl implements ParentService {
                 .strengthsSection(sections.getStrengths())
                 .concernsSection(sections.getRisksAndGaps())
                 .recommendationsSection(sections.getRecommendations())
+                .generatedAt(generatedAt)
                 .isAiGenerated(isAiGenerated)
                 .build();
         
@@ -642,10 +653,12 @@ public class ParentServiceImpl implements ParentService {
 
     private LearningReportResponse generateFallbackReport(Long studentId, String studentName, 
             StudentOverviewDTO overview, List<RoadmapSessionSummary> roadmaps) {
+        LocalDateTime generatedAt = LocalDateTime.now(VN_ZONE);
+        String resolvedName = studentName != null && !studentName.trim().isEmpty() ? studentName : "Học viên";
         
         StringBuilder content = new StringBuilder();
         content.append("# 📊 BÁO CÁO HỌC TẬP\n\n");
-        content.append("**Học viên:** ").append(studentName).append("\n\n");
+        content.append("**Học viên:** ").append(resolvedName).append("\n\n");
 
         // Section 1
         content.append("## 1. MỤC TIÊU HỌC TẬP\n");
@@ -705,9 +718,9 @@ public class ParentServiceImpl implements ParentService {
         String reportContent = content.toString();
 
         return LearningReportResponse.builder()
-                .generatedAt(LocalDateTime.now())
+                .generatedAt(generatedAt)
                 .studentId(studentId)
-                .studentName(studentName)
+                .studentName(resolvedName)
                 .reportContent(reportContent)
                 .sections(LearningReportResponse.ReportSections.builder()
                         .learningGoals(extractSection(reportContent, "1. MỤC TIÊU HỌC TẬP", "2. KẾT QUẢ ĐẠT ĐƯỢC"))
@@ -749,11 +762,12 @@ public class ParentServiceImpl implements ParentService {
     }
 
     private LearningReportResponse convertToResponse(LearningReport report) {
+        String resolvedName = resolveStudentName(report.getStudent(), report.getStudentName());
         return LearningReportResponse.builder()
                 .id(report.getId())
                 .generatedAt(report.getGeneratedAt())
                 .studentId(report.getStudent().getId())
-                .studentName(report.getStudentName())
+                .studentName(resolvedName)
                 .reportContent(report.getReportContent())
                 .sections(LearningReportResponse.ReportSections.builder()
                         .learningGoals(report.getGoalsSection())
@@ -764,5 +778,25 @@ public class ParentServiceImpl implements ParentService {
                         .recommendations(report.getRecommendationsSection())
                         .build())
                 .build();
+    }
+
+    private String resolveStudentName(User student, String providedName) {
+        if (providedName != null && !providedName.trim().isEmpty()) {
+            return providedName.trim();
+        }
+        if (student != null) {
+            if (student.getFullName() != null && !student.getFullName().trim().isEmpty()) {
+                return student.getFullName().trim();
+            }
+            String combined = ((student.getFirstName() != null ? student.getFirstName() : "") + " " +
+                    (student.getLastName() != null ? student.getLastName() : "")).trim();
+            if (!combined.isEmpty()) {
+                return combined;
+            }
+            if (student.getEmail() != null && student.getEmail().contains("@")) {
+                return student.getEmail().split("@")[0];
+            }
+        }
+        return "Học viên";
     }
 }
