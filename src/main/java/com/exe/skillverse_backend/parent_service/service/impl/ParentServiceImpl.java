@@ -451,7 +451,6 @@ public class ParentServiceImpl implements ParentService {
     }
 
     @Override
-    @Transactional(readOnly = true)
     public LearningReportResponse generateLearningReport(Long parentId, Long studentId) {
         // Verify link
         if (!linkRepository.existsByParentIdAndStudentId(parentId, studentId)) {
@@ -549,18 +548,26 @@ public class ParentServiceImpl implements ParentService {
         User parent = userRepository.findById(parentId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Parent not found"));
 
+        String reportContent;
+        LearningReportResponse.ReportSections sections;
+
+        // AI generation should not hold a DB transaction; keep it isolated
         try {
             ChatClient chatClient = ChatClient.create(mistralChatModel);
-            String reportContent = chatClient.prompt()
+            reportContent = chatClient.prompt()
                     .system(systemPrompt)
                     .user(userPrompt)
                     .call()
                     .content();
 
-            // Parse sections from reportContent
-            LearningReportResponse.ReportSections sections = parseSections(reportContent);
+            sections = parseSections(reportContent);
+        } catch (Exception e) {
+            log.error("Failed to generate learning report with AI", e);
+            // Return a fallback report
+            return generateFallbackReport(studentId, studentName, overview, roadmaps);
+        }
 
-            // Save to database
+        try {
             LearningReport savedReport = saveLearningReport(parent, student, studentName, reportContent, sections, true);
             log.info("✅ Learning report saved with ID: {}", savedReport.getId());
 
@@ -572,11 +579,15 @@ public class ParentServiceImpl implements ParentService {
                     .reportContent(reportContent)
                     .sections(sections)
                     .build();
-
         } catch (Exception e) {
-            log.error("Failed to generate learning report with AI", e);
-            // Return a fallback report
-            return generateFallbackReport(studentId, studentName, overview, roadmaps);
+            log.error("Failed to persist learning report, returning generated content without saving", e);
+            return LearningReportResponse.builder()
+                    .generatedAt(LocalDateTime.now())
+                    .studentId(studentId)
+                    .studentName(studentName)
+                    .reportContent(reportContent)
+                    .sections(sections)
+                    .build();
         }
     }
 

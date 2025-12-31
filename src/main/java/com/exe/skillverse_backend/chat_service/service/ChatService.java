@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.chat_service.repository.UserChatMessageReposit
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.ZoneId;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -17,10 +18,12 @@ import java.util.stream.Collectors;
 public class ChatService {
 
     private final UserChatMessageRepository repository;
+    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     public ChatMessage save(ChatMessage chatMessage) {
         chatMessage.setStatus(ChatMessage.MessageStatus.RECEIVED);
-        chatMessage.setTimestamp(LocalDateTime.now());
+        // Normalize timestamps to Vietnam timezone to avoid client-side offset (-7h) issues
+        chatMessage.setTimestamp(LocalDateTime.now(VN_ZONE));
         
         UserChatMessageEntity entity = UserChatMessageEntity.builder()
                 .senderId(chatMessage.getSenderId())

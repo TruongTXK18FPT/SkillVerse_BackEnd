@@ -12,6 +12,7 @@ import com.exe.skillverse_backend.support_service.entity.SupportTicket.TicketCat
 import com.exe.skillverse_backend.support_service.entity.SupportTicket.TicketPriority;
 import com.exe.skillverse_backend.support_service.entity.SupportTicket.TicketStatus;
 import com.exe.skillverse_backend.support_service.repository.SupportTicketRepository;
+import com.exe.skillverse_backend.support_service.repository.TicketMessageRepository;
 import com.exe.skillverse_backend.support_service.service.SupportTicketService;
 
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ import java.util.stream.Collectors;
 public class SupportTicketServiceImpl implements SupportTicketService {
 
     private final SupportTicketRepository ticketRepository;
+    private final TicketMessageRepository ticketMessageRepository;
     private final UserRepository userRepository;
 
     @Override
@@ -215,10 +217,18 @@ public class SupportTicketServiceImpl implements SupportTicketService {
     @Override
     @Transactional
     public void deleteTicket(Long id) {
-        if (!ticketRepository.existsById(id)) {
-            throw new NotFoundException("Ticket not found with id: " + id);
+        SupportTicket ticket = ticketRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Ticket not found with id: " + id));
+
+        TicketStatus status = ticket.getStatus();
+        if (status != TicketStatus.CLOSED && status != TicketStatus.COMPLETED) {
+            throw new IllegalStateException("Only CLOSED or COMPLETED tickets can be deleted");
         }
-        ticketRepository.deleteById(id);
+
+        // Remove child messages first to satisfy FK constraint before deleting ticket
+        ticketMessageRepository.deleteByTicketId(id);
+        ticketRepository.delete(ticket);
+
         log.info("Deleted ticket with id: {}", id);
     }
 
