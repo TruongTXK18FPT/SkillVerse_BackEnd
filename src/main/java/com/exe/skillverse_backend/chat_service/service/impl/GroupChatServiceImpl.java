@@ -196,19 +196,37 @@ public class GroupChatServiceImpl implements GroupChatService {
         }
 
         return groupChatMessageRepository.findByGroupIdOrderByTimestampAsc(groupId).stream()
-                .map(entity -> GroupChatMessageDTO.builder()
-                        .id(entity.getId())
-                        .groupId(entity.getGroupId())
-                        .senderId(entity.getSenderId())
-                        .senderName(entity.getSenderName())
-                        .content(entity.getContent())
-                        .messageType(entity.getMessageType())
-                        .gifUrl(entity.getGifUrl())
-                        .imageUrl(entity.getImageUrl())
-                        .emojiCode(entity.getEmojiCode())
-                        .senderAvatarUrl(entity.getSenderAvatarUrl())
-                        .timestamp(entity.getTimestamp())
-                        .build())
+                .map(entity -> {
+                    GroupChatMessageDTO dto = GroupChatMessageDTO.builder()
+                            .id(entity.getId())
+                            .groupId(entity.getGroupId())
+                            .senderId(entity.getSenderId())
+                            .senderName(entity.getSenderName())
+                            .content(entity.getContent())
+                            .messageType(entity.getMessageType())
+                            .gifUrl(entity.getGifUrl())
+                            .imageUrl(entity.getImageUrl())
+                            .emojiCode(entity.getEmojiCode())
+                            .senderAvatarUrl(entity.getSenderAvatarUrl())
+                            .timestamp(entity.getTimestamp())
+                            .build();
+                    
+                    // Populate user info if missing
+                    if (dto.getSenderName() == null || dto.getSenderName().isEmpty() || 
+                        dto.getSenderAvatarUrl() == null || dto.getSenderAvatarUrl().isEmpty()) {
+                        userRepository.findById(entity.getSenderId()).ifPresent(user -> {
+                            if (dto.getSenderName() == null || dto.getSenderName().isEmpty()) {
+                                String fullName = (user.getFirstName() != null ? user.getFirstName() : "") + " " + (user.getLastName() != null ? user.getLastName() : "");
+                                dto.setSenderName(!fullName.trim().isEmpty() ? fullName.trim() : user.getEmail());
+                            }
+                            if (dto.getSenderAvatarUrl() == null || dto.getSenderAvatarUrl().isEmpty()) {
+                                dto.setSenderAvatarUrl(user.getAvatarUrl());
+                            }
+                        });
+                    }
+                    
+                    return dto;
+                })
                 .collect(Collectors.toList());
     }
 
