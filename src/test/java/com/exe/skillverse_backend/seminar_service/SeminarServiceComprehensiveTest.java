@@ -10,6 +10,8 @@ import com.exe.skillverse_backend.seminar_service.entity.SeminarTicket;
 import com.exe.skillverse_backend.seminar_service.repository.SeminarRepository;
 import com.exe.skillverse_backend.seminar_service.repository.SeminarTicketRepository;
 import com.exe.skillverse_backend.seminar_service.service.impl.SeminarServiceImpl;
+import com.exe.skillverse_backend.seminar_service.validation.SeminarValidator;
+import com.exe.skillverse_backend.shared.exception.ValidationException;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
@@ -26,6 +28,7 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -64,6 +67,8 @@ class SeminarServiceComprehensiveTest {
     private CloudinaryService cloudinaryService;
     @Mock
     private WalletTransactionRepository walletTransactionRepository;
+    @Mock
+    private SeminarValidator seminarValidator;
 
     @InjectMocks
     private SeminarServiceImpl seminarService;
@@ -81,6 +86,13 @@ class SeminarServiceComprehensiveTest {
 
     @BeforeEach
     void setUp() {
+        // Setup mock behavior for validator - by default, do nothing (allow valid
+        // requests)
+        // Use lenient() because some tests don't call these methods (e.g., entity
+        // tests, buyTicket tests)
+        lenient().doNothing().when(seminarValidator).validateCreateRequest(any(SeminarCreateRequest.class));
+        lenient().doNothing().when(seminarValidator).validateUpdateRequest(any(SeminarUpdateRequest.class), anyInt());
+
         testSeminar = Seminar.builder()
                 .id(SEMINAR_ID)
                 .title("Test Seminar")
@@ -189,7 +201,12 @@ class SeminarServiceComprehensiveTest {
             createRequest.setStartTime(FUTURE_END);
             createRequest.setEndTime(FUTURE_START);
 
-            assertThrows(IllegalArgumentException.class,
+            // Configure validator to throw ValidationException for invalid time range
+            doThrow(new ValidationException("Dữ liệu không hợp lệ",
+                    List.of("Thời gian kết thúc phải sau thời gian bắt đầu")))
+                    .when(seminarValidator).validateCreateRequest(any(SeminarCreateRequest.class));
+
+            assertThrows(ValidationException.class,
                     () -> seminarService.createSeminar(createRequest, null, RECRUITER_ID));
         }
 
@@ -198,7 +215,11 @@ class SeminarServiceComprehensiveTest {
         void createSeminar_NegativePrice() {
             createRequest.setPrice(new BigDecimal("-100"));
 
-            assertThrows(IllegalArgumentException.class,
+            // Configure validator to throw ValidationException for negative price
+            doThrow(new ValidationException("Dữ liệu không hợp lệ", List.of("Giá vé không được âm")))
+                    .when(seminarValidator).validateCreateRequest(any(SeminarCreateRequest.class));
+
+            assertThrows(ValidationException.class,
                     () -> seminarService.createSeminar(createRequest, null, RECRUITER_ID));
         }
     }
