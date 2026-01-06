@@ -103,6 +103,10 @@ public class SecurityConfig {
                                 // Community posts: allow public GET only
                                 .requestMatchers(HttpMethod.GET, "/api/posts", "/api/posts/**").permitAll()
 
+                                // Seminars: allow public GET (isOwned check works with optional auth via JWT
+                                // parsing)
+                                .requestMatchers(HttpMethod.GET, "/api/seminars", "/api/seminars/*").permitAll()
+
                                 // Allow all preflight CORS requests
                                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 

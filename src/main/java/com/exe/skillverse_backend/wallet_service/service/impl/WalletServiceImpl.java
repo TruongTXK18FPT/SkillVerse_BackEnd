@@ -703,6 +703,39 @@ public class WalletServiceImpl implements WalletService {
         }
 
         /**
+         * Credit earning to recruiter for seminar (70%)
+         */
+        @Transactional
+        public WalletTransaction payRecruiterForSeminar(Long recruiterId, BigDecimal amount, Long seminarId) {
+                if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                        throw new IllegalArgumentException("Amount must be greater than 0");
+                }
+
+                String referenceType = "SEMINAR_PAYOUT";
+                String referenceId = "SEMINAR_" + seminarId + "_" + System.currentTimeMillis();
+
+                Wallet wallet = walletRepository.findByUserIdWithLock(recruiterId)
+                                .orElseThrow(() -> new IllegalArgumentException("Wallet not found"));
+
+                wallet.depositCash(amount);
+                walletRepository.save(wallet);
+
+                WalletTransaction transaction = WalletTransaction.builder()
+                                .wallet(wallet)
+                                .transactionType(WalletTransaction.TransactionType.SEMINAR_PAYOUT)
+                                .currencyType(WalletTransaction.CurrencyType.CASH)
+                                .cashAmount(amount)
+                                .cashBalanceAfter(wallet.getCashBalance())
+                                .description("Thu nhập hội thảo (70%)")
+                                .referenceType(referenceType)
+                                .referenceId(referenceId)
+                                .status(WalletTransaction.TransactionStatus.COMPLETED)
+                                .build();
+
+                return transactionRepository.save(transaction);
+        }
+
+        /**
          * Admin: Get system-wide wallet statistics
          * 
          * @return Map with total cash, total coins, and wallet count

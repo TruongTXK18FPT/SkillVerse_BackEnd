@@ -56,6 +56,15 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
      * Find transaction by reference and reference type (idempotency check)
      */
     Optional<WalletTransaction> findByReferenceIdAndReferenceType(String referenceId, String referenceType);
+    
+    /**
+     * Find all SEMINAR_PAYOUT transactions for a specific seminar
+     * Used for revenue reports to show recruiter's earnings from seminar
+     */
+    @Query("SELECT t FROM WalletTransaction t WHERE t.transactionType = 'SEMINAR_PAYOUT' " +
+           "AND t.referenceId LIKE CONCAT('SEMINAR_', :seminarId, '%') " +
+           "ORDER BY t.createdAt DESC")
+    List<WalletTransaction> findSeminarPayoutsBySeminarId(@Param("seminarId") Long seminarId);
 
     /**
      * Check if payment reference already processed (idempotency check)
