@@ -2,9 +2,11 @@ package com.exe.skillverse_backend.seminar_service.service.impl;
 
 import com.exe.skillverse_backend.seminar_service.dto.request.SeminarCreateRequest;
 import com.exe.skillverse_backend.seminar_service.dto.request.SeminarUpdateRequest;
+import com.exe.skillverse_backend.seminar_service.dto.response.SeminarAnalyticsDTO;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarResponse;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarRevenueReportDTO;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarTicketResponse;
+import com.exe.skillverse_backend.seminar_service.dto.response.TopSpeakerDTO;
 import com.exe.skillverse_backend.seminar_service.entity.Seminar;
 import com.exe.skillverse_backend.seminar_service.entity.SeminarStatus;
 import com.exe.skillverse_backend.seminar_service.entity.SeminarTicket;
@@ -12,6 +14,7 @@ import com.exe.skillverse_backend.seminar_service.repository.SeminarRepository;
 import com.exe.skillverse_backend.seminar_service.repository.SeminarTicketRepository;
 import com.exe.skillverse_backend.seminar_service.service.SeminarService;
 import com.exe.skillverse_backend.seminar_service.validation.SeminarValidator;
+import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
@@ -31,6 +34,7 @@ import com.lowagie.text.pdf.PdfWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,6 +50,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -761,5 +766,102 @@ public class SeminarServiceImpl implements SeminarService {
         if (dateTime == null)
             return "N/A";
         return dateTime.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"));
+    }
+
+    /**
+     * Get public seminar analytics
+     * Returns aggregate statistics (total, active, completed) and top 4 speakers
+     * No authentication required - public endpoint for sidebar display
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public SeminarAnalyticsDTO getAnalytics() {
+        long startTime = System.currentTimeMillis();
+
+        try {
+            // Count seminars by status groups
+            List<SeminarStatus> channelStatuses = List.of(
+                    SeminarStatus.ACCEPTED,
+                    SeminarStatus.OPEN,
+                    SeminarStatus.CLOSED);
+            Long totalSeminars = seminarRepository.countByStatusIn(channelStatuses);
+            if (totalSeminars == null)
+                totalSeminars = 0L;
+
+            List<SeminarStatus> activeStatuses = List.of(
+                    SeminarStatus.ACCEPTED,
+                    SeminarStatus.OPEN);
+            Long activeSeminars = seminarRepository.countByStatusIn(activeStatuses);
+            if (activeSeminars == null)
+                activeSeminars = 0L;
+
+            Long completedSeminars = seminarRepository.countByStatusIn(
+                    List.of(SeminarStatus.CLOSED));
+            if (completedSeminars == null)
+                completedSeminars = 0L;
+
+            // Get top 4 speakers by tickets sold
+            Pageable topFour = PageRequest.of(0, 4);
+            List<Object[]> speakerStats = seminarRepository.findTopSpeakersByTicketsSold(topFour);
+
+            List<TopSpeakerDTO> topSpeakers = speakerStats.stream()
+                    .map(row -> {
+                        // Handle potential null values from native query
+                        // row[0] = creator_id (String), row[1] = ticket_count (Number)
+                        String creatorIdStr = row[0] != null ? row[0].toString() : null;
+                        Long ticketCount = row[1] != null ? ((Number) row[1]).longValue() : 0L;
+
+                        if (creatorIdStr == null || creatorIdStr.isBlank()) {
+                            log.warn("Found null or empty creatorId in speaker stats, skipping");
+                            return null;
+                        }
+
+                        // Convert String creator_id to Long for RecruiterProfile lookup
+                        Long creatorId;
+                        try {
+                            creatorId = Long.parseLong(creatorIdStr);
+                        } catch (NumberFormatException e) {
+                            log.warn("Invalid creatorId format: {}, skipping", creatorIdStr);
+                            return null;
+                        }
+
+                        // Get company name from RecruiterProfile with defensive null check
+                        String companyName = "Unknown Company"; // Default fallback
+                        try {
+                            RecruiterProfile profile = recruiterProfileRepository.findByUserId(creatorId)
+                                    .orElse(null);
+                            if (profile != null && profile.getCompanyName() != null
+                                    && !profile.getCompanyName().isBlank()) {
+                                companyName = profile.getCompanyName();
+                            }
+                        } catch (Exception e) {
+                            log.warn("Failed to fetch RecruiterProfile for creator {}: {}", creatorId, e.getMessage());
+                        }
+
+                        return TopSpeakerDTO.builder()
+                                .creatorId(creatorIdStr)
+                                .companyName(companyName)
+                                .totalTicketsSold(ticketCount)
+                                .build();
+                    })
+                    .filter(dto -> dto != null) // Remove nulls
+                    .collect(Collectors.toList());
+
+            long duration = System.currentTimeMillis() - startTime;
+            if (duration > 500) {
+                log.warn("⚠️ Slow analytics query detected: {}ms", duration);
+            }
+
+            return SeminarAnalyticsDTO.builder()
+                    .totalSeminars(totalSeminars.intValue())
+                    .activeSeminars(activeSeminars.intValue())
+                    .completedSeminars(completedSeminars.intValue())
+                    .topSpeakers(topSpeakers)
+                    .build();
+
+        } catch (Exception e) {
+            log.error("Failed to fetch seminar analytics", e);
+            throw new RuntimeException("Không thể tải thống kê seminar", e);
+        }
     }
 }

@@ -71,18 +71,32 @@ public class DatabaseSchemaFixer {
             jdbcTemplate.execute(fixWalletTransactionTypeSql);
             log.info("Successfully updated wallet_transactions_transaction_type_check constraint.");
 
-            // 3. [NEW] Clean up old/invalid job postings on testing environment
-            // Only runs if system property 'cleanup.jobs' is true OR always run safely for
-            // testing phase
-            // For safety, we only delete jobs created before the update (if needed) or
-            // specific bad data
-            // BUT, since you want to clear old testing data, we can be more aggressive here
-            // if it's safe.
+            // 3. Create indexes for seminar analytics queries
+            String createSeminarAnalyticsIndexesSql = """
+                        DO $$
+                        BEGIN
+                            -- Index for seminar status queries (analytics by creator)
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_indexes
+                                WHERE indexname = 'idx_seminars_creator_status'
+                            ) THEN
+                                CREATE INDEX idx_seminars_creator_status
+                                ON seminars(creator_id, status);
+                            END IF;
 
-            // OPTION: Delete all jobs that have 'null' or invalid values in new fields if
-            // necessary
-            // Or just leave them, they won't break anything unless we try to update them
-            // with invalid status
+                            -- Index for ticket count aggregation
+                            IF NOT EXISTS (
+                                SELECT 1 FROM pg_indexes
+                                WHERE indexname = 'idx_seminar_tickets_seminar_id'
+                            ) THEN
+                                CREATE INDEX idx_seminar_tickets_seminar_id
+                                ON seminar_tickets(seminar_id);
+                            END IF;
+                        END $$;
+                    """;
+
+            jdbcTemplate.execute(createSeminarAnalyticsIndexesSql);
+            log.info("✅ Seminar analytics indexes verified/created successfully.");
 
             log.info("Database schema fix completed successfully.");
 

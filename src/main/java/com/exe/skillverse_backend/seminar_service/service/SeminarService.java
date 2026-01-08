@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.seminar_service.service;
 
 import com.exe.skillverse_backend.seminar_service.dto.request.SeminarCreateRequest;
 import com.exe.skillverse_backend.seminar_service.dto.request.SeminarUpdateRequest;
+import com.exe.skillverse_backend.seminar_service.dto.response.SeminarAnalyticsDTO;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarResponse;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarRevenueReportDTO;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarTicketResponse;
@@ -50,4 +51,11 @@ public interface SeminarService {
      * Returns PDF as byte array for download
      */
     byte[] generateSeminarRevenueInvoicePdf(Long seminarId, String userId);
+
+    /**
+     * Get public seminar analytics
+     * Returns aggregate statistics and top speakers leaderboard
+     * No authentication required - public endpoint
+     */
+    SeminarAnalyticsDTO getAnalytics();
 }

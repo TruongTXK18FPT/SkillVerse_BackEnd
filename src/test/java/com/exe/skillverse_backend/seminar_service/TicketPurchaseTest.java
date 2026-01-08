@@ -1,0 +1,329 @@
+package com.exe.skillverse_backend.seminar_service;
+
+import com.exe.skillverse_backend.seminar_service.dto.response.SeminarTicketResponse;
+import com.exe.skillverse_backend.seminar_service.entity.Seminar;
+import com.exe.skillverse_backend.seminar_service.entity.SeminarStatus;
+import com.exe.skillverse_backend.seminar_service.entity.SeminarTicket;
+import com.exe.skillverse_backend.seminar_service.repository.SeminarRepository;
+import com.exe.skillverse_backend.seminar_service.repository.SeminarTicketRepository;
+import com.exe.skillverse_backend.seminar_service.service.impl.SeminarServiceImpl;
+import com.exe.skillverse_backend.seminar_service.validation.SeminarValidator;
+import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
+import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+/**
+ * Tests for Ticket Purchase - Happy Path, Security, Capacity, Race Conditions
+ */
+@ExtendWith(MockitoExtension.class)
+@DisplayName("Ticket Purchase Tests")
+class TicketPurchaseTest {
+
+    @Mock
+    private SeminarRepository seminarRepository;
+    @Mock
+    private SeminarTicketRepository ticketRepository;
+    @Mock
+    private WalletService walletService;
+    @Mock
+    private UserProfileRepository userProfileRepository;
+    @Mock
+    private RecruiterProfileRepository recruiterProfileRepository;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private CloudinaryService cloudinaryService;
+    @Mock
+    private WalletTransactionRepository walletTransactionRepository;
+    @Mock
+    private SeminarValidator seminarValidator;
+
+    @InjectMocks
+    private SeminarServiceImpl seminarService;
+
+    private static final String RECRUITER_ID = "100";
+    private static final String BUYER_ID = "200";
+    private static final Long SEMINAR_ID = 1L;
+    private static final BigDecimal PRICE = new BigDecimal("100000");
+    private static final LocalDateTime FUTURE_START = LocalDateTime.now().plusDays(7);
+    private static final LocalDateTime FUTURE_END = LocalDateTime.now().plusDays(8);
+
+    private Seminar testSeminar;
+
+    @BeforeEach
+    void setUp() {
+        testSeminar = Seminar.builder()
+                .id(SEMINAR_ID)
+                .title("Test Seminar")
+                .description("Description")
+                .meetingLink("https://meet.test.com/abc")
+                .startTime(FUTURE_START)
+                .endTime(FUTURE_END)
+                .price(PRICE)
+                .status(SeminarStatus.ACCEPTED)
+                .creatorId(RECRUITER_ID)
+                .maxCapacity(50)
+                .ticketsSold(0)
+                .version(0L)
+                .build();
+    }
+
+    // ========================================
+    // HAPPY PATH TESTS
+    // ========================================
+
+    @Test
+    @DisplayName("✅ Happy: Buy ticket with capacity available")
+    void buyTicket_Success() {
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
+        when(seminarRepository.incrementTicketsSoldIfAvailable(SEMINAR_ID)).thenReturn(1);
+        when(ticketRepository.save(any(SeminarTicket.class))).thenAnswer(i -> i.getArgument(0));
+
+        SeminarTicketResponse response = seminarService.buyTicket(SEMINAR_ID, BUYER_ID);
+
+        assertNotNull(response);
+        verify(walletService).deductCash(eq(Long.parseLong(BUYER_ID)), eq(PRICE), anyString(), anyString(),
+                anyString());
+        verify(walletService).payRecruiterForSeminar(eq(Long.parseLong(RECRUITER_ID)), any(BigDecimal.class),
+                eq(SEMINAR_ID));
+        verify(ticketRepository).save(any(SeminarTicket.class));
+    }
+
+    @Test
+    @DisplayName("✅ Happy: Buy ticket for free seminar (no payment)")
+    void buyTicket_FreeSeminar() {
+        testSeminar.setPrice(BigDecimal.ZERO);
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
+        when(seminarRepository.incrementTicketsSoldIfAvailable(SEMINAR_ID)).thenReturn(1);
+        when(ticketRepository.save(any(SeminarTicket.class))).thenAnswer(i -> i.getArgument(0));
+
+        SeminarTicketResponse response = seminarService.buyTicket(SEMINAR_ID, BUYER_ID);
+
+        assertNotNull(response);
+        verify(walletService, never()).deductCash(anyLong(), any(), anyString(), anyString(), anyString());
+        verify(ticketRepository).save(any(SeminarTicket.class));
+    }
+
+    @Test
+    @DisplayName("✅ Happy: Buy ticket for unlimited capacity seminar")
+    void buyTicket_UnlimitedCapacity() {
+        testSeminar.setMaxCapacity(null);
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
+        when(seminarRepository.incrementTicketsSoldIfAvailable(SEMINAR_ID)).thenReturn(1);
+        when(ticketRepository.save(any(SeminarTicket.class))).thenAnswer(i -> i.getArgument(0));
+
+        SeminarTicketResponse response = seminarService.buyTicket(SEMINAR_ID, BUYER_ID);
+
+        assertNotNull(response);
+    }
+
+    // ========================================
+    // SECURITY TESTS
+    // ========================================
+
+    @Test
+    @DisplayName("❌ Security: Prevent self-purchase")
+    void buyTicket_PreventSelfPurchase() {
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+
+        assertThrows(IllegalArgumentException.class, () -> seminarService.buyTicket(SEMINAR_ID, RECRUITER_ID));
+
+        verify(walletService, never()).deductCash(anyLong(), any(), anyString(), anyString(), anyString());
+        verify(ticketRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("❌ Security: Cannot buy ticket for non-ACCEPTED/OPEN seminar")
+    void buyTicket_InvalidStatus() {
+        testSeminar.setStatus(SeminarStatus.DRAFT);
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+
+        assertThrows(IllegalStateException.class, () -> seminarService.buyTicket(SEMINAR_ID, BUYER_ID));
+    }
+
+    @Test
+    @DisplayName("❌ Security: Cannot buy ticket for ended seminar")
+    void buyTicket_SeminarEnded() {
+        testSeminar.setEndTime(LocalDateTime.now().minusDays(1));
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+
+        assertThrows(IllegalStateException.class, () -> seminarService.buyTicket(SEMINAR_ID, BUYER_ID));
+    }
+
+    @Test
+    @DisplayName("❌ Security: Cannot buy duplicate ticket (application level)")
+    void buyTicket_DuplicateAtApplicationLevel() {
+        SeminarTicket existingTicket = new SeminarTicket();
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID))
+                .thenReturn(Optional.of(existingTicket));
+
+        assertThrows(IllegalStateException.class, () -> seminarService.buyTicket(SEMINAR_ID, BUYER_ID));
+
+        verify(seminarRepository, never()).incrementTicketsSoldIfAvailable(any());
+    }
+
+    @Test
+    @DisplayName("❌ Security: Cannot buy duplicate ticket (database level)")
+    void buyTicket_DuplicateAtDatabaseLevel() {
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
+        when(seminarRepository.incrementTicketsSoldIfAvailable(SEMINAR_ID)).thenReturn(1);
+        when(ticketRepository.save(any(SeminarTicket.class)))
+                .thenThrow(new DataIntegrityViolationException("Unique constraint violation"));
+
+        assertThrows(IllegalStateException.class, () -> seminarService.buyTicket(SEMINAR_ID, BUYER_ID));
+
+        verify(seminarRepository).decrementTicketsSold(SEMINAR_ID);
+    }
+
+    // ========================================
+    // CAPACITY MANAGEMENT TESTS
+    // ========================================
+
+    @Test
+    @DisplayName("❌ Capacity: Cannot buy ticket when sold out")
+    void buyTicket_SoldOut() {
+        testSeminar.setTicketsSold(50);
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalStateException.class, () -> seminarService.buyTicket(SEMINAR_ID, BUYER_ID));
+
+        verify(seminarRepository, never()).incrementTicketsSoldIfAvailable(any());
+    }
+
+    @Test
+    @DisplayName("❌ Capacity: Atomic capacity check fails (DB returns 0)")
+    void buyTicket_AtomicCapacityCheckFails() {
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
+        when(seminarRepository.incrementTicketsSoldIfAvailable(SEMINAR_ID)).thenReturn(0);
+
+        assertThrows(IllegalStateException.class, () -> seminarService.buyTicket(SEMINAR_ID, BUYER_ID));
+
+        verify(walletService, never()).deductCash(anyLong(), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("✅ Capacity: Buy last available ticket")
+    void buyTicket_LastTicket() {
+        testSeminar.setTicketsSold(49);
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
+        when(seminarRepository.incrementTicketsSoldIfAvailable(SEMINAR_ID)).thenReturn(1);
+        when(ticketRepository.save(any(SeminarTicket.class))).thenAnswer(i -> i.getArgument(0));
+
+        SeminarTicketResponse response = seminarService.buyTicket(SEMINAR_ID, BUYER_ID);
+
+        assertNotNull(response);
+    }
+
+    @Test
+    @DisplayName("✅ Entity: isSoldOut() returns true when at capacity")
+    void entityTest_IsSoldOut() {
+        testSeminar.setTicketsSold(50);
+        assertTrue(testSeminar.isSoldOut());
+    }
+
+    @Test
+    @DisplayName("✅ Entity: isSoldOut() returns false for unlimited capacity")
+    void entityTest_UnlimitedNotSoldOut() {
+        testSeminar.setMaxCapacity(null);
+        testSeminar.setTicketsSold(1000);
+        assertFalse(testSeminar.isSoldOut());
+    }
+
+    @Test
+    @DisplayName("✅ Entity: getRemainingCapacity() calculates correctly")
+    void entityTest_RemainingCapacity() {
+        testSeminar.setTicketsSold(30);
+        assertEquals(20, testSeminar.getRemainingCapacity());
+    }
+
+    @Test
+    @DisplayName("✅ Entity: getRemainingCapacity() returns null for unlimited")
+    void entityTest_UnlimitedRemainingCapacity() {
+        testSeminar.setMaxCapacity(null);
+        assertNull(testSeminar.getRemainingCapacity());
+    }
+
+    // ========================================
+    // RACE CONDITION PREVENTION TESTS
+    // ========================================
+
+    @Test
+    @DisplayName("✅ Race: Pessimistic locking used")
+    void buyTicket_UsesPessimisticLock() {
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
+        when(seminarRepository.incrementTicketsSoldIfAvailable(SEMINAR_ID)).thenReturn(1);
+        when(ticketRepository.save(any(SeminarTicket.class))).thenAnswer(i -> i.getArgument(0));
+
+        seminarService.buyTicket(SEMINAR_ID, BUYER_ID);
+
+        verify(seminarRepository).findByIdWithLock(SEMINAR_ID);
+        verify(seminarRepository, never()).findById(SEMINAR_ID);
+    }
+
+    @Test
+    @DisplayName("✅ Race: Atomic increment used for capacity")
+    void buyTicket_UsesAtomicIncrement() {
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
+        when(seminarRepository.incrementTicketsSoldIfAvailable(SEMINAR_ID)).thenReturn(1);
+        when(ticketRepository.save(any(SeminarTicket.class))).thenAnswer(i -> i.getArgument(0));
+
+        seminarService.buyTicket(SEMINAR_ID, BUYER_ID);
+
+        verify(seminarRepository).incrementTicketsSoldIfAvailable(SEMINAR_ID);
+    }
+
+    @Test
+    @DisplayName("✅ Race: Rollback capacity on payment failure")
+    void buyTicket_RollbackOnPaymentFailure() {
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
+        when(seminarRepository.incrementTicketsSoldIfAvailable(SEMINAR_ID)).thenReturn(1);
+        doThrow(new RuntimeException("Payment failed"))
+                .when(walletService).deductCash(anyLong(), any(), anyString(), anyString(), anyString());
+
+        assertThrows(RuntimeException.class, () -> seminarService.buyTicket(SEMINAR_ID, BUYER_ID));
+
+        verify(seminarRepository).decrementTicketsSold(SEMINAR_ID);
+    }
+
+    @Test
+    @DisplayName("✅ Race: Rollback capacity on constraint violation")
+    void buyTicket_RollbackOnConstraintViolation() {
+        when(seminarRepository.findByIdWithLock(SEMINAR_ID)).thenReturn(Optional.of(testSeminar));
+        when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
+        when(seminarRepository.incrementTicketsSoldIfAvailable(SEMINAR_ID)).thenReturn(1);
+        when(ticketRepository.save(any(SeminarTicket.class)))
+                .thenThrow(new DataIntegrityViolationException("Unique constraint"));
+
+        assertThrows(IllegalStateException.class, () -> seminarService.buyTicket(SEMINAR_ID, BUYER_ID));
+
+        verify(seminarRepository).decrementTicketsSold(SEMINAR_ID);
+    }
+}

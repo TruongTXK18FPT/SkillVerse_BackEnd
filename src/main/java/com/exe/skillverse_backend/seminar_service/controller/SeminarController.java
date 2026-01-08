@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.seminar_service.controller;
 
 import com.exe.skillverse_backend.seminar_service.dto.request.SeminarCreateRequest;
 import com.exe.skillverse_backend.seminar_service.dto.request.SeminarUpdateRequest;
+import com.exe.skillverse_backend.seminar_service.dto.response.SeminarAnalyticsDTO;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarResponse;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarRevenueReportDTO;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarTicketResponse;
@@ -9,11 +10,13 @@ import com.exe.skillverse_backend.seminar_service.entity.SeminarStatus;
 import com.exe.skillverse_backend.seminar_service.service.SeminarService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,12 +28,24 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/seminars")
+@Slf4j
 @RequiredArgsConstructor
 public class SeminarController {
 
     private final SeminarService seminarService;
 
     // --- Public / User ---
+
+    @GetMapping("/analytics")
+    public ResponseEntity<SeminarAnalyticsDTO> getAnalytics() {
+        try {
+            SeminarAnalyticsDTO analytics = seminarService.getAnalytics();
+            return ResponseEntity.ok(analytics);
+        } catch (Exception e) {
+            log.error("Failed to retrieve seminar analytics", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
 
     @GetMapping
     public ResponseEntity<Page<SeminarResponse>> getAllSeminars(
