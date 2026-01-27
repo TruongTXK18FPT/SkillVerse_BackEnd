@@ -6,13 +6,17 @@ import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import org.mapstruct.*;
 
-@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {QuizQuestionMapper.class})
+@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = { QuizQuestionMapper.class })
 public interface QuizMapper {
 
     @Mapping(target = "id", source = "id")
     @Mapping(target = "title", source = "title")
+    @Mapping(target = "description", source = "description")
     @Mapping(target = "passScore", source = "passScore")
     @Mapping(target = "questions", source = "questions")
+    @Mapping(target = "moduleId", source = "module.id")
+    @Mapping(target = "createdAt", source = "createdAt")
+    @Mapping(target = "updatedAt", source = "updatedAt")
     QuizDetailDTO toDetailDto(Quiz quiz);
 
     @Mapping(target = "id", source = "id")
@@ -44,10 +48,11 @@ public interface QuizMapper {
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "questions", ignore = true)
     void updateEntity(@MappingTarget Quiz quiz, QuizUpdateDTO updateDto);
-    
+
     // Helper method for safe question count calculation
     default Integer getQuestionCount(Quiz quiz) {
-        if (quiz == null) return 0;
+        if (quiz == null)
+            return 0;
         try {
             return quiz.getQuestions() != null ? quiz.getQuestions().size() : 0;
         } catch (Exception e) {

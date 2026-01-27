@@ -6,14 +6,14 @@ import java.time.Instant;
 import java.util.List;
 
 @Entity
-@Table(name = "quizzes", uniqueConstraints = @UniqueConstraint(columnNames = "module_id"))
+@Table(name = "quizzes")
 @Data @NoArgsConstructor @AllArgsConstructor @Builder
 public class Quiz {
   @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
-  @OneToOne(fetch = FetchType.LAZY, optional = false)
-  @JoinColumn(name = "module_id", nullable = false, unique = true)
+  @ManyToOne(fetch = FetchType.LAZY, optional = false)
+  @JoinColumn(name = "module_id", nullable = false)
   private Module module;
 
   @Column(length = 200) private String title;

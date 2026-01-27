@@ -12,6 +12,10 @@ import lombok.NoArgsConstructor;
 public class QuizDetailDTO {
     private Long id;
     private String title;
+    private String description;
     private Integer passScore;
+    private Long moduleId;
+    private java.time.Instant createdAt;
+    private java.time.Instant updatedAt;
     List<QuizQuestionDetailDTO> questions;
 }

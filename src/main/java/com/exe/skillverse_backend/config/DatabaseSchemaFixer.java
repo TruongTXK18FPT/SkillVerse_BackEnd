@@ -98,6 +98,35 @@ public class DatabaseSchemaFixer {
             jdbcTemplate.execute(createSeminarAnalyticsIndexesSql);
             log.info("✅ Seminar analytics indexes verified/created successfully.");
 
+            // 4. Drop unique constraint on quizzes.module_id to allow multiple quizzes per
+            // module
+            String dropQuizModuleUniqueConstraintSql = """
+                        DO $$
+                        BEGIN
+                            -- Try to find and drop the unique constraint on module_id in quizzes table
+                            DECLARE
+                                r RECORD;
+                            BEGIN
+                                FOR r IN (
+                                    SELECT tc.constraint_name
+                                    FROM information_schema.table_constraints tc
+                                    JOIN information_schema.key_column_usage kcu
+                                      ON tc.constraint_name = kcu.constraint_name
+                                      AND tc.table_schema = kcu.table_schema
+                                    WHERE tc.table_name = 'quizzes'
+                                      AND tc.constraint_type = 'UNIQUE'
+                                      AND kcu.column_name = 'module_id'
+                                ) LOOP
+                                    EXECUTE 'ALTER TABLE quizzes DROP CONSTRAINT ' || quote_ident(r.constraint_name);
+                                    RAISE NOTICE 'Dropped constraint %', r.constraint_name;
+                                END LOOP;
+                            END;
+                        END $$;
+                    """;
+
+            jdbcTemplate.execute(dropQuizModuleUniqueConstraintSql);
+            log.info("✅ Verified/Dropped unique constraint on quizzes.module_id.");
+
             log.info("Database schema fix completed successfully.");
 
         } catch (Exception e) {

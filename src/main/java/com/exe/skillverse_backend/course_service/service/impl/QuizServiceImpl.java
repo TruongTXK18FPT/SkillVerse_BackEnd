@@ -55,12 +55,13 @@ public class QuizServiceImpl implements QuizService {
 
         validateCreateQuizRequest(dto);
 
-        // Check if quiz already exists for this module
-        Optional<Quiz> existingQuiz = quizRepository.findByModuleId(moduleId);
-        if (existingQuiz.isPresent()) {
-            log.warn("Quiz already exists for module {}, returning existing quiz", moduleId);
-            return quizMapper.toDetailDto(existingQuiz.get());
-        }
+        // Check if quiz already exists for this module (Allowed now)
+        // Optional<Quiz> existingQuiz = quizRepository.findByModuleId(moduleId);
+        // if (existingQuiz.isPresent()) {
+        // log.warn("Quiz already exists for module {}, returning existing quiz",
+        // moduleId);
+        // return quizMapper.toDetailDto(existingQuiz.get());
+        // }
 
         Quiz quiz = quizMapper.toEntity(dto, module);
         quiz.setCreatedAt(now());
@@ -71,14 +72,6 @@ public class QuizServiceImpl implements QuizService {
             return quizMapper.toDetailDto(saved);
         } catch (Exception e) {
             log.error("Failed to create quiz for module {}: {}", moduleId, e.getMessage());
-            // Check if it's a unique constraint violation
-            if (e.getMessage() != null && e.getMessage().contains("unique constraint")) {
-                log.warn("Quiz already exists for module {}, attempting to find existing quiz", moduleId);
-                Optional<Quiz> existingQuizRetry = quizRepository.findByModuleId(moduleId);
-                if (existingQuizRetry.isPresent()) {
-                    return quizMapper.toDetailDto(existingQuizRetry.get());
-                }
-            }
             throw e;
         }
     }
@@ -343,16 +336,27 @@ public class QuizServiceImpl implements QuizService {
 
         // Grade quiz
         int correctCount = 0;
+        int earnedScore = 0;
         int totalQuestions = quiz.getQuestions().size();
+
+        // Calculate total possible score
+        int totalPossibleScore = quiz.getQuestions().stream()
+                .mapToInt(q -> q.getScore() != null ? q.getScore() : 1)
+                .sum();
 
         for (SubmitQuizDTO.Answer answer : submitData.getAnswers()) {
             QuizOption option = optionRepository.findById(answer.getSelectedOptionId()).orElse(null);
             if (option != null && Boolean.TRUE.equals(option.getIsCorrect())) {
                 correctCount++;
+                if (option.getQuestion() != null && option.getQuestion().getScore() != null) {
+                    earnedScore += option.getQuestion().getScore();
+                } else {
+                    earnedScore += 1;
+                }
             }
         }
 
-        int score = totalQuestions > 0 ? (correctCount * 100) / totalQuestions : 0;
+        int score = totalPossibleScore > 0 ? (earnedScore * 100) / totalPossibleScore : 0;
         boolean passed = score >= quiz.getPassScore();
 
         log.info("[QUIZ_SUBMIT] Score: {}/{} = {}% (Pass: {})", correctCount, totalQuestions, score, passed);

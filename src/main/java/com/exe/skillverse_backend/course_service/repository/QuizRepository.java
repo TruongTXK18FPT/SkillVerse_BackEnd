@@ -35,11 +35,11 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
     List<Quiz> findByModuleIdWithQuestions(@Param("moduleId") Long moduleId);
 
     /**
-     * Find quiz by module ID (assuming one quiz per module)
+     * Find quizzes by module ID (returns list)
      */
     @Transactional(readOnly = true)
     @Query("SELECT q FROM Quiz q WHERE q.module.id = :moduleId")
-    Optional<Quiz> findByModuleId(@Param("moduleId") Long moduleId);
+    List<Quiz> findByModuleId(@Param("moduleId") Long moduleId);
 
     /**
      * Find quizzes by course ID
