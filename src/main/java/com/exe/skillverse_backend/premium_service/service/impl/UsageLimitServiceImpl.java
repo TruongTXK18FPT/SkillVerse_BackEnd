@@ -15,6 +15,9 @@ import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepo
 import com.exe.skillverse_backend.course_service.repository.CertificateRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonProgressRepository;
+import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
+import com.exe.skillverse_backend.study_service.entity.StudySession;
+import com.exe.skillverse_backend.gamification_service.repository.DailyCheckInRepository;
 import com.exe.skillverse_backend.premium_service.dto.response.UserCycleStatsDTO;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
@@ -28,6 +31,7 @@ import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.time.DayOfWeek;
 import java.time.temporal.TemporalAdjusters;
+import java.time.temporal.ChronoUnit;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -53,6 +57,8 @@ public class UsageLimitServiceImpl implements UsageLimitService {
     private final CertificateRepository certificateRepository;
     private final AssignmentSubmissionRepository assignmentSubmissionRepository;
     private final LessonProgressRepository lessonProgressRepository;
+    private final StudySessionRepository studySessionRepository;
+    private final DailyCheckInRepository dailyCheckInRepository;
 
     @Override
     @Transactional
@@ -367,30 +373,32 @@ public class UsageLimitServiceImpl implements UsageLimitService {
         // TODO: [USER NOTE] Certificates are not currently used - this logic returns 0
         // if no certificates exist (safe to keep for future use)
         Integer certificatesCount = (int) certificateRepository.countByUserId(userId);
-        Integer totalHours = (int) (courseEnrollmentRepository.sumTotalCourseDurationByUserId(userId) / 3600);
+        
+        // Calculate total study hours from StudySession records (same as parent dashboard)
+        List<StudySession> sessions = studySessionRepository.findByUserId(userId);
+        long totalMinutes = sessions.stream()
+            .filter(s -> s.getStartTime() != null && s.getEndTime() != null)
+            .mapToLong(s -> ChronoUnit.MINUTES.between(s.getStartTime(), s.getEndTime()))
+            .sum();
+        Integer totalHours = (int) (totalMinutes / 60);
 
-        // Calculate Streak
-        List<Instant> activityInstants = lessonProgressRepository.findCompletionInstantsByUserId(userId);
-        List<LocalDate> activityDates = activityInstants.stream()
-                .map(instant -> instant.atZone(ZoneId.systemDefault()).toLocalDate())
-                .distinct()
-                .sorted(Comparator.reverseOrder())
-                .collect(Collectors.toList());
+        // Calculate Streak from DailyCheckIn table (independent of lesson completion)
+        List<LocalDate> checkInDates = dailyCheckInRepository.findCheckInDatesByUserId(userId);
         int currentStreak = 0;
         int longestStreak = 0;
         int tempStreak = 0;
         LocalDate today = LocalDate.now();
         LocalDate yesterday = today.minusDays(1);
 
-        if (!activityDates.isEmpty()) {
-            // Check current streak
-            LocalDate lastDate = activityDates.get(0);
+        if (!checkInDates.isEmpty()) {
+            // checkInDates are already sorted DESC
+            LocalDate lastDate = checkInDates.get(0);
             if (lastDate.equals(today) || lastDate.equals(yesterday)) {
                 currentStreak = 1;
                 tempStreak = 1;
-                for (int i = 1; i < activityDates.size(); i++) {
-                    LocalDate prev = activityDates.get(i - 1);
-                    LocalDate curr = activityDates.get(i);
+                for (int i = 1; i < checkInDates.size(); i++) {
+                    LocalDate prev = checkInDates.get(i - 1);
+                    LocalDate curr = checkInDates.get(i);
                     if (prev.minusDays(1).equals(curr)) {
                         currentStreak++;
                     } else {
@@ -399,13 +407,16 @@ public class UsageLimitServiceImpl implements UsageLimitService {
                 }
             }
 
-            // Longest streak calculation
+            // Longest streak calculation (need to sort ASC)
+            List<LocalDate> sortedAsc = checkInDates.stream()
+                    .sorted(Comparator.naturalOrder())
+                    .collect(Collectors.toList());
             longestStreak = 1;
             tempStreak = 1;
-            for (int i = 1; i < activityDates.size(); i++) {
-                LocalDate prev = activityDates.get(i - 1);
-                LocalDate curr = activityDates.get(i);
-                if (prev.minusDays(1).equals(curr)) {
+            for (int i = 1; i < sortedAsc.size(); i++) {
+                LocalDate prev = sortedAsc.get(i - 1);
+                LocalDate curr = sortedAsc.get(i);
+                if (prev.plusDays(1).equals(curr)) {
                     tempStreak++;
                 } else {
                     if (tempStreak > longestStreak)
@@ -417,22 +428,15 @@ public class UsageLimitServiceImpl implements UsageLimitService {
                 longestStreak = tempStreak;
         }
 
-        // TODO: [USER NOTE] Modified to calculate real weekly activity (Mon-Sun) from
-        // lesson completion dates (backend-driven for dashboard)
-        // Weekly Activity Calculation
-        LocalDateTime startOfWeek = now.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-                .withHour(0).withMinute(0).withSecond(0).withNano(0);
-        Instant startOfWeekInstant = startOfWeek.atZone(ZoneId.systemDefault()).toInstant();
-        List<Instant> weeklyInstants = lessonProgressRepository.findCompletionInstantsSince(userId, startOfWeekInstant);
-        List<LocalDate> weeklyDates = weeklyInstants.stream()
-                .map(instant -> instant.atZone(ZoneId.systemDefault()).toLocalDate())
-                .distinct()
-                .collect(Collectors.toList());
+        // Weekly Activity Calculation from DailyCheckIn (Mon-Sun)
+        LocalDate startOfWeek = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        LocalDate endOfWeek = startOfWeek.plusDays(6);
+        List<LocalDate> weeklyCheckInDates = dailyCheckInRepository.findCheckInDatesByUserIdSince(userId, startOfWeek);
 
         List<Boolean> weeklyActivity = new ArrayList<>();
         for (int i = 0; i < 7; i++) {
-            LocalDate date = startOfWeek.plusDays(i).toLocalDate();
-            weeklyActivity.add(weeklyDates.contains(date));
+            LocalDate date = startOfWeek.plusDays(i);
+            weeklyActivity.add(weeklyCheckInDates.contains(date));
         }
 
         return UserCycleStatsDTO.builder()
