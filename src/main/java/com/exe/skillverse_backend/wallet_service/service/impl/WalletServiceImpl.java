@@ -73,12 +73,17 @@ public class WalletServiceImpl implements WalletService {
         }
 
         /**
-         * Lấy thông tin ví của user
+         * Lấy thông tin ví của user (tự động tạo nếu chưa có)
          */
         @Transactional(readOnly = true)
         public WalletResponse getWalletByUserId(Long userId) {
                 Wallet wallet = walletRepository.findByUser_Id(userId)
-                                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+                                .orElse(null);
+                
+                // Nếu ví không tồn tại, tạo mới
+                if (wallet == null) {
+                        wallet = createWalletForUser(userId);
+                }
 
                 return WalletResponse.fromEntity(wallet);
         }
@@ -89,7 +94,30 @@ public class WalletServiceImpl implements WalletService {
         @Transactional
         public Wallet getOrCreateWallet(Long userId) {
                 return walletRepository.findByUser_Id(userId)
-                                .orElseGet(() -> createWallet(userId));
+                                .orElseGet(() -> createWalletForUser(userId));
+        }
+        
+        /**
+         * Helper method để tạo ví cho user (không throw exception nếu đã tồn tại)
+         */
+        @Transactional
+        private Wallet createWalletForUser(Long userId) {
+                // Double-check if wallet already exists to prevent race conditions
+                return walletRepository.findByUser_Id(userId)
+                                .orElseGet(() -> {
+                                        User user = userRepository.findById(userId)
+                                                        .orElseThrow(() -> new IllegalArgumentException("User không tồn tại"));
+
+                                        Wallet wallet = Wallet.builder()
+                                                        .user(user)
+                                                        .status(Wallet.WalletStatus.ACTIVE)
+                                                        .build();
+
+                                        Wallet savedWallet = walletRepository.save(wallet);
+                                        log.info("Đã tạo ví mới cho user {}", userId);
+
+                                        return savedWallet;
+                                });
         }
 
         /**
@@ -124,9 +152,12 @@ public class WalletServiceImpl implements WalletService {
                         }
                 }
 
-                // Lock wallet to prevent race conditions
+                // Lock wallet to prevent race conditions, create if not exists
                 Wallet wallet = walletRepository.findByUserIdWithLock(userId)
-                                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+                                .orElseGet(() -> {
+                                        log.info("Ví không tồn tại cho user {}, đang tạo mới...", userId);
+                                        return createWalletForUser(userId);
+                                });
 
                 // Deposit to wallet
                 wallet.depositCash(amount);
@@ -153,6 +184,7 @@ public class WalletServiceImpl implements WalletService {
 
         /**
          * Cộng Coin vào ví (khi mua hoặc kiếm được)
+         * Tự động tạo ví nếu chưa tồn tại
          */
         @Transactional
         public WalletTransaction addCoins(
@@ -166,8 +198,12 @@ public class WalletServiceImpl implements WalletService {
                         throw new IllegalArgumentException("Số Coin phải lớn hơn 0");
                 }
 
+                // Try to get wallet with lock, create if not exists
                 Wallet wallet = walletRepository.findByUserIdWithLock(userId)
-                                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+                                .orElseGet(() -> {
+                                        log.info("Ví không tồn tại cho user {}, đang tạo mới...", userId);
+                                        return createWalletForUser(userId);
+                                });
 
                 // Add coins based on transaction type
                 if (transactionType == WalletTransaction.TransactionType.EARN_COINS ||
@@ -202,6 +238,7 @@ public class WalletServiceImpl implements WalletService {
 
         /**
          * Trừ Coin từ ví (khi chi tiêu)
+         * Tự động tạo ví nếu chưa tồn tại
          */
         @Transactional
         public WalletTransaction deductCoins(
@@ -215,8 +252,12 @@ public class WalletServiceImpl implements WalletService {
                         throw new IllegalArgumentException("Số Coin phải lớn hơn 0");
                 }
 
+                // Try to get wallet with lock, create if not exists
                 Wallet wallet = walletRepository.findByUserIdWithLock(userId)
-                                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+                                .orElseGet(() -> {
+                                        log.info("Ví không tồn tại cho user {}, đang tạo mới...", userId);
+                                        return createWalletForUser(userId);
+                                });
 
                 // Check sufficient balance
                 if (wallet.getCoinBalance() < coinAmount) {

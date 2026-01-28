@@ -8,8 +8,7 @@ import com.exe.skillverse_backend.gamification_service.dto.response.MiniGameDefi
 import com.exe.skillverse_backend.gamification_service.entity.GamificationMiniGameDefinition;
 import com.exe.skillverse_backend.gamification_service.repository.GamificationMiniGameDefinitionRepository;
 import com.exe.skillverse_backend.gamification_service.repository.GamificationGameSessionRepository;
-import com.exe.skillverse_backend.gamification_service.service.GamificationMiniGameService;
-import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import com.exe.skillverse_backend.gamification_service.service.GamificationWalletService;
 import com.exe.skillverse_backend.gamification_service.service.impl.GamificationMiniGameServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,7 +33,7 @@ class GamificationMiniGameServiceTest {
     private GamificationGameSessionRepository gameSessionRepository;
 
     @Mock
-    private WalletService walletService;
+    private GamificationWalletService gamificationWalletService;
 
     @InjectMocks
     private GamificationMiniGameServiceImpl miniGameService;
@@ -158,6 +157,9 @@ class GamificationMiniGameServiceTest {
 
         when(gameSessionRepository.findById(1L)).thenReturn(Optional.of(createTestSession()));
         when(gameSessionRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        // Mock for canPlayGame() called in mapToGameResponse()
+        when(gameDefRepository.findByGameKey("test-game")).thenReturn(Optional.of(testGame));
+        when(gameSessionRepository.findLastSessionByUserAndGame(any(), any())).thenReturn(Optional.empty());
 
         // When
         GameSessionResponse response = miniGameService.completeGameSession(testUserId, request);
@@ -166,7 +168,7 @@ class GamificationMiniGameServiceTest {
         assertNotNull(response);
         assertEquals("COMPLETED", response.getSessionStatus());
         assertTrue(response.getCoinsEarned() > 0);
-        verify(walletService).addCoins(eq(testUserId), anyLong(), any(), anyString(), eq("MINIGAME"), anyString());
+        verify(gamificationWalletService).awardCoins(eq(testUserId), anyInt(), anyInt(), eq("MINIGAME"), anyLong(), anyString());
     }
 
     @Test
