@@ -22,8 +22,11 @@ import com.exe.skillverse_backend.community_service.service.PostService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.exe.skillverse_backend.gamification_service.service.GamificationActivityService;
+import com.exe.skillverse_backend.gamification_service.dto.request.LogActivityRequest;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -38,6 +41,7 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PostServiceImpl implements PostService {
     private final PostRepository postRepository;
     private final PostLikeRepository postLikeRepository;
@@ -47,6 +51,7 @@ public class PostServiceImpl implements PostService {
     private final UserRepository userRepository;
     private final NotificationServiceImpl notificationService;
     private final UserProfileService userProfileService;
+    private final GamificationActivityService gamificationActivityService;
 
     @Transactional
     public PostResponse createPost(Long userId, PostCreateRequest req) {
@@ -65,6 +70,20 @@ public class PostServiceImpl implements PostService {
                 .tags(tags)
                 .build();
         Post saved = postRepository.save(post);
+
+        if (PostStatus.PUBLISHED.equals(saved.getStatus())) {
+            try {
+                gamificationActivityService.logActivity(userId, LogActivityRequest.builder()
+                        .activityType("CONTRIBUTION")
+                        .activityAction("CREATE_POST")
+                        .targetType("POST")
+                        .targetId(saved.getId())
+                        .build());
+            } catch (Exception e) {
+                log.error("Failed to log gamification activity for post creation", e);
+            }
+        }
+
         return toResponse(saved);
     }
 

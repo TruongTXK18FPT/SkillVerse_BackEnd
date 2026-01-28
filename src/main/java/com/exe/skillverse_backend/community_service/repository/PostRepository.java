@@ -30,4 +30,12 @@ public interface PostRepository extends JpaRepository<Post, Long>, JpaSpecificat
 
     @Query("SELECT p.tags FROM Post p")
     java.util.List<String> findAllTags();
+
+    long countByUser_Id(Long userId);
+
+    @Query("SELECT p.user.id, COUNT(p) FROM Post p GROUP BY p.user.id")
+    java.util.List<Object[]> countPostsGroupedByUserId();
+
+    @Query("SELECT p.user.id, COUNT(p) FROM Post p WHERE p.createdAt >= :since GROUP BY p.user.id")
+    java.util.List<Object[]> countPostsSinceGroupedByUserId(@Param("since") java.time.LocalDateTime since);
 }

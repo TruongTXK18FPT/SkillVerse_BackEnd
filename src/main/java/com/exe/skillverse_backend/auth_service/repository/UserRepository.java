@@ -29,7 +29,13 @@ public interface UserRepository extends JpaRepository<User, Long> {
     
     Long countByPrimaryRole(PrimaryRole primaryRole);
     
-    Long countByStatus(UserStatus status);
+     Long countByStatus(UserStatus status);
+
+    /**
+     * Find oldest users (longest active on platform)
+     */
+    @Query("SELECT u FROM User u ORDER BY u.createdAt ASC")
+    List<User> findOldestUsers(org.springframework.data.domain.Pageable pageable);
     
     @Query("SELECT u FROM User u WHERE " +
            "LOWER(u.firstName) LIKE LOWER(CONCAT('%', :search, '%')) OR " +

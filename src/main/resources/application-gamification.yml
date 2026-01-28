@@ -1,0 +1,59 @@
+# Gamification Service Configuration
+# Add this to your main application.yml or use as separate profile
+
+spring:
+  jpa:
+    properties:
+      hibernate:
+        # Auto-generate schema from entities
+        # Options: none, validate, update, create, create-drop
+        ddl-auto: update
+        
+        # Show SQL for debugging
+        show_sql: false
+        format_sql: true
+        
+        # Naming strategy
+        physical-naming-strategy: org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy
+        
+        # Performance optimizations
+        jdbc:
+          batch_size: 20
+          order_inserts: true
+          order_updates: true
+        
+        # Enable statistics (disable in production)
+        generate_statistics: false
+
+# Gamification specific settings
+gamification:
+  # Enable/disable gamification features
+  enabled: true
+  
+  # Coin system
+  coins:
+    max-transaction-per-day: 1000
+    max-coins-per-day: 10000
+  
+  # Badge system
+  badges:
+    auto-award-enabled: true
+    check-interval-minutes: 60
+  
+  # Mini-games
+  games:
+    anti-cheat-enabled: true
+    session-timeout-minutes: 30
+  
+  # Leaderboard
+  leaderboard:
+    snapshot-interval-hours: 24
+    cache-enabled: true
+    cache-ttl-minutes: 5
+
+# Logging
+logging:
+  level:
+    com.exe.skillverse_backend.gamification_service: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE

@@ -57,6 +57,12 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
      */
     @Query("SELECT COALESCE(SUM(w.coinBalance), 0) FROM Wallet w WHERE w.status = 'ACTIVE'")
     Long getTotalCoinBalance();
+
+    /**
+     * Find top wallets by coin balance
+     */
+    @Query("SELECT w FROM Wallet w ORDER BY w.coinBalance DESC")
+    java.util.List<Wallet> findTopByCoinBalanceDesc(org.springframework.data.domain.Pageable pageable);
     
     /**
      * Count total active wallets
