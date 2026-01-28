@@ -21,7 +21,7 @@ env:
   # Email Configuration
   SPRING_MAIL_USERNAME: ${{ secrets.SPRING_MAIL_USERNAME }}
   SPRING_MAIL_PASSWORD: ${{ secrets.SPRING_MAIL_PASSWORD }}
-  
+
   # SMTP (Primary) Configuration
   SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
   SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
@@ -40,6 +40,9 @@ env:
   # Portfolio CV Generation AI Configuration
   PORTFOLIO_MISTRAL_API_KEY: ${{ secrets.PORTFOLIO_MISTRAL_API_KEY }}
 
+  # Student Learning Report AI Configuration
+  LEARNING_REPORT_KEY: ${{ secrets.LEARNING_REPORT_KEY }}
+
   # Payment Gateway Configuration (PayOS)
   PAYOS_CLIENT_ID: ${{ secrets.PAYOS_CLIENT_ID }}
   PAYOS_API_KEY: ${{ secrets.PAYOS_API_KEY }}
@@ -56,7 +59,6 @@ env:
 
   # Remove.bg Configuration
   REMOVE_BG_API_KEY: ${{ secrets.REMOVE_BG_API_KEY }}
-
 
 jobs:
   # Job 1: Code Quality & Testing
@@ -157,10 +159,10 @@ jobs:
             echo "⚠️ Pull failed (attempt $i/5). Retrying in 10s..."
             sleep 10
           done
-          
+
           echo "🚀 Starting Redis container..."
           docker run -d --name redis -p 6379:6379 redis:7-alpine
-          
+
           echo "⏳ Waiting for Redis to be ready..."
           for i in {1..30}; do
             if docker exec redis redis-cli ping | grep -q "PONG"; then
@@ -351,7 +353,7 @@ jobs:
           echo "🔄 Pulling Redis image..."
           REDIS_IMAGE="redis:7-alpine"
           FALLBACK_IMAGE="public.ecr.aws/docker/library/redis:7-alpine"
-          
+
           PULLED=false
           for i in {1..3}; do
             if docker pull $REDIS_IMAGE; then
@@ -362,7 +364,7 @@ jobs:
             echo "⚠️ Docker Hub pull failed (attempt $i/3). Retrying..."
             sleep 5
           done
-          
+
           if [ "$PULLED" = false ]; then
              echo "⚠️ Docker Hub failed. Switching to public mirror..."
              if docker pull $FALLBACK_IMAGE; then
@@ -411,6 +413,7 @@ jobs:
             -e MISTRAL_PLANNER_API_KEY="${MISTRAL_PLANNER_API_KEY}" \
             -e MEOWL_GEMINI_API_KEY="${MEOWL_GEMINI_API_KEY}" \
             -e PORTFOLIO_MISTRAL_API_KEY="${PORTFOLIO_MISTRAL_API_KEY}" \
+            -e LEARNING_REPORT_KEY="${LEARNING_REPORT_KEY}" \
             -e PAYOS_CLIENT_ID="${PAYOS_CLIENT_ID}" \
             -e PAYOS_API_KEY="${PAYOS_API_KEY}" \
             -e PAYOS_CHECKSUM_KEY="${PAYOS_CHECKSUM_KEY}" \
@@ -528,6 +531,7 @@ jobs:
           echo "MISTRAL_PLANNER_API_KEY='${{ secrets.MISTRAL_PLANNER_API_KEY }}'" >> .env
           echo "MEOWL_GEMINI_API_KEY='${{ secrets.MEOWL_GEMINI_API_KEY }}'" >> .env
           echo "PORTFOLIO_MISTRAL_API_KEY='${{ secrets.PORTFOLIO_MISTRAL_API_KEY }}'" >> .env
+          echo "LEARNING_REPORT_KEY='${{ secrets.LEARNING_REPORT_KEY }}'" >> .env
           echo "PAYOS_CLIENT_ID='${{ secrets.PAYOS_CLIENT_ID }}'" >> .env
           echo "PAYOS_API_KEY='${{ secrets.PAYOS_API_KEY }}'" >> .env
           echo "PAYOS_CHECKSUM_KEY='${{ secrets.PAYOS_CHECKSUM_KEY }}'" >> .env
@@ -640,6 +644,7 @@ jobs:
               -e GEMINI_API_KEY="$GEMINI_API_KEY" \
               -e MEOWL_GEMINI_API_KEY="$MEOWL_GEMINI_API_KEY" \
               -e PORTFOLIO_MISTRAL_API_KEY="$PORTFOLIO_MISTRAL_API_KEY" \
+              -e LEARNING_REPORT_KEY="$LEARNING_REPORT_KEY" \
               -e CLOUDINARY_CLOUD_NAME="$CLOUDINARY_CLOUD_NAME" \
               -e CLOUDINARY_API_KEY="$CLOUDINARY_API_KEY" \
               -e CLOUDINARY_API_SECRET="$CLOUDINARY_API_SECRET" \
