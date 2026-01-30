@@ -91,8 +91,9 @@ public class SecurityConfig {
                 httpSecurity.authorizeHttpRequests(request -> request
                                 // Temporary public access for seeding leaderboard
                                 .requestMatchers(HttpMethod.POST, "/api/admin/gamification/seed/leaderboard").permitAll()
-                                // Temporary public access for verifying leaderboard
+                                // Public access for gamification leaderboard and badge definitions (read-only)
                                 .requestMatchers(HttpMethod.GET, "/api/gamification/leaderboard").permitAll()
+                                .requestMatchers(HttpMethod.GET, "/api/gamification/badges/definitions").permitAll()
 
                                 // Admin endpoints - MUST require authentication (check BEFORE public endpoints)
                                 .requestMatchers("/api/admin/**").authenticated()

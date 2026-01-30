@@ -98,13 +98,14 @@ public class GamificationController {
     }
 
     @GetMapping("/leaderboard")
-    @Operation(summary = "Get leaderboard")
+    @Operation(summary = "Get leaderboard (public access)")
     public ResponseEntity<LeaderboardResponse> getLeaderboard(
             @RequestParam(defaultValue = "week") String period,
             @RequestParam(defaultValue = "coins") String type,
             Authentication auth,
             Pageable pageable) {
-        Long userId = getUserIdFromAuth(auth);
+        // Optional authentication - if authenticated, include user position
+        Long userId = auth != null ? getUserIdFromAuth(auth) : null;
         return ResponseEntity.ok(leaderboardService.getLeaderboard(period, type, userId, pageable));
     }
 
