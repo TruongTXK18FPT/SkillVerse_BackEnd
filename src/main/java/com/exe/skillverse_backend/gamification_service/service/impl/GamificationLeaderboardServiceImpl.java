@@ -304,6 +304,11 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
         
         // Add users with streak data
         allUserIds.addAll(longestStreaks.keySet());
+        
+        // IMPORTANT: Always include current user if authenticated
+        if (currentUserId != null && currentUserId > 0) {
+            allUserIds.add(currentUserId);
+        }
 
         // 3. Build Unified Wallet List
         List<GamificationUserWallet> unifiedWallets = new ArrayList<>();
@@ -359,10 +364,15 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
             }
 
             // Only add to list if within page range
-            int start = pageable.getPageNumber() * pageable.getPageSize();
-            int end = start + pageable.getPageSize();
-            if (i >= start && i < end) {
+            if (pageable.isUnpaged()) {
+                // If unpaged, add all entries
                 entries.add(entry);
+            } else {
+                int start = pageable.getPageNumber() * pageable.getPageSize();
+                int end = start + pageable.getPageSize();
+                if (i >= start && i < end) {
+                    entries.add(entry);
+                }
             }
         }
 
