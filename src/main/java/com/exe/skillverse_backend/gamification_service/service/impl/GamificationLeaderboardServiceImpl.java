@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.gamification_service.repository.GamificationLe
 import com.exe.skillverse_backend.gamification_service.repository.GamificationUserBadgeRepository;
 import com.exe.skillverse_backend.gamification_service.repository.GamificationUserWalletRepository;
 import com.exe.skillverse_backend.gamification_service.service.GamificationLeaderboardService;
+import com.exe.skillverse_backend.gamification_service.service.DailyCheckInService;
 import com.exe.skillverse_backend.skin_service.repository.UserSkinRepository;
 import com.exe.skillverse_backend.skin_service.entity.UserSkin;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
@@ -50,6 +51,7 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
     private final UserSkinRepository userSkinRepository;
     private final PostRepository postRepository;
     private final UserProfileRepository userProfileRepository;
+    private final DailyCheckInService dailyCheckInService;
 
     @Override
     @Transactional(readOnly = true)
@@ -94,6 +96,7 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
         Map<Long, Integer> contributionCounts = new HashMap<>();
         Map<Long, Integer> skinCounts = new HashMap<>();
         Map<Long, Integer> coinBalances = new HashMap<>();
+        Map<Long, Integer> longestStreaks = new HashMap<>();
         
         // Community Counts (All Time)
         if ("community".equalsIgnoreCase(type)) {
@@ -132,6 +135,20 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
              }
         }
 
+        // Longest Streak from Daily Check-ins
+        if ("streak".equalsIgnoreCase(type)) {
+            List<GamificationUserWallet> allWallets = walletRepository.findAll();
+            for (GamificationUserWallet wallet : allWallets) {
+                try {
+                    int longest = dailyCheckInService.calculateLongestStreak(wallet.getUserId());
+                    longestStreaks.put(wallet.getUserId(), longest);
+                } catch (Exception e) {
+                    log.warn("Failed to calculate longest streak for user {}: {}", wallet.getUserId(), e.getMessage());
+                    longestStreaks.put(wallet.getUserId(), 0);
+                }
+            }
+        }
+
         // 2. Aggregate All Unique Users
         Set<Long> allUserIds = new HashSet<>();
         
@@ -145,6 +162,7 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
         allUserIds.addAll(contributionCounts.keySet());
         allUserIds.addAll(skinCounts.keySet());
         allUserIds.addAll(coinBalances.keySet());
+        allUserIds.addAll(longestStreaks.keySet());
 
         // 3. Build Unified Wallet List
         List<GamificationUserWallet> unifiedWallets = new ArrayList<>();
@@ -161,12 +179,12 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
         }
 
         // 4. Sort
-        List<GamificationUserWallet> sortedWallets = sortWalletsByType(unifiedWallets, type, contributionCounts, skinCounts, coinBalances);
+        List<GamificationUserWallet> sortedWallets = sortWalletsByType(unifiedWallets, type, contributionCounts, skinCounts, coinBalances, longestStreaks);
 
         // 5. Save Snapshots
         int rank = 1;
         for (GamificationUserWallet wallet : sortedWallets) {
-            Integer scoreValue = getScoreByType(wallet, type, contributionCounts, skinCounts, coinBalances);
+            Integer scoreValue = getScoreByType(wallet, type, contributionCounts, skinCounts, coinBalances, longestStreaks);
             Integer badgesCount = walletMap.containsKey(wallet.getUserId()) ? 
                 badgeRepository.countBadgesByUserId(wallet.getUserId()).intValue() : 0;
             Integer contributions = contributionCounts.getOrDefault(wallet.getUserId(), 0);
@@ -200,46 +218,78 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
     public LeaderboardResponse calculateRealtimeLeaderboard(String period, String type, Long currentUserId, Pageable pageable) {
         log.info("Calculating realtime leaderboard for period: {}, type: {}", period, type);
 
-        // 1. Prepare Data Sources
+        // 1. Prepare Data Sources - Always fetch all data for complete response
         Map<Long, Integer> contributionCounts = new HashMap<>();
         Map<Long, Integer> skinCounts = new HashMap<>();
         Map<Long, Integer> coinBalances = new HashMap<>();
+        Map<Long, Integer> longestStreaks = new HashMap<>();
 
-        // Community Counts (All Time)
-        if ("community".equalsIgnoreCase(type)) {
-             LocalDateTime since = LocalDateTime.of(2020, 1, 1, 0, 0);
-             List<Object[]> counts = activityRepository.countVerifiedActivitiesByTypeSinceGroupedByUserId("CONTRIBUTION", since);
-             for (Object[] row : counts) {
-                 contributionCounts.put((Long) row[0], ((Number) row[1]).intValue());
-             }
-             List<Object[]> postCounts = postRepository.countPostsGroupedByUserId();
-             for (Object[] row : postCounts) {
-                 Long uId = (Long) row[0];
-                 if (uId != null) {
-                     Integer count = ((Number) row[1]).intValue();
-                     contributionCounts.put(uId, contributionCounts.getOrDefault(uId, 0) + count);
-                 }
-             }
+        // Community Counts (All Time) - Always fetch for response
+        LocalDateTime since = LocalDateTime.of(2020, 1, 1, 0, 0);
+        try {
+            List<Object[]> counts = activityRepository.countVerifiedActivitiesByTypeSinceGroupedByUserId("CONTRIBUTION", since);
+            for (Object[] row : counts) {
+                if (row[0] != null) {
+                    contributionCounts.put((Long) row[0], ((Number) row[1]).intValue());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch contribution counts: {}", e.getMessage());
+        }
+        
+        try {
+            List<Object[]> postCounts = postRepository.countPostsGroupedByUserId();
+            for (Object[] row : postCounts) {
+                Long uId = (Long) row[0];
+                if (uId != null) {
+                    Integer count = ((Number) row[1]).intValue();
+                    contributionCounts.put(uId, contributionCounts.getOrDefault(uId, 0) + count);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch post counts: {}", e.getMessage());
         }
 
-        // Skin Counts
-        if ("skins".equalsIgnoreCase(type) || "inventory".equalsIgnoreCase(type)) {
+        // Skin Counts - Always fetch for response
+        try {
             List<UserSkin> allUserSkins = userSkinRepository.findAll();
             for (UserSkin us : allUserSkins) {
                 if (us.getUser() != null) {
                     skinCounts.put(us.getUser().getId(), skinCounts.getOrDefault(us.getUser().getId(), 0) + 1);
                 }
             }
+        } catch (Exception e) {
+            log.warn("Failed to fetch skin counts: {}", e.getMessage());
         }
 
-        // Coin Balances
-        if ("coins".equalsIgnoreCase(type)) {
-             List<Wallet> mainWallets = mainWalletRepository.findAll();
-             for (Wallet w : mainWallets) {
-                 if (w.getUser() != null) {
-                     coinBalances.put(w.getUser().getId(), w.getCoinBalance() != null ? w.getCoinBalance().intValue() : 0);
-                 }
-             }
+        // Coin Balances - Always fetch for response
+        try {
+            List<Wallet> mainWallets = mainWalletRepository.findAll();
+            for (Wallet w : mainWallets) {
+                if (w.getUser() != null) {
+                    coinBalances.put(w.getUser().getId(), w.getCoinBalance() != null ? w.getCoinBalance().intValue() : 0);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch coin balances: {}", e.getMessage());
+        }
+
+        // Longest Streaks - Calculate from daily check-ins for each user
+        try {
+            // Get all user IDs that have gamification wallets
+            List<GamificationUserWallet> allWallets = walletRepository.findAll();
+            for (GamificationUserWallet wallet : allWallets) {
+                try {
+                    int longest = dailyCheckInService.calculateLongestStreak(wallet.getUserId());
+                    if (longest > 0) {
+                        longestStreaks.put(wallet.getUserId(), longest);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to calculate longest streak for user {}: {}", wallet.getUserId(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch longest streaks: {}", e.getMessage());
         }
 
         // 2. Aggregate All Unique Users
@@ -251,6 +301,9 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
         allUserIds.addAll(contributionCounts.keySet());
         allUserIds.addAll(skinCounts.keySet());
         allUserIds.addAll(coinBalances.keySet());
+        
+        // Add users with streak data
+        allUserIds.addAll(longestStreaks.keySet());
 
         // 3. Build Unified Wallet List
         List<GamificationUserWallet> unifiedWallets = new ArrayList<>();
@@ -279,7 +332,7 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
         }
 
         // 5. Sort by type
-        List<GamificationUserWallet> sortedWallets = sortWalletsByType(filteredWallets, type, contributionCounts, skinCounts, coinBalances);
+        List<GamificationUserWallet> sortedWallets = sortWalletsByType(filteredWallets, type, contributionCounts, skinCounts, coinBalances, longestStreaks);
 
         // 6. Build response entries
         List<LeaderboardEntryResponse> entries = new ArrayList<>();
@@ -289,12 +342,14 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
         for (int i = 0; i < sortedWallets.size(); i++) {
             GamificationUserWallet wallet = sortedWallets.get(i);
             int rank = i + 1;
-            boolean isCurrentUser = wallet.getUserId().equals(currentUserId);
+            Long walletUserId = wallet.getUserId();
+            boolean isCurrentUser = walletUserId != null && walletUserId.equals(currentUserId);
             
-            Integer scoreValue = getScoreByType(wallet, type, contributionCounts, skinCounts, coinBalances);
-            Integer contributions = contributionCounts.getOrDefault(wallet.getUserId(), 0);
-            Integer skins = skinCounts.getOrDefault(wallet.getUserId(), 0);
-            Integer coins = coinBalances.getOrDefault(wallet.getUserId(), wallet.getTotalCoins());
+            Integer scoreValue = getScoreByType(wallet, type, contributionCounts, skinCounts, coinBalances, longestStreaks);
+            Integer contributions = contributionCounts.getOrDefault(walletUserId, 0);
+            Integer skins = skinCounts.getOrDefault(walletUserId, 0);
+            Integer walletCoins = wallet.getTotalCoins() != null ? wallet.getTotalCoins() : 0;
+            Integer coins = coinBalances.getOrDefault(walletUserId, walletCoins);
 
             LeaderboardEntryResponse entry = buildEntryFromWallet(wallet, rank, isCurrentUser, scoreValue, contributions, skins, coins);
 
@@ -315,7 +370,7 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
         Integer coinsToNextRank = 0;
         if (currentUserRank > 1 && currentUserEntry != null) {
             GamificationUserWallet nextRankWallet = sortedWallets.get(currentUserRank - 2);
-            coinsToNextRank = getScoreByType(nextRankWallet, type, contributionCounts, skinCounts, coinBalances) - currentUserEntry.getScoreValue();
+            coinsToNextRank = getScoreByType(nextRankWallet, type, contributionCounts, skinCounts, coinBalances, longestStreaks) - currentUserEntry.getScoreValue();
         }
 
         return LeaderboardResponse.builder()
@@ -466,23 +521,29 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
     }
 
     private LeaderboardEntryResponse buildEntryFromWallet(GamificationUserWallet wallet, int rank, boolean isCurrentUser, Integer scoreValue, Integer contributionsCount, Integer skinsCount, Integer currentCoins) {
-        User user = userRepository.findById(wallet.getUserId()).orElse(null);
+        Long userId = wallet.getUserId();
+        User user = userId != null ? userRepository.findById(userId).orElse(null) : null;
         String userName = getUserName(user);
         String avatar = getUserAvatar(user);
-        Integer badgesCount = badgeRepository.countBadgesByUserId(wallet.getUserId()).intValue();
+        Long badgesCountLong = userId != null ? badgeRepository.countBadgesByUserId(userId) : 0L;
+        Integer badgesCount = badgesCountLong != null ? badgesCountLong.intValue() : 0;
+
+        Integer totalCoins = currentCoins != null ? currentCoins : (wallet.getTotalCoins() != null ? wallet.getTotalCoins() : 0);
+        Integer totalXp = wallet.getTotalXp() != null ? wallet.getTotalXp() : 0;
+        Integer streakDays = wallet.getStreakDays() != null ? wallet.getStreakDays() : 0;
 
         return LeaderboardEntryResponse.builder()
-                .userId(wallet.getUserId())
+                .userId(userId)
                 .userName(userName)
                 .userAvatar(avatar)
                 .rankPosition(rank)
-                .scoreValue(scoreValue)
-                .totalCoins(currentCoins != null ? currentCoins : wallet.getTotalCoins())
-                .totalXp(wallet.getTotalXp())
+                .scoreValue(scoreValue != null ? scoreValue : 0)
+                .totalCoins(totalCoins)
+                .totalXp(totalXp)
                 .badgesCount(badgesCount)
-                .streakDays(wallet.getStreakDays())
-                .contributionsCount(contributionsCount)
-                .skinsCount(skinsCount)
+                .streakDays(streakDays)
+                .contributionsCount(contributionsCount != null ? contributionsCount : 0)
+                .skinsCount(skinsCount != null ? skinsCount : 0)
                 .isCurrentUser(isCurrentUser)
                 .rankChange(0)
                 .build();
@@ -515,13 +576,14 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
                 .collect(Collectors.toList());
     }
 
-    private List<GamificationUserWallet> sortWalletsByType(List<GamificationUserWallet> wallets, String type, Map<Long, Integer> contributionCounts, Map<Long, Integer> skinCounts, Map<Long, Integer> coinBalances) {
+    private List<GamificationUserWallet> sortWalletsByType(List<GamificationUserWallet> wallets, String type, Map<Long, Integer> contributionCounts, Map<Long, Integer> skinCounts, Map<Long, Integer> coinBalances, Map<Long, Integer> longestStreaks) {
         Comparator<GamificationUserWallet> comparator;
 
         switch (type.toLowerCase()) {
             case "learning":
-                comparator = Comparator.comparing(GamificationUserWallet::getTotalXp, 
-                        Comparator.nullsLast(Comparator.reverseOrder()));
+                comparator = Comparator.comparing(
+                    w -> w.getTotalXp() != null ? w.getTotalXp() : 0, 
+                    Comparator.reverseOrder());
                 break;
             case "community":
                 comparator = (w1, w2) -> {
@@ -529,8 +591,8 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
                     Integer c2 = contributionCounts.getOrDefault(w2.getUserId(), 0);
                     int result = c2.compareTo(c1);
                     if (result == 0) {
-                         Integer coin1 = coinBalances.getOrDefault(w1.getUserId(), w1.getTotalCoins());
-                         Integer coin2 = coinBalances.getOrDefault(w2.getUserId(), w2.getTotalCoins());
+                         Integer coin1 = coinBalances.getOrDefault(w1.getUserId(), w1.getTotalCoins() != null ? w1.getTotalCoins() : 0);
+                         Integer coin2 = coinBalances.getOrDefault(w2.getUserId(), w2.getTotalCoins() != null ? w2.getTotalCoins() : 0);
                          return coin2.compareTo(coin1);
                     }
                     return result;
@@ -543,8 +605,8 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
                     Integer s2 = skinCounts.getOrDefault(w2.getUserId(), 0);
                     int result = s2.compareTo(s1);
                     if (result == 0) {
-                         Integer coin1 = coinBalances.getOrDefault(w1.getUserId(), w1.getTotalCoins());
-                         Integer coin2 = coinBalances.getOrDefault(w2.getUserId(), w2.getTotalCoins());
+                         Integer coin1 = coinBalances.getOrDefault(w1.getUserId(), w1.getTotalCoins() != null ? w1.getTotalCoins() : 0);
+                         Integer coin2 = coinBalances.getOrDefault(w2.getUserId(), w2.getTotalCoins() != null ? w2.getTotalCoins() : 0);
                          return coin2.compareTo(coin1);
                     }
                     return result;
@@ -552,18 +614,22 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
                 break;
             case "coins":
                 comparator = (w1, w2) -> {
-                    Integer coin1 = coinBalances.getOrDefault(w1.getUserId(), w1.getTotalCoins());
-                    Integer coin2 = coinBalances.getOrDefault(w2.getUserId(), w2.getTotalCoins());
+                    Integer coin1 = coinBalances.getOrDefault(w1.getUserId(), w1.getTotalCoins() != null ? w1.getTotalCoins() : 0);
+                    Integer coin2 = coinBalances.getOrDefault(w2.getUserId(), w2.getTotalCoins() != null ? w2.getTotalCoins() : 0);
                     return coin2.compareTo(coin1);
                 };
                 break;
             case "streak":
-                 comparator = Comparator.comparing(GamificationUserWallet::getStreakDays, 
-                        Comparator.nullsLast(Comparator.reverseOrder()));
+                 comparator = (w1, w2) -> {
+                     Integer s1 = longestStreaks.getOrDefault(w1.getUserId(), w1.getStreakDays() != null ? w1.getStreakDays() : 0);
+                     Integer s2 = longestStreaks.getOrDefault(w2.getUserId(), w2.getStreakDays() != null ? w2.getStreakDays() : 0);
+                     return s2.compareTo(s1);
+                 };
                  break;
             default: // fallback
-                 comparator = Comparator.comparing(GamificationUserWallet::getTotalCoins, 
-                        Comparator.nullsLast(Comparator.reverseOrder()));
+                 comparator = Comparator.comparing(
+                    w -> w.getTotalCoins() != null ? w.getTotalCoins() : 0, 
+                    Comparator.reverseOrder());
         }
 
         return wallets.stream()
@@ -571,19 +637,23 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
                 .collect(Collectors.toList());
     }
 
-    private Integer getScoreByType(GamificationUserWallet wallet, String type, Map<Long, Integer> contributionCounts, Map<Long, Integer> skinCounts, Map<Long, Integer> coinBalances) {
+    private Integer getScoreByType(GamificationUserWallet wallet, String type, Map<Long, Integer> contributionCounts, Map<Long, Integer> skinCounts, Map<Long, Integer> coinBalances, Map<Long, Integer> longestStreaks) {
+        Integer defaultCoins = wallet.getTotalCoins() != null ? wallet.getTotalCoins() : 0;
         switch (type.toLowerCase()) {
             case "learning":
-                return wallet.getTotalXp();
+                return wallet.getTotalXp() != null ? wallet.getTotalXp() : 0;
             case "community":
                 return contributionCounts.getOrDefault(wallet.getUserId(), 0);
             case "skins":
             case "inventory":
                 return skinCounts.getOrDefault(wallet.getUserId(), 0);
             case "coins":
-                return coinBalances.getOrDefault(wallet.getUserId(), wallet.getTotalCoins());
+                return coinBalances.getOrDefault(wallet.getUserId(), defaultCoins);
+            case "streak":
+                // Return longest streak from pre-calculated map
+                return longestStreaks.getOrDefault(wallet.getUserId(), wallet.getStreakDays() != null ? wallet.getStreakDays() : 0);
             default:
-                return wallet.getStreakDays();
+                return defaultCoins;
         }
     }
 }
