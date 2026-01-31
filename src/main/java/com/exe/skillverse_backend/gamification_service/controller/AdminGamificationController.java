@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -21,6 +22,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/admin/gamification")
 @RequiredArgsConstructor
+@Slf4j
 @Tag(name = "Admin Gamification", description = "Admin gamification management endpoints")
 public class AdminGamificationController {
 
@@ -71,7 +73,7 @@ public class AdminGamificationController {
             
             return ResponseEntity.ok("Leaderboard data seeded successfully");
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Error seeding leaderboard", e);
             return ResponseEntity.internalServerError().body("Error seeding leaderboard: " + e.getMessage());
         }
     }

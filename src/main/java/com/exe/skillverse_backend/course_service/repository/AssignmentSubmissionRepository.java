@@ -91,4 +91,65 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
     @Transactional(readOnly = true)
     @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub WHERE asub.user.id = :userId AND asub.score IS NOT NULL")
     long countCompletedProjectsByUserId(@Param("userId") Long userId);
+
+    // ===== Version tracking queries (Coursera 2-version pattern) =====
+
+    /**
+     * Find all submissions by user for assignment, ordered by attemptNumber DESC (newest first)
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT asub FROM AssignmentSubmission asub " +
+            "WHERE asub.assignment.id = :assignmentId AND asub.user.id = :userId " +
+            "ORDER BY asub.attemptNumber DESC")
+    List<AssignmentSubmission> findByAssignmentIdAndUserIdOrderByAttemptNumberDesc(
+            @Param("assignmentId") Long assignmentId, 
+            @Param("userId") Long userId);
+
+    /**
+     * Find newest submission (isNewest=true) for a user on an assignment
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT asub FROM AssignmentSubmission asub " +
+            "WHERE asub.assignment.id = :assignmentId AND asub.user.id = :userId AND asub.isNewest = true")
+    Optional<AssignmentSubmission> findNewestByAssignmentIdAndUserId(
+            @Param("assignmentId") Long assignmentId, 
+            @Param("userId") Long userId);
+
+    /**
+     * Find all newest submissions for an assignment (for mentor grading dashboard)
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT asub FROM AssignmentSubmission asub " +
+            "WHERE asub.assignment.id = :assignmentId AND asub.isNewest = true " +
+            "ORDER BY asub.submittedAt DESC")
+    List<AssignmentSubmission> findLatestSubmissionsByAssignmentId(@Param("assignmentId") Long assignmentId);
+
+    /**
+     * Find pending (ungraded) newest submissions for an assignment
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT asub FROM AssignmentSubmission asub " +
+            "WHERE asub.assignment.id = :assignmentId AND asub.isNewest = true AND asub.score IS NULL " +
+            "ORDER BY asub.submittedAt ASC")
+    List<AssignmentSubmission> findPendingSubmissionsByAssignmentId(@Param("assignmentId") Long assignmentId);
+
+    /**
+     * Count pending submissions for an assignment (for badge display)
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub " +
+            "WHERE asub.assignment.id = :assignmentId AND asub.isNewest = true AND asub.score IS NULL")
+    long countPendingByAssignmentId(@Param("assignmentId") Long assignmentId);
+
+    /**
+     * Find both newest and previous submissions for a user (for version comparison)
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT asub FROM AssignmentSubmission asub " +
+            "WHERE asub.assignment.id = :assignmentId AND asub.user.id = :userId " +
+            "AND (asub.isNewest = true OR asub.isPrevious = true) " +
+            "ORDER BY asub.attemptNumber DESC")
+    List<AssignmentSubmission> findVersionsForComparison(
+            @Param("assignmentId") Long assignmentId, 
+            @Param("userId") Long userId);
 }

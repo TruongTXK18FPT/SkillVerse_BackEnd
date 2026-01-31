@@ -8,7 +8,11 @@ import java.math.BigDecimal;
 import java.time.Instant;
 
 @Entity @Table(name = "assignment_submissions",
-  indexes = { @Index(columnList = "assignment_id, user_id"), @Index(columnList = "user_id") })
+  indexes = { 
+    @Index(columnList = "assignment_id, user_id"), 
+    @Index(columnList = "user_id"),
+    @Index(columnList = "assignment_id, is_newest")
+  })
 @Data @NoArgsConstructor @AllArgsConstructor @Builder
 public class AssignmentSubmission {
   @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -40,4 +44,30 @@ public class AssignmentSubmission {
   private User gradedBy;
 
   @Lob private String feedback;
+
+  // ===== Version tracking fields (Coursera pattern: keep newest + last) =====
+  
+  /** Attempt number, starting from 1 */
+  @Builder.Default
+  @Column(name = "attempt_number", nullable = false)
+  private Integer attemptNumber = 1;
+  
+  /** True if this is the newest (current) submission for this user */
+  @Builder.Default
+  @Column(name = "is_newest", nullable = false)
+  private Boolean isNewest = true;
+  
+  /** True if this is the previous submission (kept for comparison) */
+  @Builder.Default
+  @Column(name = "is_previous", nullable = false)
+  private Boolean isPrevious = false;
+  
+  /** True if submission was made after deadline */
+  @Builder.Default
+  @Column(name = "is_late", nullable = false)
+  private Boolean isLate = false;
+  
+  /** Timestamp when grading was completed */
+  @Column(name = "graded_at")
+  private Instant gradedAt;
 }

@@ -23,4 +23,19 @@ public interface AssignmentService {
     List<AssignmentSubmissionDetailDTO> listSubmissions(Long assignmentId, Pageable p);
     
     List<AssignmentSummaryDTO> listAssignmentsByModule(Long moduleId);
+    
+    /**
+     * Get all submissions for a specific user on an assignment (all versions).
+     */
+    List<AssignmentSubmissionDetailDTO> getUserSubmissions(Long assignmentId, Long userId);
+    
+    /**
+     * Get pending (ungraded) submissions for mentor grading dashboard.
+     */
+    List<AssignmentSubmissionDetailDTO> getPendingSubmissions(Long assignmentId, Long actorId);
+    
+    /**
+     * Count pending submissions for badge display.
+     */
+    Long countPendingSubmissions(Long assignmentId, Long actorId);
 }

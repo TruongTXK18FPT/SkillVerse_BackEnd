@@ -1,7 +1,6 @@
 package com.exe.skillverse_backend.course_service.controller;
 
 import com.exe.skillverse_backend.course_service.dto.quizdto.*;
-import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
 import com.exe.skillverse_backend.course_service.service.QuizService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -17,6 +16,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/quizzes")
@@ -176,7 +176,7 @@ public class QuizController {
 
             log.info("[QUIZ_SUBMIT] Result: score={}, passed={}", attempt.getScore(), attempt.getPassed());
 
-            return ResponseEntity.ok(java.util.Map.of(
+            return ResponseEntity.ok(Map.of(
                     "score", attempt.getScore(),
                     "passed", attempt.getPassed(),
                     "correctCount", attempt.getCorrectAnswers(),
@@ -185,7 +185,7 @@ public class QuizController {
         } catch (Exception e) {
             log.error("[QUIZ_SUBMIT] Failed: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(java.util.Map.of("error", e.getMessage()));
+                    .body(Map.of("error", e.getMessage()));
         }
     }
 
@@ -198,5 +198,16 @@ public class QuizController {
         log.info("Getting attempts for quiz {} by user {}", quizId, userId);
         List<QuizAttemptDTO> attempts = quizService.getUserAttempts(quizId, userId);
         return ResponseEntity.ok(attempts);
+    }
+
+    @GetMapping("/{quizId}/attempt-status")
+    @Operation(summary = "Get user's quiz attempt status with retry info")
+    public ResponseEntity<QuizAttemptStatusDTO> getAttemptStatus(
+            @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
+            @Parameter(description = "User ID") @RequestParam @NotNull Long userId) {
+
+        log.info("Getting attempt status for quiz {} by user {}", quizId, userId);
+        QuizAttemptStatusDTO status = quizService.getAttemptStatus(quizId, userId);
+        return ResponseEntity.ok(status);
     }
 }

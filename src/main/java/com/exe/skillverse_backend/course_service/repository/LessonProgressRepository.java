@@ -24,4 +24,14 @@ public interface LessonProgressRepository extends JpaRepository<LessonProgress, 
     @Query("SELECT lp.completedAt FROM LessonProgress lp WHERE lp.user.id = :userId AND lp.completed = true AND lp.completedAt >= :startOfWeek")
     List<java.time.Instant> findCompletionInstantsSince(@Param("userId") Long userId,
             @Param("startOfWeek") java.time.Instant startOfWeek);
+
+    /**
+     * Đếm số lessons đã hoàn thành trong một course cho một user.
+     * Dùng để tính phần trăm tiến độ khóa học (Coursera-like).
+     */
+    @Query("SELECT COUNT(lp) FROM LessonProgress lp " +
+           "WHERE lp.user.id = :userId " +
+           "AND lp.lesson.module.course.id = :courseId " +
+           "AND lp.completed = true")
+    long countCompletedByCourseAndUser(@Param("courseId") Long courseId, @Param("userId") Long userId);
 }

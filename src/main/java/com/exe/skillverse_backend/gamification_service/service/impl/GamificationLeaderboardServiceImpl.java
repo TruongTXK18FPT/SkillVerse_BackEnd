@@ -115,24 +115,28 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
              }
         }
 
-        // Skin Counts
+        // Skin Counts - ✅ OPTIMIZED: Single aggregate query instead of N+1
         if ("skins".equalsIgnoreCase(type) || "inventory".equalsIgnoreCase(type)) {
-            List<UserSkin> allUserSkins = userSkinRepository.findAll();
-            for (UserSkin us : allUserSkins) {
-                if (us.getUser() != null) {
-                    skinCounts.put(us.getUser().getId(), skinCounts.getOrDefault(us.getUser().getId(), 0) + 1);
+            List<Object[]> skinCountResults = userSkinRepository.countSkinsGroupedByUserId();
+            for (Object[] row : skinCountResults) {
+                Long userId = (Long) row[0];
+                Integer count = ((Number) row[1]).intValue();
+                if (userId != null) {
+                    skinCounts.put(userId, count);
                 }
             }
         }
 
-        // Coin Balances
+        // Coin Balances - ✅ OPTIMIZED: Single query to get userId+balance without loading User entity
         if ("coins".equalsIgnoreCase(type)) {
-             List<Wallet> mainWallets = mainWalletRepository.findAll();
-             for (Wallet w : mainWallets) {
-                 if (w.getUser() != null) {
-                     coinBalances.put(w.getUser().getId(), w.getCoinBalance() != null ? w.getCoinBalance().intValue() : 0);
-                 }
-             }
+            List<Object[]> coinResults = mainWalletRepository.findUserIdAndCoinBalanceAll();
+            for (Object[] row : coinResults) {
+                Long userId = (Long) row[0];
+                Long balance = (Long) row[1];
+                if (userId != null) {
+                    coinBalances.put(userId, balance != null ? balance.intValue() : 0);
+                }
+            }
         }
 
         // Longest Streak from Daily Check-ins
@@ -250,24 +254,28 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
             log.warn("Failed to fetch post counts: {}", e.getMessage());
         }
 
-        // Skin Counts - Always fetch for response
+        // Skin Counts - ✅ OPTIMIZED: Single aggregate query instead of N+1 - Always fetch for response
         try {
-            List<UserSkin> allUserSkins = userSkinRepository.findAll();
-            for (UserSkin us : allUserSkins) {
-                if (us.getUser() != null) {
-                    skinCounts.put(us.getUser().getId(), skinCounts.getOrDefault(us.getUser().getId(), 0) + 1);
+            List<Object[]> skinCountResults = userSkinRepository.countSkinsGroupedByUserId();
+            for (Object[] row : skinCountResults) {
+                Long userId = (Long) row[0];
+                Integer count = ((Number) row[1]).intValue();
+                if (userId != null) {
+                    skinCounts.put(userId, count);
                 }
             }
         } catch (Exception e) {
             log.warn("Failed to fetch skin counts: {}", e.getMessage());
         }
 
-        // Coin Balances - Always fetch for response
+        // Coin Balances - ✅ OPTIMIZED: Single query to get userId+balance without loading User entity
         try {
-            List<Wallet> mainWallets = mainWalletRepository.findAll();
-            for (Wallet w : mainWallets) {
-                if (w.getUser() != null) {
-                    coinBalances.put(w.getUser().getId(), w.getCoinBalance() != null ? w.getCoinBalance().intValue() : 0);
+            List<Object[]> coinResults = mainWalletRepository.findUserIdAndCoinBalanceAll();
+            for (Object[] row : coinResults) {
+                Long userId = (Long) row[0];
+                Long balance = (Long) row[1];
+                if (userId != null) {
+                    coinBalances.put(userId, balance != null ? balance.intValue() : 0);
                 }
             }
         } catch (Exception e) {

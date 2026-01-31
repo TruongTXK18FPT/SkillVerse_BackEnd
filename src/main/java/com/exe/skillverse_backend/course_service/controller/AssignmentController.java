@@ -127,4 +127,39 @@ public class AssignmentController {
         List<AssignmentSubmissionDetailDTO> submissions = assignmentService.listSubmissions(assignmentId, pageable);
         return ResponseEntity.ok(submissions);
     }
+
+    @GetMapping("/{assignmentId}/submissions/mine")
+    @Operation(summary = "Get current user's submissions for an assignment (all versions)")
+    public ResponseEntity<List<AssignmentSubmissionDetailDTO>> getMySubmissions(
+            @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
+            @Parameter(description = "User ID") @RequestParam @NotNull Long userId) {
+
+        log.info("Getting submissions for user {} on assignment {}", userId, assignmentId);
+        List<AssignmentSubmissionDetailDTO> submissions = assignmentService.getUserSubmissions(assignmentId, userId);
+        return ResponseEntity.ok(submissions);
+    }
+
+    @GetMapping("/{assignmentId}/submissions/pending")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @Operation(summary = "Get pending submissions for grading (mentor/admin)")
+    public ResponseEntity<List<AssignmentSubmissionDetailDTO>> getPendingSubmissions(
+            @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
+            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+
+        log.info("Getting pending submissions for assignment {} by user {}", assignmentId, actorId);
+        List<AssignmentSubmissionDetailDTO> submissions = assignmentService.getPendingSubmissions(assignmentId, actorId);
+        return ResponseEntity.ok(submissions);
+    }
+
+    @GetMapping("/{assignmentId}/submissions/pending/count")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @Operation(summary = "Count pending submissions for an assignment")
+    public ResponseEntity<Long> countPendingSubmissions(
+            @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
+            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+
+        log.info("Counting pending submissions for assignment {} by user {}", assignmentId, actorId);
+        Long count = assignmentService.countPendingSubmissions(assignmentId, actorId);
+        return ResponseEntity.ok(count);
+    }
 }

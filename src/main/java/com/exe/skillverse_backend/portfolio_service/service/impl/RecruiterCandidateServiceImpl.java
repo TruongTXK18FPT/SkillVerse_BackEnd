@@ -39,7 +39,8 @@ public class RecruiterCandidateServiceImpl implements RecruiterCandidateService 
 
         if (profiles.isEmpty() && total > 0) {
             log.warn("No open profiles found despite having {} total profiles. Checking data...", total);
-            portfolioRepository.findAll().stream().limit(10)
+            // ✅ OPTIMIZED: Use repository method with limit instead of findAll().limit()
+            portfolioRepository.findTop10By()
                     .forEach(p -> log.info("User {}: isPublic={}, allowJobOffers={}",
                             p.getUserId(), p.getIsPublic(), p.getAllowJobOffers()));
         }

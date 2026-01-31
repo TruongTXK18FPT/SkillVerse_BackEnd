@@ -30,6 +30,24 @@ public class Assignment {
   @Column(nullable = false, precision = 5, scale = 2)
   private BigDecimal maxScore;
 
+  @Column(name = "passing_score", precision = 5, scale = 2)
+  private BigDecimal passingScore; // Minimum score required to pass
+
+  @Column(name = "order_index")
+  private Integer orderIndex; // For ordering assignments within a module
+
+  @Builder.Default
+  @Column(name = "is_required", nullable = false)
+  private Boolean isRequired = true; // Required or optional assignment
+
+  @Lob
+  @Column(name = "learning_outcome")
+  private String learningOutcome; // What students will learn
+
+  @Lob
+  @Column(name = "grading_criteria")
+  private String gradingCriteria; // How it will be graded
+
   private Instant dueAt;
   @Builder.Default
   private Instant createdAt = Instant.now();
@@ -38,4 +56,9 @@ public class Assignment {
   @OneToMany(mappedBy = "assignment", cascade = CascadeType.ALL, orphanRemoval = true)
   @ToString.Exclude @EqualsAndHashCode.Exclude
   private List<AssignmentSubmission> submissions;
+
+  @OneToMany(mappedBy = "assignment", cascade = CascadeType.ALL, orphanRemoval = true)
+  @OrderBy("orderIndex ASC")
+  @ToString.Exclude @EqualsAndHashCode.Exclude
+  private List<AssignmentCriteria> criteria;
 }

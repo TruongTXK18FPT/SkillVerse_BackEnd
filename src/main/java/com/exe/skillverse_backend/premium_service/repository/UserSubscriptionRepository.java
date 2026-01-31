@@ -135,4 +135,38 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
                         @Param("user") User user,
                         @Param("planType") PremiumPlan.PlanType planType,
                         Pageable pageable);
+
+        /**
+         * [OPTIMIZED] Find all user IDs that don't have any active subscription.
+         * Uses single query instead of N+1 pattern.
+         * Used by scheduler to assign Free Tier in batch.
+         */
+        @Query("""
+                SELECT u.id FROM User u
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM UserSubscription us
+                    WHERE us.user.id = u.id
+                    AND us.isActive = true
+                    AND us.status = 'ACTIVE'
+                    AND us.startDate <= :now
+                    AND us.endDate > :now
+                )
+        """)
+        List<Long> findUserIdsWithoutActiveSubscription(@Param("now") LocalDateTime now);
+
+        /**
+         * [OPTIMIZED] Check if user has active subscription by user ID only (no entity load).
+         */
+        @Query("SELECT CASE WHEN COUNT(s) > 0 THEN true ELSE false END FROM UserSubscription s " +
+                        "WHERE s.user.id = :userId AND s.isActive = true AND s.status = 'ACTIVE' " +
+                        "AND s.startDate <= :now AND s.endDate > :now")
+        Boolean hasActiveSubscriptionByUserId(@Param("userId") Long userId, @Param("now") LocalDateTime now);
+
+        /**
+         * [OPTIMIZED] Find existing FREE_TIER subscription for a user (active or inactive).
+         * Used to reactivate instead of creating duplicates.
+         */
+        @Query("SELECT s FROM UserSubscription s JOIN s.plan p WHERE s.user.id = :userId " +
+                        "AND p.planType = 'FREE_TIER' ORDER BY s.createdAt DESC")
+        Optional<UserSubscription> findFreeTierSubscriptionByUserId(@Param("userId") Long userId);
 }

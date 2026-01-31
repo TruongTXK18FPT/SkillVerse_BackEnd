@@ -24,4 +24,6 @@ public class QuizOption {
 
   @Column(length = 255)
   private String feedback;
+
+  private Integer orderIndex;
 }

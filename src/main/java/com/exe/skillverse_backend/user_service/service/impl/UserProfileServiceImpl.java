@@ -55,47 +55,40 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     @Transactional
     public UserProfileResponse updateProfile(Long userId, UpdateProfileRequest request) {
-        try {
-            UserProfile profile = userProfileRepository.findByUserId(userId)
-                    .orElseThrow(() -> new RuntimeException("User profile not found"));
+        UserProfile profile = userProfileRepository.findByUserId(userId)
+                .orElseThrow(() -> new RuntimeException("User profile not found"));
 
-            // Update fields if provided
-            if (request.getFullName() != null) {
-                profile.setFullName(request.getFullName());
-            }
-            if (request.getAvatarMediaId() != null) {
-                profile.setAvatarMediaId(request.getAvatarMediaId());
-            }
-            if (request.getAvatarPosition() != null) {
-                profile.setAvatarPosition(request.getAvatarPosition());
-            }
-            if (request.getBio() != null) {
-                profile.setBio(request.getBio());
-            }
-            if (request.getPhone() != null) {
-                profile.setPhone(request.getPhone());
-            }
-            if (request.getAddress() != null) {
-                profile.setAddress(request.getAddress());
-            }
-            if (request.getRegion() != null) {
-                profile.setRegion(request.getRegion());
-            }
-            if (request.getCompanyId() != null) {
-                profile.setCompanyId(request.getCompanyId());
-            }
-            if (request.getSocialLinks() != null) {
-                profile.setSocialLinks(request.getSocialLinks());
-            }
-
-            profile = userProfileRepository.save(profile);
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
-            return mapToProfileResponse(profile);
-
-        } catch (Exception e) {
-            throw e;
+        // Update fields if provided
+        if (request.getFullName() != null) {
+            profile.setFullName(request.getFullName());
         }
+        if (request.getAvatarMediaId() != null) {
+            profile.setAvatarMediaId(request.getAvatarMediaId());
+        }
+        if (request.getAvatarPosition() != null) {
+            profile.setAvatarPosition(request.getAvatarPosition());
+        }
+        if (request.getBio() != null) {
+            profile.setBio(request.getBio());
+        }
+        if (request.getPhone() != null) {
+            profile.setPhone(request.getPhone());
+        }
+        if (request.getAddress() != null) {
+            profile.setAddress(request.getAddress());
+        }
+        if (request.getRegion() != null) {
+            profile.setRegion(request.getRegion());
+        }
+        if (request.getCompanyId() != null) {
+            profile.setCompanyId(request.getCompanyId());
+        }
+        if (request.getSocialLinks() != null) {
+            profile.setSocialLinks(request.getSocialLinks());
+        }
+
+        profile = userProfileRepository.save(profile);
+        return mapToProfileResponse(profile);
     }
 
     public UserProfileResponse getProfile(Long userId) {
@@ -188,56 +181,41 @@ public class UserProfileServiceImpl implements UserProfileService {
 
     @Transactional
     public UserSkillResponse addSkill(Long userId, AddSkillRequest request) {
-        try {
-            // Check if user exists
-            if (!userRepository.existsById(userId)) {
-                throw new RuntimeException("User not found");
-            }
-
-            // Check if skill association already exists
-            if (userSkillRepository.existsByIdUserIdAndIdSkillId(userId, request.getSkillId())) {
-                throw new RuntimeException("Skill already associated with user");
-            }
-
-            // Create user skill
-            UserSkill userSkill = new UserSkill(userId, request.getSkillId(), request.getProficiency());
-            userSkill = userSkillRepository.save(userSkill);
-            return mapToSkillResponse(userSkill);
-
-        } catch (Exception e) {
-            throw e;
+        // Check if user exists
+        if (!userRepository.existsById(userId)) {
+            throw new RuntimeException("User not found");
         }
+
+        // Check if skill association already exists
+        if (userSkillRepository.existsByIdUserIdAndIdSkillId(userId, request.getSkillId())) {
+            throw new RuntimeException("Skill already associated with user");
+        }
+
+        // Create user skill
+        UserSkill userSkill = new UserSkill(userId, request.getSkillId(), request.getProficiency());
+        userSkill = userSkillRepository.save(userSkill);
+        return mapToSkillResponse(userSkill);
     }
 
     @Transactional
     public UserSkillResponse updateSkill(Long userId, Long skillId, UpdateSkillRequest request) {
-        try {
-            UserSkill userSkill = userSkillRepository.findByIdUserIdAndIdSkillId(userId, skillId)
-                    .orElseThrow(() -> new RuntimeException("User skill not found"));
+        UserSkill userSkill = userSkillRepository.findByIdUserIdAndIdSkillId(userId, skillId)
+                .orElseThrow(() -> new RuntimeException("User skill not found"));
 
-            Integer oldProficiency = userSkill.getProficiency();
-            userSkill.setProficiency(request.getProficiency());
+        Integer oldProficiency = userSkill.getProficiency();
+        userSkill.setProficiency(request.getProficiency());
 
-            userSkill = userSkillRepository.save(userSkill);
-            return mapToSkillResponse(userSkill);
-
-        } catch (Exception e) {
-            throw e;
-        }
+        userSkill = userSkillRepository.save(userSkill);
+        return mapToSkillResponse(userSkill);
     }
 
     @Transactional
     public void removeSkill(Long userId, Long skillId) {
-        try {
-            if (!userSkillRepository.existsByIdUserIdAndIdSkillId(userId, skillId)) {
-                throw new RuntimeException("User skill not found");
-            }
-
-            userSkillRepository.deleteByIdUserIdAndIdSkillId(userId, skillId);
-
-        } catch (Exception e) {
-            throw e;
+        if (!userSkillRepository.existsByIdUserIdAndIdSkillId(userId, skillId)) {
+            throw new RuntimeException("User skill not found");
         }
+
+        userSkillRepository.deleteByIdUserIdAndIdSkillId(userId, skillId);
     }
 
     public List<UserSkillResponse> getUserSkills(Long userId) {
@@ -310,38 +288,33 @@ public class UserProfileServiceImpl implements UserProfileService {
     public UserProfileResponse createCompleteProfile(Long userId, String fullName, String phone, String address,
             String region, String bio, Long avatarMediaId, Long companyId,
             String socialLinks) {
-        try {
-            // Check if user exists
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
+        // Check if user exists
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
-            // Check if profile already exists
-            if (userProfileRepository.existsByUserId(userId)) {
-                throw new RuntimeException("User profile already exists");
-            }
-
-            // Create complete profile with all provided information
-            Long validAvatarMediaId = (avatarMediaId != null && avatarMediaId > 0) ? avatarMediaId : null;
-            Long validCompanyId = (companyId != null && companyId > 0) ? companyId : null;
-
-            UserProfile profile = UserProfile.builder()
-                    .userId(userId)
-                    .fullName(fullName)
-                    .avatarMediaId(validAvatarMediaId)
-                    .bio(bio)
-                    .phone(phone)
-                    .address(address)
-                    .region(region)
-                    .companyId(validCompanyId)
-                    .socialLinks(socialLinks)
-                    .build();
-
-            profile = userProfileRepository.save(profile);
-            return mapToProfileResponse(profile);
-
-        } catch (Exception e) {
-            throw e;
+        // Check if profile already exists
+        if (userProfileRepository.existsByUserId(userId)) {
+            throw new RuntimeException("User profile already exists");
         }
+
+        // Create complete profile with all provided information
+        Long validAvatarMediaId = (avatarMediaId != null && avatarMediaId > 0) ? avatarMediaId : null;
+        Long validCompanyId = (companyId != null && companyId > 0) ? companyId : null;
+
+        UserProfile profile = UserProfile.builder()
+                .userId(userId)
+                .fullName(fullName)
+                .avatarMediaId(validAvatarMediaId)
+                .bio(bio)
+                .phone(phone)
+                .address(address)
+                .region(region)
+                .companyId(validCompanyId)
+                .socialLinks(socialLinks)
+                .build();
+
+        profile = userProfileRepository.save(profile);
+        return mapToProfileResponse(profile);
     }
 
     public boolean hasProfile(Long userId) {

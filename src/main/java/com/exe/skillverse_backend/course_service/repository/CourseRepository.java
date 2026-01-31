@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -95,4 +96,11 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
      */
     @Transactional(readOnly = true)
     Optional<Course> findByTitle(String title);
+    
+    /**
+     * Find courses by thumbnail media ID - for detaching media
+     * ✅ OPTIMIZED: Better than findAll().filter() which loads all courses
+     */
+    @Transactional(readOnly = true)
+    List<Course> findByThumbnailId(Long thumbnailId);
 }

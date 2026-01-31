@@ -25,8 +25,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 @Slf4j
@@ -173,8 +175,14 @@ public class QuizServiceImpl implements QuizService {
 
         validateCreateOptionRequest(dto);
 
-        // QuizOption doesn't have orderIndex, so we don't set it
+        // Auto-generate orderIndex if not provided
+        Integer orderIndex = dto.getOrderIndex();
+        if (orderIndex == null) {
+            orderIndex = (int) (optionRepository.countByQuestionId(questionId) + 1);
+        }
+
         QuizOption option = optionMapper.toEntity(dto, question);
+        option.setOrderIndex(orderIndex);
 
         QuizOption saved = optionRepository.save(option);
         log.info("Option {} added to question {} by actor {}", saved.getId(), questionId, actorId);
@@ -387,5 +395,67 @@ public class QuizServiceImpl implements QuizService {
         return attempts.stream()
                 .map(attemptMapper::toDto)
                 .toList();
+    }
+    
+    @Override
+    @Transactional(readOnly = true)
+    public QuizAttemptStatusDTO getAttemptStatus(Long quizId, Long userId) {
+        log.debug("Getting attempt status for quiz {} by user {}", quizId, userId);
+        
+        List<QuizAttemptDTO> allAttempts = getUserAttempts(quizId, userId);
+        
+        // Calculate attempts in last 24 hours
+        Instant now = Instant.now(clock);
+        Instant yesterday = now.minusSeconds(24 * 60 * 60);
+        
+        List<QuizAttemptDTO> recentAttempts = allAttempts.stream()
+                .filter(a -> a.getSubmittedAt() != null && a.getSubmittedAt().isAfter(yesterday))
+                .toList();
+        
+        int attemptsUsed = recentAttempts.size();
+        int maxAttempts = 3;
+        boolean canRetry = attemptsUsed < maxAttempts;
+        
+        // Calculate time until next retry (if max attempts reached)
+        long secondsUntilRetry = 0;
+        Instant nextRetryAt = null;
+        
+        if (!canRetry && !recentAttempts.isEmpty()) {
+            // Find the oldest attempt in the 24h window
+            Instant oldestAttempt = recentAttempts.stream()
+                    .map(QuizAttemptDTO::getSubmittedAt)
+                    .min(Instant::compareTo)
+                    .orElse(null);
+            
+            if (oldestAttempt != null) {
+                nextRetryAt = oldestAttempt.plusSeconds(24 * 60 * 60);
+                secondsUntilRetry = Duration.between(now, nextRetryAt).getSeconds();
+                if (secondsUntilRetry < 0) {
+                    secondsUntilRetry = 0;
+                    canRetry = true;
+                }
+            }
+        }
+        
+        // Check if passed
+        boolean hasPassed = allAttempts.stream().anyMatch(a -> Boolean.TRUE.equals(a.getPassed()));
+        Integer bestScore = allAttempts.stream()
+                .map(QuizAttemptDTO::getScore)
+                .filter(Objects::nonNull)
+                .max(Integer::compareTo)
+                .orElse(null);
+        
+        return QuizAttemptStatusDTO.builder()
+                .quizId(quizId)
+                .userId(userId)
+                .attemptsUsed(attemptsUsed)
+                .maxAttempts(maxAttempts)
+                .canRetry(canRetry)
+                .hasPassed(hasPassed)
+                .bestScore(bestScore != null ? bestScore : 0)
+                .secondsUntilRetry(secondsUntilRetry)
+                .nextRetryAt(nextRetryAt)
+                .recentAttempts(recentAttempts)
+                .build();
     }
 }

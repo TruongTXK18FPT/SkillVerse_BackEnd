@@ -26,6 +26,7 @@ public class QuizQuestion {
   private Integer orderIndex;
 
   @OneToMany(mappedBy = "question", cascade = CascadeType.ALL, orphanRemoval = true)
+  @OrderBy("orderIndex ASC")
   @ToString.Exclude @EqualsAndHashCode.Exclude
   private List<QuizOption> options;
 }

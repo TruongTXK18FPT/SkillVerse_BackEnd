@@ -12,12 +12,14 @@ public interface QuizOptionMapper {
     @Mapping(target = "optionText", source = "optionText")
     @Mapping(target = "correct", source = "isCorrect")
     @Mapping(target = "feedback", source = "feedback")
+    @Mapping(target = "orderIndex", source = "orderIndex")
     QuizOptionDetailDTO toDetailDto(QuizOption option);
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "optionText", source = "createDto.optionText")
     @Mapping(target = "isCorrect", source = "createDto.correct")
     @Mapping(target = "feedback", ignore = true) // Not provided in frontend
+    @Mapping(target = "orderIndex", source = "createDto.orderIndex")
     @Mapping(target = "question", source = "question")
     QuizOption toEntity(QuizOptionCreateDTO createDto, QuizQuestion question);
 
@@ -26,6 +28,7 @@ public interface QuizOptionMapper {
     @Mapping(target = "optionText", source = "updateDto.optionText")
     @Mapping(target = "isCorrect", source = "updateDto.correct")
     @Mapping(target = "feedback", ignore = true) // Not provided in frontend
+    @Mapping(target = "orderIndex", source = "updateDto.orderIndex")
     @Mapping(target = "question", ignore = true)
     void updateEntity(@MappingTarget QuizOption option, QuizOptionUpdateDTO updateDto);
 }

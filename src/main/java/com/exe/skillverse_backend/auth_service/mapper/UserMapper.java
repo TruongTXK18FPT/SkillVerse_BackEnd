@@ -5,7 +5,10 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import org.mapstruct.*;
 
+import org.hibernate.Hibernate;
+
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -35,11 +38,22 @@ public interface UserMapper {
         return full.isEmpty() ? null : full;
     }
 
+    /**
+     * Convert Role entities to role names.
+     * Handles LAZY loading safely - returns empty set if roles not initialized.
+     */
     default Set<String> toRoleNames(Set<Role> roles) {
-        if (roles == null) return null;
+        if (roles == null) {
+            return Collections.emptySet();
+        }
+        // ✅ SAFE: Check if LAZY collection is initialized before accessing
+        if (!Hibernate.isInitialized(roles)) {
+            // Return empty set instead of throwing LazyInitializationException
+            return Collections.emptySet();
+        }
         return roles.stream()
                 .filter(Objects::nonNull)
-                .map(Role::getName)     // đổi thành getCode()/getRoleName() nếu bạn đặt tên khác
+                .map(Role::getName)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
     }

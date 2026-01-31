@@ -10,4 +10,5 @@ public class QuizOptionUpdateDTO {
     private String optionText;
     private boolean correct;
     private String feedback;
+    private Integer orderIndex;
 }

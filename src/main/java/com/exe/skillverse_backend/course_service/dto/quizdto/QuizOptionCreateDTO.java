@@ -9,9 +9,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class QuizOptionCreateDTO {
-    //@NotBlank optionText, boolean correct, String feedback
+    //@NotBlank optionText, boolean correct, String feedback, Integer orderIndex
     @NotBlank
     private String optionText;
     private boolean correct;
     private String feedback;
+    private Integer orderIndex;
 }

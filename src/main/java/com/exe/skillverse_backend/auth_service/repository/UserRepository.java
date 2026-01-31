@@ -54,4 +54,19 @@ public interface UserRepository extends JpaRepository<User, Long> {
         @Param("status") UserStatus status,
         @Param("search") String search
     );
+
+    /**
+     * [OPTIMIZED] Find user by email with roles eagerly fetched.
+     * Use this for authentication to avoid LazyInitializationException.
+     * Prevents N+1 when roles are needed.
+     */
+    @Query("SELECT u FROM User u LEFT JOIN FETCH u.roles WHERE u.email = :email")
+    Optional<User> findByEmailWithRoles(@Param("email") String email);
+
+    /**
+     * [OPTIMIZED] Find user by ID with roles eagerly fetched.
+     * Use when roles are needed for authorization checks.
+     */
+    @Query("SELECT u FROM User u LEFT JOIN FETCH u.roles WHERE u.id = :id")
+    Optional<User> findByIdWithRoles(@Param("id") Long id);
 }

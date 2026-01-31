@@ -176,9 +176,8 @@ public class MediaServiceImpl implements MediaService {
         int lessonsUpdated = 0;
 
         // Find and remove from courses using this as thumbnail
-        List<Course> coursesWithThumbnail = courseRepository.findAll().stream()
-                .filter(c -> c.getThumbnail() != null && c.getThumbnail().getId().equals(mediaId))
-                .collect(java.util.stream.Collectors.toList());
+        // ✅ OPTIMIZED: Direct query instead of findAll().filter() which loads all courses
+        List<Course> coursesWithThumbnail = courseRepository.findByThumbnailId(mediaId);
 
         for (Course course : coursesWithThumbnail) {
             course.setThumbnail(null);
@@ -188,9 +187,8 @@ public class MediaServiceImpl implements MediaService {
         }
 
         // Find and remove from lessons using this as video
-        List<Lesson> lessonsWithVideo = lessonRepository.findAll().stream()
-                .filter(l -> l.getVideoMedia() != null && l.getVideoMedia().getId().equals(mediaId))
-                .collect(java.util.stream.Collectors.toList());
+        // ✅ OPTIMIZED: Direct query instead of findAll().filter() which loads all lessons
+        List<Lesson> lessonsWithVideo = lessonRepository.findByVideoMediaId(mediaId);
 
         for (Lesson lesson : lessonsWithVideo) {
             lesson.setVideoMedia(null);

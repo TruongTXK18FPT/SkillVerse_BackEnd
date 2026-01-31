@@ -105,7 +105,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         public AdminUserResponse getUserById(Long userId) {
                 log.info("Fetching user details for userId: {}", userId);
 
-                User user = userRepository.findById(userId)
+                // ✅ Use findByIdWithRoles since response includes roles
+                User user = userRepository.findByIdWithRoles(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
 
                 return convertToAdminUserResponse(user);
@@ -134,17 +135,54 @@ public class AdminUserServiceImpl implements AdminUserService {
         public AdminUserResponse updateUserRole(UpdateUserRoleRequest request) {
                 log.info("Updating user role - userId: {}, newRole: {}", request.getUserId(), request.getPrimaryRole());
 
-                User user = userRepository.findById(request.getUserId())
+                // ✅ Use findByIdWithRoles to ensure roles are loaded for synchronization
+                User user = userRepository.findByIdWithRoles(request.getUserId())
                                 .orElseThrow(() -> new RuntimeException(
                                                 "User not found with id: " + request.getUserId()));
 
-                user.setPrimaryRole(request.getPrimaryRole());
+                PrimaryRole newPrimaryRole = request.getPrimaryRole();
+                PrimaryRole oldPrimaryRole = user.getPrimaryRole();
+                
+                // ✅ SYNC: Update roles entity FIRST to ensure consistency
+                // Only sync for main roles (USER, MENTOR, RECRUITER, ADMIN, PARENT)
+                // Sub-admin roles are managed separately via addRolesToUser
+                if (isMainRole(newPrimaryRole)) {
+                        // Validate new role exists BEFORE making any changes
+                        Role newRole = roleRepository.findByName(newPrimaryRole.name())
+                                .orElseThrow(() -> new RuntimeException("Role not found: " + newPrimaryRole.name()));
+                        
+                        // Remove old main role if it was a main role
+                        if (isMainRole(oldPrimaryRole)) {
+                                roleRepository.findByName(oldPrimaryRole.name())
+                                        .ifPresent(oldRole -> user.getRoles().remove(oldRole));
+                        }
+                        
+                        // Add new main role
+                        user.getRoles().add(newRole);
+                        
+                        log.info("Synchronized roles entity: removed {}, added {}", oldPrimaryRole, newPrimaryRole);
+                }
+                
+                // Update PrimaryRole enum AFTER roles sync succeeds
+                user.setPrimaryRole(newPrimaryRole);
+                
                 user.setUpdatedAt(LocalDateTime.now());
-
                 User updatedUser = userRepository.save(user);
 
                 log.info("Successfully updated user role for userId: {}", request.getUserId());
                 return convertToAdminUserResponse(updatedUser);
+        }
+        
+        /**
+         * Check if role is a main role (not sub-admin)
+         * Main roles: USER, MENTOR, RECRUITER, ADMIN, PARENT
+         */
+        private boolean isMainRole(PrimaryRole role) {
+                return role == PrimaryRole.USER || 
+                       role == PrimaryRole.MENTOR || 
+                       role == PrimaryRole.RECRUITER || 
+                       role == PrimaryRole.ADMIN || 
+                       role == PrimaryRole.PARENT;
         }
 
         @Override
@@ -152,7 +190,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         public AdminUserResponse addRolesToUser(AddRoleRequest request) {
                 log.info("Adding roles to user - userId: {}, roles: {}", request.getUserId(), request.getRoles());
 
-                User user = userRepository.findById(request.getUserId())
+                // ✅ Use findByIdWithRoles to eagerly fetch roles collection for modification
+                User user = userRepository.findByIdWithRoles(request.getUserId())
                                 .orElseThrow(() -> new RuntimeException(
                                                 "User not found with id: " + request.getUserId()));
 
@@ -192,7 +231,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         public AdminUserDetailResponse getUserDetailById(Long userId) {
                 log.info("Fetching detailed user information for userId: {}", userId);
 
-                User user = userRepository.findById(userId)
+                // ✅ Use findByIdWithRoles since response includes roles
+                User user = userRepository.findByIdWithRoles(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
 
                 // Get recent courses (top 5)

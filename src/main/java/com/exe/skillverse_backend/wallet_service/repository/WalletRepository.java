@@ -69,4 +69,11 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
      */
     @Query("SELECT COUNT(w) FROM Wallet w WHERE w.status = 'ACTIVE'")
     Long countActiveWallets();
+    
+    /**
+     * Get userId and coinBalance for all wallets - optimized query to avoid N+1
+     * Returns list of [userId, coinBalance] pairs
+     */
+    @Query("SELECT w.user.id, w.coinBalance FROM Wallet w WHERE w.user IS NOT NULL")
+    java.util.List<Object[]> findUserIdAndCoinBalanceAll();
 }

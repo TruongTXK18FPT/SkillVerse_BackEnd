@@ -35,4 +35,10 @@ public interface QuizService {
     QuizAttemptDTO submitQuiz(Long quizId, SubmitQuizDTO submitData, Long userId);
 
     List<QuizAttemptDTO> getUserAttempts(Long quizId, Long userId);
+    
+    /**
+     * Lấy thông tin trạng thái attempt của user cho một quiz.
+     * Bao gồm số lượt đã dùng, thời gian chờ làm lại, điểm cao nhất.
+     */
+    QuizAttemptStatusDTO getAttemptStatus(Long quizId, Long userId);
 }

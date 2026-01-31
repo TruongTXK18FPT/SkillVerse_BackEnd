@@ -19,4 +19,5 @@ public class AssignmentSummaryDTO {
     private BigDecimal maxScore;
     private Instant dueAt;
     private Long moduleId;
+    private Integer orderIndex; // For ordering in the UI
 }

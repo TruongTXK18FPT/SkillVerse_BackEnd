@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.course_service.dto.quizdto;
 
+import java.time.Instant;
 import java.util.List;
 
 import lombok.AllArgsConstructor;
@@ -15,7 +16,7 @@ public class QuizDetailDTO {
     private String description;
     private Integer passScore;
     private Long moduleId;
-    private java.time.Instant createdAt;
-    private java.time.Instant updatedAt;
+    private Instant createdAt;
+    private Instant updatedAt;
     List<QuizQuestionDetailDTO> questions;
 }

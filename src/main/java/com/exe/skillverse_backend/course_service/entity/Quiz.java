@@ -24,6 +24,7 @@ public class Quiz {
   private Instant updatedAt;
 
   @OneToMany(mappedBy = "quiz", cascade = CascadeType.ALL, orphanRemoval = true)
+  @OrderBy("orderIndex ASC")
   @ToString.Exclude @EqualsAndHashCode.Exclude
   private List<QuizQuestion> questions;
 }

@@ -125,8 +125,8 @@ public class AuthServiceImpl implements AuthService {
         @Transactional
         public AuthResponse login(LoginRequest request) {
                 try {
-                        // Find user by email
-                        User user = userRepository.findByEmail(request.getEmail())
+                        // Find user by email with roles eagerly fetched (prevents LazyInitializationException)
+                        User user = userRepository.findByEmailWithRoles(request.getEmail())
                                         .orElseThrow(() -> new AuthenticationException("Email does not exist"));
 
                         // Check user status - only ACTIVE users can login
@@ -288,8 +288,8 @@ public class AuthServiceImpl implements AuthService {
                         // we could enforce additional policies; current rotation + single-token per
                         // user prevents reuse window.
 
-                        // Get user
-                        User user = userRepository.findById(tokenRecord.getUserId())
+                        // Get user with roles (needed for token generation)
+                        User user = userRepository.findByIdWithRoles(tokenRecord.getUserId())
                                         .orElseThrow(() -> {
                                                 log.error("User not found for refresh token, user ID: {}",
                                                                 tokenRecord.getUserId());
@@ -532,8 +532,8 @@ public class AuthServiceImpl implements AuthService {
                                 // Continue anyway as Google OAuth implies verification
                         }
 
-                        // 2. Check if user exists
-                        Optional<User> existingUser = userRepository.findByEmail(email);
+                        // 2. Check if user exists (with roles eagerly fetched to prevent LazyInitializationException)
+                        Optional<User> existingUser = userRepository.findByEmailWithRoles(email);
 
                         User user;
                         boolean isNewUser = false;
@@ -566,8 +566,8 @@ public class AuthServiceImpl implements AuthService {
 
                                 log.info("User role assigned and flushed to database for: {}", email);
 
-                                // ✅ Force reload user with roles populated (fix Hibernate lazy loading)
-                                user = userRepository.findById(user.getId())
+                                // ✅ Force reload user with roles populated (explicit JOIN FETCH)
+                                user = userRepository.findByIdWithRoles(user.getId())
                                                 .orElseThrow(() -> new RuntimeException(
                                                                 "User not found after creation"));
 

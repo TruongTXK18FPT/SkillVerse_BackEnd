@@ -71,4 +71,11 @@ public interface LessonRepository extends JpaRepository<Lesson, Long> {
     @Transactional(readOnly = true)
     @Query("SELECT l FROM Lesson l WHERE l.module.id = :moduleId AND l.orderIndex < :currentIndex ORDER BY l.orderIndex DESC")
     Optional<Lesson> findPreviousLesson(@Param("moduleId") Long moduleId, @Param("currentIndex") Integer currentIndex);
+    
+    /**
+     * Find lessons by video media ID - for detaching media
+     * ✅ OPTIMIZED: Better than findAll().filter() which loads all lessons
+     */
+    @Transactional(readOnly = true)
+    List<Lesson> findByVideoMediaId(Long videoMediaId);
 }

@@ -44,7 +44,6 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.Pageable;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -185,7 +184,7 @@ public class ParentServiceImpl implements ParentService {
     }
 
     @Override
-    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(readOnly = true)
     public ParentDashboardResponse getParentDashboard(Long parentId) {
         List<ParentStudentLink> links = linkRepository.findByParentIdAndStatus(parentId, LinkStatus.ACTIVE);
         

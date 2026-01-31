@@ -338,48 +338,86 @@ public class PremiumServiceImpl implements PremiumService {
         @Transactional
         public void processExpiredSubscriptions() {
                 LocalDateTime now = LocalDateTime.now();
-                userSubscriptionRepository.markExpiredSubscriptions(now);
-
-                // Fallback users to Free Tier
-                premiumPlanRepository.findByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType.FREE_TIER)
-                                .ifPresent(freePlan -> {
-                                        List<User> users = userRepository.findAll();
-                                        for (User user : users) {
-                                                boolean hasActive = userSubscriptionRepository
-                                                                .hasActiveSubscription(user, now);
-                                                if (!hasActive) {
-                                                        UserSubscription freeSub = UserSubscription.builder()
-                                                                        .user(user)
-                                                                        .plan(freePlan)
-                                                                        .startDate(now)
-                                                                        .endDate(now.plusYears(100))
-                                                                        .isActive(true)
-                                                                        .status(UserSubscription.SubscriptionStatus.ACTIVE)
-                                                                        .autoRenew(false)
-                                                                        .build();
-                                                        userSubscriptionRepository.save(freeSub);
-                                                }
-                                        }
-                                });
-
-                log.info("Processed expired subscriptions and reverted to Free Tier at {}", now);
-        }
-
-        @Override
-        @Transactional
-        public void assignFreeTierIfMissing(Long userId) {
-                User user = userRepository.findById(userId)
-                                .orElseThrow(() -> new RuntimeException("User not found"));
-                LocalDateTime now = LocalDateTime.now();
-                boolean hasActive = userSubscriptionRepository.hasActiveSubscription(user, now);
-                if (hasActive) {
+                
+                // Step 1: Bulk update expired subscriptions (single query)
+                int expiredCount = userSubscriptionRepository.markExpiredSubscriptions(now);
+                log.info("Marked {} subscriptions as expired at {}", expiredCount, now);
+                
+                // Step 2: Early exit if nothing expired - skip unnecessary processing
+                if (expiredCount == 0) {
+                        log.debug("No subscriptions expired this hour, skipping Free Tier assignment");
                         return;
                 }
-                PremiumPlan freePlan = premiumPlanRepository
-                                .findByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType.FREE_TIER)
-                                .orElseThrow(() -> new RuntimeException("FREE_TIER plan not found"));
+                
+                // Step 3: Find FREE_TIER plan once
+                Optional<PremiumPlan> freePlanOpt = premiumPlanRepository
+                                .findByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType.FREE_TIER);
+                
+                if (freePlanOpt.isEmpty()) {
+                        log.error("FREE_TIER plan not found! Cannot assign fallback subscriptions.");
+                        return;
+                }
+                
+                PremiumPlan freePlan = freePlanOpt.get();
+                
+                // Step 4: [OPTIMIZED] Single query to find users without active subscription
+                // Replaces N+1 pattern: findAll() + hasActiveSubscription() per user
+                List<Long> userIdsWithoutSub = userSubscriptionRepository
+                                .findUserIdsWithoutActiveSubscription(now);
+                
+                if (userIdsWithoutSub.isEmpty()) {
+                        log.info("All users have active subscriptions, no Free Tier assignment needed");
+                        return;
+                }
+                
+                log.info("Found {} users without active subscription, assigning Free Tier", 
+                                userIdsWithoutSub.size());
+                
+                // Step 5: Batch assign Free Tier (optimized for large user counts)
+                int assignedCount = 0;
+                for (Long userId : userIdsWithoutSub) {
+                        try {
+                                assignFreeTierByUserId(userId, freePlan, now);
+                                assignedCount++;
+                        } catch (Exception e) {
+                                log.warn("Failed to assign Free Tier to user {}: {}", userId, e.getMessage());
+                        }
+                }
+                
+                log.info("Processed expired subscriptions: {} expired, {} assigned Free Tier at {}", 
+                                expiredCount, assignedCount, now);
+        }
+        
+        /**
+         * [OPTIMIZED] Internal method to assign Free Tier without loading User entity.
+         * Reactivates existing Free Tier if available, otherwise creates new.
+         */
+        private void assignFreeTierByUserId(Long userId, PremiumPlan freePlan, LocalDateTime now) {
+                // Check if user already has a Free Tier subscription (active or inactive)
+                Optional<UserSubscription> existingFreeTier = userSubscriptionRepository
+                                .findFreeTierSubscriptionByUserId(userId);
+                
+                if (existingFreeTier.isPresent()) {
+                        // Reactivate existing Free Tier instead of creating duplicate
+                        UserSubscription freeSub = existingFreeTier.get();
+                        if (!freeSub.getIsActive()) {
+                                freeSub.setIsActive(true);
+                                freeSub.setStatus(UserSubscription.SubscriptionStatus.ACTIVE);
+                                freeSub.setStartDate(now);
+                                freeSub.setEndDate(now.plusYears(100));
+                                userSubscriptionRepository.save(freeSub);
+                                log.debug("Reactivated Free Tier for user {}", userId);
+                        }
+                        // Already active - do nothing
+                        return;
+                }
+                
+                // Create new Free Tier subscription
+                // Load user reference only (not full entity with EAGER collections)
+                User userRef = userRepository.getReferenceById(userId);
+                
                 UserSubscription freeSub = UserSubscription.builder()
-                                .user(user)
+                                .user(userRef)
                                 .plan(freePlan)
                                 .startDate(now)
                                 .endDate(now.plusYears(100))
@@ -387,7 +425,31 @@ public class PremiumServiceImpl implements PremiumService {
                                 .status(UserSubscription.SubscriptionStatus.ACTIVE)
                                 .autoRenew(false)
                                 .build();
+                
                 userSubscriptionRepository.save(freeSub);
+                log.debug("Created new Free Tier for user {}", userId);
+        }
+
+        @Override
+        @Transactional
+        public void assignFreeTierIfMissing(Long userId) {
+                LocalDateTime now = LocalDateTime.now();
+                
+                // [OPTIMIZED] Check by user ID instead of loading full User entity
+                boolean hasActive = userSubscriptionRepository.hasActiveSubscriptionByUserId(userId, now);
+                if (hasActive) {
+                        log.debug("User {} already has active subscription, skipping Free Tier", userId);
+                        return;
+                }
+                
+                // Find FREE_TIER plan
+                PremiumPlan freePlan = premiumPlanRepository
+                                .findByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType.FREE_TIER)
+                                .orElseThrow(() -> new RuntimeException("FREE_TIER plan not found"));
+                
+                // Delegate to optimized internal method
+                assignFreeTierByUserId(userId, freePlan, now);
+                log.info("Assigned Free Tier to user {}", userId);
         }
 
         @Override

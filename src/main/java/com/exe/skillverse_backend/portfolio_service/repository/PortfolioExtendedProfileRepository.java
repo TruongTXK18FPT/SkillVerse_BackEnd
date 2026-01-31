@@ -35,4 +35,10 @@ public interface PortfolioExtendedProfileRepository extends JpaRepository<Portfo
     long countByUserId(@Param("userId") Long userId);
 
     List<PortfolioExtendedProfile> findByIsPublicTrue();
+    
+    /**
+     * Find first N portfolios - for debugging purposes only
+     * Better than findAll().stream().limit(N) which loads all records
+     */
+    List<PortfolioExtendedProfile> findTop10By();
 }

@@ -100,8 +100,14 @@ public class User {
     @Builder.Default
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt = LocalDateTime.now();
+    
+    /**
+     * User roles relationship.
+     * IMPORTANT: Changed from EAGER to LAZY to prevent N+1 query problem.
+     * When roles are needed, use explicit fetch or JOIN FETCH in repository query.
+     */
     @Builder.Default
-    @ManyToMany(fetch = FetchType.EAGER)
+    @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(name = "user_roles", joinColumns = @JoinColumn(name = "user_id"), inverseJoinColumns = @JoinColumn(name = "role_id"))
     private Set<Role> roles = new HashSet<>();
 

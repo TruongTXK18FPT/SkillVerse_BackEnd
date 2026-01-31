@@ -7,9 +7,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class QuizOptionDetailDTO {
-    //Long id, String optionText, boolean correct, String feedback
+    //Long id, String optionText, boolean correct, String feedback, Integer orderIndex
     private Long id;
     private String optionText;
     private boolean correct;
     private String feedback;
+    private Integer orderIndex;
 }

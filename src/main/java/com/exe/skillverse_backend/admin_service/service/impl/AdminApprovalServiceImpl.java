@@ -38,8 +38,8 @@ public class AdminApprovalServiceImpl implements AdminApprovalService {
         private final EmailService emailService;
 
         public AdminApprovalResponse approveMentor(Long userId, Long adminId) {
-                // Find user and mentor profile
-                User user = userRepository.findById(userId)
+                // Find user with roles (needed for adding MENTOR role)
+                User user = userRepository.findByIdWithRoles(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
 
                 if (user.getPrimaryRole() != PrimaryRole.MENTOR) {
@@ -95,8 +95,8 @@ public class AdminApprovalServiceImpl implements AdminApprovalService {
         }
 
         public AdminApprovalResponse approveRecruiter(Long userId, Long adminId) {
-                // Find user and recruiter profile
-                User user = userRepository.findById(userId)
+                // Find user with roles (needed for adding RECRUITER role)
+                User user = userRepository.findByIdWithRoles(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
 
                 if (user.getPrimaryRole() != PrimaryRole.RECRUITER) {

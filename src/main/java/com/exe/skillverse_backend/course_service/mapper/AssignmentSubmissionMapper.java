@@ -13,15 +13,25 @@ import org.mapstruct.*;
 public interface AssignmentSubmissionMapper {
 
     @Mapping(target = "id", source = "id")
+    @Mapping(target = "assignmentId", source = "assignment.id")
+    @Mapping(target = "assignmentTitle", source = "assignment.title")
     @Mapping(target = "userId", source = "user.id")
     @Mapping(target = "userName", expression = "java(submission.getUser() != null ? submission.getUser().getFirstName() + \" \" + submission.getUser().getLastName() : null)")
     @Mapping(target = "fileMediaId", source = "fileMedia.id")
+    @Mapping(target = "fileMediaUrl", source = "fileMedia.url")
     @Mapping(target = "submissionText", source = "submissionText")
     @Mapping(target = "linkUrl", source = "linkUrl")
     @Mapping(target = "submittedAt", source = "submittedAt")
     @Mapping(target = "score", source = "score")
+    @Mapping(target = "maxScore", source = "assignment.maxScore")
     @Mapping(target = "gradedBy", source = "gradedBy.id")
+    @Mapping(target = "gradedByName", expression = "java(submission.getGradedBy() != null ? submission.getGradedBy().getFirstName() + \" \" + submission.getGradedBy().getLastName() : null)")
+    @Mapping(target = "gradedAt", source = "gradedAt")
     @Mapping(target = "feedback", source = "feedback")
+    @Mapping(target = "attemptNumber", source = "attemptNumber")
+    @Mapping(target = "isNewest", source = "isNewest")
+    @Mapping(target = "isPrevious", source = "isPrevious")
+    @Mapping(target = "isLate", source = "isLate")
     AssignmentSubmissionDetailDTO toDetailDto(AssignmentSubmission submission);
 
     @Mapping(target = "id", ignore = true)
@@ -33,7 +43,12 @@ public interface AssignmentSubmissionMapper {
     @Mapping(target = "submittedAt", expression = "java(java.time.Instant.now())")
     @Mapping(target = "score", ignore = true)
     @Mapping(target = "gradedBy", ignore = true)
+    @Mapping(target = "gradedAt", ignore = true)
     @Mapping(target = "feedback", ignore = true)
+    @Mapping(target = "attemptNumber", ignore = true)
+    @Mapping(target = "isNewest", constant = "true")
+    @Mapping(target = "isPrevious", constant = "false")
+    @Mapping(target = "isLate", ignore = true)
     AssignmentSubmission toEntity(AssignmentSubmissionCreateDTO createDto, Assignment assignment, User user, Media fileMedia);
 
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
@@ -46,6 +61,11 @@ public interface AssignmentSubmissionMapper {
     @Mapping(target = "submittedAt", ignore = true)
     @Mapping(target = "score", source = "grading.score")
     @Mapping(target = "gradedBy", source = "gradedBy")
+    @Mapping(target = "gradedAt", expression = "java(java.time.Instant.now())")
     @Mapping(target = "feedback", source = "grading.feedback")
+    @Mapping(target = "attemptNumber", ignore = true)
+    @Mapping(target = "isNewest", ignore = true)
+    @Mapping(target = "isPrevious", ignore = true)
+    @Mapping(target = "isLate", ignore = true)
     void gradeSubmission(@MappingTarget AssignmentSubmission submission, AssignmentSubmissionDetailDTO grading, User gradedBy);
 }
