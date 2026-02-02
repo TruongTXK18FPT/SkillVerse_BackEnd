@@ -111,11 +111,36 @@ public class StudentLearningReportController {
                description = "Lấy chi tiết một báo cáo cụ thể")
     public ResponseEntity<StudentLearningReportResponse> getReportById(
             @AuthenticationPrincipal Jwt jwt,
-            @PathVariable Long reportId) {
+            @PathVariable String reportId) {
         Long userId = extractUserId(jwt);
-        log.info("Fetching report {} for student: {}", reportId, userId);
         
-        return ResponseEntity.ok(learningReportService.getReportById(userId, reportId));
+        // Validate reportId - fix for "undefined" string issue
+        if (reportId == null || reportId.trim().isEmpty() || 
+            "undefined".equalsIgnoreCase(reportId) || "null".equalsIgnoreCase(reportId)) {
+            log.warn("Invalid reportId received: '{}' for user: {}", reportId, userId);
+            throw new com.exe.skillverse_backend.shared.exception.ApiException(
+                com.exe.skillverse_backend.shared.exception.ErrorCode.BAD_REQUEST,
+                "Report ID không hợp lệ. Vui lòng chọn báo cáo từ danh sách."
+            );
+        }
+        
+        Long parsedReportId;
+        try {
+            parsedReportId = Long.parseLong(reportId.trim());
+            if (parsedReportId <= 0) {
+                throw new NumberFormatException("Report ID must be positive");
+            }
+        } catch (NumberFormatException e) {
+            log.warn("Failed to parse reportId: '{}' for user: {}", reportId, userId);
+            throw new com.exe.skillverse_backend.shared.exception.ApiException(
+                com.exe.skillverse_backend.shared.exception.ErrorCode.BAD_REQUEST,
+                "Report ID phải là số hợp lệ. Giá trị nhận được: " + reportId
+            );
+        }
+        
+        log.info("Fetching report {} for student: {}", parsedReportId, userId);
+        
+        return ResponseEntity.ok(learningReportService.getReportById(userId, parsedReportId));
     }
 
     @GetMapping("/metrics")
