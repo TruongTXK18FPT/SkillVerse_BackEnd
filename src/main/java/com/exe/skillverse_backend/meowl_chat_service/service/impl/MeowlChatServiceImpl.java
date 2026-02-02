@@ -3,6 +3,8 @@ package com.exe.skillverse_backend.meowl_chat_service.service.impl;
 import com.exe.skillverse_backend.meowl_chat_service.config.MeowlConfig;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatRequest;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatResponse;
+import com.exe.skillverse_backend.meowl_chat_service.entity.MeowlChatMessage;
+import com.exe.skillverse_backend.meowl_chat_service.repository.MeowlChatMessageRepository;
 import com.exe.skillverse_backend.meowl_chat_service.service.MeowlChatService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -10,12 +12,16 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.mistralai.MistralAiChatModel;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Main service for Meowl Chat with Gemini API integration
@@ -31,6 +37,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
     private final MeowlReminderServiceImpl reminderService;
     private final ObjectMapper objectMapper;
     private final MistralAiChatModel mistralAiChatModel;
+    private final MeowlChatMessageRepository chatMessageRepository;
 
     // System prompts with developer guard
     private static final Map<String, String> SYSTEM_PROMPTS = new HashMap<>();
@@ -51,6 +58,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
                 """
                         You are Meowl, a cute, helpful, and empathetic AI assistant for SkillVerse.
                         Tagline: "Learn Smart. Practice Real. Work Confidently."
+                        NOTE: You have access to the user's chat history. Use this context to provide personalized and continuous support across sessions.
 
                         === ABOUT SKILLVERSE ===
                         SkillVerse is an AI platform for students and young professionals.
@@ -143,6 +151,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
                 """
                         Bạn là Meowl, trợ lý AI dễ thương, thấu hiểu và hữu ích của SkillVerse.
                         Khẩu hiệu: "Học nhanh – Luyện thật – Có việc thật."
+                        LƯU Ý: Bạn có quyền truy cập vào lịch sử trò chuyện của người dùng. Hãy sử dụng ngữ cảnh này để hỗ trợ liên tục và cá nhân hóa.
 
                         === VỀ SKILLVERSE ===
                         SkillVerse là nền tảng AI dành cho sinh viên và người trẻ.
@@ -265,9 +274,17 @@ public class MeowlChatServiceImpl implements MeowlChatService {
      * First tries Gemini API, falls back to Mistral if Gemini fails
      */
     @Override
+    @Transactional
+    @CacheEvict(value = "chatHistory", key = "#request.userId", condition = "#request.userId != null")
     public MeowlChatResponse chat(MeowlChatRequest request) {
         try {
             String language = request.getLanguage() != null ? request.getLanguage() : "en";
+            Long userId = request.getUserId();
+
+            // Save user message to DB for persistence
+            if (userId != null) {
+                saveMessage(userId, "user", request.getMessage());
+            }
 
             // Build the prompt with system context
             String fullPrompt = buildPrompt(request, language);
@@ -298,6 +315,11 @@ public class MeowlChatServiceImpl implements MeowlChatService {
 
             // Make response cute
             String cuteResponse = makeCuteResponse(aiResponse, language);
+            
+            // Save assistant response to DB
+            if (userId != null) {
+                saveMessage(userId, "assistant", cuteResponse);
+            }
 
             // Get reminders if requested
             List<MeowlChatResponse.MeowlReminder> reminders = new ArrayList<>();
@@ -352,20 +374,77 @@ public class MeowlChatServiceImpl implements MeowlChatService {
         // Add developer guard
         prompt.append(DEV_GUARDS.get(language)).append("\n\n");
 
-        // Add chat history if provided
-        if (request.getChatHistory() != null && !request.getChatHistory().isEmpty()) {
+        // Add chat history
+        List<MeowlChatRequest.ChatMessage> history;
+        if (request.getUserId() != null) {
+            // Load from persistent storage
+            history = getChatHistory(request.getUserId());
+        } else {
+            // Use transient client history
+            history = request.getChatHistory();
+        }
+
+        if (history != null && !history.isEmpty()) {
             prompt.append("Previous conversation:\n");
-            for (MeowlChatRequest.ChatMessage msg : request.getChatHistory()) {
+            for (MeowlChatRequest.ChatMessage msg : history) {
                 prompt.append(msg.getRole()).append(": ").append(msg.getContent()).append("\n");
             }
             prompt.append("\n");
         }
 
-        // Add current user message
-        prompt.append("User: ").append(request.getMessage()).append("\n");
+        // Add current user message if not using DB history (DB history includes it)
+        if (request.getUserId() == null) {
+            prompt.append("User: ").append(request.getMessage()).append("\n");
+        }
+        
         prompt.append("Meowl: ");
 
         return prompt.toString();
+    }
+
+    /**
+     * Save a chat message to the database
+     */
+    private void saveMessage(Long userId, String role, String content) {
+        try {
+            MeowlChatMessage message = MeowlChatMessage.builder()
+                    .userId(userId)
+                    .role(role)
+                    .content(content)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            chatMessageRepository.save(message);
+        } catch (Exception e) {
+            log.error("Failed to save chat message for user {}", userId, e);
+        }
+    }
+
+    /**
+     * Get chat history for a user
+     */
+    @Override
+    @Cacheable(value = "chatHistory", key = "#userId")
+    public List<MeowlChatRequest.ChatMessage> getChatHistory(Long userId) {
+        // Get top 50 messages (newest first)
+        List<MeowlChatMessage> messages = chatMessageRepository.findTop50ByUserIdOrderByCreatedAtDesc(userId);
+        
+        // Reverse to get chronological order (oldest first)
+        Collections.reverse(messages);
+        
+        return messages.stream()
+                .map(msg -> new MeowlChatRequest.ChatMessage(msg.getRole(), msg.getContent()))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Clear chat history for a user
+     */
+    @Override
+    @Transactional
+    @CacheEvict(value = "chatHistory", key = "#userId")
+    public void clearChatHistory(Long userId) {
+        chatMessageRepository.deleteByUserId(userId);
+        log.info("Cleared chat history for user {}", userId);
     }
 
     /**

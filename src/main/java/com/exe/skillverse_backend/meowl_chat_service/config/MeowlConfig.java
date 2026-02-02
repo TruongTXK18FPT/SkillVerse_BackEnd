@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.meowl_chat_service.config;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestTemplate;
@@ -9,6 +10,7 @@ import org.springframework.web.client.RestTemplate;
  * Configuration for Meowl Chat Service with Gemini API
  */
 @Configuration
+@EnableCaching
 public class MeowlConfig {
 
     @Value("${meowl.gemini.api-key}")

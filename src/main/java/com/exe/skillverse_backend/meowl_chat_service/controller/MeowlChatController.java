@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -59,6 +60,38 @@ public class MeowlChatController {
                     .build();
 
             return ResponseEntity.status(500).body(errorResponse);
+        }
+    }
+
+    /**
+     * Get chat history for a user
+     */
+    @GetMapping("/history/{userId}")
+    @Operation(summary = "Get chat history", description = "Get persistent chat history for a user")
+    public ResponseEntity<List<MeowlChatRequest.ChatMessage>> getChatHistory(@PathVariable Long userId) {
+        log.info("Getting chat history for user: {}", userId);
+        try {
+            List<MeowlChatRequest.ChatMessage> history = meowlChatService.getChatHistory(userId);
+            return ResponseEntity.ok(history);
+        } catch (Exception e) {
+            log.error("Error getting chat history: ", e);
+            return ResponseEntity.status(500).build();
+        }
+    }
+
+    /**
+     * Clear chat history for a user
+     */
+    @DeleteMapping("/history/{userId}")
+    @Operation(summary = "Clear chat history", description = "Clear chat history for a user (e.g. on logout)")
+    public ResponseEntity<Void> clearChatHistory(@PathVariable Long userId) {
+        log.info("Clearing chat history for user: {}", userId);
+        try {
+            meowlChatService.clearChatHistory(userId);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            log.error("Error clearing chat history: ", e);
+            return ResponseEntity.status(500).build();
         }
     }
 
