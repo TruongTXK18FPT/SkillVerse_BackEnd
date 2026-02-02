@@ -94,10 +94,9 @@ public class SkinController {
     }
 
     @GetMapping
-    @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get all skins", description = "Get all available skins with ownership status")
+    @Operation(summary = "Get all skins", description = "Get all available skins with ownership status (public access, optional auth)")
     public ResponseEntity<List<MeowlSkinResponse>> getAllSkins(Authentication authentication) {
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = authentication != null ? Long.parseLong(authentication.getName()) : null;
         return ResponseEntity.ok(skinService.getAllSkins(userId));
     }
 
@@ -110,10 +109,9 @@ public class SkinController {
     }
 
     @GetMapping("/leaderboard")
-    @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Get skin leaderboard", description = "Get skins sorted by purchase count")
+    @Operation(summary = "Get skin leaderboard", description = "Get skins sorted by purchase count (public access, optional auth)")
     public ResponseEntity<List<MeowlSkinResponse>> getSkinLeaderboard(Authentication authentication) {
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = authentication != null ? Long.parseLong(authentication.getName()) : null;
         return ResponseEntity.ok(skinService.getSkinLeaderboard(userId));
     }
 

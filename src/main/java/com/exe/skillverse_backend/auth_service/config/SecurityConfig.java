@@ -113,6 +113,12 @@ public class SecurityConfig {
                                 // parsing)
                                 .requestMatchers(HttpMethod.GET, "/api/seminars", "/api/seminars/*").permitAll()
 
+                                // Meowl Shop: allow public GET for skins (viewing shop), require auth for purchase/select
+                                .requestMatchers(HttpMethod.GET, "/api/skins", "/api/skins/**").permitAll()
+                                
+                                // Mentors: allow public GET for mentor list and profiles
+                                .requestMatchers(HttpMethod.GET, "/api/mentors", "/api/mentors/**").permitAll()
+
                                 // Allow all preflight CORS requests
                                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
