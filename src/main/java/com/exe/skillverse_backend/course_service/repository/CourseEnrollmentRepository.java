@@ -98,4 +98,12 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
                         "JOIN c.enrollments e " +
                         "WHERE e.user.id = :userId AND e.status = 'ENROLLED'")
         long sumTotalCourseDurationByUserId(@Param("userId") Long userId);
+
+        /**
+         * Count total students across all courses taught by a specific mentor
+         */
+        @Transactional(readOnly = true)
+        @Query("SELECT COUNT(DISTINCT ce.user.id) FROM CourseEnrollment ce " +
+                        "WHERE ce.course.author.id = :mentorId")
+        long countTotalStudentsByMentorId(@Param("mentorId") Long mentorId);
 }

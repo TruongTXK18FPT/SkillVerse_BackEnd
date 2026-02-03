@@ -13,6 +13,7 @@ import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtended
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingReviewRepository;
 import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
@@ -27,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -44,6 +46,7 @@ public class MentorProfileServiceImpl implements MentorProfileService {
     private final BookingRepository bookingRepository;
     private final BookingReviewRepository bookingReviewRepository;
     private final CoursePurchaseRepository coursePurchaseRepository;
+    private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final UserRepository userRepository;
     private final MediaService mediaService;
     private final ObjectMapper objectMapper;
@@ -239,8 +242,14 @@ public class MentorProfileServiceImpl implements MentorProfileService {
 
         long sessionsCompleted = bookingRepository.countByMentorAndStatus(mentorUser,
                 BookingStatus.COMPLETED);
-        long fiveStar = bookingReviewRepository.findByMentorIdOrderByCreatedAtDesc(mentorId)
-                .stream().filter(r -> r.getRating() != null && r.getRating() == 5).count();
+        
+        // Get all reviews for the mentor
+        var allReviews = bookingReviewRepository.findByMentorIdOrderByCreatedAtDesc(mentorId);
+        long totalReviews = allReviews.size();
+        long fiveStar = allReviews.stream()
+                .filter(r -> r.getRating() != null && r.getRating() == 5)
+                .count();
+        
         long sales = coursePurchaseRepository.countSuccessfulPurchasesByMentorId(mentorId);
         java.math.BigDecimal revenue = coursePurchaseRepository.sumCapturedByMentor(mentorId)
                 .orElse(java.math.BigDecimal.ZERO);
@@ -278,6 +287,7 @@ public class MentorProfileServiceImpl implements MentorProfileService {
         resp.setLevelTitle(levelTitle);
         resp.setSessionsCompleted((int) sessionsCompleted);
         resp.setFiveStarCount((int) fiveStar);
+        resp.setTotalReviews((int) totalReviews);
         resp.setCourseSales((int) sales);
         resp.setRevenueVnd(revenue);
         resp.setNextLevelPoints(nextLevelPoints);
@@ -410,5 +420,12 @@ public class MentorProfileServiceImpl implements MentorProfileService {
                 .currentLevel(profile.getCurrentLevel())
                 .badges(badges)
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long getTotalStudentsCount(Long mentorId) {
+        log.info("Getting total students count for mentor ID: {}", mentorId);
+        return courseEnrollmentRepository.countTotalStudentsByMentorId(mentorId);
     }
 }

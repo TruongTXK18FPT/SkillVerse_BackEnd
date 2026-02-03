@@ -183,6 +183,25 @@ public class MentorProfileController {
         return ResponseEntity.ok().build();
     }
 
+    @GetMapping("/stats/total-students")
+    @Operation(summary = "Get total students count for current mentor across all courses")
+    public ResponseEntity<TotalStudentsResponse> getMyTotalStudents(
+            @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt) {
+        Long mentorId = Long.parseLong(jwt.getSubject());
+        log.info("Getting total students count for mentor ID: {}", mentorId);
+        long totalStudents = mentorProfileService.getTotalStudentsCount(mentorId);
+        return ResponseEntity.ok(new TotalStudentsResponse(totalStudents));
+    }
+
+    @GetMapping("/{mentorId}/stats/total-students")
+    @Operation(summary = "Get total students count for mentor by ID across all courses")
+    public ResponseEntity<TotalStudentsResponse> getTotalStudents(
+            @Parameter(description = "Mentor user ID") @PathVariable Long mentorId) {
+        log.info("Getting total students count for mentor ID: {}", mentorId);
+        long totalStudents = mentorProfileService.getTotalStudentsCount(mentorId);
+        return ResponseEntity.ok(new TotalStudentsResponse(totalStudents));
+    }
+
     // Response DTO for avatar upload
     public static class AvatarUploadResponse {
         private String avatarUrl;
@@ -197,6 +216,23 @@ public class MentorProfileController {
 
         public void setAvatarUrl(String avatarUrl) {
             this.avatarUrl = avatarUrl;
+        }
+    }
+
+    // Response DTO for total students
+    public static class TotalStudentsResponse {
+        private long totalStudents;
+
+        public TotalStudentsResponse(long totalStudents) {
+            this.totalStudents = totalStudents;
+        }
+
+        public long getTotalStudents() {
+            return totalStudents;
+        }
+
+        public void setTotalStudents(long totalStudents) {
+            this.totalStudents = totalStudents;
         }
     }
 }

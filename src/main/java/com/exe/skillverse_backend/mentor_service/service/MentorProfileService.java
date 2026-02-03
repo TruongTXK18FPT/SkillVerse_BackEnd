@@ -44,4 +44,9 @@ public interface MentorProfileService {
      * Get skill tab information for a mentor
      */
     SkillTabResponse getSkillTab(Long mentorId);
+
+    /**
+     * Get total students count across all mentor's courses
+     */
+    long getTotalStudentsCount(Long mentorId);
 }

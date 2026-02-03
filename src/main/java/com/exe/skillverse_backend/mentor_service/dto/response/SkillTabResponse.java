@@ -19,6 +19,7 @@ public class SkillTabResponse {
     private int nextLevelPoints;
     private int sessionsCompleted;
     private int fiveStarCount;
+    private int totalReviews;
     private int courseSales;
     private BigDecimal revenueVnd;
     private List<BadgeInfo> badges;
