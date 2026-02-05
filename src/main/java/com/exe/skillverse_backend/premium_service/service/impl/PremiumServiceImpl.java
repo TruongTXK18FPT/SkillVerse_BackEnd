@@ -59,6 +59,7 @@ public class PremiumServiceImpl implements PremiumService {
                         ".edu", ".edu.vn", ".ac.uk", "university.", "student.", ".edu.au");
 
         @Override
+        @Transactional(readOnly = true)
         public List<PremiumPlanResponse> getAvailablePlans() {
                 log.info("Fetching all available premium plans");
                 return premiumPlanRepository.findByIsActiveTrueOrderByPrice()
@@ -68,6 +69,7 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         @Override
+        @Transactional(readOnly = true)
         public Optional<PremiumPlanResponse> getPlanById(Long planId) {
                 log.info("Fetching premium plan with ID: {}", planId);
                 return premiumPlanRepository.findById(planId)
@@ -76,6 +78,7 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         @Override
+        @Transactional(readOnly = true)
         public Optional<PremiumPlanResponse> getPlanByType(PremiumPlan.PlanType planType) {
                 log.info("Fetching premium plan with type: {}", planType);
                 return premiumPlanRepository.findByPlanTypeAndIsActiveTrue(planType)
@@ -111,17 +114,17 @@ public class PremiumServiceImpl implements PremiumService {
                                                 "Premium plan not found: " + request.getPlanId()));
 
                 Optional<UserSubscription> existingSubscription = userSubscriptionRepository
-                                .findByUserAndIsActiveTrue(user);
+                                .findCurrentActiveSubscription(user);
 
                 if (existingSubscription.isPresent()) {
                         PremiumPlan existingPlan = existingSubscription.get().getPlan();
                         if (existingPlan.getPlanType() != PremiumPlan.PlanType.FREE_TIER) {
                                 throw new RuntimeException("User already has an active subscription");
                         }
-                        // Deactivate FREE_TIER to allow upgrading
-                        UserSubscription activeSub = existingSubscription.get();
-                        activeSub.cancel("Upgrading from Free Tier");
-                        userSubscriptionRepository.save(activeSub);
+                        // SUSPEND (not cancel) FREE_TIER - will reactivate when premium expires
+                        UserSubscription freeTierSub = existingSubscription.get();
+                        freeTierSub.suspend("Upgrading to Premium - will reactivate when premium expires");
+                        userSubscriptionRepository.save(freeTierSub);
                 }
 
                 boolean isStudentEligible = request.getApplyStudentDiscount() &&
@@ -150,14 +153,16 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         @Override
+        @Transactional(readOnly = true)
         public Optional<UserSubscriptionResponse> getCurrentSubscription(Long userId) {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
-                return userSubscriptionRepository.findByUserAndIsActiveTrue(user)
+                return userSubscriptionRepository.findCurrentActiveSubscription(user)
                                 .map(this::convertToUserSubscriptionResponse);
         }
 
         @Override
+        @Transactional(readOnly = true)
         public List<UserSubscriptionResponse> getSubscriptionHistory(Long userId) {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -173,7 +178,7 @@ public class PremiumServiceImpl implements PremiumService {
         public void cancelSubscription(Long userId, String reason) {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
-                UserSubscription subscription = userSubscriptionRepository.findByUserAndIsActiveTrue(user)
+                UserSubscription subscription = userSubscriptionRepository.findCurrentActiveSubscription(user)
                                 .orElseThrow(() -> new RuntimeException("No active subscription found"));
                 subscription.cancel(reason);
                 userSubscriptionRepository.save(subscription);
@@ -333,11 +338,14 @@ public class PremiumServiceImpl implements PremiumService {
                 }
         }
 
+        private static final int BATCH_SIZE = 500;
+
         @Override
         @Scheduled(cron = "0 0 * * * ?")
         @Transactional
         public void processExpiredSubscriptions() {
                 LocalDateTime now = LocalDateTime.now();
+                LocalDateTime freeTierEndDate = now.plusYears(100);
                 
                 // Step 1: Bulk update expired subscriptions (single query)
                 int expiredCount = userSubscriptionRepository.markExpiredSubscriptions(now);
@@ -345,11 +353,11 @@ public class PremiumServiceImpl implements PremiumService {
                 
                 // Step 2: Early exit if nothing expired - skip unnecessary processing
                 if (expiredCount == 0) {
-                        log.debug("No subscriptions expired this hour, skipping Free Tier assignment");
+                        log.debug("No subscriptions expired this hour, skipping Free Tier reactivation");
                         return;
                 }
                 
-                // Step 3: Find FREE_TIER plan once
+                // Step 3: Find FREE_TIER plan once (only needed for new subscriptions)
                 Optional<PremiumPlan> freePlanOpt = premiumPlanRepository
                                 .findByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType.FREE_TIER);
                 
@@ -360,32 +368,71 @@ public class PremiumServiceImpl implements PremiumService {
                 
                 PremiumPlan freePlan = freePlanOpt.get();
                 
-                // Step 4: [OPTIMIZED] Single query to find users without active subscription
-                // Replaces N+1 pattern: findAll() + hasActiveSubscription() per user
+                // Step 4: Find users without active subscription (premium just expired)
                 List<Long> userIdsWithoutSub = userSubscriptionRepository
                                 .findUserIdsWithoutActiveSubscription(now);
                 
                 if (userIdsWithoutSub.isEmpty()) {
-                        log.info("All users have active subscriptions, no Free Tier assignment needed");
+                        log.info("All users have active subscriptions, no Free Tier reactivation needed");
                         return;
                 }
                 
-                log.info("Found {} users without active subscription, assigning Free Tier", 
+                log.info("Found {} users without active subscription, reactivating Free Tier", 
                                 userIdsWithoutSub.size());
                 
-                // Step 5: Batch assign Free Tier (optimized for large user counts)
-                int assignedCount = 0;
-                for (Long userId : userIdsWithoutSub) {
-                        try {
-                                assignFreeTierByUserId(userId, freePlan, now);
-                                assignedCount++;
-                        } catch (Exception e) {
-                                log.warn("Failed to assign Free Tier to user {}: {}", userId, e.getMessage());
+                // Step 5: [CHATGPT MODEL] Reactivate SUSPENDED Free Tier (primary path)
+                int totalReactivated = 0;
+                int totalCreated = 0;
+                
+                // Process in chunks for memory efficiency
+                for (int i = 0; i < userIdsWithoutSub.size(); i += BATCH_SIZE) {
+                        int endIdx = Math.min(i + BATCH_SIZE, userIdsWithoutSub.size());
+                        List<Long> batch = userIdsWithoutSub.subList(i, endIdx);
+                        
+                        // Primary: Batch reactivate SUSPENDED FREE_TIER (most common case after upgrade expires)
+                        int reactivated = userSubscriptionRepository.batchReactivateSuspendedFreeTier(batch, now);
+                        totalReactivated += reactivated;
+                        
+                        // Fallback: For legacy users without Free Tier, create new one
+                        List<Long> usersWithExisting = userSubscriptionRepository.findUserIdsWithExistingFreeTier(batch);
+                        List<Long> usersNeedingNew = batch.stream()
+                                .filter(id -> !usersWithExisting.contains(id))
+                                .toList();
+                        
+                        for (Long userId : usersNeedingNew) {
+                                try {
+                                        createNewFreeTierSubscription(userId, freePlan, now, freeTierEndDate);
+                                        totalCreated++;
+                                } catch (Exception e) {
+                                        log.warn("Failed to create Free Tier for user {}: {}", userId, e.getMessage());
+                                }
                         }
+                        
+                        log.debug("Batch {}-{}: {} reactivated, {} created", i, endIdx, reactivated, usersNeedingNew.size());
                 }
                 
-                log.info("Processed expired subscriptions: {} expired, {} assigned Free Tier at {}", 
-                                expiredCount, assignedCount, now);
+                log.info("Processed expired subscriptions: {} expired, {} Free Tier reactivated, {} created at {}", 
+                                expiredCount, totalReactivated, totalCreated, now);
+        }
+
+        /**
+         * Create new FREE_TIER subscription using reference only (no full entity load)
+         */
+        private void createNewFreeTierSubscription(Long userId, PremiumPlan freePlan, 
+                        LocalDateTime now, LocalDateTime endDate) {
+                User userRef = userRepository.getReferenceById(userId);
+                
+                UserSubscription freeSub = UserSubscription.builder()
+                        .user(userRef)
+                        .plan(freePlan)
+                        .startDate(now)
+                        .endDate(endDate)
+                        .isActive(true)
+                        .status(UserSubscription.SubscriptionStatus.ACTIVE)
+                        .autoRenew(false)
+                        .build();
+                
+                userSubscriptionRepository.save(freeSub);
         }
         
         /**
@@ -457,14 +504,12 @@ public class PremiumServiceImpl implements PremiumService {
         public UserSubscriptionResponse ensureActiveSubscriptionOrFree(Long userId) {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
-                LocalDateTime now = LocalDateTime.now();
 
-                return userSubscriptionRepository.findByUserAndIsActiveTrue(user)
-                                .filter(UserSubscription::isCurrentlyActive)
+                return userSubscriptionRepository.findCurrentActiveSubscription(user)
                                 .map(this::convertToUserSubscriptionResponse)
                                 .orElseGet(() -> {
                                         assignFreeTierIfMissing(userId);
-                                        return userSubscriptionRepository.findByUserAndIsActiveTrue(user)
+                                        return userSubscriptionRepository.findCurrentActiveSubscription(user)
                                                         .map(this::convertToUserSubscriptionResponse)
                                                         .orElseThrow(() -> new RuntimeException(
                                                                         "Failed to assign Free Tier"));
@@ -472,6 +517,9 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         private PremiumPlanResponse convertToPremiumPlanResponse(PremiumPlan plan) {
+                // Use query instead of lazy-loading subscriptions to prevent N+1
+                Long currentSubscribers = premiumPlanRepository.countActiveSubscriptions(plan);
+                
                 return PremiumPlanResponse.builder()
                                 .id(plan.getId())
                                 .name(plan.getName())
@@ -487,8 +535,9 @@ public class PremiumServiceImpl implements PremiumService {
                                                 : List.of())
                                 .isActive(plan.getIsActive())
                                 .maxSubscribers(plan.getMaxSubscribers())
-                                .currentSubscribers((long) plan.getSubscriptions().size())
-                                .availableForSubscription(plan.isAvailableForSubscription())
+                                .currentSubscribers(currentSubscribers)
+                                .availableForSubscription(plan.getMaxSubscribers() == null || 
+                                                currentSubscribers < plan.getMaxSubscribers())
                                 .build();
         }
 
@@ -566,17 +615,17 @@ public class PremiumServiceImpl implements PremiumService {
 
                 // 3. Check existing subscription for RECIPIENT
                 Optional<UserSubscription> existingSubscription = userSubscriptionRepository
-                                .findByUserAndIsActiveTrue(recipient);
+                                .findCurrentActiveSubscription(recipient);
 
                 if (existingSubscription.isPresent()) {
                         PremiumPlan existingPlan = existingSubscription.get().getPlan();
                         if (existingPlan.getPlanType() != PremiumPlan.PlanType.FREE_TIER) {
                                 throw new RuntimeException("Người nhận đã có gói Premium đang hoạt động");
                         }
-                        // Deactivate FREE_TIER to allow upgrading
-                        UserSubscription activeSub = existingSubscription.get();
-                        activeSub.cancel("Upgrading from Free Tier via Wallet" + (targetUserId != null ? " (Gift from " + buyerId + ")" : ""));
-                        userSubscriptionRepository.save(activeSub);
+                        // SUSPEND (not cancel) FREE_TIER - will reactivate when premium expires
+                        UserSubscription freeTierSub = existingSubscription.get();
+                        freeTierSub.suspend("Upgrading to Premium via Wallet" + (targetUserId != null ? " (Gift from " + buyerId + ")" : "") + " - will reactivate when premium expires");
+                        userSubscriptionRepository.save(freeTierSub);
                 }
 
                 // 4. Calculate price (with student discount if applicable - based on RECIPIENT's email)
@@ -662,7 +711,7 @@ public class PremiumServiceImpl implements PremiumService {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-                var subscriptionOpt = userSubscriptionRepository.findByUserAndIsActiveTrue(user);
+                var subscriptionOpt = userSubscriptionRepository.findCurrentActiveSubscription(user);
                 if (subscriptionOpt.isEmpty()) {
                         throw new RuntimeException("No active subscription found");
                 }
@@ -691,7 +740,7 @@ public class PremiumServiceImpl implements PremiumService {
                                 .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
 
                 UserSubscription subscription = userSubscriptionRepository
-                                .findByUserAndIsActiveTrue(user)
+                                .findCurrentActiveSubscription(user)
                                 .orElseThrow(() -> new RuntimeException(
                                                 "No active subscription found for user: " + userId));
 
@@ -725,7 +774,7 @@ public class PremiumServiceImpl implements PremiumService {
                                 .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
 
                 UserSubscription subscription = userSubscriptionRepository
-                                .findByUserAndIsActiveTrue(user)
+                                .findCurrentActiveSubscription(user)
                                 .orElseThrow(() -> new RuntimeException(
                                                 "No active subscription found for user: " + userId));
 
@@ -838,7 +887,7 @@ public class PremiumServiceImpl implements PremiumService {
                         return new RefundEligibility(false, 0, 0.0, 0, "User not found");
                 }
 
-                var subscriptionOpt = userSubscriptionRepository.findByUserAndIsActiveTrue(user);
+                var subscriptionOpt = userSubscriptionRepository.findCurrentActiveSubscription(user);
                 if (subscriptionOpt.isEmpty()) {
                         return new RefundEligibility(false, 0, 0.0, 0, "No active subscription");
                 }

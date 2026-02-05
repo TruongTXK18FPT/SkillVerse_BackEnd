@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.auth_service.config;
 
 import com.exe.skillverse_backend.auth_service.repository.InvalidatedTokenRepository;
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jwt.SignedJWT;
 import lombok.RequiredArgsConstructor;
@@ -12,8 +13,11 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Component;
 
 import java.util.Date;
+import java.util.Optional;
 import java.time.Instant;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Component
 @RequiredArgsConstructor
@@ -21,6 +25,7 @@ import java.time.Duration;
 public class CustomJwtDecoder implements JwtDecoder {
 
     private final InvalidatedTokenRepository invalidatedTokenRepository;
+    private final UserRepository userRepository;
 
     @Value("${jwt.secret}")
     private String jwtSecret;
@@ -37,11 +42,8 @@ public class CustomJwtDecoder implements JwtDecoder {
     // allow small clock skew
     private static final Duration CLOCK_SKEW = Duration.ofSeconds(60);
 
-    // Getter methods for JWT configuration
-    public String getJwtSecret() {
-        return jwtSecret;
-    }
-
+    // ✅ SECURITY: Removed public getJwtSecret() - secret should never be exposed
+    // Getters for non-sensitive config only
     public long getAccessTokenExpiration() {
         return accessTokenExpiration;
     }
@@ -94,12 +96,48 @@ public class CustomJwtDecoder implements JwtDecoder {
                 throw new JwtException("JWT token has been invalidated");
             }
 
+            // ✅ SECURITY: Check if token was issued before password change
+            // Tokens issued before passwordChangedAt are invalid (user changed password)
+            // [OPTIMIZED] Uses projection query instead of loading full User entity
+            // [TIMEZONE-SAFE] Uses UTC for both JWT iat and passwordChangedAt comparison
+            String userId = signedJWT.getJWTClaimsSet().getSubject();
+            Date issuedAt = signedJWT.getJWTClaimsSet().getIssueTime();
+            if (userId != null && issuedAt != null) {
+                try {
+                    Long userIdLong = Long.parseLong(userId);
+                    Optional<LocalDateTime> passwordChangedAtOpt = userRepository.findPasswordChangedAtById(userIdLong);
+                    
+                    if (passwordChangedAtOpt.isPresent()) {
+                        LocalDateTime passwordChangedAt = passwordChangedAtOpt.get();
+                        // Convert issuedAt to LocalDateTime using UTC for consistent comparison
+                        // Both JWT iat and passwordChangedAt are stored/compared in UTC
+                        Instant iatInstant = issuedAt.toInstant();
+                        LocalDateTime iatDateTime = LocalDateTime.ofInstant(iatInstant, ZoneId.of("UTC"));
+                        
+                        // If token was issued before password change, reject it
+                        // Allow CLOCK_SKEW tolerance to handle minor time differences
+                        if (iatDateTime.isBefore(passwordChangedAt.minus(CLOCK_SKEW))) {
+                            log.warn("Token issued before password change for user {}. Token iat (UTC): {}, Password changed at (UTC): {}", 
+                                    userId, iatDateTime, passwordChangedAt);
+                            throw new JwtException("Token invalidated due to password change. Please login again.");
+                        }
+                    }
+                } catch (NumberFormatException e) {
+                    // userId is not a number, skip password change check
+                    log.debug("Could not parse userId as Long: {}", userId);
+                }
+            }
+
             // Convert to Spring Security Jwt
             return createJwt(signedJWT);
 
+        } catch (JwtException e) {
+            // Re-throw JWT exceptions with their user-friendly messages
+            throw e;
         } catch (Exception e) {
+            // ✅ SECURITY: Log full error server-side, return generic message to client
             log.error("Error decoding JWT token", e);
-            throw new JwtException("Error decoding JWT token: " + e.getMessage());
+            throw new JwtException("Invalid or malformed token");
         }
     }
 

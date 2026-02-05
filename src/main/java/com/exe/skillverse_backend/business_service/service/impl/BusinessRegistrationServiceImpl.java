@@ -18,6 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -139,7 +141,7 @@ public class BusinessRegistrationServiceImpl
                         String companySize,
                         String industry,
                         MultipartFile companyDocumentsFile,
-                        java.util.List<MultipartFile> companyDocumentsFiles) {
+                        List<MultipartFile> companyDocumentsFiles) {
 
                 BusinessRegistrationRequest request = new BusinessRegistrationRequest();
                 request.setEmail(email);
@@ -167,7 +169,7 @@ public class BusinessRegistrationServiceImpl
                 request.setCompanySize(companySize);
                 request.setIndustry(industry);
 
-                java.util.List<MultipartFile> allFiles = new java.util.ArrayList<>();
+                List<MultipartFile> allFiles = new ArrayList<>();
                 if (companyDocumentsFile != null && !companyDocumentsFile.isEmpty()) {
                         allFiles.add(companyDocumentsFile);
                 }

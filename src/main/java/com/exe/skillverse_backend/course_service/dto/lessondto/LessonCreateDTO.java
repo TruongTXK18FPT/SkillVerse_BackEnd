@@ -20,6 +20,7 @@ public class LessonCreateDTO {
     private LessonType type;
     private Integer orderIndex;
     private String contentText;
+    private String resourceUrl;
     private String videoUrl;
     private Long videoMediaId;
     private Integer durationSec;

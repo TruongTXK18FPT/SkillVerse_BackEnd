@@ -28,8 +28,33 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
                         User user, UserSubscription.SubscriptionStatus status);
 
         /**
-         * Find user's active subscription (simplified)
+         * Find user's active subscription (simplified).
+         * Returns the highest priority active subscription (Premium > Free Tier).
+         * Also validates that subscription is within valid date range.
+         * Priority: PREMIUM_PLUS > PREMIUM_BASIC > STUDENT_PACK > FREE_TIER
          */
+        @Query("""
+                SELECT s FROM UserSubscription s 
+                JOIN FETCH s.plan p
+                WHERE s.user = :user 
+                AND s.isActive = true 
+                AND s.status = 'ACTIVE'
+                AND s.startDate <= CURRENT_TIMESTAMP 
+                AND s.endDate > CURRENT_TIMESTAMP
+                ORDER BY CASE p.planType 
+                    WHEN 'PREMIUM_PLUS' THEN 1 
+                    WHEN 'PREMIUM_BASIC' THEN 2 
+                    WHEN 'STUDENT_PACK' THEN 3 
+                    WHEN 'FREE_TIER' THEN 4 
+                    ELSE 5 
+                END
+        """)
+        Optional<UserSubscription> findCurrentActiveSubscription(@Param("user") User user);
+
+        /**
+         * @deprecated Use {@link #findCurrentActiveSubscription(User)} instead for proper validation
+         */
+        @Deprecated
         Optional<UserSubscription> findByUserAndIsActiveTrue(User user);
 
         /**
@@ -48,9 +73,9 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
         List<UserSubscription> findByPlanAndIsActiveTrue(PremiumPlan plan);
 
         /**
-         * Find subscriptions expiring soon
+         * Find subscriptions expiring soon (with plan eagerly loaded to prevent N+1)
          */
-        @Query("SELECT s FROM UserSubscription s WHERE s.isActive = true " +
+        @Query("SELECT s FROM UserSubscription s JOIN FETCH s.plan WHERE s.isActive = true " +
                         "AND s.status = 'ACTIVE' AND s.endDate BETWEEN :now AND :cutoffDate")
         List<UserSubscription> findSubscriptionsExpiringSoon(
                         @Param("now") LocalDateTime now,
@@ -169,4 +194,56 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
         @Query("SELECT s FROM UserSubscription s JOIN s.plan p WHERE s.user.id = :userId " +
                         "AND p.planType = 'FREE_TIER' ORDER BY s.createdAt DESC")
         Optional<UserSubscription> findFreeTierSubscriptionByUserId(@Param("userId") Long userId);
+
+        /**
+         * Find SUSPENDED FREE_TIER subscription for a user.
+         * Used when premium expires - reactivate suspended free tier.
+         * Returns the most recently created suspended FREE_TIER to handle edge case of multiple suspensions.
+         */
+        @Query("SELECT s FROM UserSubscription s JOIN s.plan p WHERE s.user.id = :userId " +
+                        "AND p.planType = 'FREE_TIER' AND s.status = 'SUSPENDED' " +
+                        "ORDER BY s.createdAt DESC LIMIT 1")
+        Optional<UserSubscription> findSuspendedFreeTierByUserId(@Param("userId") Long userId);
+
+        /**
+         * Find ALL suspended FREE_TIER subscriptions for cleanup purposes.
+         */
+        @Query("SELECT s FROM UserSubscription s JOIN s.plan p WHERE s.user.id = :userId " +
+                        "AND p.planType = 'FREE_TIER' AND s.status = 'SUSPENDED' " +
+                        "ORDER BY s.createdAt DESC")
+        List<UserSubscription> findAllSuspendedFreeTierByUserId(@Param("userId") Long userId);
+
+        /**
+         * [OPTIMIZED] Batch reactivate SUSPENDED FREE_TIER subscriptions.
+         * Returns number of reactivated subscriptions.
+         */
+        @Modifying
+        @Query("""
+                UPDATE UserSubscription s SET 
+                    s.isActive = true, 
+                    s.status = 'ACTIVE',
+                    s.cancellationReason = null,
+                    s.updatedAt = :now
+                WHERE s.user.id IN :userIds 
+                AND s.status = 'SUSPENDED'
+                AND EXISTS (
+                    SELECT 1 FROM PremiumPlan p 
+                    WHERE p.id = s.plan.id AND p.planType = 'FREE_TIER'
+                )
+        """)
+        int batchReactivateSuspendedFreeTier(
+                @Param("userIds") List<Long> userIds,
+                @Param("now") LocalDateTime now);
+
+        /**
+         * [OPTIMIZED] Find user IDs that have inactive FREE_TIER subscriptions.
+         * Used to identify which users can be reactivated vs need new subscription.
+         */
+        @Query("""
+                SELECT s.user.id FROM UserSubscription s 
+                JOIN s.plan p 
+                WHERE s.user.id IN :userIds 
+                AND p.planType = 'FREE_TIER'
+        """)
+        List<Long> findUserIdsWithExistingFreeTier(@Param("userIds") List<Long> userIds);
 }

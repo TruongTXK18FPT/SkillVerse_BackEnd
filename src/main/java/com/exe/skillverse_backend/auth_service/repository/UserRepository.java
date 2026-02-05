@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -69,4 +70,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     @Query("SELECT u FROM User u LEFT JOIN FETCH u.roles WHERE u.id = :id")
     Optional<User> findByIdWithRoles(@Param("id") Long id);
+
+    /**
+     * [OPTIMIZED] Get only passwordChangedAt for JWT validation.
+     * Avoids loading entire User entity for every request.
+     * Returns null if user not found or passwordChangedAt is null.
+     */
+    @Query("SELECT u.passwordChangedAt FROM User u WHERE u.id = :userId")
+    Optional<LocalDateTime> findPasswordChangedAtById(@Param("userId") Long userId);
 }

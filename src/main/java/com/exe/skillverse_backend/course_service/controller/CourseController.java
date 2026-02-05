@@ -35,8 +35,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
 import java.time.LocalDateTime;
 
 @RestController
@@ -59,8 +61,14 @@ public class CourseController {
             @Parameter(description = "Course title") @RequestParam @NotBlank String title,
             @Parameter(description = "Course description") @RequestParam(required = false) String description,
             @Parameter(description = "Course level") @RequestParam(required = false) String level,
+            @Parameter(description = "Course category") @RequestParam(required = false) String category,
+            @Parameter(description = "Short description") @RequestParam(required = false) String shortDescription,
+            @Parameter(description = "Estimated duration (hours)") @RequestParam(required = false) Integer estimatedDurationHours,
+            @Parameter(description = "Course language") @RequestParam(required = false) String language,
+            @Parameter(description = "Learning objectives") @RequestParam(required = false) List<String> learningObjectives,
+            @Parameter(description = "Course requirements") @RequestParam(required = false) List<String> requirements,
             @Parameter(description = "Thumbnail file") @RequestParam(required = false) MultipartFile thumbnailFile,
-            @Parameter(description = "Course price") @RequestParam(required = false) java.math.BigDecimal price,
+            @Parameter(description = "Course price") @RequestParam(required = false) BigDecimal price,
             @Parameter(description = "Currency") @RequestParam(required = false) String currency) {
 
         log.info("Creating course by author: {}", authorId);
@@ -105,6 +113,12 @@ public class CourseController {
         dto.setTitle(title);
         dto.setDescription(description);
         dto.setLevel(level);
+        dto.setCategory(category);
+        dto.setShortDescription(shortDescription);
+        dto.setEstimatedDurationHours(estimatedDurationHours);
+        dto.setLanguage(language);
+        dto.setLearningObjectives(learningObjectives);
+        dto.setRequirements(requirements);
         dto.setThumbnailMediaId(thumbnailMediaId);
         dto.setPrice(price);
         dto.setCurrency(currency);
@@ -122,8 +136,14 @@ public class CourseController {
             @Parameter(description = "Course title") @RequestParam @NotBlank String title,
             @Parameter(description = "Course description") @RequestParam(required = false) String description,
             @Parameter(description = "Course level") @RequestParam(required = false) String level,
+            @Parameter(description = "Course category") @RequestParam(required = false) String category,
+            @Parameter(description = "Short description") @RequestParam(required = false) String shortDescription,
+            @Parameter(description = "Estimated duration (hours)") @RequestParam(required = false) Integer estimatedDurationHours,
+            @Parameter(description = "Course language") @RequestParam(required = false) String language,
+            @Parameter(description = "Learning objectives") @RequestParam(required = false) List<String> learningObjectives,
+            @Parameter(description = "Course requirements") @RequestParam(required = false) List<String> requirements,
             @Parameter(description = "Thumbnail file") @RequestParam(required = false) MultipartFile thumbnailFile,
-            @Parameter(description = "Course price") @RequestParam(required = false) java.math.BigDecimal price,
+            @Parameter(description = "Course price") @RequestParam(required = false) BigDecimal price,
             @Parameter(description = "Currency") @RequestParam(required = false) String currency) {
 
         log.info("Updating course {} by user {}", courseId, actorId);
@@ -168,6 +188,12 @@ public class CourseController {
         dto.setTitle(title);
         dto.setDescription(description);
         dto.setLevel(level);
+        dto.setCategory(category);
+        dto.setShortDescription(shortDescription);
+        dto.setEstimatedDurationHours(estimatedDurationHours);
+        dto.setLanguage(language);
+        dto.setLearningObjectives(learningObjectives);
+        dto.setRequirements(requirements);
         dto.setThumbnailMediaId(thumbnailMediaId);
         dto.setPrice(price);
         dto.setCurrency(currency);

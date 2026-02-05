@@ -36,6 +36,8 @@ public class Lesson {
   @Lob
   private String contentText; // READING
   @Column(length = 500)
+  private String resourceUrl; // READING link
+  @Column(length = 500)
   private String videoUrl;
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "video_media_id")

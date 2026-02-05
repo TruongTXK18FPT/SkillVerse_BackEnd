@@ -28,10 +28,17 @@ public interface QuizRepository extends JpaRepository<Quiz, Long> {
     List<Quiz> findByModuleIdOrderByCreatedAtAsc(@Param("moduleId") Long moduleId);
 
     /**
+     * Find quizzes by module ID ordered by orderIndex
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT q FROM Quiz q WHERE q.module.id = :moduleId ORDER BY q.orderIndex ASC")
+    List<Quiz> findByModuleIdOrderByOrderIndexAsc(@Param("moduleId") Long moduleId);
+
+    /**
      * Find quizzes by module ID with questions eagerly loaded for summary
      */
     @Transactional(readOnly = true)
-    @Query("SELECT q FROM Quiz q LEFT JOIN FETCH q.questions WHERE q.module.id = :moduleId ORDER BY q.createdAt ASC")
+    @Query("SELECT q FROM Quiz q LEFT JOIN FETCH q.questions WHERE q.module.id = :moduleId ORDER BY q.orderIndex ASC")
     List<Quiz> findByModuleIdWithQuestions(@Param("moduleId") Long moduleId);
 
     /**

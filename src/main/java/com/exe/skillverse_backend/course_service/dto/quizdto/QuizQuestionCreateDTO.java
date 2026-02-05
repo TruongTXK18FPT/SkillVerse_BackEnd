@@ -16,6 +16,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class QuizQuestionCreateDTO {
     //@NotBlank questionText, @NotNull QuestionType questionType, @Min(1) int score, Integer orderIndex, List<QuizOptionCreateDto> options
+    private Long id;
+    private String clientId;
     @NotBlank
     private String questionText;
     @NotNull

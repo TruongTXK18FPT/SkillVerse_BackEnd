@@ -1,4 +1,7 @@
 package com.exe.skillverse_backend.course_service.dto.coursedto;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import com.exe.skillverse_backend.auth_service.dto.response.UserDto;
@@ -18,19 +21,25 @@ public class CourseDetailDTO {
     private Long id;
     private String title;
     private String description;
+    private String shortDescription;
     private String level;
+    private String category;
+    private Integer estimatedDurationHours;
+    private String language;
+    private List<String> learningObjectives;
+    private List<String> requirements;
     private CourseStatus status;
     private UserDto author;
     private MediaDTO thumbnail;
     private List<ModuleSummaryDTO> modules;
-    private java.math.BigDecimal price;
+    private BigDecimal price;
     private String currency;
     private String authorName;
     private String thumbnailUrl;
     private Integer enrollmentCount;
-    private java.time.LocalDateTime createdAt;
-    private java.time.LocalDateTime updatedAt;
-    private java.time.LocalDateTime submittedDate;
-    private java.time.LocalDateTime publishedDate;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+    private LocalDateTime submittedDate;
+    private LocalDateTime publishedDate;
     
 }

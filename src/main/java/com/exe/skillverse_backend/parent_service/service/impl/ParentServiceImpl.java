@@ -297,7 +297,7 @@ public class ParentServiceImpl implements ParentService {
         String premiumExpiry = null;
         
         try {
-             Optional<UserSubscription> activeSub = subscriptionRepository.findByUserAndIsActiveTrue(student);
+             Optional<UserSubscription> activeSub = subscriptionRepository.findCurrentActiveSubscription(student);
              if (activeSub.isPresent()) {
                  premiumPlan = activeSub.get().getPlan().getDisplayName();
                  premiumExpiry = activeSub.get().getEndDate().toString();

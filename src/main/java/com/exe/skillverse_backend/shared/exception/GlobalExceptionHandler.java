@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
@@ -19,6 +20,7 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
  * Handles various types of exceptions and returns appropriate error responses.
  */
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
 
         /**
@@ -230,6 +232,7 @@ public class GlobalExceptionHandler {
 
         /**
          * Fallback handler for unexpected exceptions.
+         * ✅ SECURITY: Never expose internal exception details to client
          *
          * @param ex  the Exception
          * @param req the HTTP request
@@ -238,9 +241,13 @@ public class GlobalExceptionHandler {
         @ExceptionHandler(Exception.class)
         public ResponseEntity<ErrorResponse> handleUnexpected(
                         Exception ex, HttpServletRequest req) {
+                // Log full exception server-side for debugging
+                log.error("Unexpected error at {}: {}", req.getRequestURI(), ex.getMessage(), ex);
+                
+                // Return generic message to client - never expose internal details
                 var body = ErrorResponse.builder()
                                 .code(ErrorCode.INTERNAL_ERROR.code)
-                                .message(ex.getMessage() != null ? ex.getMessage() : "Unexpected error")
+                                .message("An unexpected error occurred. Please try again later.")
                                 .status(ErrorCode.INTERNAL_ERROR.status.value())
                                 .timestamp(Instant.now())
                                 .path(req.getRequestURI())

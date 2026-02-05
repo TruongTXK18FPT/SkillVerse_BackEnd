@@ -11,4 +11,10 @@ public class QuizUpdateDTO {
     private String title;
     private String description;
     private Integer passScore;
+    private Integer maxAttempts;
+    private Integer timeLimitMinutes;
+    private Integer roundingIncrement;
+    private com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod gradingMethod;
+    private Boolean isAssessment;
+    private Integer cooldownHours;
 }

@@ -7,6 +7,8 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
@@ -16,8 +18,14 @@ public class CourseUpdateDTO {
     private String title;
     private String description;
     private String level;
+    private String category;
+    private String shortDescription;
+    private Integer estimatedDurationHours;
+    private String language;
+    private List<String> learningObjectives;
+    private List<String> requirements;
     private Long thumbnailMediaId; // Back to thumbnailMediaId
     private CourseStatus status;
-    private java.math.BigDecimal price;
+    private BigDecimal price;
     private String currency;
 }

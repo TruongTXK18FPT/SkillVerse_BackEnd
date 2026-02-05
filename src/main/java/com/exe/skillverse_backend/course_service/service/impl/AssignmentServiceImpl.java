@@ -4,20 +4,26 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.*;
 import com.exe.skillverse_backend.course_service.entity.Assignment;
+import com.exe.skillverse_backend.course_service.entity.AssignmentCriteria;
 import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
+import com.exe.skillverse_backend.course_service.entity.SubmissionCriteriaScore;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.mapper.AssignmentMapper;
 import com.exe.skillverse_backend.course_service.mapper.AssignmentSubmissionMapper;
+import com.exe.skillverse_backend.course_service.repository.AssignmentCriteriaRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
+import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
+import com.exe.skillverse_backend.course_service.repository.SubmissionCriteriaScoreRepository;
 import com.exe.skillverse_backend.course_service.service.AssignmentService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
+import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +39,8 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -40,8 +48,10 @@ import java.util.List;
 public class AssignmentServiceImpl implements AssignmentService {
 
     private final AssignmentRepository assignmentRepository;
+    private final AssignmentCriteriaRepository criteriaRepository;
+    private final SubmissionCriteriaScoreRepository criteriaScoreRepository;
     private final AssignmentSubmissionRepository submissionRepository;
-    private final com.exe.skillverse_backend.course_service.repository.ModuleRepository moduleRepository;
+    private final ModuleRepository moduleRepository;
     private final CourseEnrollmentRepository enrollmentRepository;
     private final UserRepository userRepository;
     private final MediaRepository mediaRepository;
@@ -61,8 +71,14 @@ public class AssignmentServiceImpl implements AssignmentService {
         validateCreateAssignmentRequest(dto);
         
         Assignment assignment = assignmentMapper.toEntity(dto, module);
+        if (assignment.getIsRequired() == null) {
+            assignment.setIsRequired(true);
+        }
         assignment.setCreatedAt(now());
         assignment.setUpdatedAt(now());
+        if (dto.getCriteria() != null) {
+            assignment.setCriteria(buildCriteriaEntities(dto.getCriteria(), assignment));
+        }
         
         Assignment saved = assignmentRepository.save(assignment);
         log.info("Assignment {} created for module {} by actor {}", saved.getId(), moduleId, actorId);
@@ -78,10 +94,14 @@ public class AssignmentServiceImpl implements AssignmentService {
         Assignment assignment = getAssignmentOrThrow(assignmentId);
         ensureAuthorOrAdmin(actorId, assignment.getModule().getCourse().getAuthor().getId());
         
-        validateUpdateAssignmentRequest(dto);
+        validateUpdateAssignmentRequest(dto, assignment);
         
         assignmentMapper.updateEntity(assignment, dto);
         assignment.setUpdatedAt(now());
+        if (dto.getCriteria() != null) {
+            criteriaRepository.deleteByAssignmentId(assignmentId);
+            assignment.setCriteria(buildCriteriaEntities(dto.getCriteria(), assignment));
+        }
         
         Assignment saved = assignmentRepository.save(assignment);
         log.info("Assignment {} updated by actor {}", assignmentId, actorId);
@@ -212,13 +232,13 @@ public class AssignmentServiceImpl implements AssignmentService {
             );
         }
         
-        return submissionMapper.toDetailDto(saved);
+        return toDetailWithCriteria(saved);
     }
 
     @Override
     @Transactional
-    public AssignmentSubmissionDetailDTO grade(Long submissionId, Long graderId, BigDecimal score, String feedback) {
-        log.info("Grading submission {} by grader {} with score {}", submissionId, graderId, score);
+    public AssignmentSubmissionDetailDTO grade(Long submissionId, Long graderId, AssignmentGradeDTO grading) {
+        log.info("Grading submission {} by grader {}", submissionId, graderId);
         
         AssignmentSubmission submission = getSubmissionOrThrow(submissionId);
         Assignment assignment = submission.getAssignment();
@@ -226,33 +246,44 @@ public class AssignmentServiceImpl implements AssignmentService {
         // Check if grader has permission (course author/mentor/admin)
         ensureAuthorOrAdmin(graderId, assignment.getModule().getCourse().getAuthor().getId());
         
-        validateGradingRequest(score, assignment.getMaxScore());
+        if (grading == null) {
+            throw new BadRequestException("Grading data is required");
+        }
+
+        BigDecimal totalScore = grading.getScore();
+        if (grading.getCriteriaScores() != null && !grading.getCriteriaScores().isEmpty()) {
+            totalScore = applyCriteriaScores(submission, assignment, grading.getCriteriaScores());
+        }
+
+        validateGradingRequest(totalScore, assignment.getMaxScore());
         
         // Load grader user properly
         User grader = userRepository.findById(graderId)
                 .orElseThrow(() -> new NotFoundException("GRADER_NOT_FOUND"));
         
-        submission.setScore(score);
-        submission.setFeedback(feedback);
+        submission.setScore(totalScore);
+        submission.setFeedback(grading.getFeedback());
         submission.setGradedBy(grader);
         submission.setGradedAt(now());
         
         AssignmentSubmission saved = submissionRepository.save(submission);
-        log.info("Submission {} graded by grader {} with score {}", submissionId, graderId, score);
+        log.info("Submission {} graded by grader {} with score {}", submissionId, graderId, totalScore);
         
         // Send grading notification to student
-        String passStatus = score.compareTo(assignment.getMaxScore().multiply(new BigDecimal("0.7"))) >= 0 
+        String passStatus = totalScore.compareTo(assignment.getMaxScore().multiply(new BigDecimal("0.7"))) >= 0 
                 ? "PASSED ✓" : "Cần cải thiện";
         notificationService.createNotification(
                 submission.getUser().getId(),
                 "Bài tập đã được chấm điểm",
-                "Bài tập '" + assignment.getTitle() + "' đã được chấm: " + score + "/" + assignment.getMaxScore() + " - " + passStatus,
+                "Bài tập '" + assignment.getTitle() + "' đã được chấm: " + totalScore + "/" + assignment.getMaxScore() + " - " + passStatus,
                 NotificationType.ASSIGNMENT_GRADED,
                 saved.getId().toString(),
                 graderId
         );
         
-        return submissionMapper.toDetailDto(saved);
+        AssignmentSubmissionDetailDTO detail = submissionMapper.toDetailDto(saved);
+        detail.setCriteriaScores(loadCriteriaScores(saved.getId()));
+        return detail;
     }
 
     @Override
@@ -267,7 +298,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         // For now, return all submissions
         Page<AssignmentSubmission> submissions = submissionRepository.findByAssignmentId(assignmentId, pageable);
         
-        return submissions.map(submissionMapper::toDetailDto).toList();
+        return submissions.map(this::toDetailWithCriteria).toList();
     }
 
     @Override
@@ -322,22 +353,61 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     private void validateCreateAssignmentRequest(AssignmentCreateDTO dto) {
         if (dto.getTitle() == null || dto.getTitle().isBlank()) {
-            throw new IllegalArgumentException("Assignment title is required");
+            throw new BadRequestException("Assignment title is required");
         }
         if (dto.getMaxScore() != null && dto.getMaxScore().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Max score must be positive");
+            throw new BadRequestException("Max score must be positive");
         }
+        if (dto.getPassingScore() != null && dto.getMaxScore() != null
+                && dto.getPassingScore().compareTo(dto.getMaxScore()) > 0) {
+            throw new BadRequestException("Passing score cannot exceed max score");
+        }
+        validateCriteria(dto.getCriteria());
         // TODO: add more validation (due date, requirements, etc.)
     }
 
-    private void validateUpdateAssignmentRequest(AssignmentUpdateDTO dto) {
+    private void validateUpdateAssignmentRequest(AssignmentUpdateDTO dto, Assignment assignment) {
         if (dto.getTitle() != null && dto.getTitle().isBlank()) {
-            throw new IllegalArgumentException("Assignment title cannot be blank");
+            throw new BadRequestException("Assignment title cannot be blank");
         }
         if (dto.getMaxScore() != null && dto.getMaxScore().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Max score must be positive");
+            throw new BadRequestException("Max score must be positive");
         }
+        if (dto.getPassingScore() != null) {
+            BigDecimal maxScore = dto.getMaxScore() != null ? dto.getMaxScore() : assignment.getMaxScore();
+            if (maxScore != null && dto.getPassingScore().compareTo(maxScore) > 0) {
+                throw new BadRequestException("Passing score cannot exceed max score");
+            }
+        }
+        validateCriteria(dto.getCriteria());
         // TODO: add more validation
+    }
+
+    private void validateCriteria(List<AssignmentCriteriaDTO> criteria) {
+        if (criteria == null) return;
+        for (AssignmentCriteriaDTO c : criteria) {
+            if (c.getName() == null || c.getName().isBlank()) {
+                throw new BadRequestException("Criteria name is required");
+            }
+            if (c.getMaxPoints() == null || c.getMaxPoints().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BadRequestException("Criteria max points must be positive");
+            }
+        }
+    }
+
+    private List<AssignmentCriteria> buildCriteriaEntities(List<AssignmentCriteriaDTO> criteriaDtos, Assignment assignment) {
+        if (criteriaDtos == null) return List.of();
+        return criteriaDtos.stream()
+                .filter(c -> c.getName() != null && !c.getName().isBlank())
+                .map(c -> AssignmentCriteria.builder()
+                        .assignment(assignment)
+                        .name(c.getName().trim())
+                        .description(c.getDescription())
+                        .maxPoints(c.getMaxPoints() != null ? c.getMaxPoints() : BigDecimal.ZERO)
+                        .orderIndex(c.getOrderIndex())
+                        .isRequired(c.isRequired())
+                        .build())
+                .toList();
     }
 
     private void validateSubmissionRequest(AssignmentSubmissionCreateDTO dto, Assignment assignment) {
@@ -345,21 +415,21 @@ public class AssignmentServiceImpl implements AssignmentService {
         switch (assignment.getSubmissionType()) {
             case TEXT:
                 if (dto.getSubmissionText() == null || dto.getSubmissionText().isBlank()) {
-                    throw new IllegalArgumentException("Submission text is required for TEXT type assignments");
+                    throw new BadRequestException("Submission text is required for TEXT type assignments");
                 }
                 break;
             case FILE:
                 if (dto.getFileMediaId() == null) {
-                    throw new IllegalArgumentException("File upload is required for FILE type assignments");
+                    throw new BadRequestException("File upload is required for FILE type assignments");
                 }
                 break;
             case LINK:
                 if (dto.getLinkUrl() == null || dto.getLinkUrl().isBlank()) {
-                    throw new IllegalArgumentException("Link URL is required for LINK type assignments");
+                    throw new BadRequestException("Link URL is required for LINK type assignments");
                 }
                 // Basic URL validation
                 if (!dto.getLinkUrl().startsWith("http://") && !dto.getLinkUrl().startsWith("https://")) {
-                    throw new IllegalArgumentException("Link URL must start with http:// or https://");
+                    throw new BadRequestException("Link URL must start with http:// or https://");
                 }
                 break;
             default:
@@ -370,14 +440,84 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     private void validateGradingRequest(BigDecimal score, BigDecimal maxScore) {
         if (score == null) {
-            throw new IllegalArgumentException("Score is required");
+            throw new BadRequestException("Score is required");
         }
         if (score.compareTo(BigDecimal.ZERO) < 0) {
-            throw new IllegalArgumentException("Score cannot be negative");
+            throw new BadRequestException("Score cannot be negative");
         }
         if (maxScore != null && score.compareTo(maxScore) > 0) {
-            throw new IllegalArgumentException("Score cannot exceed max score");
+            throw new BadRequestException("Score cannot exceed max score");
         }
+    }
+
+    private AssignmentSubmissionDetailDTO toDetailWithCriteria(AssignmentSubmission submission) {
+        AssignmentSubmissionDetailDTO detail = submissionMapper.toDetailDto(submission);
+        detail.setCriteriaScores(loadCriteriaScores(submission.getId()));
+        return detail;
+    }
+
+    private List<CriteriaScoreDTO> loadCriteriaScores(Long submissionId) {
+        List<SubmissionCriteriaScore> scores = criteriaScoreRepository.findBySubmissionId(submissionId);
+        if (scores == null || scores.isEmpty()) {
+            return List.of();
+        }
+        return scores.stream()
+                .map(score -> CriteriaScoreDTO.builder()
+                        .id(score.getId())
+                        .criteriaId(score.getCriteria() != null ? score.getCriteria().getId() : null)
+                        .criteriaName(score.getCriteria() != null ? score.getCriteria().getName() : null)
+                        .maxPoints(score.getCriteria() != null ? score.getCriteria().getMaxPoints() : null)
+                        .score(score.getScore())
+                        .feedback(score.getFeedback())
+                        .build())
+                .toList();
+    }
+
+    private BigDecimal applyCriteriaScores(
+            AssignmentSubmission submission,
+            Assignment assignment,
+            List<CriteriaScoreDTO> criteriaScores
+    ) {
+        List<AssignmentCriteria> criteriaList = criteriaRepository
+                .findByAssignmentIdOrderByOrderIndexAsc(assignment.getId());
+        if (criteriaList == null || criteriaList.isEmpty()) {
+            throw new BadRequestException("Assignment does not have criteria configured");
+        }
+
+        Map<Long, AssignmentCriteria> criteriaMap = criteriaList.stream()
+                .filter(c -> c.getId() != null)
+                .collect(Collectors.toMap(AssignmentCriteria::getId, c -> c));
+
+        criteriaScoreRepository.deleteBySubmissionId(submission.getId());
+
+        BigDecimal total = BigDecimal.ZERO;
+        for (CriteriaScoreDTO scoreDto : criteriaScores) {
+            if (scoreDto.getCriteriaId() == null) {
+                throw new BadRequestException("Criteria id is required");
+            }
+            AssignmentCriteria criteria = criteriaMap.get(scoreDto.getCriteriaId());
+            if (criteria == null) {
+                throw new BadRequestException("Criteria not found: " + scoreDto.getCriteriaId());
+            }
+            BigDecimal score = scoreDto.getScore() != null ? scoreDto.getScore() : BigDecimal.ZERO;
+            if (score.compareTo(BigDecimal.ZERO) < 0) {
+                throw new BadRequestException("Criteria score cannot be negative");
+            }
+            if (criteria.getMaxPoints() != null && score.compareTo(criteria.getMaxPoints()) > 0) {
+                throw new BadRequestException("Criteria score cannot exceed max points");
+            }
+            total = total.add(score);
+
+            SubmissionCriteriaScore entity = SubmissionCriteriaScore.builder()
+                    .submission(submission)
+                    .criteria(criteria)
+                    .score(score)
+                    .feedback(scoreDto.getFeedback())
+                    .build();
+            criteriaScoreRepository.save(entity);
+        }
+
+        return total;
     }
 
     @Override
@@ -392,7 +532,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .findByAssignmentIdAndUserIdOrderByAttemptNumberDesc(assignmentId, userId);
         
         return submissions.stream()
-                .map(submissionMapper::toDetailDto)
+                .map(this::toDetailWithCriteria)
                 .toList();
     }
 
@@ -410,7 +550,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .findPendingSubmissionsByAssignmentId(assignmentId);
         
         return submissions.stream()
-                .map(submissionMapper::toDetailDto)
+                .map(this::toDetailWithCriteria)
                 .toList();
     }
 

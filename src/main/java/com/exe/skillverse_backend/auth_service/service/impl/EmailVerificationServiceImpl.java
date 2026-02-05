@@ -10,9 +10,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Random;
 
 @Service
 @RequiredArgsConstructor
@@ -24,6 +24,7 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
     private static final int OTP_EXPIRY_MINUTES = 5;
     private static final int MAX_OTP_ATTEMPTS = 3;
     private static final int RESEND_COOLDOWN_SECONDS = 60;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     /**
      * Generate and store OTP for email verification
@@ -73,6 +74,7 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
     /**
      * Generate OTP for password reset (uses different email template)
      */
+    @Transactional
     public String generateOtpForPasswordReset(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -175,6 +177,7 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
     /**
      * Check if user's email is verified
      */
+    @Transactional(readOnly = true)
     public boolean isEmailVerified(String email) {
         return userRepository.findByEmail(email)
                 .map(User::isEmailVerified)
@@ -191,17 +194,17 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
     }
 
     /**
-     * Generate random 6-digit OTP
+     * Generate cryptographically secure random 6-digit OTP
      */
     private String generateRandomOtp() {
-        Random random = new Random();
-        int otp = 100000 + random.nextInt(900000); // Generates 6-digit number
+        int otp = 100000 + SECURE_RANDOM.nextInt(900000); // Generates 6-digit number
         return String.valueOf(otp);
     }
 
     /**
      * Get OTP expiry time for a user
      */
+    @Transactional(readOnly = true)
     public LocalDateTime getOtpExpiryTime(String email) {
         return userRepository.findByEmail(email)
                 .map(User::getOtpExpiryTime)
@@ -211,6 +214,7 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
     /**
      * Get remaining OTP attempts for a user
      */
+    @Transactional(readOnly = true)
     public int getRemainingOtpAttempts(String email) {
         return userRepository.findByEmail(email)
                 .map(user -> MAX_OTP_ATTEMPTS - user.getOtpAttempts())

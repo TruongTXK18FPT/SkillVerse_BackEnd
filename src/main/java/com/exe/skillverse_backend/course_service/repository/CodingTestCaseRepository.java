@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Repository
@@ -68,7 +69,7 @@ public interface CodingTestCaseRepository extends JpaRepository<CodingTestCase, 
      */
     @Transactional(readOnly = true)
     @Query("SELECT SUM(ctc.scoreWeight) FROM CodingTestCase ctc WHERE ctc.exercise.id = :exerciseId")
-    java.math.BigDecimal sumScoreWeightByExerciseId(@Param("exerciseId") Long exerciseId);
+    BigDecimal sumScoreWeightByExerciseId(@Param("exerciseId") Long exerciseId);
 
     /**
      * Find test cases by kind

@@ -93,6 +93,14 @@ public class User {
     @Column(name = "last_otp_sent_time")
     private LocalDateTime lastOtpSentTime;
 
+    /**
+     * Timestamp when password was last changed.
+     * Used to invalidate JWT tokens issued before this time.
+     * Tokens with iat (issued at) < passwordChangedAt will be rejected.
+     */
+    @Column(name = "password_changed_at")
+    private LocalDateTime passwordChangedAt;
+
     @Builder.Default
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

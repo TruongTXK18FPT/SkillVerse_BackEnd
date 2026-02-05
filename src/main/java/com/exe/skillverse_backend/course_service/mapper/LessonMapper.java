@@ -17,6 +17,7 @@ public interface LessonMapper {
     @Mapping(target = "orderIndex", source = "orderIndex")
     @Mapping(target = "durationSec", source = "durationSec")
     @Mapping(target = "contentText", source = "contentText")
+    @Mapping(target = "resourceUrl", source = "resourceUrl")
     @Mapping(target = "videoUrl", source = "videoUrl")
     @Mapping(target = "videoMediaId", source = "videoMedia.id")
     LessonBriefDTO toBriefDto(Lesson lesson);
@@ -27,6 +28,7 @@ public interface LessonMapper {
     @Mapping(target = "orderIndex", source = "orderIndex")
     @Mapping(target = "durationSec", source = "durationSec")
     @Mapping(target = "contentText", source = "contentText")
+    @Mapping(target = "resourceUrl", source = "resourceUrl")
     @Mapping(target = "videoUrl", source = "videoUrl")
     @Mapping(target = "videoMediaId", source = "videoMedia.id")
     LessonDetailDTO toDetailDto(Lesson lesson);
@@ -36,6 +38,7 @@ public interface LessonMapper {
     @Mapping(target = "type", source = "createDto.type")
     @Mapping(target = "orderIndex", source = "createDto.orderIndex")
     @Mapping(target = "contentText", source = "createDto.contentText")
+    @Mapping(target = "resourceUrl", source = "createDto.resourceUrl")
     @Mapping(target = "videoUrl", source = "createDto.videoUrl")
     @Mapping(target = "videoMedia", source = "videoMedia")
     @Mapping(target = "durationSec", source = "createDto.durationSec")
@@ -51,6 +54,7 @@ public interface LessonMapper {
     @Mapping(target = "type", source = "updateDto.type")
     @Mapping(target = "orderIndex", source = "updateDto.orderIndex")
     @Mapping(target = "contentText", source = "updateDto.contentText")
+    @Mapping(target = "resourceUrl", source = "updateDto.resourceUrl")
     @Mapping(target = "videoUrl", source = "updateDto.videoUrl")
     @Mapping(target = "videoMedia", source = "videoMedia")
     @Mapping(target = "durationSec", source = "updateDto.durationSec")

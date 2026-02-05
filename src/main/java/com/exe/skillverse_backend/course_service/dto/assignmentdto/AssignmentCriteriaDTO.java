@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class AssignmentCriteriaDTO {
     private Long id;
+    private String clientId;
     private String name;
     private String description;
     private BigDecimal maxPoints;

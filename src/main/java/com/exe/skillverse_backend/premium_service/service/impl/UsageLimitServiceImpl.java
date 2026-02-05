@@ -157,30 +157,111 @@ public class UsageLimitServiceImpl implements UsageLimitService {
 
         // Get or create usage tracking
         UserUsageTracking tracking = getOrCreateUsageTracking(user, featureType, limit.getResetPeriod());
+        LocalDateTime now = LocalDateTime.now();
 
-        // Check if period expired and reset if needed
-        if (tracking.checkAndResetIfExpired(limit.getResetPeriod())) {
-            log.info("Reset usage for user {} feature {} before recording", userId, featureType);
+        // Try atomic reset+increment if period expired
+        if (tracking.needsReset()) {
+            LocalDateTime periodStart = limit.getResetPeriod().calculatePeriodStart();
+            LocalDateTime periodEnd = limit.getResetPeriod().calculateNextReset(periodStart);
+            
+            int resetAndIncremented = usageTrackingRepository.atomicResetAndIncrement(
+                    tracking.getId(), now, periodStart, periodEnd);
+            
+            if (resetAndIncremented == 1) {
+                log.info("Atomically reset and recorded usage for user {} feature {}", userId, featureType);
+                return;
+            }
+            // Fall through - another thread may have reset it
         }
 
-        // Increment usage
-        tracking.incrementUsage();
-        usageTrackingRepository.save(tracking);
-
-        log.info("Recorded usage for user {} feature {}: {}/{}",
-                userId, featureType, tracking.getUsageCount(), limit.getLimitValue());
+        // Use atomic increment
+        int updated = usageTrackingRepository.atomicIncrementUsage(tracking.getId());
+        if (updated == 0) {
+            log.warn("Failed to atomically increment usage for user {} feature {} - record may have been deleted", 
+                    userId, featureType);
+        } else {
+            log.info("Recorded usage for user {} feature {} (atomic increment)", userId, featureType);
+        }
     }
 
     @Override
     @Transactional
     public void checkAndRecordUsage(Long userId, FeatureType featureType) {
-        UsageCheckResult check = canUseFeature(userId, featureType);
+        User user = getUserOrThrow(userId);
+        UserSubscription subscription = getActiveSubscriptionOrThrow(user);
+        PremiumPlan plan = subscription.getPlan();
 
-        if (!check.getAllowed()) {
-            throw UsageLimitExceededException.fromCheckResult(featureType, check);
+        // Get feature limit configuration
+        Optional<PlanFeatureLimits> limitConfig = featureLimitsRepository
+                .findByPlanAndFeatureTypeAndIsActiveTrue(plan, featureType);
+
+        if (limitConfig.isEmpty()) {
+            // No limit = unlimited, allow without tracking
+            log.debug("No limit configured for feature {}, allowing unlimited", featureType);
+            return;
         }
 
-        recordUsage(userId, featureType);
+        PlanFeatureLimits limit = limitConfig.get();
+
+        if (limit.getIsUnlimited()) {
+            log.debug("Feature {} is unlimited for plan {}", featureType, plan.getName());
+            return;
+        }
+
+        // Get or create usage tracking
+        UserUsageTracking tracking = getOrCreateUsageTracking(user, featureType, limit.getResetPeriod());
+        LocalDateTime now = LocalDateTime.now();
+
+        // Step 1: Try atomic reset+increment if period expired
+        // This handles the case where period needs reset before we can check limit
+        if (tracking.needsReset()) {
+            LocalDateTime periodStart = limit.getResetPeriod().calculatePeriodStart();
+            LocalDateTime periodEnd = limit.getResetPeriod().calculateNextReset(periodStart);
+            
+            int resetAndIncremented = usageTrackingRepository.atomicResetAndIncrement(
+                    tracking.getId(), now, periodStart, periodEnd);
+            
+            if (resetAndIncremented == 1) {
+                log.info("Atomically reset and recorded usage for user {} feature {}", userId, featureType);
+                return; // Success - reset + first usage recorded
+            }
+            // If resetAndIncremented == 0, another thread may have reset it already
+            // Fall through to normal increment
+        }
+
+        // Step 2: Period is current, try atomic increment under limit
+        int updated = usageTrackingRepository.atomicIncrementIfUnderLimit(
+                tracking.getId(), 
+                limit.getLimitValue()
+        );
+
+        if (updated == 1) {
+            log.info("Atomically checked and recorded usage for user {} feature {}", userId, featureType);
+            return;
+        }
+
+        // Step 3: Increment failed - either limit reached OR another thread reset the period
+        // Re-check state to determine which case
+        tracking = usageTrackingRepository.findById(tracking.getId()).orElse(tracking);
+        
+        // If period was reset by another thread, try increment again
+        if (!tracking.needsReset() && tracking.getUsageCount() < limit.getLimitValue()) {
+            updated = usageTrackingRepository.atomicIncrementIfUnderLimit(
+                    tracking.getId(), limit.getLimitValue());
+            if (updated == 1) {
+                log.info("Retry succeeded: recorded usage for user {} feature {}", userId, featureType);
+                return;
+            }
+        }
+
+        // Limit truly reached
+        UsageCheckResult check = UsageCheckResult.limitExceeded(
+                tracking.getUsageCount(),
+                limit.getLimitValue(),
+                tracking.getCurrentPeriodEnd(),
+                tracking.getFormattedTimeUntilReset()
+        );
+        throw UsageLimitExceededException.fromCheckResult(featureType, check);
     }
 
     @Override
@@ -297,7 +378,7 @@ public class UsageLimitServiceImpl implements UsageLimitService {
         for (UserUsageTracking tracking : expiredPeriods) {
             // Get the reset period from plan configuration
             User user = tracking.getUser();
-            Optional<UserSubscription> subscription = subscriptionRepository.findByUserAndIsActiveTrue(user);
+            Optional<UserSubscription> subscription = subscriptionRepository.findCurrentActiveSubscription(user);
 
             if (subscription.isEmpty()) {
                 log.warn("No active subscription for user {} during reset, skipping", user.getId());
@@ -356,7 +437,7 @@ public class UsageLimitServiceImpl implements UsageLimitService {
         LocalDateTime cycleStart = now.withDayOfMonth(1).withHour(0).withMinute(0).withSecond(0).withNano(0);
         LocalDateTime cycleEnd = cycleStart.plusMonths(1);
 
-        Optional<UserSubscription> subscription = subscriptionRepository.findByUserAndIsActiveTrue(user);
+        Optional<UserSubscription> subscription = subscriptionRepository.findCurrentActiveSubscription(user);
         if (subscription.isPresent()) {
             // If user has subscription, try to align with subscription start date
             // For now, we'll stick to calendar month for simplicity unless detailed billing
@@ -491,7 +572,7 @@ public class UsageLimitServiceImpl implements UsageLimitService {
     }
 
     private UserSubscription getActiveSubscriptionOrThrow(User user) {
-        return subscriptionRepository.findByUserAndIsActiveTrue(user)
+        return subscriptionRepository.findCurrentActiveSubscription(user)
                 .orElseGet(() -> {
                     // SAFETY CHECK: Double check if user truly has no subscription before assigning
                     // FREE_TIER
@@ -499,17 +580,26 @@ public class UsageLimitServiceImpl implements UsageLimitService {
                     // synced or in race condition
                     boolean hasAnyActive = subscriptionRepository.hasActiveSubscription(user, LocalDateTime.now());
                     if (hasAnyActive) {
-                        // If repository says true but findByUserAndIsActiveTrue returned empty,
+                        // If repository says true but findCurrentActiveSubscription returned empty,
                         // it might be a timing issue or expired-but-active state.
                         // Fetch explicitly to be safe and avoid creating duplicate/free tier.
-                        return subscriptionRepository.findByUserAndIsActiveTrue(user)
+                        return subscriptionRepository.findCurrentActiveSubscription(user)
                                 .orElseThrow(() -> new ApiException(ErrorCode.INTERNAL_ERROR,
                                         "Subscription state inconsistent for user " + user.getId()));
                     }
 
-                    // TODO: [USER NOTE] Modified to auto-assign FREE_TIER subscription for users
-                    // without active subscriptions (ensures limit enforcement works for all users)
-                    // If no active subscription found, assign FREE_TIER automatically
+                    // Check if user has a SUSPENDED Free Tier to reactivate
+                    Optional<UserSubscription> suspendedFreeTier = subscriptionRepository
+                            .findSuspendedFreeTierByUserId(user.getId());
+                    
+                    if (suspendedFreeTier.isPresent()) {
+                        log.info("Reactivating suspended Free Tier for user {}", user.getId());
+                        UserSubscription freeSub = suspendedFreeTier.get();
+                        freeSub.reactivate();
+                        return subscriptionRepository.save(freeSub);
+                    }
+
+                    // No subscription at all - assign FREE_TIER automatically
                     log.info("No active subscription found for user {}. Assigning FREE_TIER.", user.getId());
 
                     PremiumPlan freePlan = premiumPlanRepository
@@ -518,13 +608,14 @@ public class UsageLimitServiceImpl implements UsageLimitService {
                                     ErrorCode.NOT_FOUND,
                                     "Free tier plan not configured. Please contact support."));
 
-                    UserSubscription freeSubscription = new UserSubscription();
-                    freeSubscription.setUser(user);
-                    freeSubscription.setPlan(freePlan);
-                    freeSubscription.setIsActive(true);
-                    freeSubscription.setStartDate(LocalDateTime.now());
-                    // Free tier has no end date, set to 100 years in future
-                    freeSubscription.setEndDate(LocalDateTime.now().plusYears(100));
+                    UserSubscription freeSubscription = UserSubscription.builder()
+                            .user(user)
+                            .plan(freePlan)
+                            .isActive(true)
+                            .status(UserSubscription.SubscriptionStatus.ACTIVE)
+                            .startDate(LocalDateTime.now())
+                            .endDate(LocalDateTime.now().plusYears(100))
+                            .build();
 
                     return subscriptionRepository.save(freeSubscription);
                 });
@@ -538,8 +629,19 @@ public class UsageLimitServiceImpl implements UsageLimitService {
             return existing.get();
         }
 
-        // Create new tracking record
-        UserUsageTracking newTracking = UserUsageTracking.initializeTracking(user, featureType, resetPeriod);
-        return usageTrackingRepository.save(newTracking);
+        // Create new tracking record with race condition handling
+        // UniqueConstraint on (user_id, feature_type) prevents duplicates at DB level
+        try {
+            UserUsageTracking newTracking = UserUsageTracking.initializeTracking(user, featureType, resetPeriod);
+            return usageTrackingRepository.save(newTracking);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            // Race condition: another thread created the record first
+            // Fetch the existing record
+            log.debug("Race condition detected when creating usage tracking for user {} feature {}, fetching existing", 
+                    user.getId(), featureType);
+            return usageTrackingRepository.findByUserAndFeatureType(user, featureType)
+                    .orElseThrow(() -> new ApiException(ErrorCode.INTERNAL_ERROR, 
+                            "Failed to create or find usage tracking for user " + user.getId()));
+        }
     }
 }

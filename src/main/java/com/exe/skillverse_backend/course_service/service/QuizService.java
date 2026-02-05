@@ -35,6 +35,8 @@ public interface QuizService {
     QuizAttemptDTO submitQuiz(Long quizId, SubmitQuizDTO submitData, Long userId);
 
     List<QuizAttemptDTO> getUserAttempts(Long quizId, Long userId);
+
+    List<QuizAttemptDTO> getUserAttemptsBatch(List<Long> quizIds, Long userId);
     
     /**
      * Lấy thông tin trạng thái attempt của user cho một quiz.

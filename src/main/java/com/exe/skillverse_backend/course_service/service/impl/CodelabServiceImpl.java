@@ -33,7 +33,7 @@ public class CodelabServiceImpl implements CodelabService {
     private final CodingExerciseRepository exerciseRepository;
     private final CodingTestCaseRepository testCaseRepository;
     private final CodingSubmissionRepository submissionRepository;
-    private final com.exe.skillverse_backend.course_service.repository.ModuleRepository moduleRepository;
+    private final ModuleRepository moduleRepository;
     private final CourseEnrollmentRepository enrollmentRepository;
     private final CodingExerciseMapper exerciseMapper;
     private final CodingTestCaseMapper testCaseMapper;

@@ -3,7 +3,6 @@ package com.exe.skillverse_backend.user_service.service.impl;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.service.UserCreationService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
-import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.user_service.dto.request.UserRegistrationRequest;
 import com.exe.skillverse_backend.user_service.dto.response.UserRegistrationResponse;
 import com.exe.skillverse_backend.user_service.entity.UserProfile;
@@ -28,7 +27,6 @@ public class UserRegistrationServiceImpl
 
     private final UserCreationService userCreationService;
     private final UserProfileRepository userProfileRepository;
-    private final PremiumService premiumService;
     private final ParentService parentService;
 
     @Override
@@ -38,11 +36,8 @@ public class UserRegistrationServiceImpl
             throw new RuntimeException("Email already registered");
         }
 
-        // Password validation is handled by @PasswordMatches annotation on
-        // BaseRegistrationRequest
-        if (!request.getPassword().equals(request.getConfirmPassword())) {
-            throw new RuntimeException("Password and confirmation password do not match");
-        }
+        // Note: Password validation is already handled by @PasswordMatches annotation on
+        // BaseRegistrationRequest - no need to check manually here
 
         // Create User via auth service
         User user;
@@ -56,8 +51,8 @@ public class UserRegistrationServiceImpl
 
         // Create user profile
         createUserProfile(user.getId(), request);
-        // Assign Free Tier by default
-        premiumService.assignFreeTierIfMissing(user.getId());
+        // Note: FREE_TIER is already auto-assigned by UserCreationService during user creation
+        // No need to call premiumService.assignFreeTierIfMissing() here - it would be redundant
 
         // Handle Parent-Child linking if applicable
         if ("PARENT".equalsIgnoreCase(request.getRole()) && request.getChildEmail() != null && !request.getChildEmail().isEmpty()) {

@@ -7,6 +7,7 @@ import com.exe.skillverse_backend.course_service.entity.Quiz;
 import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
 import com.exe.skillverse_backend.course_service.entity.QuizOption;
 import com.exe.skillverse_backend.course_service.entity.QuizAttempt;
+import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
 import com.exe.skillverse_backend.course_service.mapper.QuizMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizQuestionMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizOptionMapper;
@@ -18,6 +19,7 @@ import com.exe.skillverse_backend.course_service.repository.QuizOptionRepository
 import com.exe.skillverse_backend.course_service.repository.QuizAttemptRepository;
 import com.exe.skillverse_backend.course_service.service.QuizService;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
+import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,9 +29,15 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -66,6 +74,7 @@ public class QuizServiceImpl implements QuizService {
         // }
 
         Quiz quiz = quizMapper.toEntity(dto, module);
+        applyQuizDefaults(quiz);
         quiz.setCreatedAt(now());
 
         try {
@@ -89,6 +98,7 @@ public class QuizServiceImpl implements QuizService {
         validateUpdateQuizRequest(dto);
 
         quizMapper.updateEntity(quiz, dto);
+        applyQuizDefaults(quiz);
 
         Quiz saved = quizRepository.save(quiz);
         log.info("Quiz {} updated by actor {}", quizId, actorId);
@@ -252,45 +262,57 @@ public class QuizServiceImpl implements QuizService {
 
     private void validateCreateQuizRequest(QuizCreateDTO dto) {
         if (dto.getTitle() == null || dto.getTitle().isBlank()) {
-            throw new IllegalArgumentException("Quiz title is required");
+            throw new BadRequestException("Quiz title is required");
         }
-        // TODO: add more validation (time limits, question requirements, etc.)
+        validateQuizSettings(dto.getMaxAttempts(), dto.getTimeLimitMinutes(), dto.getRoundingIncrement());
     }
 
     private void validateUpdateQuizRequest(QuizUpdateDTO dto) {
         if (dto.getTitle() != null && dto.getTitle().isBlank()) {
-            throw new IllegalArgumentException("Quiz title cannot be blank");
+            throw new BadRequestException("Quiz title cannot be blank");
         }
-        // TODO: add more validation
+        validateQuizSettings(dto.getMaxAttempts(), dto.getTimeLimitMinutes(), dto.getRoundingIncrement());
+    }
+
+    private void validateQuizSettings(Integer maxAttempts, Integer timeLimitMinutes, Integer roundingIncrement) {
+        if (maxAttempts != null && maxAttempts <= 0) {
+            throw new BadRequestException("Max attempts must be greater than 0");
+        }
+        if (timeLimitMinutes != null && timeLimitMinutes <= 0) {
+            throw new BadRequestException("Time limit must be greater than 0");
+        }
+        if (roundingIncrement != null && roundingIncrement <= 0) {
+            throw new BadRequestException("Rounding increment must be greater than 0");
+        }
     }
 
     private void validateCreateQuestionRequest(QuizQuestionCreateDTO dto) {
         if (dto.getQuestionText() == null || dto.getQuestionText().isBlank()) {
-            throw new IllegalArgumentException("Question text is required");
+            throw new BadRequestException("Question text is required");
         }
         if (dto.getQuestionType() == null) {
-            throw new IllegalArgumentException("Question type is required");
+            throw new BadRequestException("Question type is required");
         }
         // TODO: add more validation (score validation, type-specific rules, etc.)
     }
 
     private void validateUpdateQuestionRequest(QuizQuestionUpdateDTO dto) {
         if (dto.getQuestionText() != null && dto.getQuestionText().isBlank()) {
-            throw new IllegalArgumentException("Question text cannot be blank");
+            throw new BadRequestException("Question text cannot be blank");
         }
         // TODO: add more validation
     }
 
     private void validateCreateOptionRequest(QuizOptionCreateDTO dto) {
         if (dto.getOptionText() == null || dto.getOptionText().isBlank()) {
-            throw new IllegalArgumentException("Option text is required");
+            throw new BadRequestException("Option text is required");
         }
         // TODO: add more validation (ensure at least one correct option, etc.)
     }
 
     private void validateUpdateOptionRequest(QuizOptionUpdateDTO dto) {
         if (dto.getOptionText() != null && dto.getOptionText().isBlank()) {
-            throw new IllegalArgumentException("Option text cannot be blank");
+            throw new BadRequestException("Option text cannot be blank");
         }
         // TODO: add more validation
     }
@@ -332,40 +354,73 @@ public class QuizServiceImpl implements QuizService {
         log.info("[QUIZ_SUBMIT] User {} submitting quiz {}", userId, quizId);
 
         Quiz quiz = getQuizOrThrow(quizId);
+        applyQuizDefaults(quiz);
 
-        // Check attempts in last 24 hours
-        Instant yesterday = Instant.now(clock).minusSeconds(24 * 60 * 60);
-        Long recentAttempts = attemptRepository.countByQuizIdAndUserIdAndSubmittedAtAfter(quizId, userId, yesterday);
+        List<QuizQuestion> quizQuestions = questionRepository.findByQuizIdWithOptions(quizId);
+        Map<Long, QuizQuestion> questionMap = quizQuestions.stream()
+                .collect(Collectors.toMap(QuizQuestion::getId, q -> q, (a, b) -> a));
 
-        if (recentAttempts >= 3) {
-            log.warn("[QUIZ_SUBMIT] User {} exceeded max attempts for quiz {}", userId, quizId);
-            throw new IllegalStateException("Bạn đã hết lượt làm bài. Vui lòng quay lại sau 24 giờ.");
+        List<QuizAttempt> attemptEntities = attemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(quizId, userId);
+        int maxAttempts = quiz.getMaxAttempts() != null ? quiz.getMaxAttempts() : 3;
+        boolean useWindow = Boolean.TRUE.equals(quiz.getIsAssessment())
+                && quiz.getCooldownHours() != null
+                && quiz.getCooldownHours() > 0;
+        if (useWindow) {
+            Instant windowStart = now().minus(Duration.ofHours(quiz.getCooldownHours()));
+            List<QuizAttempt> windowAttempts = attemptEntities.stream()
+                    .filter(a -> a.getSubmittedAt() != null && !a.getSubmittedAt().isBefore(windowStart))
+                    .toList();
+            if (windowAttempts.size() >= maxAttempts) {
+                Instant earliest = windowAttempts.stream()
+                        .map(QuizAttempt::getSubmittedAt)
+                        .filter(Objects::nonNull)
+                        .min(Instant::compareTo)
+                        .orElse(null);
+                long waitHours = 0;
+                if (earliest != null) {
+                    Instant nextRetryAt = earliest.plus(Duration.ofHours(quiz.getCooldownHours()));
+                    waitHours = Math.max(1, Duration.between(now(), nextRetryAt).toHours());
+                }
+                log.warn("[QUIZ_SUBMIT] User {} exceeded max attempts (window) for quiz {}", userId, quizId);
+                String message = waitHours > 0
+                        ? "Bạn đã hết lượt làm bài. Vui lòng thử lại sau " + waitHours + " giờ."
+                        : "Bạn đã hết lượt làm bài.";
+                throw new BadRequestException(message);
+            }
+        } else {
+            if (attemptEntities.size() >= maxAttempts) {
+                log.warn("[QUIZ_SUBMIT] User {} exceeded max attempts for quiz {}", userId, quizId);
+                throw new BadRequestException("Bạn đã hết lượt làm bài.");
+            }
         }
 
         // Grade quiz
         int correctCount = 0;
         int earnedScore = 0;
-        int totalQuestions = quiz.getQuestions().size();
+        int totalQuestions = quizQuestions.size();
 
         // Calculate total possible score
-        int totalPossibleScore = quiz.getQuestions().stream()
+        int totalPossibleScore = quizQuestions.stream()
                 .mapToInt(q -> q.getScore() != null ? q.getScore() : 1)
                 .sum();
 
         for (SubmitQuizDTO.Answer answer : submitData.getAnswers()) {
-            QuizOption option = optionRepository.findById(answer.getSelectedOptionId()).orElse(null);
-            if (option != null && Boolean.TRUE.equals(option.getIsCorrect())) {
+            QuizQuestion question = questionMap.get(answer.getQuestionId());
+            if (question == null) {
+                continue;
+            }
+
+            boolean isCorrect = evaluateAnswer(question, answer);
+            if (isCorrect) {
                 correctCount++;
-                if (option.getQuestion() != null && option.getQuestion().getScore() != null) {
-                    earnedScore += option.getQuestion().getScore();
-                } else {
-                    earnedScore += 1;
-                }
+                earnedScore += question.getScore() != null ? question.getScore() : 1;
             }
         }
 
         int score = totalPossibleScore > 0 ? (earnedScore * 100) / totalPossibleScore : 0;
-        boolean passed = score >= quiz.getPassScore();
+        score = applyRounding(score, quiz.getRoundingIncrement());
+        int passScore = quiz.getPassScore() != null ? quiz.getPassScore() : 0;
+        boolean passed = score >= passScore;
 
         log.info("[QUIZ_SUBMIT] Score: {}/{} = {}% (Pass: {})", correctCount, totalQuestions, score, passed);
 
@@ -396,54 +451,62 @@ public class QuizServiceImpl implements QuizService {
                 .map(attemptMapper::toDto)
                 .toList();
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<QuizAttemptDTO> getUserAttemptsBatch(List<Long> quizIds, Long userId) {
+        if (quizIds == null || quizIds.isEmpty()) {
+            return List.of();
+        }
+        log.debug("Getting attempts for quizzes {} by user {}", quizIds, userId);
+
+        List<QuizAttempt> attempts = attemptRepository.findByQuizIdInAndUserIdOrderBySubmittedAtDesc(quizIds, userId);
+        return attempts.stream()
+                .map(attemptMapper::toDto)
+                .toList();
+    }
     
     @Override
     @Transactional(readOnly = true)
     public QuizAttemptStatusDTO getAttemptStatus(Long quizId, Long userId) {
         log.debug("Getting attempt status for quiz {} by user {}", quizId, userId);
+        Quiz quiz = getQuizOrThrow(quizId);
+        applyQuizDefaults(quiz);
         
         List<QuizAttemptDTO> allAttempts = getUserAttempts(quizId, userId);
-        
-        // Calculate attempts in last 24 hours
-        Instant now = Instant.now(clock);
-        Instant yesterday = now.minusSeconds(24 * 60 * 60);
-        
-        List<QuizAttemptDTO> recentAttempts = allAttempts.stream()
-                .filter(a -> a.getSubmittedAt() != null && a.getSubmittedAt().isAfter(yesterday))
-                .toList();
-        
-        int attemptsUsed = recentAttempts.size();
-        int maxAttempts = 3;
+
+        int maxAttempts = quiz.getMaxAttempts() != null ? quiz.getMaxAttempts() : 3;
+        boolean useWindow = Boolean.TRUE.equals(quiz.getIsAssessment())
+                && quiz.getCooldownHours() != null
+                && quiz.getCooldownHours() > 0;
+        List<QuizAttemptDTO> windowAttempts = allAttempts;
+        if (useWindow) {
+            Instant windowStart = now().minus(Duration.ofHours(quiz.getCooldownHours()));
+            windowAttempts = allAttempts.stream()
+                    .filter(a -> a.getSubmittedAt() != null && !a.getSubmittedAt().isBefore(windowStart))
+                    .toList();
+        }
+
+        int attemptsUsed = windowAttempts.size();
         boolean canRetry = attemptsUsed < maxAttempts;
-        
-        // Calculate time until next retry (if max attempts reached)
+
         long secondsUntilRetry = 0;
         Instant nextRetryAt = null;
-        
-        if (!canRetry && !recentAttempts.isEmpty()) {
-            // Find the oldest attempt in the 24h window
-            Instant oldestAttempt = recentAttempts.stream()
+        if (!canRetry && useWindow && !windowAttempts.isEmpty()) {
+            Instant earliest = windowAttempts.stream()
                     .map(QuizAttemptDTO::getSubmittedAt)
+                    .filter(Objects::nonNull)
                     .min(Instant::compareTo)
                     .orElse(null);
-            
-            if (oldestAttempt != null) {
-                nextRetryAt = oldestAttempt.plusSeconds(24 * 60 * 60);
-                secondsUntilRetry = Duration.between(now, nextRetryAt).getSeconds();
-                if (secondsUntilRetry < 0) {
-                    secondsUntilRetry = 0;
-                    canRetry = true;
-                }
+            if (earliest != null) {
+                nextRetryAt = earliest.plus(Duration.ofHours(quiz.getCooldownHours()));
+                secondsUntilRetry = Math.max(0, Duration.between(now(), nextRetryAt).toSeconds());
             }
         }
-        
+
         // Check if passed
         boolean hasPassed = allAttempts.stream().anyMatch(a -> Boolean.TRUE.equals(a.getPassed()));
-        Integer bestScore = allAttempts.stream()
-                .map(QuizAttemptDTO::getScore)
-                .filter(Objects::nonNull)
-                .max(Integer::compareTo)
-                .orElse(null);
+        Integer bestScore = calculateBestScore(allAttempts, quiz.getGradingMethod());
         
         return QuizAttemptStatusDTO.builder()
                 .quizId(quizId)
@@ -455,7 +518,136 @@ public class QuizServiceImpl implements QuizService {
                 .bestScore(bestScore != null ? bestScore : 0)
                 .secondsUntilRetry(secondsUntilRetry)
                 .nextRetryAt(nextRetryAt)
-                .recentAttempts(recentAttempts)
+                .recentAttempts(windowAttempts)
                 .build();
+    }
+
+    private void applyQuizDefaults(Quiz quiz) {
+        if (quiz.getMaxAttempts() == null) {
+            quiz.setMaxAttempts(3);
+        }
+        if (quiz.getRoundingIncrement() == null || quiz.getRoundingIncrement() <= 0) {
+            quiz.setRoundingIncrement(1);
+        }
+        if (quiz.getGradingMethod() == null) {
+            quiz.setGradingMethod(QuizGradingMethod.HIGHEST);
+        }
+        if (quiz.getIsAssessment() == null) {
+            quiz.setIsAssessment(false);
+        }
+        if (Boolean.TRUE.equals(quiz.getIsAssessment())) {
+            if (quiz.getCooldownHours() == null || quiz.getCooldownHours() <= 0) {
+                quiz.setCooldownHours(24);
+            }
+        } else {
+            quiz.setCooldownHours(null);
+        }
+    }
+
+    private int applyRounding(int score, Integer roundingIncrement) {
+        int increment = roundingIncrement != null && roundingIncrement > 0 ? roundingIncrement : 1;
+        int rounded = Math.round(score / (float) increment) * increment;
+        if (rounded < 0) return 0;
+        if (rounded > 100) return 100;
+        return rounded;
+    }
+
+    private boolean evaluateAnswer(QuizQuestion question, SubmitQuizDTO.Answer answer) {
+        if (question.getQuestionType() == null) {
+            return false;
+        }
+
+        return switch (question.getQuestionType()) {
+            case SHORT_ANSWER -> evaluateShortAnswer(question, answer.getTextAnswer());
+            case TRUE_FALSE, MULTIPLE_CHOICE -> evaluateOptionAnswer(question, answer);
+        };
+    }
+
+    private boolean evaluateOptionAnswer(QuizQuestion question, SubmitQuizDTO.Answer answer) {
+        Set<Long> selectedOptionIds = new HashSet<>();
+        if (answer.getSelectedOptionIds() != null) {
+            selectedOptionIds.addAll(answer.getSelectedOptionIds());
+        }
+        if (answer.getSelectedOptionId() != null) {
+            selectedOptionIds.add(answer.getSelectedOptionId());
+        }
+        if (selectedOptionIds.isEmpty()) {
+            return false;
+        }
+
+        List<QuizOption> options = question.getOptions();
+        if (options == null || options.isEmpty()) {
+            return false;
+        }
+
+        Set<Long> correctIds = options.stream()
+                .filter(o -> Boolean.TRUE.equals(o.getIsCorrect()))
+                .map(QuizOption::getId)
+                .collect(Collectors.toSet());
+
+        if (correctIds.isEmpty()) {
+            return false;
+        }
+
+        return selectedOptionIds.equals(correctIds);
+    }
+
+    private boolean evaluateShortAnswer(QuizQuestion question, String textAnswer) {
+        if (textAnswer == null) {
+            return false;
+        }
+        String normalizedAnswer = normalizeText(textAnswer);
+        if (normalizedAnswer.isEmpty()) {
+            return false;
+        }
+
+        List<QuizOption> options = question.getOptions();
+        if (options == null || options.isEmpty()) {
+            return false;
+        }
+
+        List<QuizOption> correctOptions = options.stream()
+                .filter(o -> Boolean.TRUE.equals(o.getIsCorrect()))
+                .toList();
+        List<QuizOption> accepted = correctOptions.isEmpty() ? options : correctOptions;
+
+        return accepted.stream()
+                .map(QuizOption::getOptionText)
+                .filter(Objects::nonNull)
+                .map(this::normalizeText)
+                .anyMatch(normalizedAnswer::equals);
+    }
+
+    private String normalizeText(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
+    private Integer calculateBestScore(List<QuizAttemptDTO> attempts, QuizGradingMethod method) {
+        if (attempts == null || attempts.isEmpty()) return 0;
+        QuizGradingMethod gradingMethod = method != null ? method : QuizGradingMethod.HIGHEST;
+        return switch (gradingMethod) {
+            case AVERAGE -> {
+                double avg = attempts.stream()
+                        .map(QuizAttemptDTO::getScore)
+                        .filter(Objects::nonNull)
+                        .mapToInt(Integer::intValue)
+                        .average()
+                        .orElse(0);
+                yield (int) Math.round(avg);
+            }
+            case FIRST -> {
+                QuizAttemptDTO firstAttempt = attempts.stream()
+                        .filter(a -> a.getSubmittedAt() != null)
+                        .min(Comparator.comparing(QuizAttemptDTO::getSubmittedAt))
+                        .orElse(null);
+                yield firstAttempt != null && firstAttempt.getScore() != null ? firstAttempt.getScore() : 0;
+            }
+            case LAST -> attempts.get(0).getScore() != null ? attempts.get(0).getScore() : 0;
+            case HIGHEST -> attempts.stream()
+                    .map(QuizAttemptDTO::getScore)
+                    .filter(Objects::nonNull)
+                    .max(Integer::compareTo)
+                    .orElse(0);
+        };
     }
 }

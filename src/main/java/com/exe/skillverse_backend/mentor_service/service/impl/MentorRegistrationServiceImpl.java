@@ -1,7 +1,7 @@
 package com.exe.skillverse_backend.mentor_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
-import com.exe.skillverse_backend.auth_service.service.impl.UserCreationServiceImpl;
+import com.exe.skillverse_backend.auth_service.service.UserCreationService;
 import com.exe.skillverse_backend.mentor_service.dto.request.MentorRegistrationRequest;
 import com.exe.skillverse_backend.mentor_service.dto.response.MentorRegistrationResponse;
 import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.mentor_service.repository.MentorProfileReposit
 import com.exe.skillverse_backend.mentor_service.service.MentorRegistrationService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,7 +18,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.text.Normalizer;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -25,7 +35,7 @@ import java.time.LocalDateTime;
 public class MentorRegistrationServiceImpl
                 implements MentorRegistrationService {
 
-        private final UserCreationServiceImpl userCreationService;
+        private final UserCreationService userCreationService;
         private final MentorProfileRepository mentorProfileRepository;
         private final CloudinaryService cloudinaryService;
 
@@ -148,9 +158,8 @@ public class MentorRegistrationServiceImpl
                         try {
                                 log.info("Uploading mentor CV/Portfolio to Cloudinary for: {}", email);
                                 String nameSlug = slugify(fullName);
-                                String timestamp = java.time.LocalDateTime.now()
-                                                .format(java.time.format.DateTimeFormatter
-                                                                .ofPattern("yyyyMMdd_HHmmss"));
+                                String timestamp = LocalDateTime.now()
+                                                .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
                                 String publicId = "CV_Portfolio_" + nameSlug + "_" + timestamp;
                                 var uploadResult = cloudinaryService.uploadFileNamed(cvPortfolioFile, "mentor-cv",
                                                 publicId);
@@ -169,15 +178,14 @@ public class MentorRegistrationServiceImpl
                                 log.info("Uploading {} mentor certificate files for: {}", certificatesFiles.length,
                                                 email);
                                 String nameSlug = slugify(fullName);
-                                String timestamp = java.time.LocalDateTime.now()
-                                                .format(java.time.format.DateTimeFormatter
-                                                                .ofPattern("yyyyMMdd_HHmmss"));
+                                String timestamp = LocalDateTime.now()
+                                                .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
                                 String basePublicId = "ChungChi_" + nameSlug + "_" + timestamp;
 
                                 boolean shouldMerge = mergeCertificates != null ? mergeCertificates
                                                 : certificatesFiles.length > 3;
 
-                                java.util.List<String> uploadedUrls = new java.util.ArrayList<>();
+                                List<String> uploadedUrls = new ArrayList<>();
                                 for (MultipartFile cf : certificatesFiles) {
                                         if (cf == null || cf.isEmpty())
                                                 continue;
@@ -223,12 +231,12 @@ public class MentorRegistrationServiceImpl
 
                                                 @Override
                                                 public java.io.InputStream getInputStream() {
-                                                        return new java.io.ByteArrayInputStream(combined);
+                                                        return new ByteArrayInputStream(combined);
                                                 }
 
                                                 @Override
-                                                public void transferTo(java.io.File dest) throws java.io.IOException {
-                                                        try (var out = new java.io.FileOutputStream(dest)) {
+                                                public void transferTo(File dest) throws IOException {
+                                                        try (var out = new FileOutputStream(dest)) {
                                                                 out.write(combined);
                                                         }
                                                 }
@@ -252,9 +260,8 @@ public class MentorRegistrationServiceImpl
                         try {
                                 log.info("Uploading mentor certificates to Cloudinary for: {}", email);
                                 String nameSlug = slugify(fullName);
-                                String timestamp = java.time.LocalDateTime.now()
-                                                .format(java.time.format.DateTimeFormatter
-                                                                .ofPattern("yyyyMMdd_HHmmss"));
+                                String timestamp = LocalDateTime.now()
+                                                .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
                                 String publicId = "ChungChi_" + nameSlug + "_" + timestamp;
                                 var uploadResult = cloudinaryService.uploadFileNamed(certificatesFile,
                                                 "mentor-certificates", publicId);
@@ -273,7 +280,7 @@ public class MentorRegistrationServiceImpl
         private String slugify(String input) {
                 if (input == null)
                         return "unknown";
-                String normalized = java.text.Normalizer.normalize(input, java.text.Normalizer.Form.NFD)
+                String normalized = Normalizer.normalize(input, Normalizer.Form.NFD)
                                 .replaceAll("[\\p{InCombiningDiacriticalMarks}]", "");
                 normalized = normalized.replaceAll("[^a-zA-Z0-9]+", "_");
                 normalized = normalized.replaceAll("_+", "_");
@@ -308,9 +315,9 @@ public class MentorRegistrationServiceImpl
                 log.info("Created mentor profile for user: {} with full name: {}", user.getId(), request.getFullName());
         }
 
-        private String toJson(java.util.List<String> urls) {
+        private String toJson(List<String> urls) {
                 try {
-                        return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(urls);
+                        return new ObjectMapper().writeValueAsString(urls);
                 } catch (Exception e) {
                         log.warn("Failed to serialize certificate URLs", e);
                         return null;
@@ -318,7 +325,7 @@ public class MentorRegistrationServiceImpl
         }
 
         private byte[] combineCertificatesToPdf(MultipartFile[] files) throws Exception {
-                java.util.List<MultipartFile> list = new java.util.ArrayList<>();
+                List<MultipartFile> list = new ArrayList<>();
                 for (MultipartFile f : files) {
                         if (f != null && !f.isEmpty())
                                 list.add(f);
@@ -326,8 +333,8 @@ public class MentorRegistrationServiceImpl
                 if (list.isEmpty())
                         return new byte[0];
 
-                java.util.List<MultipartFile> pdfs = new java.util.ArrayList<>();
-                java.util.List<MultipartFile> images = new java.util.ArrayList<>();
+                List<MultipartFile> pdfs = new ArrayList<>();
+                List<MultipartFile> images = new ArrayList<>();
                 for (MultipartFile f : list) {
                         String ct = f.getContentType();
                         boolean isPdf = ct != null && (ct.equalsIgnoreCase("application/pdf")

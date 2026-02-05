@@ -237,7 +237,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-        UserSubscription subscription = userSubscriptionRepository.findByUserAndIsActiveTrue(user)
+        UserSubscription subscription = userSubscriptionRepository.findCurrentActiveSubscription(user)
                 .orElse(null);
 
         // Check for Free Tier or No Subscription

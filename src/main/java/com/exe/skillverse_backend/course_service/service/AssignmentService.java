@@ -3,7 +3,6 @@ package com.exe.skillverse_backend.course_service.service;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.*;
 import org.springframework.data.domain.Pageable;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 public interface AssignmentService {
@@ -18,7 +17,7 @@ public interface AssignmentService {
 
     AssignmentSubmissionDetailDTO submit(Long assignmentId, Long userId, AssignmentSubmissionCreateDTO dto);
     
-    AssignmentSubmissionDetailDTO grade(Long submissionId, Long graderId, BigDecimal score, String feedback);
+    AssignmentSubmissionDetailDTO grade(Long submissionId, Long graderId, AssignmentGradeDTO grading);
     
     List<AssignmentSubmissionDetailDTO> listSubmissions(Long assignmentId, Pageable p);
     

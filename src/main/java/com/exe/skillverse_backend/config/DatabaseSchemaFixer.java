@@ -98,6 +98,31 @@ public class DatabaseSchemaFixer {
             jdbcTemplate.execute(createSeminarAnalyticsIndexesSql);
             log.info("✅ Seminar analytics indexes verified/created successfully.");
 
+            // 3.1 Create index for gamification coin transactions (transaction_type)
+            String createGamificationTransactionTypeIndexSql = """
+                        DO $$
+                        BEGIN
+                            -- Only attempt if table exists
+                            IF EXISTS (
+                                SELECT 1 FROM information_schema.tables
+                                WHERE table_name = 'gamification_coin_transactions'
+                            ) THEN
+                                -- Create index only if it doesn't exist
+                                IF NOT EXISTS (
+                                    SELECT 1 FROM pg_indexes
+                                    WHERE schemaname = current_schema()
+                                      AND indexname = 'idx_transaction_type'
+                                ) THEN
+                                    CREATE INDEX idx_transaction_type
+                                    ON gamification_coin_transactions(transaction_type);
+                                END IF;
+                            END IF;
+                        END $$;
+                    """;
+
+            jdbcTemplate.execute(createGamificationTransactionTypeIndexSql);
+            log.info("✅ Gamification transaction_type index verified/created successfully.");
+
             // 4. Drop unique constraint on quizzes.module_id to allow multiple quizzes per
             // module
             String dropQuizModuleUniqueConstraintSql = """
@@ -412,6 +437,70 @@ public class DatabaseSchemaFixer {
 
             jdbcTemplate.execute(addGradingRubricSystemSql);
             log.info("✅ Grading rubric system (criteria tables) verified/created successfully.");
+
+            // 10. Add quiz settings columns (max_attempts, time_limit_minutes, rounding_increment, grading_method, order_index)
+            String addQuizSettingsColumnsSql = """
+                        DO $$
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_name = 'quizzes' AND column_name = 'max_attempts'
+                            ) THEN
+                                ALTER TABLE quizzes ADD COLUMN max_attempts INT DEFAULT 3;
+                            END IF;
+
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_name = 'quizzes' AND column_name = 'time_limit_minutes'
+                            ) THEN
+                                ALTER TABLE quizzes ADD COLUMN time_limit_minutes INT;
+                            END IF;
+
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_name = 'quizzes' AND column_name = 'rounding_increment'
+                            ) THEN
+                                ALTER TABLE quizzes ADD COLUMN rounding_increment INT DEFAULT 1;
+                            END IF;
+
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_name = 'quizzes' AND column_name = 'grading_method'
+                            ) THEN
+                                ALTER TABLE quizzes ADD COLUMN grading_method VARCHAR(20) DEFAULT 'HIGHEST';
+                            END IF;
+
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_name = 'quizzes' AND column_name = 'order_index'
+                            ) THEN
+                                ALTER TABLE quizzes ADD COLUMN order_index INT;
+                            END IF;
+                        END $$;
+                    """;
+
+            jdbcTemplate.execute(addQuizSettingsColumnsSql);
+            log.info("✅ Quiz settings columns verified/created successfully.");
+
+            // 11. Add password_changed_at column to users table for token invalidation
+            String addPasswordChangedAtSql = """
+                        DO $$
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_name = 'users'
+                                AND column_name = 'password_changed_at'
+                            ) THEN
+                                ALTER TABLE users
+                                ADD COLUMN password_changed_at TIMESTAMP;
+
+                                RAISE NOTICE 'Added password_changed_at column to users table';
+                            END IF;
+                        END $$;
+                    """;
+
+            jdbcTemplate.execute(addPasswordChangedAtSql);
+            log.info("✅ Users password_changed_at column verified/created successfully.");
 
             log.info("Database schema fix completed successfully.");
 

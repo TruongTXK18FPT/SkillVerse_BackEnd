@@ -7,6 +7,8 @@ import com.exe.skillverse_backend.course_service.dto.coursedto.CourseUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import org.springframework.data.domain.Pageable;
+import java.util.List;
+import java.util.Map;
 
 public interface CourseService {
     
@@ -33,5 +35,5 @@ public interface CourseService {
     
     long getTotalCourseCount();
     
-    java.util.List<java.util.Map<String, Object>> getAllCoursesForDebug();
+    List<Map<String, Object>> getAllCoursesForDebug();
 }

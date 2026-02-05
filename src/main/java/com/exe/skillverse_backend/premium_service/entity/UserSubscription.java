@@ -136,7 +136,7 @@ public class UserSubscription {
     }
 
     /**
-     * Cancel the subscription
+     * Cancel the subscription (permanent - user requested)
      */
     public void cancel(String reason) {
         this.isActive = false;
@@ -144,6 +144,26 @@ public class UserSubscription {
         this.cancellationReason = reason;
         this.cancelledAt = LocalDateTime.now();
         this.autoRenew = false;
+    }
+
+    /**
+     * Suspend the subscription (temporary - can be reactivated)
+     * Used when user upgrades from Free Tier to Premium
+     */
+    public void suspend(String reason) {
+        this.isActive = false;
+        this.status = SubscriptionStatus.SUSPENDED;
+        this.cancellationReason = reason;
+        // Don't set cancelledAt - this is suspension, not cancellation
+    }
+
+    /**
+     * Reactivate a suspended subscription
+     */
+    public void reactivate() {
+        this.isActive = true;
+        this.status = SubscriptionStatus.ACTIVE;
+        this.cancellationReason = null;
     }
 
     /**

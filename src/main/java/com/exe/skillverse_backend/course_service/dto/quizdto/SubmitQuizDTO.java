@@ -23,7 +23,13 @@ public class SubmitQuizDTO {
         @NotNull(message = "Question ID is required")
         private Long questionId;
 
-        @NotNull(message = "Selected option ID is required")
+        // Backward compatible (single-select)
         private Long selectedOptionId;
+
+        // Preferred multi-select payload
+        private List<Long> selectedOptionIds;
+
+        // For short answer questions
+        private String textAnswer;
     }
 }

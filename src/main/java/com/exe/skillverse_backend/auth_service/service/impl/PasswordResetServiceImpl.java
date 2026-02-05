@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.auth_service.dto.response.RegistrationResponse
 import com.exe.skillverse_backend.auth_service.entity.AuthProvider;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.entity.UserStatus;
+import com.exe.skillverse_backend.auth_service.repository.RefreshTokenRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.auth_service.service.EmailVerificationService;
 import com.exe.skillverse_backend.auth_service.service.PasswordResetService;
@@ -27,6 +28,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     private final UserRepository userRepository;
     private final EmailVerificationService emailVerificationService;
     private final PasswordEncoder passwordEncoder;
+    private final RefreshTokenRepository refreshTokenRepository;
 
     /**
      * Initiate forgot password process - send OTP to user's email
@@ -112,12 +114,22 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         // Encode and set new password
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
 
+        // ✅ SECURITY: Set passwordChangedAt to invalidate all existing JWT tokens
+        // Any token issued before this timestamp will be rejected by CustomJwtDecoder
+        // Use UTC to ensure consistent comparison with JWT iat (which is always UTC)
+        user.setPasswordChangedAt(LocalDateTime.now(java.time.ZoneOffset.UTC));
+
         // Clear OTP data
         user.setVerificationOtp(null);
         user.setOtpExpiryTime(null);
         user.setOtpAttempts(0);
 
         userRepository.save(user);
+
+        // ✅ SECURITY: Delete all refresh tokens for this user
+        // Forces user to re-authenticate with new password
+        refreshTokenRepository.deleteByUserId(user.getId());
+        log.info("Deleted all refresh tokens for user {} after password reset", user.getEmail());
 
         log.info("Password reset successful for user: {}", request.getEmail());
 
@@ -165,12 +177,20 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         // Encode and set password
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
 
+        // ✅ SECURITY: Set passwordChangedAt - this is a new password, invalidate old tokens
+        // Use UTC to ensure consistent comparison with JWT iat (which is always UTC)
+        user.setPasswordChangedAt(LocalDateTime.now(java.time.ZoneOffset.UTC));
+
         // Update auth provider to allow dual authentication
         // User can now login with both Google AND email+password
         user.setAuthProvider(AuthProvider.LOCAL);
         user.setGoogleLinked(true); // Keep Google login available
 
         userRepository.save(user);
+
+        // ✅ SECURITY: Delete all refresh tokens for this user
+        refreshTokenRepository.deleteByUserId(user.getId());
+        log.info("Deleted all refresh tokens for Google user {} after setting password", user.getEmail());
 
         log.info("Password set successfully for Google user: {}", user.getEmail());
 
@@ -223,7 +243,17 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         // Encode and update password
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
 
+        // ✅ SECURITY: Set passwordChangedAt to invalidate all existing JWT tokens
+        // This includes the current session - user will need to re-login
+        // Use UTC to ensure consistent comparison with JWT iat (which is always UTC)
+        user.setPasswordChangedAt(LocalDateTime.now(java.time.ZoneOffset.UTC));
+
         userRepository.save(user);
+
+        // ✅ SECURITY: Delete all refresh tokens for this user
+        // Forces user to re-authenticate with new password
+        refreshTokenRepository.deleteByUserId(user.getId());
+        log.info("Deleted all refresh tokens for user {} after password change", user.getEmail());
 
         log.info("Password changed successfully for user: {}", user.getEmail());
 

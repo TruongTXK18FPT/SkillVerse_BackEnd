@@ -35,6 +35,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +45,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -155,7 +158,7 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         }
 
         try {
-            java.util.Optional<WalletTransaction> walletTxOpt = walletTransactionRepository
+            Optional<WalletTransaction> walletTxOpt = walletTransactionRepository
                     .findByReferenceIdAndReferenceType("COURSE_" + course.getId(), "COURSE_PURCHASE");
             if (walletTxOpt.isPresent()) {
                 WalletTransaction walletTx = walletTxOpt.get();
@@ -239,13 +242,12 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
 
     @Override
     @Transactional(readOnly = true)
-    public org.springframework.data.domain.Page<CoursePurchaseDTO> getMentorPurchases(Long mentorId,
-            org.springframework.data.domain.Pageable pageable) {
+    public Page<CoursePurchaseDTO> getMentorPurchases(Long mentorId, Pageable pageable) {
         return coursePurchaseRepository.findByCourse_Author_Id(mentorId, pageable)
                 .map(this::mapToDTO);
     }
 
-    private String buildWalletCoursePurchaseEmail(String name, String courseTitle, java.math.BigDecimal amount,
+    private String buildWalletCoursePurchaseEmail(String name, String courseTitle, BigDecimal amount,
             String ref) {
         String amountStr = amount != null ? amount.toPlainString() + " VND" : "-";
         return """

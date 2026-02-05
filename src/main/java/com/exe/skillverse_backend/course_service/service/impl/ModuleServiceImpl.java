@@ -6,6 +6,8 @@ import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Lesson;
 import com.exe.skillverse_backend.course_service.mapper.ModuleMapper;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
+import com.exe.skillverse_backend.course_service.repository.LessonProgressRepository;
+import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.service.ModuleService;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
@@ -25,8 +27,8 @@ public class ModuleServiceImpl implements ModuleService {
   private final ModuleRepository moduleRepository;
   private final CourseRepository courseRepository;
   private final ModuleMapper moduleMapper;
-  private final com.exe.skillverse_backend.course_service.repository.LessonRepository lessonRepository;
-  private final com.exe.skillverse_backend.course_service.repository.LessonProgressRepository lessonProgressRepository;
+  private final LessonRepository lessonRepository;
+  private final LessonProgressRepository lessonProgressRepository;
 
   @Override
   @Transactional

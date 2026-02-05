@@ -6,6 +6,8 @@ import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Data
 @NoArgsConstructor
@@ -13,7 +15,11 @@ import lombok.NoArgsConstructor;
 public class CourseSummaryDTO {
     private Long id;
     private String title;
+    private String shortDescription;
     private String level;
+    private String category;
+    private Integer estimatedDurationHours;
+    private String language;
     private CourseStatus status;
     private UserDto author;
     private String authorName; // Keep for backward compatibility
@@ -22,11 +28,11 @@ public class CourseSummaryDTO {
     private Integer enrollmentCount;
     private Integer moduleCount;
     private Integer lessonCount; // Total number of lessons across all modules
-    private java.math.BigDecimal price;
+    private BigDecimal price;
     private String currency;
     // Additional timestamps for admin and list views
-    private java.time.LocalDateTime createdAt;
-    private java.time.LocalDateTime updatedAt;
-    private java.time.LocalDateTime submittedDate;
-    private java.time.LocalDateTime publishedDate;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+    private LocalDateTime submittedDate;
+    private LocalDateTime publishedDate;
 }

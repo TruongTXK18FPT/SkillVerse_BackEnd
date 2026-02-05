@@ -38,6 +38,18 @@ public class Course {
   @Column(length = 50)
   private String level;
 
+  @Column(length = 120)
+  private String category;
+
+  @Column(name = "short_description", length = 300)
+  private String shortDescription;
+
+  @Column(name = "estimated_duration_hours")
+  private Integer estimatedDurationHours;
+
+  @Column(length = 40)
+  private String language;
+
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 20)
   @Builder.Default
@@ -59,6 +71,24 @@ public class Course {
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "thumbnail_media_id")
   private Media thumbnail;
+
+  @ElementCollection
+  @CollectionTable(
+      name = "course_learning_objectives",
+      joinColumns = @JoinColumn(name = "course_id")
+  )
+  @Column(name = "objective", length = 255)
+  @Builder.Default
+  private List<String> learningObjectives = new ArrayList<>();
+
+  @ElementCollection
+  @CollectionTable(
+      name = "course_requirements",
+      joinColumns = @JoinColumn(name = "course_id")
+  )
+  @Column(name = "requirement", length = 255)
+  @Builder.Default
+  private List<String> requirements = new ArrayList<>();
 
   /* ====== Timestamps ====== */
   @Builder.Default

@@ -99,6 +99,44 @@ public interface UserUsageTrackingRepository extends JpaRepository<UserUsageTrac
     int resetExpiredPeriods(@Param("now") LocalDateTime now);
 
     /**
+     * Atomically increment usage count to prevent race conditions.
+     * Returns 1 if successful, 0 if tracking record not found.
+     * This prevents concurrent requests from bypassing rate limits.
+     */
+    @Modifying
+    @Query("UPDATE UserUsageTracking uut SET uut.usageCount = uut.usageCount + 1 " +
+            "WHERE uut.id = :trackingId")
+    int atomicIncrementUsage(@Param("trackingId") Long trackingId);
+
+    /**
+     * Atomically check and increment usage if under limit.
+     * Returns 1 if incremented (under limit), 0 if limit reached or record not found.
+     * CRITICAL: Prevents race condition in check-then-act pattern.
+     */
+    @Modifying
+    @Query("UPDATE UserUsageTracking uut SET uut.usageCount = uut.usageCount + 1 " +
+            "WHERE uut.id = :trackingId AND uut.usageCount < :limit")
+    int atomicIncrementIfUnderLimit(@Param("trackingId") Long trackingId, @Param("limit") Integer limit);
+
+    /**
+     * Atomically reset expired period and increment usage in one operation.
+     * Returns 1 if successful, 0 if period not expired or record not found.
+     * This combines reset + increment to prevent race conditions.
+     */
+    @Modifying
+    @Query("UPDATE UserUsageTracking uut SET " +
+            "uut.usageCount = 1, " +
+            "uut.lastResetAt = :now, " +
+            "uut.currentPeriodStart = :periodStart, " +
+            "uut.currentPeriodEnd = :periodEnd " +
+            "WHERE uut.id = :trackingId AND uut.currentPeriodEnd < :now")
+    int atomicResetAndIncrement(
+            @Param("trackingId") Long trackingId,
+            @Param("now") LocalDateTime now,
+            @Param("periodStart") LocalDateTime periodStart,
+            @Param("periodEnd") LocalDateTime periodEnd);
+
+    /**
      * Find usage records that will expire soon (within hours)
      */
     @Query("SELECT uut FROM UserUsageTracking uut WHERE uut.currentPeriodEnd BETWEEN :now AND :threshold")

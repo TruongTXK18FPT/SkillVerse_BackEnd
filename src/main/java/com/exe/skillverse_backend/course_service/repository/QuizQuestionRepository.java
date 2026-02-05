@@ -44,6 +44,13 @@ public interface QuizQuestionRepository extends JpaRepository<QuizQuestion, Long
     List<QuizQuestion> findByQuizId(@Param("quizId") Long quizId);
 
     /**
+     * Find questions with options by quiz ID (avoids N+1 when grading)
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT DISTINCT qq FROM QuizQuestion qq LEFT JOIN FETCH qq.options WHERE qq.quiz.id = :quizId")
+    List<QuizQuestion> findByQuizIdWithOptions(@Param("quizId") Long quizId);
+
+    /**
      * Count questions in a quiz
      */
     @Transactional(readOnly = true)

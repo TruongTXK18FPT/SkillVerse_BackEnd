@@ -18,6 +18,7 @@ public class LessonBriefDTO {
 
     // ✅ NEW: Add contentText and videoUrl for edit modal
     private String contentText; // For READING lessons
+    private String resourceUrl; // For READING link
     private String videoUrl; // For VIDEO lessons
     private Long videoMediaId; // For VIDEO lessons with uploaded files
 }

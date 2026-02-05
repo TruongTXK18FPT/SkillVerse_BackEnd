@@ -16,6 +16,7 @@ public class LessonDetailDTO {
     private Integer orderIndex;
     private Integer durationSec;
     private String contentText;
+    private String resourceUrl;
     private String videoUrl;
     private Long videoMediaId;
 }

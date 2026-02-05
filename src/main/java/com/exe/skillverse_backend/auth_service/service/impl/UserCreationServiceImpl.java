@@ -10,10 +10,7 @@ import com.exe.skillverse_backend.auth_service.service.EmailVerificationService;
 import com.exe.skillverse_backend.auth_service.service.UserCreationService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
-import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
-import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
-import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
-import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
+import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -37,8 +34,7 @@ public class UserCreationServiceImpl implements UserCreationService {
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailVerificationService emailVerificationService;
-    private final PremiumPlanRepository premiumPlanRepository;
-    private final UserSubscriptionRepository userSubscriptionRepository;
+    private final PremiumService premiumService;
     private final NotificationServiceImpl notificationService;
 
     /**
@@ -142,8 +138,14 @@ public class UserCreationServiceImpl implements UserCreationService {
             log.error("Failed to create welcome notification for user {}", user.getId(), e);
         }
 
-        // Auto-assign FREE_TIER subscription to new users
-        assignFreeTierSubscription(user);
+        // Auto-assign FREE_TIER subscription to new users using PremiumService
+        try {
+            premiumService.assignFreeTierIfMissing(user.getId());
+            log.info("✅ Auto-assigned FREE_TIER subscription to user: {} (ID: {})", user.getEmail(), user.getId());
+        } catch (Exception e) {
+            log.error("❌ Failed to assign FREE_TIER subscription to user: {}", user.getEmail(), e);
+            // Don't throw exception - user creation should succeed even if subscription fails
+        }
 
         // Generate OTP for email verification only if requested
         if (generateOtp) {
@@ -151,38 +153,6 @@ public class UserCreationServiceImpl implements UserCreationService {
             log.info("Generated OTP for user: {}", email);
         }
         return user;
-    }
-
-    /**
-     * Auto-assign FREE_TIER subscription to new user
-     */
-    private void assignFreeTierSubscription(User user) {
-        try {
-            // Find FREE_TIER plan
-            PremiumPlan freeTier = premiumPlanRepository
-                    .findByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType.FREE_TIER)
-                    .orElseThrow(() -> new IllegalStateException("FREE_TIER plan not found"));
-
-            // Create permanent subscription for FREE_TIER
-            UserSubscription subscription = UserSubscription.builder()
-                    .user(user)
-                    .plan(freeTier)
-                    .startDate(LocalDateTime.now())
-                    .endDate(LocalDateTime.now().plusYears(100)) // Permanent
-                    .isActive(true)
-                    .autoRenew(false)
-                    .isStudentSubscription(false)
-                    .status(UserSubscription.SubscriptionStatus.ACTIVE)
-                    .build();
-
-            userSubscriptionRepository.save(subscription);
-            log.info("✅ Auto-assigned FREE_TIER subscription to user: {} (ID: {})", user.getEmail(), user.getId());
-
-        } catch (Exception e) {
-            log.error("❌ Failed to assign FREE_TIER subscription to user: {}", user.getEmail(), e);
-            // Don't throw exception - user creation should succeed even if subscription
-            // fails
-        }
     }
 
     /**

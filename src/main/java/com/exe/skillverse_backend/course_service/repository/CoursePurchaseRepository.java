@@ -11,6 +11,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -73,14 +74,14 @@ public interface CoursePurchaseRepository extends JpaRepository<CoursePurchase, 
 
     @Transactional(readOnly = true)
     @Query("SELECT SUM(cp.price) FROM CoursePurchase cp WHERE cp.course.author.id = :mentorId AND cp.status = 'PAID'")
-    Optional<java.math.BigDecimal> sumCapturedByMentor(@Param("mentorId") Long mentorId);
+    Optional<BigDecimal> sumCapturedByMentor(@Param("mentorId") Long mentorId);
 
     /**
      * Find recent purchases (last 30 days)
      */
     @Transactional(readOnly = true)
     @Query("SELECT cp FROM CoursePurchase cp WHERE cp.purchasedAt >= :since ORDER BY cp.purchasedAt DESC")
-    List<CoursePurchase> findRecentPurchases(@Param("since") java.time.Instant since);
+    List<CoursePurchase> findRecentPurchases(@Param("since") Instant since);
 
     @Transactional(readOnly = true)
     @Query("SELECT cp FROM CoursePurchase cp WHERE cp.course.author.id = :mentorId ORDER BY cp.purchasedAt DESC")

@@ -10,6 +10,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class QuizOptionCreateDTO {
     //@NotBlank optionText, boolean correct, String feedback, Integer orderIndex
+    private Long id;
+    private String clientId;
     @NotBlank
     private String optionText;
     private boolean correct;

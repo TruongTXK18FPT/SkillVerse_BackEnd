@@ -7,6 +7,8 @@ import jakarta.validation.constraints.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import java.util.List;
+
 @Data
 @EqualsAndHashCode(callSuper = true)
 @PasswordMatches
@@ -43,7 +45,7 @@ public class MentorRegistrationRequest extends BaseRegistrationRequest {
     private String certificatesUrl;
 
     @Schema(description = "List of certificate URLs when uploaded separately")
-    private java.util.List<String> certificateUrls;
+    private List<String> certificateUrls;
 
     // Password Section (inherited from BaseRegistrationRequest)
     // password and confirmPassword fields are already available from
@@ -61,7 +63,7 @@ public class MentorRegistrationRequest extends BaseRegistrationRequest {
 
     @Deprecated
     @Schema(description = "Deprecated: Not used in new form")
-    private java.util.List<String> skills;
+    private List<String> skills;
 
     @Deprecated
     @Schema(description = "Deprecated: Not collected during registration")

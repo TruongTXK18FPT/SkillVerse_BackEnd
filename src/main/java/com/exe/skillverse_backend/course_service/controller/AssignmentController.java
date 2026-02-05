@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.course_service.controller;
 
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentGradeDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentUpdateDTO;
@@ -110,11 +111,13 @@ public class AssignmentController {
     public ResponseEntity<AssignmentSubmissionDetailDTO> gradeSubmission(
             @Parameter(description = "Submission ID") @PathVariable @NotNull Long submissionId,
             @Parameter(description = "Grader user ID") @RequestParam @NotNull Long graderId,
-            @Parameter(description = "Score") @RequestParam @NotNull BigDecimal score,
-            @Parameter(description = "Feedback") @RequestParam(required = false) String feedback) {
+            @Parameter(description = "Grading data") @RequestBody(required = false) AssignmentGradeDTO grading,
+            @Parameter(description = "Score (legacy)") @RequestParam(required = false) BigDecimal score,
+            @Parameter(description = "Feedback (legacy)") @RequestParam(required = false) String feedback) {
 
-        log.info("User {} grading submission {} with score {}", graderId, submissionId, score);
-        AssignmentSubmissionDetailDTO graded = assignmentService.grade(submissionId, graderId, score, feedback);
+        AssignmentGradeDTO payload = grading != null ? grading : new AssignmentGradeDTO(score, feedback, null);
+        log.info("User {} grading submission {}", graderId, submissionId);
+        AssignmentSubmissionDetailDTO graded = assignmentService.grade(submissionId, graderId, payload);
         return ResponseEntity.ok(graded);
     }
 

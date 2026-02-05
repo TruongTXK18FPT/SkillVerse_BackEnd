@@ -200,6 +200,15 @@ public class QuizController {
         return ResponseEntity.ok(attempts);
     }
 
+    @PostMapping("/attempts/batch")
+    @Operation(summary = "Batch get quiz attempts for a user")
+    public ResponseEntity<List<QuizAttemptDTO>> getUserAttemptsBatch(
+            @Valid @RequestBody QuizAttemptBatchRequestDTO request) {
+
+        List<QuizAttemptDTO> attempts = quizService.getUserAttemptsBatch(request.getQuizIds(), request.getUserId());
+        return ResponseEntity.ok(attempts);
+    }
+
     @GetMapping("/{quizId}/attempt-status")
     @Operation(summary = "Get user's quiz attempt status with retry info")
     public ResponseEntity<QuizAttemptStatusDTO> getAttemptStatus(
