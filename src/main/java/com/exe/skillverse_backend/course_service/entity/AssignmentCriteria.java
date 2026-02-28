@@ -33,9 +33,12 @@ public class AssignmentCriteria {
     /**
      * Minimum score required to pass this criterion (Coursera pattern).
      * Defaults to 0 — mentor should set an appropriate passing threshold when creating criteria.
+     * columnDefinition includes DEFAULT 0 so Hibernate’s ddl-auto:update generates
+     * "ADD COLUMN passing_points NUMERIC(10,2) NOT NULL DEFAULT 0"
+     * which PostgreSQL accepts even on tables with existing rows.
      */
     @Builder.Default
-    @Column(name = "passing_points", nullable = false, precision = 10, scale = 2)
+    @Column(name = "passing_points", nullable = false, columnDefinition = "NUMERIC(10,2) NOT NULL DEFAULT 0")
     private BigDecimal passingPoints = BigDecimal.ZERO;
 
     @Column(name = "order_index")
