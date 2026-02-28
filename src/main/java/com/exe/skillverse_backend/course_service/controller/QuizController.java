@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.course_service.controller;
 
 import com.exe.skillverse_backend.course_service.dto.quizdto.*;
 import com.exe.skillverse_backend.course_service.service.QuizService;
+import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -9,9 +10,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.security.access.prepost.PreAuthorize;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -28,6 +31,10 @@ public class QuizController {
 
     private final QuizService quizService;
 
+    private Long extractUserId(Jwt jwt) {
+        return JwtUtils.extractUserId(jwt);
+    }
+
     // ========== Quiz Management ==========
     @PostMapping
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
@@ -35,8 +42,9 @@ public class QuizController {
     public ResponseEntity<QuizDetailDTO> createQuiz(
             @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
             @Parameter(description = "Quiz creation data") @Valid @RequestBody QuizCreateDTO dto,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Creating quiz for module {} by user {}", moduleId, actorId);
         QuizDetailDTO created = quizService.createQuiz(moduleId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -48,19 +56,22 @@ public class QuizController {
     public ResponseEntity<QuizDetailDTO> updateQuiz(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
             @Parameter(description = "Quiz update data") @Valid @RequestBody QuizUpdateDTO dto,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Updating quiz {} by user {}", quizId, actorId);
         QuizDetailDTO updated = quizService.updateQuiz(quizId, dto, actorId);
         return ResponseEntity.ok(updated);
     }
 
     @DeleteMapping("/{quizId}")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Delete a quiz")
     public ResponseEntity<Void> deleteQuiz(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Deleting quiz {} by user {}", quizId, actorId);
         quizService.deleteQuiz(quizId, actorId);
         return ResponseEntity.noContent().build();
@@ -68,35 +79,41 @@ public class QuizController {
 
     // ========== Question Management ==========
     @PostMapping("/{quizId}/questions")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Add a new question to a quiz")
     public ResponseEntity<QuizQuestionDetailDTO> addQuestion(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
             @Parameter(description = "Question creation data") @Valid @RequestBody QuizQuestionCreateDTO dto,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Adding question to quiz {} by user {}", quizId, actorId);
         QuizQuestionDetailDTO created = quizService.addQuestion(quizId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @PutMapping("/questions/{questionId}")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Update a quiz question")
     public ResponseEntity<QuizQuestionDetailDTO> updateQuestion(
             @Parameter(description = "Question ID") @PathVariable @NotNull Long questionId,
             @Parameter(description = "Question update data") @Valid @RequestBody QuizQuestionUpdateDTO dto,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Updating question {} by user {}", questionId, actorId);
         QuizQuestionDetailDTO updated = quizService.updateQuestion(questionId, dto, actorId);
         return ResponseEntity.ok(updated);
     }
 
     @DeleteMapping("/questions/{questionId}")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Delete a quiz question")
     public ResponseEntity<Void> deleteQuestion(
             @Parameter(description = "Question ID") @PathVariable @NotNull Long questionId,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Deleting question {} by user {}", questionId, actorId);
         quizService.deleteQuestion(questionId, actorId);
         return ResponseEntity.noContent().build();
@@ -104,35 +121,41 @@ public class QuizController {
 
     // ========== Option Management ==========
     @PostMapping("/questions/{questionId}/options")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Add a new option to a question")
     public ResponseEntity<QuizOptionDetailDTO> addOption(
             @Parameter(description = "Question ID") @PathVariable @NotNull Long questionId,
             @Parameter(description = "Option creation data") @Valid @RequestBody QuizOptionCreateDTO dto,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Adding option to question {} by user {}", questionId, actorId);
         QuizOptionDetailDTO created = quizService.addOption(questionId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @PutMapping("/options/{optionId}")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Update a quiz option")
     public ResponseEntity<QuizOptionDetailDTO> updateOption(
             @Parameter(description = "Option ID") @PathVariable @NotNull Long optionId,
             @Parameter(description = "Option update data") @Valid @RequestBody QuizOptionUpdateDTO dto,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Updating option {} by user {}", optionId, actorId);
         QuizOptionDetailDTO updated = quizService.updateOption(optionId, dto, actorId);
         return ResponseEntity.ok(updated);
     }
 
     @DeleteMapping("/options/{optionId}")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Delete a quiz option")
     public ResponseEntity<Void> deleteOption(
             @Parameter(description = "Option ID") @PathVariable @NotNull Long optionId,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Deleting option {} by user {}", optionId, actorId);
         quizService.deleteOption(optionId, actorId);
         return ResponseEntity.noContent().build();

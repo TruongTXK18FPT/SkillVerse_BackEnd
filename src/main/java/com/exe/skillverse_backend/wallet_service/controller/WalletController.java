@@ -23,6 +23,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import com.exe.skillverse_backend.shared.util.JwtUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -345,8 +346,6 @@ public class WalletController {
     // ==================== HELPER METHODS ====================
 
     private Long extractUserId(Authentication authentication) {
-        // TODO: Extract user ID from JWT token
-        // For now, assume user ID is in authentication principal
-        return Long.parseLong(authentication.getName());
+        return JwtUtils.extractUserId(authentication);
     }
 }

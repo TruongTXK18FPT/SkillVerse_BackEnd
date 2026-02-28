@@ -25,6 +25,7 @@ import com.exe.skillverse_backend.parent_service.entity.ParentStudentLink;
 import com.exe.skillverse_backend.parent_service.entity.enums.LinkStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -954,7 +955,7 @@ public class PremiumServiceImpl implements PremiumService {
 
         @Override
         @Transactional(readOnly = true)
-        public org.springframework.data.domain.Page<UserSubscriptionResponse> getAllSubscriptionsAdmin(
+        public Page<UserSubscriptionResponse> getAllSubscriptionsAdmin(
                         String status,
                         Long userId,
                         Long planId,
@@ -964,7 +965,7 @@ public class PremiumServiceImpl implements PremiumService {
 
                 // For now, return all subscriptions with pagination
                 // TODO: Add filtering by status, userId, planId
-                org.springframework.data.domain.Page<UserSubscription> subscriptions = userSubscriptionRepository
+                Page<UserSubscription> subscriptions = userSubscriptionRepository
                                 .findAll(pageable);
 
                 return subscriptions.map(this::convertToUserSubscriptionResponse);

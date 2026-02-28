@@ -802,10 +802,10 @@ public class WalletServiceImpl implements WalletService {
          * Admin: Get all wallet transactions with optional type filter
          */
         @Transactional(readOnly = true)
-        public org.springframework.data.domain.Page<WalletTransactionResponse> getAllTransactionsAdmin(
+        public Page<WalletTransactionResponse> getAllTransactionsAdmin(
                         String type,
-                        org.springframework.data.domain.Pageable pageable) {
-                org.springframework.data.domain.Page<WalletTransaction> transactions;
+                        Pageable pageable) {
+                Page<WalletTransaction> transactions;
 
                 if (type != null && !type.isEmpty()) {
                         try {

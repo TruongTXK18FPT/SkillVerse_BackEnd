@@ -104,6 +104,25 @@ public class Course {
   @Column(name = "published_at")
   private Instant publishedAt;
 
+  /* ====== Rejection fields ====== */
+  @Lob
+  @Column(name = "rejection_reason")
+  private String rejectionReason;
+
+  @Column(name = "rejected_at")
+  private Instant rejectedAt;
+
+  /* ====== Suspension fields ====== */
+  @Lob
+  @Column(name = "suspension_reason")
+  private String suspensionReason;
+
+  @Column(name = "suspended_at")
+  private Instant suspendedAt;
+
+  @Column(name = "suspended_by")
+  private Long suspendedBy;
+
   @PrePersist
   protected void onCreate() {
     if (createdAt == null) createdAt = Instant.now();

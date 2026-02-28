@@ -32,12 +32,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -99,8 +101,16 @@ public class AssignmentServiceImpl implements AssignmentService {
         assignmentMapper.updateEntity(assignment, dto);
         assignment.setUpdatedAt(now());
         if (dto.getCriteria() != null) {
-            criteriaRepository.deleteByAssignmentId(assignmentId);
-            assignment.setCriteria(buildCriteriaEntities(dto.getCriteria(), assignment));
+            // Cascade-delete SubmissionCriteriaScore rows that reference old criteria
+            // to prevent FK orphans when criteria are replaced
+            List<AssignmentCriteria> oldCriteria = criteriaRepository.findByAssignmentIdOrderByOrderIndexAsc(assignmentId);
+            for (AssignmentCriteria old : oldCriteria) {
+                criteriaScoreRepository.deleteByCriteriaId(old.getId());
+            }
+            // Must clear + addAll on the SAME collection reference —
+            // replacing via setCriteria() breaks Hibernate orphanRemoval tracking
+            assignment.getCriteria().clear();
+            assignment.getCriteria().addAll(buildCriteriaEntities(dto.getCriteria(), assignment));
         }
         
         Assignment saved = assignmentRepository.save(assignment);
@@ -112,7 +122,7 @@ public class AssignmentServiceImpl implements AssignmentService {
     @Override
     @Transactional(readOnly = true)
     public AssignmentDetailDTO getAssignmentById(Long assignmentId) {
-        log.info("Getting assignment details for ID {}", assignmentId);
+        log.debug("Getting assignment details for ID {}", assignmentId);
         
         Assignment assignment = getAssignmentOrThrow(assignmentId);
         return assignmentMapper.toDetailDto(assignment);
@@ -126,10 +136,13 @@ public class AssignmentServiceImpl implements AssignmentService {
         Assignment assignment = getAssignmentOrThrow(assignmentId);
         ensureAuthorOrAdmin(actorId, assignment.getModule().getCourse().getAuthor().getId());
         
-        // Check if there are submissions
         long submissionCount = submissionRepository.countByAssignmentId(assignmentId);
         if (submissionCount > 0) {
-            log.warn("Assignment {} has {} submissions, deletion will cascade", assignmentId, submissionCount);
+            log.info("Assignment {} has {} submissions — cleaning up criteria scores before deletion",
+                    assignmentId, submissionCount);
+            // SubmissionCriteriaScore has no cascade from AssignmentSubmission,
+            // so delete them first or FK violation will occur.
+            criteriaScoreRepository.deleteByAssignmentId(assignmentId);
         }
         
         assignmentRepository.delete(assignment);
@@ -144,8 +157,6 @@ public class AssignmentServiceImpl implements AssignmentService {
         Assignment assignment = getAssignmentOrThrow(assignmentId);
         Long courseId = assignment.getModule().getCourse().getId();
         
-        log.info("Assignment belongs to course ID: {}", courseId);
-        
         // Check enrollment with ENROLLED status
         var enrollmentOpt = enrollmentRepository.findByCourseIdAndUserId(courseId, userId);
         
@@ -155,15 +166,11 @@ public class AssignmentServiceImpl implements AssignmentService {
         }
         
         var enrollment = enrollmentOpt.get();
-        log.info("Found enrollment for user {}: status = {}", userId, enrollment.getStatus());
-        
         if (enrollment.getStatus() != EnrollmentStatus.ENROLLED) {
             log.warn("User {} has enrollment status {} (not ENROLLED) for course {}", 
                     userId, enrollment.getStatus(), courseId);
             throw new AccessDeniedException("USER_NOT_ENROLLED");
         }
-        
-        log.info("Enrollment check passed for user {} in course {}", userId, courseId);
         
         // Check if late submission (Coursera pattern: allow but mark as late)
         boolean isLate = false;
@@ -176,29 +183,40 @@ public class AssignmentServiceImpl implements AssignmentService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("USER_NOT_FOUND"));
         
-        // ===== 2-Version Retention Logic (Coursera pattern) =====
-        // Keep only: newest (current) + previous (last) 
+        // ===== Submission Gate + Audit Trail (Coursera pattern) =====
+        // DB retains ALL submissions for audit. No hard deletes.
         List<AssignmentSubmission> existing = submissionRepository
                 .findByAssignmentIdAndUserIdOrderByAttemptNumberDesc(assignmentId, userId);
         
         int nextAttemptNumber = 1;
         
         if (!existing.isEmpty()) {
-            nextAttemptNumber = existing.get(0).getAttemptNumber() + 1;
+            AssignmentSubmission newest = existing.get(0);
+            nextAttemptNumber = newest.getAttemptNumber() + 1;
+
+            // Gate: block if pending grading
+            if (newest.getScore() == null) {
+                throw new BadRequestException("SUBMISSION_PENDING_GRADING");
+            }
+            // Gate: block if already passed — no resubmission needed
+            if (Boolean.TRUE.equals(newest.getIsPassed())) {
+                throw new BadRequestException("ASSIGNMENT_ALREADY_PASSED");
+            }
+            // isPassed == false (FAIL) → allow reattempt, fall through
             
-            // If we have 2+ versions, delete the oldest one(s) - keep only newest + previous
-            if (existing.size() >= 2) {
-                // Delete all except the newest one (which will become previous)
-                for (int i = 1; i < existing.size(); i++) {
-                    submissionRepository.delete(existing.get(i));
+            // Mark current newest as previous (keep all history, just swap flags)
+            newest.setIsNewest(false);
+            newest.setIsPrevious(true);
+            submissionRepository.save(newest);
+
+            // Also clear isPrevious flag on any earlier submissions
+            for (int i = 1; i < existing.size(); i++) {
+                AssignmentSubmission older = existing.get(i);
+                if (Boolean.TRUE.equals(older.getIsPrevious())) {
+                    older.setIsPrevious(false);
+                    submissionRepository.save(older);
                 }
             }
-            
-            // Mark current newest as previous
-            AssignmentSubmission currentNewest = existing.get(0);
-            currentNewest.setIsNewest(false);
-            currentNewest.setIsPrevious(true);
-            submissionRepository.save(currentNewest);
         }
         
         validateSubmissionRequest(dto, assignment);
@@ -237,22 +255,31 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional
-    public AssignmentSubmissionDetailDTO grade(Long submissionId, Long graderId, AssignmentGradeDTO grading) {
+    public AssignmentSubmissionDetailDTO grade(Long submissionId, Long graderId,
+                                                AssignmentGradeDTO grading,
+                                                BigDecimal legacyScore, String legacyFeedback) {
+        // Merge legacy query-param grading into DTO
+        AssignmentGradeDTO payload = grading != null
+                ? grading
+                : new AssignmentGradeDTO(legacyScore, legacyFeedback, null);
+
         log.info("Grading submission {} by grader {}", submissionId, graderId);
         
         AssignmentSubmission submission = getSubmissionOrThrow(submissionId);
+        
+        // Guard: only grade the newest version — grading a previous version is a logic error
+        if (!Boolean.TRUE.equals(submission.getIsNewest())) {
+            throw new BadRequestException("Cannot grade a previous submission version. Only the newest submission can be graded.");
+        }
+        
         Assignment assignment = submission.getAssignment();
         
         // Check if grader has permission (course author/mentor/admin)
         ensureAuthorOrAdmin(graderId, assignment.getModule().getCourse().getAuthor().getId());
-        
-        if (grading == null) {
-            throw new BadRequestException("Grading data is required");
-        }
 
-        BigDecimal totalScore = grading.getScore();
-        if (grading.getCriteriaScores() != null && !grading.getCriteriaScores().isEmpty()) {
-            totalScore = applyCriteriaScores(submission, assignment, grading.getCriteriaScores());
+        BigDecimal totalScore = payload.getScore();
+        if (payload.getCriteriaScores() != null && !payload.getCriteriaScores().isEmpty()) {
+            totalScore = applyCriteriaScores(submission, assignment, payload.getCriteriaScores());
         }
 
         validateGradingRequest(totalScore, assignment.getMaxScore());
@@ -262,16 +289,23 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .orElseThrow(() -> new NotFoundException("GRADER_NOT_FOUND"));
         
         submission.setScore(totalScore);
-        submission.setFeedback(grading.getFeedback());
+        submission.setFeedback(payload.getFeedback());
         submission.setGradedBy(grader);
         submission.setGradedAt(now());
+
+        // Persist isPassed once at grading time (immune to later criteria edits)
+        List<CriteriaScoreDTO> gradedCriteriaScores = loadCriteriaScores(submission.getId());
+        boolean passed = computeIsPassed(assignment, gradedCriteriaScores, totalScore);
+        submission.setIsPassed(passed);
         
         AssignmentSubmission saved = submissionRepository.save(submission);
-        log.info("Submission {} graded by grader {} with score {}", submissionId, graderId, totalScore);
+        log.info("Submission {} graded by grader {} with score {}, passed={}", submissionId, graderId, totalScore, passed);
         
-        // Send grading notification to student
-        String passStatus = totalScore.compareTo(assignment.getMaxScore().multiply(new BigDecimal("0.7"))) >= 0 
-                ? "PASSED ✓" : "Cần cải thiện";
+        // Build result DTO (reads isPassed from entity, no recomputation)
+        AssignmentSubmissionDetailDTO detail = toDetailWithCriteria(saved);
+        
+        // Send grading notification to student using persisted pass/fail
+        String passStatus = passed ? "PASSED ✓" : "Cần cải thiện";
         notificationService.createNotification(
                 submission.getUser().getId(),
                 "Bài tập đã được chấm điểm",
@@ -281,8 +315,6 @@ public class AssignmentServiceImpl implements AssignmentService {
                 graderId
         );
         
-        AssignmentSubmissionDetailDTO detail = submissionMapper.toDetailDto(saved);
-        detail.setCriteriaScores(loadCriteriaScores(saved.getId()));
         return detail;
     }
 
@@ -291,14 +323,19 @@ public class AssignmentServiceImpl implements AssignmentService {
     public List<AssignmentSubmissionDetailDTO> listSubmissions(Long assignmentId, Pageable pageable) {
         log.debug("Listing submissions for assignment {} with page {}", assignmentId, pageable.getPageNumber());
         
-        // Verify assignment exists
-        getAssignmentOrThrow(assignmentId);
+        Assignment assignment = getAssignmentOrThrow(assignmentId);
         
-        // TODO: Check permission - mentor can see all, learner only their own
-        // For now, return all submissions
-        Page<AssignmentSubmission> submissions = submissionRepository.findByAssignmentId(assignmentId, pageable);
+        // Ensure only the course author or admin can list all submissions
+        Long actorId = getCurrentUserId();
+        ensureAuthorOrAdmin(actorId, assignment.getModule().getCourse().getAuthor().getId());
         
-        return submissions.map(this::toDetailWithCriteria).toList();
+        // Only show newest version per student (avoid duplicates from previous versions)
+        List<AssignmentSubmission> submissions = submissionRepository
+                .findLatestSubmissionsByAssignmentId(assignmentId);
+        
+        return submissions.stream()
+                .map(this::toDetailWithCriteria)
+                .toList();
     }
 
     @Override
@@ -333,21 +370,40 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .orElseThrow(() -> new NotFoundException("SUBMISSION_NOT_FOUND"));
     }
 
+    /**
+     * Extracts the current authenticated user's ID from the SecurityContext.
+     * Used in service methods that need the caller's identity without it being passed as a parameter.
+     */
+    private Long getCurrentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new AccessDeniedException("UNAUTHORIZED");
+        }
+        // The JWT principal is a Jwt object; its "userId" claim was set during token issuance
+        if (auth.getPrincipal() instanceof Jwt jwt) {
+            String userId = jwt.getClaimAsString("userId");
+            if (userId != null) return Long.parseLong(userId);
+            return Long.parseLong(jwt.getSubject());
+        }
+        throw new AccessDeniedException("UNAUTHORIZED");
+    }
+
     private void ensureAuthorOrAdmin(Long actorId, Long authorId) {
-        // Allow if actor is the author
+        // Allow if actor is the author of the course
         if (actorId.equals(authorId)) {
             return;
         }
-        
-        // Check if actor has ADMIN or MENTOR role via SecurityContext
+
+        // Only ADMIN (not just any MENTOR) can bypass the author check.
+        // This prevents Mentor A from grading/editing Mentor B's assignments.
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_MENTOR"))) {
-            log.debug("Actor {} allowed via role-based access", actorId);
+                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_CONTENT_ADMIN"))) {
+            log.debug("Actor {} allowed via admin role", actorId);
             return;
         }
-        
+
         throw new AccessDeniedException("FORBIDDEN");
     }
 
@@ -363,7 +419,7 @@ public class AssignmentServiceImpl implements AssignmentService {
             throw new BadRequestException("Passing score cannot exceed max score");
         }
         validateCriteria(dto.getCriteria());
-        // TODO: add more validation (due date, requirements, etc.)
+        validateCriteriaSumMatchesMaxScore(dto.getCriteria(), dto.getMaxScore());
     }
 
     private void validateUpdateAssignmentRequest(AssignmentUpdateDTO dto, Assignment assignment) {
@@ -380,7 +436,20 @@ public class AssignmentServiceImpl implements AssignmentService {
             }
         }
         validateCriteria(dto.getCriteria());
-        // TODO: add more validation
+
+        // Fail-fast: if maxScore changes, validate against existing criteria from DB when none provided
+        BigDecimal effectiveMaxScore = dto.getMaxScore() != null ? dto.getMaxScore() : assignment.getMaxScore();
+        List<AssignmentCriteriaDTO> criteriaToValidate = dto.getCriteria();
+        if (criteriaToValidate == null && dto.getMaxScore() != null
+                && assignment.getCriteria() != null && !assignment.getCriteria().isEmpty()) {
+            // Mentor changed maxScore but didn't send new criteria — validate against existing
+            criteriaToValidate = assignment.getCriteria().stream()
+                    .map(c -> AssignmentCriteriaDTO.builder()
+                            .maxPoints(c.getMaxPoints())
+                            .build())
+                    .toList();
+        }
+        validateCriteriaSumMatchesMaxScore(criteriaToValidate, effectiveMaxScore);
     }
 
     private void validateCriteria(List<AssignmentCriteriaDTO> criteria) {
@@ -392,11 +461,37 @@ public class AssignmentServiceImpl implements AssignmentService {
             if (c.getMaxPoints() == null || c.getMaxPoints().compareTo(BigDecimal.ZERO) <= 0) {
                 throw new BadRequestException("Criteria max points must be positive");
             }
+            // Validate passingPoints: must be between 0 and maxPoints
+            if (c.getPassingPoints() != null) {
+                if (c.getPassingPoints().compareTo(BigDecimal.ZERO) < 0) {
+                    throw new BadRequestException("Criteria passing points cannot be negative: " + c.getName());
+                }
+                if (c.getPassingPoints().compareTo(c.getMaxPoints()) > 0) {
+                    throw new BadRequestException("Criteria passing points cannot exceed max points: " + c.getName());
+                }
+            }
+            // Note: if passingPoints is null in DTO, buildCriteriaEntities defaults it to BigDecimal.ZERO
+        }
+    }
+
+    /**
+     * Validates that the sum of criteria maxPoints equals the assignment maxScore.
+     * This prevents inconsistent rubrics where criteria don't add up correctly.
+     */
+    private void validateCriteriaSumMatchesMaxScore(List<AssignmentCriteriaDTO> criteria, BigDecimal maxScore) {
+        if (criteria == null || criteria.isEmpty() || maxScore == null) return;
+        BigDecimal sum = criteria.stream()
+                .map(c -> c.getMaxPoints() != null ? c.getMaxPoints() : BigDecimal.ZERO)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (sum.compareTo(maxScore) != 0) {
+            throw new BadRequestException(
+                    "Tổng điểm các tiêu chí (" + sum + ") phải bằng điểm tối đa của bài tập (" + maxScore + ")"
+            );
         }
     }
 
     private List<AssignmentCriteria> buildCriteriaEntities(List<AssignmentCriteriaDTO> criteriaDtos, Assignment assignment) {
-        if (criteriaDtos == null) return List.of();
+        if (criteriaDtos == null) return new ArrayList<>();
         return criteriaDtos.stream()
                 .filter(c -> c.getName() != null && !c.getName().isBlank())
                 .map(c -> AssignmentCriteria.builder()
@@ -404,10 +499,11 @@ public class AssignmentServiceImpl implements AssignmentService {
                         .name(c.getName().trim())
                         .description(c.getDescription())
                         .maxPoints(c.getMaxPoints() != null ? c.getMaxPoints() : BigDecimal.ZERO)
+                        .passingPoints(c.getPassingPoints() != null ? c.getPassingPoints() : BigDecimal.ZERO)
                         .orderIndex(c.getOrderIndex())
                         .isRequired(c.isRequired())
                         .build())
-                .toList();
+                .collect(Collectors.toList());
     }
 
     private void validateSubmissionRequest(AssignmentSubmissionCreateDTO dto, Assignment assignment) {
@@ -452,8 +548,67 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     private AssignmentSubmissionDetailDTO toDetailWithCriteria(AssignmentSubmission submission) {
         AssignmentSubmissionDetailDTO detail = submissionMapper.toDetailDto(submission);
-        detail.setCriteriaScores(loadCriteriaScores(submission.getId()));
+        List<CriteriaScoreDTO> criteriaScores = loadCriteriaScores(submission.getId());
+        detail.setCriteriaScores(criteriaScores);
+
+        // Read isPassed from entity (persisted at grading time) — no recomputation
+        if (submission.getScore() != null) {
+            detail.setIsPassed(submission.getIsPassed());
+            detail.setPassingScore(computePassingScore(submission.getAssignment()));
+        }
+        
         return detail;
+    }
+
+    /**
+     * Coursera-style pass/fail: if criteria exist, ALL required criteria must individually
+     * meet their passingPoints. If no criteria, use assignment.passingScore (or sum of
+     * criteria passingPoints as the effective threshold).
+     */
+    private boolean computeIsPassed(Assignment assignment, List<CriteriaScoreDTO> criteriaScores, BigDecimal totalScore) {
+        if (criteriaScores != null && !criteriaScores.isEmpty()) {
+            // Criteria-based: every required criterion must be passed individually
+            for (CriteriaScoreDTO cs : criteriaScores) {
+                if (Boolean.FALSE.equals(cs.getPassed())) {
+                    // Check if this criterion is required
+                    if (isRequiredCriterion(assignment, cs.getCriteriaId())) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+        // Flat score: use assignment passingScore
+        BigDecimal threshold = computePassingScore(assignment);
+        return totalScore.compareTo(threshold) >= 0;
+    }
+
+    /**
+     * Compute the effective passing score for an assignment.
+     * If criteria exist with passingPoints → sum of passingPoints for required criteria.
+     * Otherwise → assignment.passingScore or 70% of maxScore.
+     */
+    private BigDecimal computePassingScore(Assignment assignment) {
+        List<AssignmentCriteria> criteria = assignment.getCriteria();
+        if (criteria != null && !criteria.isEmpty()) {
+            // Sum of passingPoints for required criteria
+            return criteria.stream()
+                    .filter(AssignmentCriteria::isRequired)
+                    .map(AssignmentCriteria::getPassingPoints)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        }
+        return assignment.getPassingScore() != null
+                ? assignment.getPassingScore()
+                : assignment.getMaxScore().multiply(new BigDecimal("0.7"));
+    }
+
+    private boolean isRequiredCriterion(Assignment assignment, Long criteriaId) {
+        if (criteriaId == null || assignment.getCriteria() == null) return true;
+        return assignment.getCriteria().stream()
+                .filter(c -> criteriaId.equals(c.getId()))
+                .findFirst()
+                .map(AssignmentCriteria::isRequired)
+                .orElse(true); // Default to required if not found
     }
 
     private List<CriteriaScoreDTO> loadCriteriaScores(Long submissionId) {
@@ -462,14 +617,26 @@ public class AssignmentServiceImpl implements AssignmentService {
             return List.of();
         }
         return scores.stream()
-                .map(score -> CriteriaScoreDTO.builder()
-                        .id(score.getId())
-                        .criteriaId(score.getCriteria() != null ? score.getCriteria().getId() : null)
-                        .criteriaName(score.getCriteria() != null ? score.getCriteria().getName() : null)
-                        .maxPoints(score.getCriteria() != null ? score.getCriteria().getMaxPoints() : null)
-                        .score(score.getScore())
-                        .feedback(score.getFeedback())
-                        .build())
+                .map(score -> {
+                    AssignmentCriteria c = score.getCriteria();
+                    BigDecimal passingPts = (c != null) ? c.getPassingPoints() : BigDecimal.ZERO;
+                    BigDecimal maxPts = (c != null) ? c.getMaxPoints() : null;
+                    // Criteria-based pass: score >= passingPoints
+                    Boolean passed = null;
+                    if (score.getScore() != null && c != null) {
+                        passed = score.getScore().compareTo(passingPts) >= 0;
+                    }
+                    return CriteriaScoreDTO.builder()
+                            .id(score.getId())
+                            .criteriaId(c != null ? c.getId() : null)
+                            .criteriaName(c != null ? c.getName() : null)
+                            .maxPoints(maxPts)
+                            .passingPoints(passingPts)
+                            .score(score.getScore())
+                            .passed(passed)
+                            .feedback(score.getFeedback())
+                            .build();
+                })
                 .toList();
     }
 
@@ -489,6 +656,13 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .collect(Collectors.toMap(AssignmentCriteria::getId, c -> c));
 
         criteriaScoreRepository.deleteBySubmissionId(submission.getId());
+
+        // Validate that ALL criteria are scored — mentor must grade every criterion
+        if (criteriaScores.size() != criteriaList.size()) {
+            throw new BadRequestException(
+                    "Phải chấm điểm tất cả " + criteriaList.size() + " tiêu chí (nhận được " + criteriaScores.size() + ")"
+            );
+        }
 
         BigDecimal total = BigDecimal.ZERO;
         for (CriteriaScoreDTO scoreDto : criteriaScores) {
@@ -523,7 +697,7 @@ public class AssignmentServiceImpl implements AssignmentService {
     @Override
     @Transactional(readOnly = true)
     public List<AssignmentSubmissionDetailDTO> getUserSubmissions(Long assignmentId, Long userId) {
-        log.info("Getting submissions for user {} on assignment {}", userId, assignmentId);
+        log.debug("Getting submissions for user {} on assignment {}", userId, assignmentId);
         
         // Verify assignment exists
         getAssignmentOrThrow(assignmentId);
@@ -539,7 +713,7 @@ public class AssignmentServiceImpl implements AssignmentService {
     @Override
     @Transactional(readOnly = true)
     public List<AssignmentSubmissionDetailDTO> getPendingSubmissions(Long assignmentId, Long actorId) {
-        log.info("Getting pending submissions for assignment {} by actor {}", assignmentId, actorId);
+        log.debug("Getting pending submissions for assignment {} by actor {}", assignmentId, actorId);
         
         Assignment assignment = getAssignmentOrThrow(assignmentId);
         
@@ -557,7 +731,7 @@ public class AssignmentServiceImpl implements AssignmentService {
     @Override
     @Transactional(readOnly = true)
     public Long countPendingSubmissions(Long assignmentId, Long actorId) {
-        log.info("Counting pending submissions for assignment {} by actor {}", assignmentId, actorId);
+        log.debug("Counting pending submissions for assignment {} by actor {}", assignmentId, actorId);
         
         Assignment assignment = getAssignmentOrThrow(assignmentId);
         
@@ -565,6 +739,29 @@ public class AssignmentServiceImpl implements AssignmentService {
         ensureAuthorOrAdmin(actorId, assignment.getModule().getCourse().getAuthor().getId());
         
         return submissionRepository.countPendingByAssignmentId(assignmentId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PendingSubmissionItemDTO> getAllPendingForMentor(Long mentorId) {
+        log.debug("Batch-loading all pending submissions for mentor {}", mentorId);
+        
+        List<AssignmentSubmission> submissions = submissionRepository.findAllPendingByAuthorId(mentorId);
+        
+        return submissions.stream().map(sub -> {
+            Assignment assignment = sub.getAssignment();
+            var module = assignment.getModule();
+            var course = module.getCourse();
+            
+            return PendingSubmissionItemDTO.builder()
+                    .submission(toDetailWithCriteria(sub))
+                    .courseName(course.getTitle())
+                    .courseId(course.getId())
+                    .moduleName(module.getTitle())
+                    .moduleId(module.getId())
+                    .assignmentName(assignment.getTitle())
+                    .build();
+        }).toList();
     }
 
     private Instant now() {

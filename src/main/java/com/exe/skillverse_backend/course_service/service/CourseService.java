@@ -7,18 +7,17 @@ import com.exe.skillverse_backend.course_service.dto.coursedto.CourseUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import org.springframework.data.domain.Pageable;
-import java.util.List;
-import java.util.Map;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface CourseService {
     
-    CourseDetailDTO createCourse(Long authorId, CourseCreateDTO dto);
+    CourseDetailDTO createCourse(Long authorId, CourseCreateDTO dto, MultipartFile thumbnailFile);
     
-    CourseDetailDTO updateCourse(Long courseId, CourseUpdateDTO dto, Long actorId);
+    CourseDetailDTO updateCourse(Long courseId, CourseUpdateDTO dto, Long actorId, MultipartFile thumbnailFile);
     
     void deleteCourse(Long courseId, Long actorId);
     
-    CourseDetailDTO getCourse(Long id);
+    CourseDetailDTO getCourse(Long id, Long actorId);
     
     PageResponse<CourseSummaryDTO> listCourses(String q, CourseStatus status, Pageable p);
     
@@ -26,14 +25,19 @@ public interface CourseService {
     
     // Course approval workflow methods
     CourseDetailDTO submitCourseForApproval(Long courseId, Long actorId);
-    
+
     CourseDetailDTO approveCourse(Long courseId, Long adminId);
-    
+
     CourseDetailDTO rejectCourse(Long courseId, Long adminId, String reason);
-    
+
+    /** Suspend a PUBLIC course due to violations (admin-only) */
+    CourseDetailDTO suspendCourse(Long courseId, Long adminId, String reason);
+
+    /** Restore a SUSPENDED course back to PUBLIC (admin-only) */
+    CourseDetailDTO restoreCourse(Long courseId, Long adminId);
+
     PageResponse<CourseSummaryDTO> listCoursesByStatus(CourseStatus status, Pageable pageable);
-    
-    long getTotalCourseCount();
-    
-    List<Map<String, Object>> getAllCoursesForDebug();
+
+    /** Get course counts grouped by status (for admin dashboard) */
+    java.util.Map<String, Long> getCourseStats();
 }

@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.course_service.dto.lessondto.LessonDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonUpdateDTO;
 import com.exe.skillverse_backend.course_service.service.LessonService;
+import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -12,9 +13,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.security.access.prepost.PreAuthorize;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -30,14 +33,19 @@ public class LessonController {
 
     private final LessonService lessonService;
 
+    private Long extractUserId(Jwt jwt) {
+        return JwtUtils.extractUserId(jwt);
+    }
+
     @PostMapping
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Add a new lesson to a module")
     public ResponseEntity<LessonBriefDTO> addLesson(
             @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
             @Parameter(description = "Lesson creation data") @Valid @RequestBody LessonCreateDTO dto,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Adding lesson to module {} by user {}", moduleId, actorId);
         LessonBriefDTO created = lessonService.addLesson(moduleId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -49,19 +57,22 @@ public class LessonController {
     public ResponseEntity<LessonBriefDTO> updateLesson(
             @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId,
             @Parameter(description = "Lesson update data") @Valid @RequestBody LessonUpdateDTO dto,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Updating lesson {} by user {}", lessonId, actorId);
         LessonBriefDTO updated = lessonService.updateLesson(lessonId, dto, actorId);
         return ResponseEntity.ok(updated);
     }
 
     @DeleteMapping("/{lessonId}")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Delete a lesson")
     public ResponseEntity<Void> deleteLesson(
             @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Deleting lesson {} by user {}", lessonId, actorId);
         lessonService.deleteLesson(lessonId, actorId);
         return ResponseEntity.noContent().build();

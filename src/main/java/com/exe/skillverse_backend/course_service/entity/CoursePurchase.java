@@ -28,14 +28,13 @@ public class CoursePurchase {
   @Column(nullable = false, length = 10)
   private String currency;
 
-//   @Column(nullable = false, length = 64)
-//   private String paymentId;
-
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 20)
+  @Builder.Default
   private PurchaseStatus status = PurchaseStatus.PENDING;
 
   @Column(nullable = false)
+  @Builder.Default
   private Instant purchasedAt = Instant.now();
 
   @Column(length = 50)

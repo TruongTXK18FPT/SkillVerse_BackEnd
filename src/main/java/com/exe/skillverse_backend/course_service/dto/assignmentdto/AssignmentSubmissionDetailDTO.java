@@ -40,6 +40,19 @@ public class AssignmentSubmissionDetailDTO {
     private Boolean isPrevious;
     private Boolean isLate;
     
+    /**
+     * Criteria-based pass/fail (Coursera pattern).
+     * True if ALL required criteria meet their passingPoints.
+     * Null if not yet graded.
+     */
+    private Boolean isPassed;
+    
+    /**
+     * The passing score for the assignment (derived from criteria or assignment-level).
+     * Sent to FE so it doesn't need to compute.
+     */
+    private BigDecimal passingScore;
+    
     // Derived field for frontend status display
     public String getStatus() {
         if (score != null) {

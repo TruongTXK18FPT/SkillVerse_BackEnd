@@ -34,6 +34,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -42,16 +43,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class CoursePurchaseServiceImpl implements CoursePurchaseService {
+
+    /** Mentor receives 80% of course price */
+    private static final BigDecimal MENTOR_SHARE_RATIO = new BigDecimal("0.80");
 
     private final CourseRepository courseRepository;
     private final CoursePurchaseRepository coursePurchaseRepository;
@@ -64,6 +64,12 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
     private final EmailService emailService;
     private final InvoiceService invoiceService;
     private final WalletTransactionRepository walletTransactionRepository;
+
+    @Value("${payment.course-purchase.success-url:http://localhost:5173/payment/success}")
+    private String defaultSuccessUrl;
+
+    @Value("${payment.course-purchase.cancel-url:http://localhost:5173/payment/cancel}")
+    private String defaultCancelUrl;
 
     @Override
     @Transactional
@@ -79,9 +85,9 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         String metadata = String.format("{\"courseId\":%d,\"userId\":%d}", course.getId(), userId);
 
         String successUrl = request.getReturnUrl() != null ? request.getReturnUrl()
-                : "http://localhost:5173/payment/success";
+                : defaultSuccessUrl;
         String cancelUrl = request.getCancelUrl() != null ? request.getCancelUrl()
-                : "http://localhost:5173/payment/cancel";
+                : defaultCancelUrl;
 
         CreatePaymentRequest paymentRequest = CreatePaymentRequest.builder()
                 .amount(course.getPrice())
@@ -115,36 +121,8 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         walletService.deductCash(userId, course.getPrice(), "Purchase course: " + course.getTitle(), "COURSE_PURCHASE",
                 "COURSE_" + course.getId());
 
-        // Pay mentor (80%)
-        BigDecimal mentorShare = course.getPrice().multiply(new BigDecimal("0.80"));
-        walletService.payMentorForCourse(course.getAuthor().getId(), mentorShare, course.getId());
-
-        // Create purchase record
-        CoursePurchase purchase = CoursePurchase.builder()
-                .user(user)
-                .course(course)
-                .price(course.getPrice())
-                .currency("VND")
-                .status(PurchaseStatus.PAID)
-                .purchasedAt(Instant.now())
-                .build();
-
-        purchase = coursePurchaseRepository.save(purchase);
-
-        // Auto-enroll user
-        if (!courseEnrollmentRepository.existsByCourseIdAndUserId(course.getId(), userId)) {
-            CourseEnrollment enrollment = CourseEnrollment.builder()
-                    .user(user)
-                    .course(course)
-                    .status(EnrollmentStatus.ENROLLED)
-                    .progressPercent(0)
-                    .entitlementSource(EntitlementSource.PURCHASE)
-                    .entitlementRef("PURCHASE_" + purchase.getId())
-                    .enrollDate(Instant.now())
-                    .build();
-            enrollment.setId(new CourseEnrollment.CourseEnrollmentId(userId, course.getId()));
-            courseEnrollmentRepository.save(enrollment);
-        }
+        // Complete purchase: pay mentor + create record + auto-enroll
+        CoursePurchase purchase = completePurchaseAndEnroll(user, course);
 
         try {
             notificationService.createNotification(
@@ -202,35 +180,8 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                     return;
                 }
 
-                // Pay mentor (80%)
-                BigDecimal mentorShare = course.getPrice().multiply(new BigDecimal("0.80"));
-                walletService.payMentorForCourse(course.getAuthor().getId(), mentorShare, course.getId());
-
-                CoursePurchase purchase = CoursePurchase.builder()
-                        .user(user)
-                        .course(course)
-                        .price(course.getPrice())
-                        .currency("VND")
-                        .status(PurchaseStatus.PAID)
-                        .purchasedAt(Instant.now())
-                        .build();
-
-                CoursePurchase savedPurchase = coursePurchaseRepository.save(purchase);
-
-                // Auto-enroll user
-                if (!courseEnrollmentRepository.existsByCourseIdAndUserId(courseId, userId)) {
-                    CourseEnrollment enrollment = CourseEnrollment.builder()
-                            .user(user)
-                            .course(course)
-                            .status(EnrollmentStatus.ENROLLED)
-                            .progressPercent(0)
-                            .entitlementSource(EntitlementSource.PURCHASE)
-                            .entitlementRef("PURCHASE_" + savedPurchase.getId())
-                            .enrollDate(Instant.now())
-                            .build();
-                    enrollment.setId(new CourseEnrollment.CourseEnrollmentId(userId, courseId));
-                    courseEnrollmentRepository.save(enrollment);
-                }
+                // Complete purchase: pay mentor + create record + auto-enroll
+                completePurchaseAndEnroll(user, course);
 
                 log.info("Course purchase completed via payment gateway for user {} course {}", userId, courseId);
 
@@ -292,9 +243,61 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                 .formatted(name, courseTitle, courseTitle, amountStr, ref);
     }
 
-    private String getDisplayName(com.exe.skillverse_backend.auth_service.entity.User user) {
-        if (user == null)
-            return "Learner";
+    /**
+     * Complete a course purchase: pay mentor share, create purchase record, auto-enroll user.
+     * Shared logic between wallet purchase and payment gateway success.
+     */
+    private CoursePurchase completePurchaseAndEnroll(User user, Course course) {
+        Long userId = user.getId();
+        Long courseId = course.getId();
+
+        // Pay mentor share
+        BigDecimal mentorShare = course.getPrice().multiply(MENTOR_SHARE_RATIO);
+        walletService.payMentorForCourse(course.getAuthor().getId(), mentorShare, courseId);
+
+        // Create purchase record
+        CoursePurchase purchase = CoursePurchase.builder()
+                .user(user)
+                .course(course)
+                .price(course.getPrice())
+                .currency(course.getCurrency() != null ? course.getCurrency() : "VND")
+                .status(PurchaseStatus.PAID)
+                .purchasedAt(Instant.now())
+                .build();
+        purchase = coursePurchaseRepository.save(purchase);
+
+        // Auto-enroll user
+        if (!courseEnrollmentRepository.existsByCourseIdAndUserId(courseId, userId)) {
+            CourseEnrollment enrollment = CourseEnrollment.builder()
+                    .user(user)
+                    .course(course)
+                    .status(EnrollmentStatus.ENROLLED)
+                    .progressPercent(0)
+                    .entitlementSource(EntitlementSource.PURCHASE)
+                    .entitlementRef("PURCHASE_" + purchase.getId())
+                    .enrollDate(Instant.now())
+                    .build();
+            enrollment.setId(new CourseEnrollment.CourseEnrollmentId(userId, courseId));
+            courseEnrollmentRepository.save(enrollment);
+        }
+
+        return purchase;
+    }
+
+    /**
+     * Get display name for a user, checking UserProfile first, then User entity fields.
+     */
+    private String getDisplayName(User user) {
+        if (user == null) return "Learner";
+        try {
+            if (userProfileService.hasProfile(user.getId())) {
+                var profile = userProfileService.getProfile(user.getId());
+                if (profile.getFullName() != null && !profile.getFullName().isBlank()) {
+                    return profile.getFullName();
+                }
+            }
+        } catch (Exception ignored) {
+        }
         String fn = user.getFirstName();
         String ln = user.getLastName();
         String built = ((fn != null ? fn : "") + (ln != null ? " " + ln : "")).trim();
@@ -302,7 +305,7 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
     }
 
     private CoursePurchaseDTO mapToDTO(CoursePurchase purchase) {
-        String buyerName = buildFullName(purchase.getUser());
+        String buyerName = getDisplayName(purchase.getUser());
         String avatarUrl = getAvatarUrl(purchase.getUser());
         CoursePurchaseDTO dto = new CoursePurchaseDTO(
                 purchase.getId(),
@@ -317,22 +320,6 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                 avatarUrl,
                 purchase.getCourse().getTitle());
         return dto;
-    }
-
-    private String buildFullName(User user) {
-        try {
-            if (userProfileService.hasProfile(user.getId())) {
-                var profile = userProfileService.getProfile(user.getId());
-                if (profile.getFullName() != null && !profile.getFullName().isBlank()) {
-                    return profile.getFullName();
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        String fn = user.getFirstName();
-        String ln = user.getLastName();
-        String built = ((fn != null ? fn : "") + (ln != null ? " " + ln : "")).trim();
-        return built.isEmpty() ? ("User #" + user.getId()) : built;
     }
 
     private String getAvatarUrl(User user) {

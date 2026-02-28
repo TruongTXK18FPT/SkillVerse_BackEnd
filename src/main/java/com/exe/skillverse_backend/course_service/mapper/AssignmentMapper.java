@@ -80,6 +80,7 @@ public interface AssignmentMapper {
                 .name(criteria.getName())
                 .description(criteria.getDescription())
                 .maxPoints(criteria.getMaxPoints())
+                .passingPoints(criteria.getPassingPoints())
                 .orderIndex(criteria.getOrderIndex())
                 .isRequired(criteria.isRequired())
                 .build();

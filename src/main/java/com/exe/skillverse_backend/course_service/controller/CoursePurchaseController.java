@@ -8,6 +8,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -40,8 +42,8 @@ public class CoursePurchaseController {
 
     @GetMapping("/mentor")
     @Operation(summary = "Get course purchases for mentor's courses")
-    public ResponseEntity<org.springframework.data.domain.Page<CoursePurchaseDTO>> getMentorPurchases(
-            org.springframework.data.domain.Pageable pageable,
+    public ResponseEntity<Page<CoursePurchaseDTO>> getMentorPurchases(
+            Pageable pageable,
             Authentication authentication) {
         Long mentorId = Long.parseLong(authentication.getName());
         return ResponseEntity.ok(coursePurchaseService.getMentorPurchases(mentorId, pageable));

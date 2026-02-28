@@ -22,6 +22,9 @@ import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -236,11 +239,22 @@ public class LessonServiceImpl implements LessonService {
     }
 
     private void ensureAuthorOrAdmin(Long actorId, Long authorId) {
-        // TODO: call Auth/Role service to check if actor is ADMIN
-        if (!actorId.equals(authorId)) {
-            // TODO: implement proper role checking via AuthService
-            throw new AccessDeniedException("FORBIDDEN");
+        // Allow if actor is the author of the course
+        if (actorId.equals(authorId)) {
+            return;
         }
+
+        // Only ADMIN can bypass the author check.
+        // This prevents Mentor A from editing Mentor B's lessons.
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_CONTENT_ADMIN"))) {
+            log.debug("Actor {} allowed via admin role", actorId);
+            return;
+        }
+
+        throw new AccessDeniedException("FORBIDDEN");
     }
 
     private long countRelatedContent(Long lessonId) {

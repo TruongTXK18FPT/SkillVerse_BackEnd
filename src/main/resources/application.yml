@@ -148,6 +148,9 @@ payment:
     checksum-key: ${PAYOS_CHECKSUM_KEY:e53324608b59a5614972388adfc79b36b12c2ae5e141470a0d51b82ca6bebc92}
     base-url: ${PAYOS_BASE_URL:https://api-merchant.payos.vn}
     webhook-url: ${PAYOS_WEBHOOK_URL:http://localhost:8080/api/v1/payments/callback/payos}
+  course-purchase:
+    success-url: ${COURSE_PURCHASE_SUCCESS_URL:http://localhost:5173/payment/success}
+    cancel-url: ${COURSE_PURCHASE_CANCEL_URL:http://localhost:5173/payment/cancel}
 
 # Premium Subscription Configuration
 premium:

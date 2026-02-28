@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.course_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseSummaryDTO;
@@ -13,24 +14,35 @@ import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepo
 import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.service.CourseService;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import com.exe.skillverse_backend.shared.exception.MediaOperationException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -42,23 +54,29 @@ public class CourseServiceImpl implements CourseService {
     private final CoursePurchaseRepository purchaseRepository;
     private final ModuleRepository moduleRepository;
     private final MediaRepository mediaRepository;
+    private final CloudinaryService cloudinaryService;
     private final CourseMapper courseMapper;
+    private final UserRepository userRepository;
+    private final NotificationService notificationService;
     private final Clock clock;
-    // TODO: inject AuthService for user validation
     // TODO: inject ApplicationEventPublisher for events
 
     @Override
     @Transactional
-    public CourseDetailDTO createCourse(Long authorId, CourseCreateDTO dto) {
+    public CourseDetailDTO createCourse(Long authorId, CourseCreateDTO dto, MultipartFile thumbnailFile) {
         log.info("Creating course with title '{}' by author {}", dto.getTitle(), authorId);
 
         validateCreateCourseRequest(dto);
 
-        User author = User.builder().id(authorId).build(); // Placeholder for now
+        User author = userRepository.findById(authorId)
+                .orElseThrow(() -> new NotFoundException("USER_NOT_FOUND"));
 
-        // Load thumbnail media if provided
+        // Handle thumbnail upload if file provided
         Media thumbnail = null;
-        if (dto.getThumbnailMediaId() != null) {
+        if (thumbnailFile != null && !thumbnailFile.isEmpty()) {
+            thumbnail = uploadThumbnail(thumbnailFile, authorId);
+            dto.setThumbnailMediaId(thumbnail.getId());
+        } else if (dto.getThumbnailMediaId() != null) {
             log.info("Loading thumbnail media with ID: {}", dto.getThumbnailMediaId());
             thumbnail = mediaRepository.findByIdWithUser(dto.getThumbnailMediaId());
             if (thumbnail == null) {
@@ -80,22 +98,27 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional
-    public CourseDetailDTO updateCourse(Long courseId, CourseUpdateDTO dto, Long actorId) {
+    public CourseDetailDTO updateCourse(Long courseId, CourseUpdateDTO dto, Long actorId, MultipartFile thumbnailFile) {
         log.info("Updating course {} by actor {}", courseId, actorId);
 
         Course course = getCourseOrThrow(courseId);
         ensureAuthorOrAdmin(actorId, course.getAuthor().getId());
 
-        // Policy: only allow updates when DRAFT (or create versioning)
-        if (course.getStatus() != CourseStatus.DRAFT) {
+        // Policy: allow updates when DRAFT, REJECTED, or SUSPENDED (mentor can edit and resubmit/appeal)
+        if (course.getStatus() != CourseStatus.DRAFT
+                && course.getStatus() != CourseStatus.REJECTED
+                && course.getStatus() != CourseStatus.SUSPENDED) {
             throw new ConflictException("COURSE_NOT_EDITABLE_IN_STATUS_" + course.getStatus());
         }
 
         validateUpdateCourseRequest(dto);
 
-        // Load new thumbnail if provided
+        // Handle thumbnail upload if file provided
         Media thumbnail = course.getThumbnail(); // Keep existing thumbnail by default
-        if (dto.getThumbnailMediaId() != null) {
+        if (thumbnailFile != null && !thumbnailFile.isEmpty()) {
+            thumbnail = uploadThumbnail(thumbnailFile, actorId);
+            dto.setThumbnailMediaId(thumbnail.getId());
+        } else if (dto.getThumbnailMediaId() != null) {
             log.info("Loading thumbnail media with ID: {}", dto.getThumbnailMediaId());
             thumbnail = mediaRepository.findByIdWithUser(dto.getThumbnailMediaId());
             if (thumbnail == null) {
@@ -140,12 +163,23 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional(readOnly = true)
-    public CourseDetailDTO getCourse(Long id) {
-        log.debug("Fetching course details for id {}", id);
+    public CourseDetailDTO getCourse(Long id, Long actorId) {
+        log.debug("Fetching course details for id {}, actor {}", id, actorId);
         Course course = courseRepository.findByIdWithAuthorAndModules(id);
         if (course == null) {
             throw new NotFoundException("COURSE_NOT_FOUND");
         }
+
+        // PUBLIC courses are visible to everyone
+        // DRAFT/PENDING/REJECTED/ARCHIVED require the actor to be the author or admin
+        // SUSPENDED: visible only to owner or ADMIN (admin suspended it, should still be viewable)
+        if (course.getStatus() != CourseStatus.PUBLIC) {
+            if (actorId == null) {
+                throw new AccessDeniedException("COURSE_NOT_ACCESSIBLE");
+            }
+            ensureAuthorOrAdmin(actorId, course.getAuthor().getId());
+        }
+
         return courseMapper.toDetailDto(course);
     }
 
@@ -188,12 +222,13 @@ public class CourseServiceImpl implements CourseService {
         // Use query with eager loading to avoid LazyInitializationException
         Page<Course> page = courseRepository.findByAuthorIdWithAuthor(authorId, pageable);
 
-        // Map courses and set module counts
+        // Batch fetch module counts to avoid N+1 query
+        Map<Long, Integer> moduleCountMap = getModuleCountMap(page.getContent());
+
         List<CourseSummaryDTO> courseSummaries = page.getContent().stream()
                 .map(course -> {
                     CourseSummaryDTO summary = courseMapper.toSummaryDto(course);
-                    // Set module count using repository to avoid lazy initialization
-                    summary.setModuleCount((int) moduleRepository.countByCourseId(course.getId()));
+                    summary.setModuleCount(moduleCountMap.getOrDefault(course.getId(), 0));
                     return summary;
                 })
                 .toList();
@@ -214,12 +249,23 @@ public class CourseServiceImpl implements CourseService {
         Course course = getCourseOrThrow(courseId);
         ensureAuthorOrAdmin(actorId, course.getAuthor().getId());
 
-        // Only DRAFT courses can be submitted for approval
-        if (course.getStatus() != CourseStatus.DRAFT) {
+        // Allow submission from DRAFT, REJECTED, or SUSPENDED status (appeal)
+        if (course.getStatus() != CourseStatus.DRAFT
+                && course.getStatus() != CourseStatus.REJECTED
+                && course.getStatus() != CourseStatus.SUSPENDED) {
             throw new ConflictException("COURSE_CANNOT_BE_SUBMITTED_IN_STATUS_" + course.getStatus());
         }
 
+        // Clear rejection info when resubmitting
+        course.setRejectionReason(null);
+        course.setRejectedAt(null);
+
+        // Clear suspension info when appealing
+        course.setSuspensionReason(null);
+        course.setSuspendedAt(null);
+        course.setSuspendedBy(null);
         course.setStatus(CourseStatus.PENDING);
+        course.setSubmittedAt(now());
         course.setUpdatedAt(now());
 
         Course saved = courseRepository.save(course);
@@ -241,12 +287,33 @@ public class CourseServiceImpl implements CourseService {
         }
 
         course.setStatus(CourseStatus.PUBLIC);
+        course.setPublishedAt(now());
         course.setUpdatedAt(now());
 
         Course saved = courseRepository.save(course);
         log.info("Course {} approved by admin {}", courseId, adminId);
 
-        // TODO: Publish event for course approval notification
+        // Notify the course author
+        notificationService.createNotification(
+                course.getAuthor().getId(),
+                "Khóa học đã được duyệt",
+                "Khóa học '" + course.getTitle() + "' đã được admin duyệt và công khai.",
+                NotificationType.COURSE_RESTORED,
+                courseId.toString()
+        );
+
+        // If course has enrolled students (e.g. re-approved after appeal), notify them
+        long enrolledCount = enrollmentRepository.countByCourseId(courseId);
+        if (enrolledCount > 0) {
+            enrollmentRepository.findByCourseId(courseId, org.springframework.data.domain.Pageable.unpaged())
+                    .forEach(enrollment -> notificationService.createNotification(
+                            enrollment.getUser().getId(),
+                            "Khóa học đã mở lại",
+                            "Khóa học '" + course.getTitle() + "' đã được duyệt lại. Bạn có thể tiếp tục học tập.",
+                            NotificationType.COURSE_RESTORED,
+                            courseId.toString()
+                    ));
+        }
 
         return courseMapper.toDetailDto(saved);
     }
@@ -263,13 +330,23 @@ public class CourseServiceImpl implements CourseService {
             throw new ConflictException("COURSE_CANNOT_BE_REJECTED_IN_STATUS_" + course.getStatus());
         }
 
-        course.setStatus(CourseStatus.DRAFT);
+        course.setStatus(CourseStatus.REJECTED);
+        course.setRejectionReason(reason);
+        course.setRejectedAt(now());
         course.setUpdatedAt(now());
 
         Course saved = courseRepository.save(course);
         log.info("Course {} rejected by admin {} with reason: {}", courseId, adminId, reason);
 
-        // TODO: Publish event for course rejection notification with reason
+        // Notify the course author about the rejection
+        notificationService.createNotification(
+                course.getAuthor().getId(),
+                "Kh\u00f3a h\u1ecdc b\u1ecb t\u1eeb ch\u1ed1i",
+                "Kh\u00f3a h\u1ecdc '" + course.getTitle() + "' b\u1ecb t\u1eeb ch\u1ed1i d\u00eayệt."
+                        + (reason != null && !reason.isBlank() ? " L\u00fd do: " + reason : ""),
+                NotificationType.COURSE_REJECTED,
+                courseId.toString()
+        );
 
         return courseMapper.toDetailDto(saved);
     }
@@ -282,12 +359,13 @@ public class CourseServiceImpl implements CourseService {
         // Use query with eager loading to avoid LazyInitializationException
         Page<Course> page = courseRepository.findByStatusWithAuthor(status, pageable);
 
-        // Map courses and set module counts
+        // Batch fetch module counts to avoid N+1 query
+        Map<Long, Integer> moduleCountMap = getModuleCountMap(page.getContent());
+
         List<CourseSummaryDTO> courseSummaries = page.getContent().stream()
                 .map(course -> {
                     CourseSummaryDTO summary = courseMapper.toSummaryDto(course);
-                    // Set module count using repository to avoid lazy initialization
-                    summary.setModuleCount((int) moduleRepository.countByCourseId(course.getId()));
+                    summary.setModuleCount(moduleCountMap.getOrDefault(course.getId(), 0));
                     return summary;
                 })
                 .toList();
@@ -300,7 +378,123 @@ public class CourseServiceImpl implements CourseService {
                 .build();
     }
 
+    @Override
+    @Transactional
+    public CourseDetailDTO suspendCourse(Long courseId, Long adminId, String reason) {
+        log.info("Admin {} suspending course {} with reason: {}", adminId, courseId, reason);
+
+        Course course = getCourseOrThrow(courseId);
+
+        // Only PUBLIC courses can be suspended (already-archived courses stay archived)
+        if (course.getStatus() != CourseStatus.PUBLIC) {
+            throw new ConflictException("COURSE_CANNOT_BE_SUSPENDED_IN_STATUS_" + course.getStatus());
+        }
+
+        course.setStatus(CourseStatus.SUSPENDED);
+        course.setSuspensionReason(reason);
+        course.setSuspendedAt(now());
+        course.setSuspendedBy(adminId);
+        course.setUpdatedAt(now());
+
+        Course saved = courseRepository.save(course);
+        log.info("Course {} suspended by admin {}", courseId, adminId);
+
+        // Notify the course author
+        notificationService.createNotification(
+                course.getAuthor().getId(),
+                "Khóa học bị tạm khóa",
+                "Khóa học '" + course.getTitle() + "' đã bị tạm khóa bởi Admin."
+                        + (reason != null && !reason.isBlank() ? " Lý do: " + reason : ""),
+                NotificationType.COURSE_SUSPENDED,
+                courseId.toString()
+        );
+
+        // Notify all enrolled students
+        enrollmentRepository.findByCourseId(courseId, org.springframework.data.domain.Pageable.unpaged())
+                .forEach(enrollment -> notificationService.createNotification(
+                        enrollment.getUser().getId(),
+                        "Khóa học bị tạm khóa",
+                        "Khóa học '" + course.getTitle() + "' mà bạn đang học đã bị tạm khóa để xem xét. "
+                                + "Tiến độ học tập của bạn được giữ nguyên và sẽ khả dụng khi khóa học được mở lại.",
+                        NotificationType.COURSE_SUSPENDED,
+                        courseId.toString()
+                ));
+
+        return courseMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public CourseDetailDTO restoreCourse(Long courseId, Long adminId) {
+        log.info("Admin {} restoring course {} from suspension", adminId, courseId);
+
+        Course course = getCourseOrThrow(courseId);
+
+        if (course.getStatus() != CourseStatus.SUSPENDED) {
+            throw new ConflictException("COURSE_CANNOT_BE_RESTORED_IN_STATUS_" + course.getStatus());
+        }
+
+        course.setStatus(CourseStatus.PUBLIC);
+        course.setSuspensionReason(null);
+        course.setSuspendedAt(null);
+        course.setSuspendedBy(null);
+        course.setUpdatedAt(now());
+
+        Course saved = courseRepository.save(course);
+        log.info("Course {} restored to PUBLIC by admin {}", courseId, adminId);
+
+        // Notify the course author
+        notificationService.createNotification(
+                course.getAuthor().getId(),
+                "Khóa học đã được mở lại",
+                "Khóa học '" + course.getTitle() + "' đã được admin duyệt và mở lại thành công.",
+                NotificationType.COURSE_RESTORED,
+                courseId.toString()
+        );
+
+        // Notify all enrolled students that the course is available again
+        enrollmentRepository.findByCourseId(courseId, org.springframework.data.domain.Pageable.unpaged())
+                .forEach(enrollment -> notificationService.createNotification(
+                        enrollment.getUser().getId(),
+                        "Khóa học đã mở lại",
+                        "Khóa học '" + course.getTitle() + "' đã được mở lại. Bạn có thể tiếp tục học tập.",
+                        NotificationType.COURSE_RESTORED,
+                        courseId.toString()
+                ));
+
+        return courseMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Long> getCourseStats() {
+        log.debug("Fetching course statistics by status");
+        Map<String, Long> stats = new HashMap<>();
+        for (CourseStatus status : CourseStatus.values()) {
+            stats.put(status.name(), courseRepository.countByStatus(status));
+        }
+        stats.put("ALL", courseRepository.count());
+        return stats;
+    }
+
     // ===== Helper Methods =====
+
+    /**
+     * Batch fetch module counts for a list of courses.
+     * Uses a single query instead of N queries (fixes N+1 problem).
+     */
+    private Map<Long, Integer> getModuleCountMap(List<Course> courses) {
+        if (courses.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<Long> courseIds = courses.stream().map(Course::getId).toList();
+        List<Object[]> counts = moduleRepository.countByCourseIds(courseIds);
+        return counts.stream()
+                .collect(Collectors.toMap(
+                        row -> (Long) row[0],
+                        row -> ((Long) row[1]).intValue()
+                ));
+    }
 
     private Course getCourseOrThrow(Long id) {
         return courseRepository.findById(id)
@@ -308,11 +502,21 @@ public class CourseServiceImpl implements CourseService {
     }
 
     private void ensureAuthorOrAdmin(Long actorId, Long authorId) {
-        // TODO: call Auth/Role service to check if actor is ADMIN
-        if (!actorId.equals(authorId)) {
-            // TODO: implement proper role checking via AuthService
-            throw new AccessDeniedException("FORBIDDEN");
+        // Allow if actor is the author
+        if (actorId.equals(authorId)) {
+            return;
         }
+
+        // Check if actor has ADMIN role via SecurityContext
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_CONTENT_ADMIN"))) {
+            log.debug("Actor {} allowed via admin role", actorId);
+            return;
+        }
+
+        throw new AccessDeniedException("FORBIDDEN");
     }
 
     private void validateCreateCourseRequest(CourseCreateDTO dto) {
@@ -333,27 +537,37 @@ public class CourseServiceImpl implements CourseService {
         return Instant.now(clock);
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public long getTotalCourseCount() {
-        return courseRepository.count();
-    }
+    /**
+     * Upload thumbnail file to Cloudinary and save as Media entity.
+     * Extracted from Controller to follow SRP (Single Responsibility Principle).
+     */
+    private Media uploadThumbnail(MultipartFile thumbnailFile, Long uploaderId) {
+        try {
+            log.info("Uploading thumbnail file: {}", thumbnailFile.getOriginalFilename());
 
-    @Override
-    @Transactional(readOnly = true)
-    public List<Map<String, Object>> getAllCoursesForDebug() {
-        List<Course> courses = courseRepository.findAll();
-        return courses.stream()
-                .map(course -> {
-                    Map<String, Object> courseInfo = new HashMap<>();
-                    courseInfo.put("id", course.getId());
-                    courseInfo.put("title", course.getTitle());
-                    courseInfo.put("status", course.getStatus());
-                    courseInfo.put("level", course.getLevel());
-                    courseInfo.put("authorId", course.getAuthor().getId());
-                    courseInfo.put("moduleCount", course.getModules().size());
-                    return courseInfo;
-                })
-                .toList();
+            String folder = "skillverse/user_" + uploaderId;
+            Map<String, Object> uploadResult = cloudinaryService.uploadImage(thumbnailFile, folder);
+
+            String publicUrl = (String) uploadResult.get("url");
+            String publicId = (String) uploadResult.get("public_id");
+            String resourceType = (String) uploadResult.get("resource_type");
+
+            Media thumbnail = new Media();
+            thumbnail.setUrl(publicUrl);
+            thumbnail.setType(thumbnailFile.getContentType());
+            thumbnail.setFileName(thumbnailFile.getOriginalFilename());
+            thumbnail.setFileSize(thumbnailFile.getSize());
+            thumbnail.setUploadedBy(uploaderId);
+            thumbnail.setUploadedAt(LocalDateTime.now());
+            thumbnail.setCloudinaryPublicId(publicId);
+            thumbnail.setCloudinaryResourceType(resourceType);
+
+            Media savedThumbnail = mediaRepository.save(thumbnail);
+            log.info("Thumbnail uploaded successfully: {} - {}", savedThumbnail.getId(), savedThumbnail.getUrl());
+            return savedThumbnail;
+        } catch (Exception e) {
+            log.error("Failed to upload thumbnail: {}", e.getMessage());
+            throw new MediaOperationException("Thumbnail upload failed: " + e.getMessage(), e);
+        }
     }
 }

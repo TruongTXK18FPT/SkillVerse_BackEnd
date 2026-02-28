@@ -9,6 +9,10 @@ import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
 import org.mapstruct.*;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+
 @Mapper(config = CustomMapperConfig.class, uses = { UserMapper.class, MediaMapper.class, ModuleMapper.class })
 public interface CourseMapper {
 
@@ -35,6 +39,10 @@ public interface CourseMapper {
     @Mapping(target = "publishedDate", expression = "java(toLocalDateTime(course.getPublishedAt()))")
     @Mapping(target = "createdAt", expression = "java(toLocalDateTime(course.getCreatedAt()))")
     @Mapping(target = "updatedAt", expression = "java(toLocalDateTime(course.getUpdatedAt()))")
+    @Mapping(target = "rejectionReason", source = "rejectionReason")
+    @Mapping(target = "rejectedAt", expression = "java(toLocalDateTime(course.getRejectedAt()))")
+    @Mapping(target = "suspensionReason", source = "suspensionReason")
+    @Mapping(target = "suspendedAt", expression = "java(toLocalDateTime(course.getSuspendedAt()))")
     CourseDetailDTO toDetailDto(Course course);
 
     @Mapping(target = "id", source = "id")
@@ -58,6 +66,7 @@ public interface CourseMapper {
     @Mapping(target = "publishedDate", expression = "java(toLocalDateTime(course.getPublishedAt()))")
     @Mapping(target = "createdAt", expression = "java(toLocalDateTime(course.getCreatedAt()))")
     @Mapping(target = "updatedAt", expression = "java(toLocalDateTime(course.getUpdatedAt()))")
+    @Mapping(target = "rejectionReason", source = "rejectionReason")
     CourseSummaryDTO toSummaryDto(Course course);
 
     // Helper methods for safe null handling
@@ -108,10 +117,10 @@ public interface CourseMapper {
     }
 
     // Date conversion helpers
-    default java.time.LocalDateTime toLocalDateTime(java.time.Instant instant) {
+    default LocalDateTime toLocalDateTime(Instant instant) {
         if (instant == null)
             return null;
-        return java.time.LocalDateTime.ofInstant(instant, java.time.ZoneOffset.UTC);
+        return LocalDateTime.ofInstant(instant, ZoneOffset.UTC);
     }
 
     @Mapping(target = "id", ignore = true)
@@ -131,6 +140,13 @@ public interface CourseMapper {
     @Mapping(target = "currency", source = "createDto.currency")
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
+    @Mapping(target = "submittedAt", ignore = true)
+    @Mapping(target = "publishedAt", ignore = true)
+    @Mapping(target = "rejectionReason", ignore = true)
+    @Mapping(target = "rejectedAt", ignore = true)
+    @Mapping(target = "suspensionReason", ignore = true)
+    @Mapping(target = "suspendedAt", ignore = true)
+    @Mapping(target = "suspendedBy", ignore = true)
     @Mapping(target = "modules", ignore = true)
     @Mapping(target = "enrollments", ignore = true)
     @Mapping(target = "purchases", ignore = true)
@@ -153,6 +169,13 @@ public interface CourseMapper {
     @Mapping(target = "thumbnail", source = "thumbnail")
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
+    @Mapping(target = "submittedAt", ignore = true)
+    @Mapping(target = "publishedAt", ignore = true)
+    @Mapping(target = "rejectionReason", ignore = true)
+    @Mapping(target = "rejectedAt", ignore = true)
+    @Mapping(target = "suspensionReason", ignore = true)
+    @Mapping(target = "suspendedAt", ignore = true)
+    @Mapping(target = "suspendedBy", ignore = true)
     @Mapping(target = "price", source = "updateDto.price")
     @Mapping(target = "currency", source = "updateDto.currency")
     @Mapping(target = "modules", ignore = true)

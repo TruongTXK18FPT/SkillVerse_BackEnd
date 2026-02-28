@@ -41,5 +41,10 @@ public class CourseDetailDTO {
     private LocalDateTime updatedAt;
     private LocalDateTime submittedDate;
     private LocalDateTime publishedDate;
-    
+    // Rejection info (status == REJECTED)
+    private String rejectionReason;
+    private LocalDateTime rejectedAt;
+    // Suspension info (status == SUSPENDED)
+    private String suspensionReason;
+    private LocalDateTime suspendedAt;
 }

@@ -152,4 +152,17 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
     List<AssignmentSubmission> findVersionsForComparison(
             @Param("assignmentId") Long assignmentId, 
             @Param("userId") Long userId);
+    /**
+     * Find all pending (ungraded newest) submissions across all assignments
+     * owned by a specific mentor/author. Single-query replacement for N+1 pattern.
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT asub FROM AssignmentSubmission asub " +
+            "JOIN asub.assignment a " +
+            "JOIN a.module m " +
+            "JOIN m.course c " +
+            "WHERE c.author.id = :authorId " +
+            "AND asub.isNewest = true AND asub.score IS NULL " +
+            "ORDER BY asub.submittedAt ASC")
+    List<AssignmentSubmission> findAllPendingByAuthorId(@Param("authorId") Long authorId);
 }

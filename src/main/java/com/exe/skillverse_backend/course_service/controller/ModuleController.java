@@ -1,9 +1,10 @@
 package com.exe.skillverse_backend.course_service.controller;
 
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleCreateDTO;
-import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleUpdateDTO;
-import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleSummaryDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleProgressDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleUpdateDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSummaryDTO;
 import com.exe.skillverse_backend.course_service.service.ModuleService;
@@ -72,6 +73,13 @@ public class ModuleController {
     return ResponseEntity.ok(moduleService.listModules(courseId));
   }
 
+  @GetMapping("/courses/{courseId}/modules/full")
+  @Operation(summary = "List all modules with lessons, quizzes, and assignments in one request")
+  public ResponseEntity<List<ModuleDetailDTO>> listModulesWithContent(
+      @PathVariable @NotNull Long courseId) {
+    return ResponseEntity.ok(moduleService.listModulesWithContent(courseId));
+  }
+
   @GetMapping("/modules/{moduleId}")
   @Operation(summary = "Get module detail with lessons, quizzes, and assignments")
   public ResponseEntity<ModuleDetailDTO> getModuleDetail(
@@ -101,7 +109,7 @@ public class ModuleController {
 
   @GetMapping("/modules/{moduleId}/progress")
   @Operation(summary = "Get module progress for a user")
-  public ResponseEntity<com.exe.skillverse_backend.course_service.dto.moduledto.ModuleProgressDTO> getModuleProgress(
+  public ResponseEntity<ModuleProgressDTO> getModuleProgress(
       @PathVariable @NotNull Long moduleId,
       @RequestParam @NotNull Long userId) {
     return ResponseEntity.ok(moduleService.getProgress(moduleId, userId));

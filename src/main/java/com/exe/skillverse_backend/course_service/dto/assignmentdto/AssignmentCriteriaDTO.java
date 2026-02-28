@@ -14,6 +14,7 @@ public class AssignmentCriteriaDTO {
     private String name;
     private String description;
     private BigDecimal maxPoints;
+    private BigDecimal passingPoints; // Minimum score to pass this criterion (Coursera pattern)
     private Integer orderIndex;
     private boolean isRequired;
 }

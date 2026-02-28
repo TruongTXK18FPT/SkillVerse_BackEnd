@@ -7,10 +7,6 @@ import com.exe.skillverse_backend.course_service.dto.coursedto.CourseUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.service.CourseService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
-import com.exe.skillverse_backend.shared.entity.Media;
-import com.exe.skillverse_backend.shared.repository.MediaRepository;
-import com.exe.skillverse_backend.shared.service.CloudinaryService;
-import com.exe.skillverse_backend.shared.exception.MediaOperationException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -31,15 +27,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.List;
-import java.time.LocalDateTime;
 
 @RestController
 @RequestMapping("/api/courses")
@@ -50,8 +48,6 @@ import java.time.LocalDateTime;
 public class CourseController {
 
     private final CourseService courseService;
-    private final MediaRepository mediaRepository;
-    private final CloudinaryService cloudinaryService;
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
@@ -73,42 +69,6 @@ public class CourseController {
 
         log.info("Creating course by author: {}", authorId);
 
-        // Handle thumbnail file upload if provided
-        Long thumbnailMediaId = null;
-        if (thumbnailFile != null && !thumbnailFile.isEmpty()) {
-            try {
-                log.info("Uploading thumbnail file: {}", thumbnailFile.getOriginalFilename());
-
-                // Upload to Cloudinary
-                String folder = "skillverse/user_" + authorId;
-                Map<String, Object> uploadResult = cloudinaryService.uploadImage(thumbnailFile, folder);
-
-                // Extract Cloudinary response data
-                String publicUrl = (String) uploadResult.get("url");
-                String publicId = (String) uploadResult.get("public_id");
-                String resourceType = (String) uploadResult.get("resource_type");
-
-                // Create Media entity
-                Media thumbnail = new Media();
-                thumbnail.setUrl(publicUrl);
-                thumbnail.setType(thumbnailFile.getContentType());
-                thumbnail.setFileName(thumbnailFile.getOriginalFilename());
-                thumbnail.setFileSize(thumbnailFile.getSize());
-                thumbnail.setUploadedBy(authorId);
-                thumbnail.setUploadedAt(LocalDateTime.now());
-                thumbnail.setCloudinaryPublicId(publicId);
-                thumbnail.setCloudinaryResourceType(resourceType);
-
-                // Save thumbnail to database
-                Media savedThumbnail = mediaRepository.save(thumbnail);
-                thumbnailMediaId = savedThumbnail.getId();
-                log.info("Thumbnail uploaded successfully: {} - {}", savedThumbnail.getId(), savedThumbnail.getUrl());
-            } catch (Exception e) {
-                log.error("Failed to upload thumbnail: {}", e.getMessage());
-                throw new MediaOperationException("Thumbnail upload failed: " + e.getMessage(), e);
-            }
-        }
-
         CourseCreateDTO dto = new CourseCreateDTO();
         dto.setTitle(title);
         dto.setDescription(description);
@@ -119,11 +79,10 @@ public class CourseController {
         dto.setLanguage(language);
         dto.setLearningObjectives(learningObjectives);
         dto.setRequirements(requirements);
-        dto.setThumbnailMediaId(thumbnailMediaId);
         dto.setPrice(price);
         dto.setCurrency(currency);
 
-        CourseDetailDTO created = courseService.createCourse(authorId, dto);
+        CourseDetailDTO created = courseService.createCourse(authorId, dto, thumbnailFile);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -148,42 +107,6 @@ public class CourseController {
 
         log.info("Updating course {} by user {}", courseId, actorId);
 
-        // Handle thumbnail file upload if provided
-        Long thumbnailMediaId = null;
-        if (thumbnailFile != null && !thumbnailFile.isEmpty()) {
-            try {
-                log.info("Uploading new thumbnail file: {}", thumbnailFile.getOriginalFilename());
-
-                // Upload to Cloudinary
-                String folder = "skillverse/user_" + actorId;
-                Map<String, Object> uploadResult = cloudinaryService.uploadImage(thumbnailFile, folder);
-
-                // Extract Cloudinary response data
-                String publicUrl = (String) uploadResult.get("url");
-                String publicId = (String) uploadResult.get("public_id");
-                String resourceType = (String) uploadResult.get("resource_type");
-
-                // Create Media entity
-                Media thumbnail = new Media();
-                thumbnail.setUrl(publicUrl);
-                thumbnail.setType(thumbnailFile.getContentType());
-                thumbnail.setFileName(thumbnailFile.getOriginalFilename());
-                thumbnail.setFileSize(thumbnailFile.getSize());
-                thumbnail.setUploadedBy(actorId);
-                thumbnail.setUploadedAt(LocalDateTime.now());
-                thumbnail.setCloudinaryPublicId(publicId);
-                thumbnail.setCloudinaryResourceType(resourceType);
-
-                // Save thumbnail to database
-                Media savedThumbnail = mediaRepository.save(thumbnail);
-                thumbnailMediaId = savedThumbnail.getId();
-                log.info("Thumbnail uploaded successfully: {} - {}", savedThumbnail.getId(), savedThumbnail.getUrl());
-            } catch (Exception e) {
-                log.error("Failed to upload thumbnail: {}", e.getMessage());
-                throw new MediaOperationException("Thumbnail upload failed: " + e.getMessage(), e);
-            }
-        }
-
         CourseUpdateDTO dto = new CourseUpdateDTO();
         dto.setTitle(title);
         dto.setDescription(description);
@@ -194,11 +117,10 @@ public class CourseController {
         dto.setLanguage(language);
         dto.setLearningObjectives(learningObjectives);
         dto.setRequirements(requirements);
-        dto.setThumbnailMediaId(thumbnailMediaId);
         dto.setPrice(price);
         dto.setCurrency(currency);
 
-        CourseDetailDTO updated = courseService.updateCourse(courseId, dto, actorId);
+        CourseDetailDTO updated = courseService.updateCourse(courseId, dto, actorId, thumbnailFile);
         return ResponseEntity.ok(updated);
     }
 
@@ -217,18 +139,34 @@ public class CourseController {
     @GetMapping("/{courseId}")
     @Operation(summary = "Get course details")
     public ResponseEntity<CourseDetailDTO> getCourse(
-            @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId) {
+            @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
+            @AuthenticationPrincipal Jwt jwt) {
 
-        CourseDetailDTO course = courseService.getCourse(courseId);
+        Long actorId = null;
+        if (jwt != null) {
+            String userId = jwt.getClaimAsString("userId");
+            if (userId != null) {
+                actorId = Long.valueOf(userId);
+            }
+        }
+        CourseDetailDTO course = courseService.getCourse(courseId, actorId);
         return ResponseEntity.ok(course);
     }
 
     @GetMapping
-    @Operation(summary = "List courses with search and filtering")
+    @Operation(summary = "List courses with search and filtering",
+            description = "Public endpoint. Non-admin users can only see PUBLIC courses. " +
+                    "The status parameter is ignored for non-admin callers.")
     public ResponseEntity<PageResponse<CourseSummaryDTO>> listCourses(
             @Parameter(description = "Search query") @RequestParam(required = false) String q,
-            @Parameter(description = "Course status filter") @RequestParam(required = false) CourseStatus status,
+            @Parameter(description = "Course status filter (admin only)") @RequestParam(required = false) CourseStatus status,
+            @AuthenticationPrincipal Jwt jwt,
             @PageableDefault(size = 20) Pageable pageable) {
+
+        // Security: non-admin users can only see PUBLIC courses
+        if (!isAdmin(jwt)) {
+            status = CourseStatus.PUBLIC;
+        }
 
         PageResponse<CourseSummaryDTO> courses = courseService.listCourses(q, status, pageable);
         return ResponseEntity.ok(courses);
@@ -245,7 +183,7 @@ public class CourseController {
         return ResponseEntity.ok(courses);
     }
 
-    // ========== Admin-only Course Approval Endpoints ==========
+    // ========== Mentor Workflow Endpoints ==========
 
     @PostMapping("/{courseId}/submit")
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
@@ -259,59 +197,19 @@ public class CourseController {
         return ResponseEntity.ok(submitted);
     }
 
-    @PostMapping("/{courseId}/approve")
-    @PreAuthorize("hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
-    @Operation(summary = "Approve a course (Admin only)")
-    public ResponseEntity<CourseDetailDTO> approveCourse(
-            @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
-            @Parameter(description = "Admin user ID") @RequestParam @NotNull Long adminId) {
+    // ========== Helpers ==========
 
-        log.info("Admin {} approving course {}", adminId, courseId);
-        CourseDetailDTO approved = courseService.approveCourse(courseId, adminId);
-        return ResponseEntity.ok(approved);
+    /**
+     * Check if the current JWT holder has ADMIN or CONTENT_ADMIN role.
+     * Used to restrict the public listing endpoint.
+     */
+    private boolean isAdmin(Jwt jwt) {
+        if (jwt == null) return false;
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) return false;
+        return auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_CONTENT_ADMIN"));
     }
 
-    @PostMapping("/{courseId}/reject")
-    @PreAuthorize("hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
-    @Operation(summary = "Reject a course (Admin only)")
-    public ResponseEntity<CourseDetailDTO> rejectCourse(
-            @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
-            @Parameter(description = "Admin user ID") @RequestParam @NotNull Long adminId,
-            @Parameter(description = "Rejection reason") @RequestParam(required = false) String reason) {
-
-        log.info("Admin {} rejecting course {} with reason: {}", adminId, courseId, reason);
-        CourseDetailDTO rejected = courseService.rejectCourse(courseId, adminId, reason);
-        return ResponseEntity.ok(rejected);
-    }
-
-    @GetMapping("/pending")
-    @PreAuthorize("hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
-    @Operation(summary = "List courses pending approval (Admin only)")
-    public ResponseEntity<PageResponse<CourseSummaryDTO>> listPendingCourses(
-            @PageableDefault(size = 20) Pageable pageable) {
-
-        PageResponse<CourseSummaryDTO> pendingCourses = courseService.listCoursesByStatus(CourseStatus.PENDING,
-                pageable);
-        return ResponseEntity.ok(pendingCourses);
-    }
-
-    // ========== Debug Endpoints ==========
-
-    @GetMapping("/debug/count")
-    @Operation(summary = "Debug: Get total course count")
-    public ResponseEntity<Map<String, Object>> getCourseCount() {
-        Map<String, Object> response = new HashMap<>();
-        response.put("totalCourses", courseService.getTotalCourseCount());
-        response.put("message", "Debug endpoint - total courses in database");
-        return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/debug/list")
-    @Operation(summary = "Debug: List all courses with IDs")
-    public ResponseEntity<Map<String, Object>> listAllCourses() {
-        Map<String, Object> response = new HashMap<>();
-        response.put("courses", courseService.getAllCoursesForDebug());
-        response.put("message", "Debug endpoint - all courses in database");
-        return ResponseEntity.ok(response);
-    }
 }

@@ -75,6 +75,14 @@ public class ModuleServiceImpl implements ModuleService {
 
   @Override
   @Transactional(readOnly = true)
+  public List<ModuleDetailDTO> listModulesWithContent(Long courseId) {
+    getCourseOrThrow(courseId);
+    List<Module> modules = moduleRepository.findByCourseIdOrderByOrderIndexAsc(courseId);
+    return modules.stream().map(moduleMapper::toDetailDto).toList();
+  }
+
+  @Override
+  @Transactional(readOnly = true)
   public ModuleDetailDTO getModuleDetail(Long moduleId) {
     Module module = getModuleOrThrow(moduleId);
     return moduleMapper.toDetailDto(module);

@@ -70,4 +70,12 @@ public class AssignmentSubmission {
   /** Timestamp when grading was completed */
   @Column(name = "graded_at")
   private Instant gradedAt;
+
+  /**
+   * Criteria-based pass/fail result, persisted at grading time.
+   * NULL = not yet graded, TRUE = passed, FALSE = failed.
+   * Once set, immune to subsequent criteria/passingPoints edits.
+   */
+  @Column(name = "is_passed")
+  private Boolean isPassed;
 }

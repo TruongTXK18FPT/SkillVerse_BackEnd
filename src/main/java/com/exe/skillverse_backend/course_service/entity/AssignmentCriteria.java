@@ -30,6 +30,14 @@ public class AssignmentCriteria {
     @Column(name = "max_points", nullable = false, precision = 10, scale = 2)
     private BigDecimal maxPoints;
 
+    /**
+     * Minimum score required to pass this criterion (Coursera pattern).
+     * Defaults to 0 — mentor should set an appropriate passing threshold when creating criteria.
+     */
+    @Builder.Default
+    @Column(name = "passing_points", nullable = false, precision = 10, scale = 2)
+    private BigDecimal passingPoints = BigDecimal.ZERO;
+
     @Column(name = "order_index")
     private Integer orderIndex;
 

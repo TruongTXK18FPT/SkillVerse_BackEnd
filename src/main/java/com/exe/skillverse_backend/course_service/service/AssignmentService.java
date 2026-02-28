@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.course_service.service;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.*;
 import org.springframework.data.domain.Pageable;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 public interface AssignmentService {
@@ -17,7 +18,7 @@ public interface AssignmentService {
 
     AssignmentSubmissionDetailDTO submit(Long assignmentId, Long userId, AssignmentSubmissionCreateDTO dto);
     
-    AssignmentSubmissionDetailDTO grade(Long submissionId, Long graderId, AssignmentGradeDTO grading);
+    AssignmentSubmissionDetailDTO grade(Long submissionId, Long graderId, AssignmentGradeDTO grading, BigDecimal legacyScore, String legacyFeedback);
     
     List<AssignmentSubmissionDetailDTO> listSubmissions(Long assignmentId, Pageable p);
     
@@ -37,4 +38,10 @@ public interface AssignmentService {
      * Count pending submissions for badge display.
      */
     Long countPendingSubmissions(Long assignmentId, Long actorId);
+
+    /**
+     * Get ALL pending submissions across all courses/modules/assignments
+     * owned by the given mentor. Single-query batch load.
+     */
+    List<PendingSubmissionItemDTO> getAllPendingForMentor(Long mentorId);
 }

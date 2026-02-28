@@ -103,4 +103,10 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
      */
     @Transactional(readOnly = true)
     List<Course> findByThumbnailId(Long thumbnailId);
+
+    /**
+     * Count courses by status (used for admin dashboard stats)
+     */
+    @Transactional(readOnly = true)
+    long countByStatus(CourseStatus status);
 }

@@ -5,6 +5,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -53,12 +54,14 @@ public class Assignment {
   private Instant createdAt = Instant.now();
   private Instant updatedAt;
 
+  @Builder.Default
   @OneToMany(mappedBy = "assignment", cascade = CascadeType.ALL, orphanRemoval = true)
   @ToString.Exclude @EqualsAndHashCode.Exclude
-  private List<AssignmentSubmission> submissions;
+  private List<AssignmentSubmission> submissions = new ArrayList<>();
 
+  @Builder.Default
   @OneToMany(mappedBy = "assignment", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("orderIndex ASC")
   @ToString.Exclude @EqualsAndHashCode.Exclude
-  private List<AssignmentCriteria> criteria;
+  private List<AssignmentCriteria> criteria = new ArrayList<>();
 }

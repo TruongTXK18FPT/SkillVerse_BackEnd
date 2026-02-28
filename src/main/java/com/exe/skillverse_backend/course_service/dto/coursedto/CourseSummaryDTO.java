@@ -35,4 +35,6 @@ public class CourseSummaryDTO {
     private LocalDateTime updatedAt;
     private LocalDateTime submittedDate;
     private LocalDateTime publishedDate;
+    // Rejection info shown in mentor dashboard
+    private String rejectionReason;
 }

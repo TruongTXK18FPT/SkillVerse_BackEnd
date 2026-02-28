@@ -1,11 +1,14 @@
 package com.exe.skillverse_backend.wallet_service.controller;
 
+import com.exe.skillverse_backend.wallet_service.dto.request.AdminGiftRequest;
 import com.exe.skillverse_backend.wallet_service.dto.response.WalletResponse;
 import com.exe.skillverse_backend.wallet_service.dto.response.WalletTransactionResponse;
 import com.exe.skillverse_backend.wallet_service.dto.response.WithdrawalRequestResponse;
+import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.entity.WithdrawalRequest;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.wallet_service.service.WithdrawalService;
+import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +18,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import com.exe.skillverse_backend.shared.util.JwtUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -206,11 +210,11 @@ public class AdminWalletController {
     @PostMapping("/users/gift")
     @Operation(summary = "Gift cash/coins", description = "Admin gifts cash or coins to user")
     public ResponseEntity<WalletTransactionResponse> giftUser(
-            @jakarta.validation.Valid @RequestBody com.exe.skillverse_backend.wallet_service.dto.request.AdminGiftRequest request,
+            @Valid @RequestBody AdminGiftRequest request,
             Authentication authentication) {
         Long adminId = extractUserId(authentication);
         
-        com.exe.skillverse_backend.wallet_service.entity.WalletTransaction transaction = walletService.giftUser(
+        WalletTransaction transaction = walletService.giftUser(
                 request.getUserId(), 
                 request.getCashAmount(), 
                 request.getCoinAmount(), 
@@ -226,8 +230,6 @@ public class AdminWalletController {
     // ==================== HELPER METHODS ====================
 
     private Long extractUserId(Authentication authentication) {
-        // TODO: Extract user ID from JWT token
-        // For now, assume user ID is in authentication principal
-        return Long.parseLong(authentication.getName());
+        return JwtUtils.extractUserId(authentication);
     }
 }

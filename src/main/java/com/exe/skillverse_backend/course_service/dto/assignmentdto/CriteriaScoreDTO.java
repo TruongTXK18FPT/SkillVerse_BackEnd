@@ -14,5 +14,7 @@ public class CriteriaScoreDTO {
     private String criteriaName;
     private BigDecimal score;
     private BigDecimal maxPoints;
+    private BigDecimal passingPoints; // Min score to pass this criterion
+    private Boolean passed;          // Whether this criterion is passed
     private String feedback;
 }

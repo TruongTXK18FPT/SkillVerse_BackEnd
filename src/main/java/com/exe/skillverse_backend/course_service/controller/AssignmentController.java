@@ -6,7 +6,9 @@ import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentGra
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.PendingSubmissionItemDTO;
 import com.exe.skillverse_backend.course_service.service.AssignmentService;
+import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -16,6 +18,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,7 +31,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.security.access.prepost.PreAuthorize;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -43,6 +47,26 @@ public class AssignmentController {
 
     private final AssignmentService assignmentService;
 
+    /**
+     * Extract userId from JWT. Delegates to {@link JwtUtils#extractUserId(Jwt)}.
+     * Tries the "userId" claim first, falls back to "sub" claim.
+     */
+    private Long extractUserId(Jwt jwt) {
+        return JwtUtils.extractUserId(jwt);
+    }
+
+    // ========== Mentor Dashboard Batch ==========
+    @GetMapping("/mentor/pending-all")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @Operation(summary = "Get all pending submissions for the authenticated mentor across all courses (batch)")
+    public ResponseEntity<List<PendingSubmissionItemDTO>> getAllPendingForMentor(
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long mentorId = extractUserId(jwt);
+        List<PendingSubmissionItemDTO> items = assignmentService.getAllPendingForMentor(mentorId);
+        return ResponseEntity.ok(items);
+    }
+
     // ========== Assignment Management ==========
     @PostMapping
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
@@ -50,8 +74,9 @@ public class AssignmentController {
     public ResponseEntity<AssignmentDetailDTO> createAssignment(
             @Parameter(description = "Module ID") @RequestParam @NotNull Long moduleId,
             @Parameter(description = "Assignment creation data") @Valid @RequestBody AssignmentCreateDTO dto,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Creating assignment for module {} by user {}", moduleId, actorId);
         AssignmentDetailDTO created = assignmentService.createAssignment(moduleId, dto, actorId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -63,8 +88,9 @@ public class AssignmentController {
     public ResponseEntity<AssignmentDetailDTO> updateAssignment(
             @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
             @Parameter(description = "Assignment update data") @Valid @RequestBody AssignmentUpdateDTO dto,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Updating assignment {} by user {}", assignmentId, actorId);
         AssignmentDetailDTO updated = assignmentService.updateAssignment(assignmentId, dto, actorId);
         return ResponseEntity.ok(updated);
@@ -85,8 +111,9 @@ public class AssignmentController {
     @Operation(summary = "Delete an assignment")
     public ResponseEntity<Void> deleteAssignment(
             @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Deleting assignment {} by user {}", assignmentId, actorId);
         assignmentService.deleteAssignment(assignmentId, actorId);
         return ResponseEntity.noContent().build();
@@ -94,12 +121,14 @@ public class AssignmentController {
 
     // ========== Submission Management ==========
     @PostMapping("/{assignmentId}/submissions")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Submit an assignment")
     public ResponseEntity<AssignmentSubmissionDetailDTO> submitAssignment(
             @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
-            @Parameter(description = "User ID") @RequestParam @NotNull Long userId,
-            @Parameter(description = "Submission data") @Valid @RequestBody AssignmentSubmissionCreateDTO dto) {
+            @Parameter(description = "Submission data") @Valid @RequestBody AssignmentSubmissionCreateDTO dto,
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long userId = extractUserId(jwt);
         log.info("User {} submitting assignment {}", userId, assignmentId);
         AssignmentSubmissionDetailDTO submission = assignmentService.submit(assignmentId, userId, dto);
         return ResponseEntity.status(HttpStatus.CREATED).body(submission);
@@ -110,19 +139,20 @@ public class AssignmentController {
     @Operation(summary = "Grade an assignment submission")
     public ResponseEntity<AssignmentSubmissionDetailDTO> gradeSubmission(
             @Parameter(description = "Submission ID") @PathVariable @NotNull Long submissionId,
-            @Parameter(description = "Grader user ID") @RequestParam @NotNull Long graderId,
             @Parameter(description = "Grading data") @RequestBody(required = false) AssignmentGradeDTO grading,
             @Parameter(description = "Score (legacy)") @RequestParam(required = false) BigDecimal score,
-            @Parameter(description = "Feedback (legacy)") @RequestParam(required = false) String feedback) {
+            @Parameter(description = "Feedback (legacy)") @RequestParam(required = false) String feedback,
+            @AuthenticationPrincipal Jwt jwt) {
 
-        AssignmentGradeDTO payload = grading != null ? grading : new AssignmentGradeDTO(score, feedback, null);
+        Long graderId = extractUserId(jwt);
         log.info("User {} grading submission {}", graderId, submissionId);
-        AssignmentSubmissionDetailDTO graded = assignmentService.grade(submissionId, graderId, payload);
+        AssignmentSubmissionDetailDTO graded = assignmentService.grade(submissionId, graderId, grading, score, feedback);
         return ResponseEntity.ok(graded);
     }
 
     @GetMapping("/{assignmentId}/submissions")
-    @Operation(summary = "List submissions for an assignment")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @Operation(summary = "List submissions for an assignment (mentor/admin only, newest per student)")
     public ResponseEntity<List<AssignmentSubmissionDetailDTO>> listSubmissions(
             @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
             @PageableDefault(size = 20) Pageable pageable) {
@@ -132,11 +162,13 @@ public class AssignmentController {
     }
 
     @GetMapping("/{assignmentId}/submissions/mine")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get current user's submissions for an assignment (all versions)")
     public ResponseEntity<List<AssignmentSubmissionDetailDTO>> getMySubmissions(
             @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
-            @Parameter(description = "User ID") @RequestParam @NotNull Long userId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long userId = extractUserId(jwt);
         log.info("Getting submissions for user {} on assignment {}", userId, assignmentId);
         List<AssignmentSubmissionDetailDTO> submissions = assignmentService.getUserSubmissions(assignmentId, userId);
         return ResponseEntity.ok(submissions);
@@ -147,8 +179,9 @@ public class AssignmentController {
     @Operation(summary = "Get pending submissions for grading (mentor/admin)")
     public ResponseEntity<List<AssignmentSubmissionDetailDTO>> getPendingSubmissions(
             @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Getting pending submissions for assignment {} by user {}", assignmentId, actorId);
         List<AssignmentSubmissionDetailDTO> submissions = assignmentService.getPendingSubmissions(assignmentId, actorId);
         return ResponseEntity.ok(submissions);
@@ -159,8 +192,9 @@ public class AssignmentController {
     @Operation(summary = "Count pending submissions for an assignment")
     public ResponseEntity<Long> countPendingSubmissions(
             @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Counting pending submissions for assignment {} by user {}", assignmentId, actorId);
         Long count = assignmentService.countPendingSubmissions(assignmentId, actorId);
         return ResponseEntity.ok(count);
