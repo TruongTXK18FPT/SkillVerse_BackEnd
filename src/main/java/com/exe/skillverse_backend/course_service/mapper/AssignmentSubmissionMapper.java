@@ -16,7 +16,7 @@ public interface AssignmentSubmissionMapper {
     @Mapping(target = "assignmentId", source = "assignment.id")
     @Mapping(target = "assignmentTitle", source = "assignment.title")
     @Mapping(target = "userId", source = "user.id")
-    @Mapping(target = "userName", expression = "java(submission.getUser() != null ? submission.getUser().getFirstName() + \" \" + submission.getUser().getLastName() : null)")
+    @Mapping(target = "userName", expression = "java(resolveDisplayName(submission.getUser(), \"Học viên\"))")
     @Mapping(target = "fileMediaId", source = "fileMedia.id")
     @Mapping(target = "fileMediaUrl", source = "fileMedia.url")
     @Mapping(target = "submissionText", source = "submissionText")
@@ -25,7 +25,7 @@ public interface AssignmentSubmissionMapper {
     @Mapping(target = "score", source = "score")
     @Mapping(target = "maxScore", source = "assignment.maxScore")
     @Mapping(target = "gradedBy", source = "gradedBy.id")
-    @Mapping(target = "gradedByName", expression = "java(submission.getGradedBy() != null ? submission.getGradedBy().getFirstName() + \" \" + submission.getGradedBy().getLastName() : null)")
+    @Mapping(target = "gradedByName", expression = "java(resolveDisplayName(submission.getGradedBy(), \"Người chấm\"))")
     @Mapping(target = "gradedAt", source = "gradedAt")
     @Mapping(target = "feedback", source = "feedback")
     @Mapping(target = "attemptNumber", source = "attemptNumber")
@@ -68,4 +68,31 @@ public interface AssignmentSubmissionMapper {
     @Mapping(target = "isPrevious", ignore = true)
     @Mapping(target = "isLate", ignore = true)
     void gradeSubmission(@MappingTarget AssignmentSubmission submission, AssignmentSubmissionDetailDTO grading, User gradedBy);
+
+    default String resolveDisplayName(User user, String fallbackLabel) {
+        if (user == null) {
+            return fallbackLabel;
+        }
+
+        String fullName = user.getFullName();
+        if (fullName != null && !fullName.trim().isEmpty()) {
+            return fullName.trim();
+        }
+
+        String email = user.getEmail();
+        if (email != null && !email.trim().isEmpty()) {
+            int atIndex = email.indexOf('@');
+            String emailPrefix = atIndex > 0 ? email.substring(0, atIndex) : email;
+            if (!emailPrefix.isBlank()) {
+                return emailPrefix;
+            }
+        }
+
+        Long userId = user.getId();
+        if (userId != null) {
+            return fallbackLabel + " #" + userId;
+        }
+
+        return fallbackLabel;
+    }
 }

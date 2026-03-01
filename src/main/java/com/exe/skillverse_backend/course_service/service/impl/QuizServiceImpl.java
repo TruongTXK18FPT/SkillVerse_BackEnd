@@ -7,6 +7,7 @@ import com.exe.skillverse_backend.course_service.entity.Quiz;
 import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
 import com.exe.skillverse_backend.course_service.entity.QuizOption;
 import com.exe.skillverse_backend.course_service.entity.QuizAttempt;
+import com.exe.skillverse_backend.course_service.entity.QuizAttemptAnswerSnapshot;
 import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
 import com.exe.skillverse_backend.course_service.mapper.QuizMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizQuestionMapper;
@@ -17,10 +18,16 @@ import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizQuestionRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizOptionRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizAttemptRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizAttemptAnswerSnapshotRepository;
+import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.course_service.service.QuizService;
+import com.exe.skillverse_backend.shared.config.JacksonConfig;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -57,6 +64,9 @@ public class QuizServiceImpl implements QuizService {
     private final QuizOptionMapper optionMapper;
     private final QuizAttemptMapper attemptMapper;
     private final Clock clock;
+    private final CourseLearningProgressService courseLearningProgressService;
+    private final QuizAttemptAnswerSnapshotRepository attemptAnswerSnapshotRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -186,7 +196,7 @@ public class QuizServiceImpl implements QuizService {
         QuizQuestion question = getQuestionOrThrow(questionId);
         ensureAuthorOrAdmin(actorId, question.getQuiz().getModule().getCourse().getAuthor().getId());
 
-        validateCreateOptionRequest(dto);
+        validateCreateOptionRequest(dto, question);
 
         // Auto-generate orderIndex if not provided
         Integer orderIndex = dto.getOrderIndex();
@@ -211,7 +221,7 @@ public class QuizServiceImpl implements QuizService {
         QuizOption option = getOptionOrThrow(optionId);
         ensureAuthorOrAdmin(actorId, option.getQuestion().getQuiz().getModule().getCourse().getAuthor().getId());
 
-        validateUpdateOptionRequest(dto);
+        validateUpdateOptionRequest(dto, option.getQuestion(), optionId);
 
         optionMapper.updateEntity(option, dto);
 
@@ -278,17 +288,38 @@ public class QuizServiceImpl implements QuizService {
         if (dto.getTitle() == null || dto.getTitle().isBlank()) {
             throw new BadRequestException("Quiz title is required");
         }
-        validateQuizSettings(dto.getMaxAttempts(), dto.getTimeLimitMinutes(), dto.getRoundingIncrement());
+        validateQuizSettings(
+                dto.getPassScore(),
+                dto.getMaxAttempts(),
+                dto.getTimeLimitMinutes(),
+                dto.getRoundingIncrement(),
+                dto.getCooldownHours()
+        );
     }
 
     private void validateUpdateQuizRequest(QuizUpdateDTO dto) {
         if (dto.getTitle() != null && dto.getTitle().isBlank()) {
             throw new BadRequestException("Quiz title cannot be blank");
         }
-        validateQuizSettings(dto.getMaxAttempts(), dto.getTimeLimitMinutes(), dto.getRoundingIncrement());
+        validateQuizSettings(
+                dto.getPassScore(),
+                dto.getMaxAttempts(),
+                dto.getTimeLimitMinutes(),
+                dto.getRoundingIncrement(),
+                dto.getCooldownHours()
+        );
     }
 
-    private void validateQuizSettings(Integer maxAttempts, Integer timeLimitMinutes, Integer roundingIncrement) {
+    private void validateQuizSettings(
+            Integer passScore,
+            Integer maxAttempts,
+            Integer timeLimitMinutes,
+            Integer roundingIncrement,
+            Integer cooldownHours
+    ) {
+        if (passScore != null && (passScore < 0 || passScore > 100)) {
+            throw new BadRequestException("Pass score must be between 0 and 100");
+        }
         if (maxAttempts != null && maxAttempts <= 0) {
             throw new BadRequestException("Max attempts must be greater than 0");
         }
@@ -297,6 +328,9 @@ public class QuizServiceImpl implements QuizService {
         }
         if (roundingIncrement != null && roundingIncrement <= 0) {
             throw new BadRequestException("Rounding increment must be greater than 0");
+        }
+        if (cooldownHours != null && cooldownHours <= 0) {
+            throw new BadRequestException("Cooldown hours must be greater than 0");
         }
     }
 
@@ -307,28 +341,36 @@ public class QuizServiceImpl implements QuizService {
         if (dto.getQuestionType() == null) {
             throw new BadRequestException("Question type is required");
         }
-        // TODO: add more validation (score validation, type-specific rules, etc.)
+        validateQuestionScore(dto.getScore());
     }
 
     private void validateUpdateQuestionRequest(QuizQuestionUpdateDTO dto) {
         if (dto.getQuestionText() != null && dto.getQuestionText().isBlank()) {
             throw new BadRequestException("Question text cannot be blank");
         }
-        // TODO: add more validation
+        validateQuestionScore(dto.getScore());
     }
 
-    private void validateCreateOptionRequest(QuizOptionCreateDTO dto) {
+    private void validateCreateOptionRequest(QuizOptionCreateDTO dto, QuizQuestion question) {
         if (dto.getOptionText() == null || dto.getOptionText().isBlank()) {
             throw new BadRequestException("Option text is required");
         }
-        // TODO: add more validation (ensure at least one correct option, etc.)
+        validateUniqueOptionText(question, dto.getOptionText(), null);
     }
 
-    private void validateUpdateOptionRequest(QuizOptionUpdateDTO dto) {
+    private void validateUpdateOptionRequest(QuizOptionUpdateDTO dto, QuizQuestion question, Long optionId) {
         if (dto.getOptionText() != null && dto.getOptionText().isBlank()) {
             throw new BadRequestException("Option text cannot be blank");
         }
-        // TODO: add more validation
+        if (dto.getOptionText() != null) {
+            validateUniqueOptionText(question, dto.getOptionText(), optionId);
+        }
+    }
+
+    private void validateQuestionScore(Integer score) {
+        if (score != null && score <= 0) {
+            throw new BadRequestException("Question score must be greater than 0");
+        }
     }
 
     private Instant now() {
@@ -344,6 +386,16 @@ public class QuizServiceImpl implements QuizService {
 
         Quiz quiz = getQuizOrThrow(quizId);
         return quizMapper.toDetailDto(quiz);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public QuizDetailDTO getQuizForAttempt(Long quizId) {
+        log.debug("Getting learner-safe quiz details for {}", quizId);
+
+        QuizDetailDTO quiz = getQuiz(quizId);
+        sanitizeQuizForLearner(quiz);
+        return quiz;
     }
 
     @Override
@@ -408,6 +460,17 @@ public class QuizServiceImpl implements QuizService {
             }
         }
 
+        Map<Long, SubmitQuizDTO.Answer> answerMap = Optional.ofNullable(submitData.getAnswers())
+                .orElse(List.of())
+                .stream()
+                .filter(answer -> answer.getQuestionId() != null)
+                .collect(Collectors.toMap(
+                        SubmitQuizDTO.Answer::getQuestionId,
+                        answer -> answer,
+                        (existing, replacement) -> replacement));
+
+        validateSubmittedAnswers(questionMap, submitData.getAnswers());
+
         // Grade quiz
         int correctCount = 0;
         int earnedScore = 0;
@@ -418,13 +481,9 @@ public class QuizServiceImpl implements QuizService {
                 .mapToInt(q -> q.getScore() != null ? q.getScore() : 1)
                 .sum();
 
-        for (SubmitQuizDTO.Answer answer : submitData.getAnswers()) {
-            QuizQuestion question = questionMap.get(answer.getQuestionId());
-            if (question == null) {
-                continue;
-            }
-
-            boolean isCorrect = evaluateAnswer(question, answer);
+        for (QuizQuestion question : quizQuestions) {
+            SubmitQuizDTO.Answer answer = answerMap.get(question.getId());
+            boolean isCorrect = answer != null && hasAnswerContent(question, answer) && evaluateAnswer(question, answer);
             if (isCorrect) {
                 correctCount++;
                 earnedScore += question.getScore() != null ? question.getScore() : 1;
@@ -452,6 +511,16 @@ public class QuizServiceImpl implements QuizService {
         QuizAttempt saved = attemptRepository.save(attempt);
         log.info("[QUIZ_SUBMIT] Attempt saved: id={}", saved.getId());
 
+        List<QuizAttemptAnswerSnapshot> answerSnapshots = quizQuestions.stream()
+                .map(question -> buildAttemptAnswerSnapshot(saved, question, answerMap.get(question.getId())))
+                .toList();
+        attemptAnswerSnapshotRepository.saveAll(answerSnapshots);
+
+        courseLearningProgressService.recalculateCourseProgress(
+                quiz.getModule().getCourse().getId(),
+                userId
+        );
+
         return attemptMapper.toDto(saved);
     }
 
@@ -478,6 +547,41 @@ public class QuizServiceImpl implements QuizService {
         return attempts.stream()
                 .map(attemptMapper::toDto)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public QuizAttemptReviewDTO getMyLatestReview(Long quizId, Long userId) {
+        log.debug("Getting latest review for quiz {} by user {}", quizId, userId);
+
+        QuizAttempt latestAttempt = attemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(quizId, userId)
+                .stream()
+                .findFirst()
+                .orElseThrow(() -> new NotFoundException("QUIZ_ATTEMPT_NOT_FOUND"));
+
+        List<QuizAttemptAnswerReviewDTO> answers = attemptAnswerSnapshotRepository
+                .findByAttemptIdOrderByQuestionOrderIndexAscIdAsc(latestAttempt.getId())
+                .stream()
+                .map(snapshot -> QuizAttemptAnswerReviewDTO.builder()
+                        .questionId(snapshot.getQuestionId())
+                        .questionOrderIndex(snapshot.getQuestionOrderIndex())
+                        .questionText(snapshot.getQuestionText())
+                        .questionType(snapshot.getQuestionType())
+                        .submittedAnswer(readSubmittedAnswerSnapshot(snapshot.getSubmittedAnswerJson()))
+                        .optionsSnapshot(readOptionsSnapshot(snapshot.getOptionsSnapshotJson()))
+                        .submittedAnswerText(snapshot.getSubmittedAnswerText())
+                        .correctAnswerText(snapshot.getCorrectAnswerText())
+                        .answered(snapshot.getAnswered())
+                        .correct(snapshot.getCorrect())
+                        .scoreEarned(snapshot.getScoreEarned())
+                        .maxScore(snapshot.getMaxScore())
+                        .build())
+                .toList();
+
+        return QuizAttemptReviewDTO.builder()
+                .attempt(attemptMapper.toDto(latestAttempt))
+                .answers(answers)
+                .build();
     }
     
     @Override
@@ -566,6 +670,267 @@ public class QuizServiceImpl implements QuizService {
         return rounded;
     }
 
+    private QuizAttemptAnswerSnapshot buildAttemptAnswerSnapshot(
+            QuizAttempt attempt,
+            QuizQuestion question,
+            SubmitQuizDTO.Answer answer
+    ) {
+        boolean answered = answer != null && hasAnswerContent(question, answer);
+        boolean correct = answered && evaluateAnswer(question, answer);
+        int maxScore = question.getScore() != null ? question.getScore() : 1;
+
+        return QuizAttemptAnswerSnapshot.builder()
+                .attempt(attempt)
+                .questionId(question.getId())
+                .questionOrderIndex(question.getOrderIndex())
+                .questionText(question.getQuestionText())
+                .questionType(question.getQuestionType())
+                .submittedAnswerJson(writeSubmittedAnswerSnapshot(question, answer))
+                .optionsSnapshotJson(writeOptionsSnapshot(question, answer))
+                .submittedAnswerText(buildSubmittedAnswerText(question, answer))
+                .correctAnswerText(buildCorrectAnswerText(question))
+                .answered(answered)
+                .correct(correct)
+                .scoreEarned(correct ? maxScore : 0)
+                .maxScore(maxScore)
+                .build();
+    }
+
+    private boolean hasAnswerContent(QuizQuestion question, SubmitQuizDTO.Answer answer) {
+        if (question.getQuestionType() == null || answer == null) {
+            return false;
+        }
+
+        return switch (question.getQuestionType()) {
+            case SHORT_ANSWER -> answer.getTextAnswer() != null && !answer.getTextAnswer().trim().isEmpty();
+            case TRUE_FALSE, MULTIPLE_CHOICE -> !collectSelectedOptionIds(answer).isEmpty();
+        };
+    }
+
+    private Set<Long> collectSelectedOptionIds(SubmitQuizDTO.Answer answer) {
+        Set<Long> selectedOptionIds = new HashSet<>();
+        if (answer == null) {
+            return selectedOptionIds;
+        }
+        if (answer.getSelectedOptionIds() != null) {
+            selectedOptionIds.addAll(answer.getSelectedOptionIds());
+        }
+        if (answer.getSelectedOptionId() != null) {
+            selectedOptionIds.add(answer.getSelectedOptionId());
+        }
+        return selectedOptionIds;
+    }
+
+    private void validateSubmittedAnswers(
+            Map<Long, QuizQuestion> questionMap,
+            List<SubmitQuizDTO.Answer> answers
+    ) {
+        if (answers == null || answers.isEmpty()) {
+            return;
+        }
+
+        Set<Long> seenQuestionIds = new HashSet<>();
+        for (SubmitQuizDTO.Answer answer : answers) {
+            if (answer == null || answer.getQuestionId() == null) {
+                continue;
+            }
+
+            if (!seenQuestionIds.add(answer.getQuestionId())) {
+                throw new BadRequestException("Duplicate answers detected for the same question");
+            }
+
+            QuizQuestion question = questionMap.get(answer.getQuestionId());
+            if (question == null) {
+                throw new BadRequestException("Submission contains a question that does not belong to this quiz");
+            }
+
+            validateSubmittedAnswer(question, answer);
+        }
+    }
+
+    private void validateSubmittedAnswer(QuizQuestion question, SubmitQuizDTO.Answer answer) {
+        Set<Long> selectedOptionIds = collectSelectedOptionIds(answer);
+        boolean hasTextAnswer = answer.getTextAnswer() != null && !answer.getTextAnswer().trim().isEmpty();
+
+        switch (question.getQuestionType()) {
+            case SHORT_ANSWER -> {
+                if (!selectedOptionIds.isEmpty()) {
+                    throw new BadRequestException("Short answer questions do not accept option selections");
+                }
+            }
+            case TRUE_FALSE -> {
+                if (hasTextAnswer) {
+                    throw new BadRequestException("True/False questions do not accept text answers");
+                }
+                if (selectedOptionIds.size() > 1) {
+                    throw new BadRequestException("True/False questions accept exactly one selected option");
+                }
+                validateSelectedOptionsBelongToQuestion(question, selectedOptionIds);
+            }
+            case MULTIPLE_CHOICE -> {
+                if (hasTextAnswer) {
+                    throw new BadRequestException("Multiple choice questions do not accept text answers");
+                }
+                validateSelectedOptionsBelongToQuestion(question, selectedOptionIds);
+            }
+        }
+    }
+
+    private void validateSelectedOptionsBelongToQuestion(QuizQuestion question, Set<Long> selectedOptionIds) {
+        if (selectedOptionIds.isEmpty()) {
+            return;
+        }
+
+        Set<Long> allowedOptionIds = Optional.ofNullable(question.getOptions())
+                .orElse(List.of())
+                .stream()
+                .map(QuizOption::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        if (!allowedOptionIds.containsAll(selectedOptionIds)) {
+            throw new BadRequestException("Submission contains invalid option ids for the question");
+        }
+    }
+
+    private String writeSubmittedAnswerSnapshot(QuizQuestion question, SubmitQuizDTO.Answer answer) {
+        try {
+            QuizAttemptSubmittedAnswerReviewDTO payload = buildSubmittedAnswerSnapshot(question, answer);
+            if (payload == null) {
+                return null;
+            }
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize quiz submitted answer snapshot", e);
+        }
+    }
+
+    private String writeOptionsSnapshot(QuizQuestion question, SubmitQuizDTO.Answer answer) {
+        try {
+            return objectMapper.writeValueAsString(buildOptionsSnapshot(question, answer));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize quiz options snapshot", e);
+        }
+    }
+
+    private QuizAttemptSubmittedAnswerReviewDTO buildSubmittedAnswerSnapshot(QuizQuestion question, SubmitQuizDTO.Answer answer) {
+        if (question.getQuestionType() == null) {
+            return null;
+        }
+
+        return switch (question.getQuestionType()) {
+            case SHORT_ANSWER -> QuizAttemptSubmittedAnswerReviewDTO.builder()
+                    .textAnswer(answer != null && answer.getTextAnswer() != null ? answer.getTextAnswer().trim() : null)
+                    .build();
+            case TRUE_FALSE, MULTIPLE_CHOICE -> {
+                Set<Long> selectedOptionIds = collectSelectedOptionIds(answer);
+                List<QuizOption> options = Optional.ofNullable(question.getOptions()).orElse(List.of());
+                List<String> selectedTexts = options.stream()
+                        .filter(option -> selectedOptionIds.contains(option.getId()))
+                        .map(QuizOption::getOptionText)
+                        .filter(Objects::nonNull)
+                        .toList();
+                yield QuizAttemptSubmittedAnswerReviewDTO.builder()
+                        .selectedOptionIds(selectedOptionIds.stream().sorted().toList())
+                        .selectedOptionTexts(selectedTexts)
+                        .build();
+            }
+        };
+    }
+
+    private List<QuizAttemptAnswerOptionReviewDTO> buildOptionsSnapshot(QuizQuestion question, SubmitQuizDTO.Answer answer) {
+        Set<Long> selectedOptionIds = collectSelectedOptionIds(answer);
+        return Optional.ofNullable(question.getOptions())
+                .orElse(List.of())
+                .stream()
+                .sorted(Comparator.comparing(
+                        QuizOption::getOrderIndex,
+                        Comparator.nullsLast(Integer::compareTo)
+                ).thenComparing(QuizOption::getId, Comparator.nullsLast(Long::compareTo)))
+                .map(option -> QuizAttemptAnswerOptionReviewDTO.builder()
+                        .optionId(option.getId())
+                        .orderIndex(option.getOrderIndex())
+                        .optionText(option.getOptionText())
+                        .correct(Boolean.TRUE.equals(option.getIsCorrect()))
+                        .selected(selectedOptionIds.contains(option.getId()))
+                        .feedback(option.getFeedback())
+                        .build())
+                .toList();
+    }
+
+    private QuizAttemptSubmittedAnswerReviewDTO readSubmittedAnswerSnapshot(String submittedAnswerJson) {
+        if (submittedAnswerJson == null || submittedAnswerJson.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(submittedAnswerJson, QuizAttemptSubmittedAnswerReviewDTO.class);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to deserialize submitted answer snapshot: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private List<QuizAttemptAnswerOptionReviewDTO> readOptionsSnapshot(String optionsSnapshotJson) {
+        if (optionsSnapshotJson == null || optionsSnapshotJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(
+                    optionsSnapshotJson,
+                    new TypeReference<List<QuizAttemptAnswerOptionReviewDTO>>() {}
+            );
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to deserialize options snapshot: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private String buildSubmittedAnswerText(QuizQuestion question, SubmitQuizDTO.Answer answer) {
+        if (question.getQuestionType() == null || answer == null) {
+            return "Khong tra loi";
+        }
+
+        return switch (question.getQuestionType()) {
+            case SHORT_ANSWER -> {
+                String textAnswer = answer.getTextAnswer() != null ? answer.getTextAnswer().trim() : "";
+                yield textAnswer.isEmpty() ? "Khong tra loi" : textAnswer;
+            }
+            case TRUE_FALSE, MULTIPLE_CHOICE -> {
+                Set<Long> selectedOptionIds = collectSelectedOptionIds(answer);
+                if (selectedOptionIds.isEmpty()) {
+                    yield "Khong tra loi";
+                }
+                List<String> selectedTexts = Optional.ofNullable(question.getOptions())
+                        .orElse(List.of())
+                        .stream()
+                        .filter(option -> selectedOptionIds.contains(option.getId()))
+                        .map(QuizOption::getOptionText)
+                        .filter(Objects::nonNull)
+                        .toList();
+                yield selectedTexts.isEmpty() ? "Khong tra loi" : String.join("\n", selectedTexts);
+            }
+        };
+    }
+
+    private String buildCorrectAnswerText(QuizQuestion question) {
+        List<QuizOption> options = Optional.ofNullable(question.getOptions()).orElse(List.of());
+        if (options.isEmpty()) {
+            return "Dang cap nhat";
+        }
+
+        List<String> correctTexts = options.stream()
+                .filter(option -> Boolean.TRUE.equals(option.getIsCorrect()))
+                .map(QuizOption::getOptionText)
+                .filter(Objects::nonNull)
+                .toList();
+
+        List<String> acceptedTexts = correctTexts.isEmpty()
+                ? options.stream().map(QuizOption::getOptionText).filter(Objects::nonNull).toList()
+                : correctTexts;
+
+        return acceptedTexts.isEmpty() ? "Dang cap nhat" : String.join("\n", acceptedTexts);
+    }
+
     private boolean evaluateAnswer(QuizQuestion question, SubmitQuizDTO.Answer answer) {
         if (question.getQuestionType() == null) {
             return false;
@@ -578,13 +943,7 @@ public class QuizServiceImpl implements QuizService {
     }
 
     private boolean evaluateOptionAnswer(QuizQuestion question, SubmitQuizDTO.Answer answer) {
-        Set<Long> selectedOptionIds = new HashSet<>();
-        if (answer.getSelectedOptionIds() != null) {
-            selectedOptionIds.addAll(answer.getSelectedOptionIds());
-        }
-        if (answer.getSelectedOptionId() != null) {
-            selectedOptionIds.add(answer.getSelectedOptionId());
-        }
+        Set<Long> selectedOptionIds = collectSelectedOptionIds(answer);
         if (selectedOptionIds.isEmpty()) {
             return false;
         }
@@ -663,5 +1022,49 @@ public class QuizServiceImpl implements QuizService {
                     .max(Integer::compareTo)
                     .orElse(0);
         };
+    }
+
+    private void validateUniqueOptionText(QuizQuestion question, String optionText, Long currentOptionId) {
+        String normalizedCandidate = normalizeText(optionText);
+        if (normalizedCandidate.isEmpty()) {
+            throw new BadRequestException("Option text is required");
+        }
+
+        boolean duplicated = Optional.ofNullable(question.getOptions())
+                .orElse(List.of())
+                .stream()
+                .filter(existing -> currentOptionId == null || !Objects.equals(existing.getId(), currentOptionId))
+                .map(QuizOption::getOptionText)
+                .filter(Objects::nonNull)
+                .map(this::normalizeText)
+                .anyMatch(normalizedCandidate::equals);
+
+        if (duplicated) {
+            throw new BadRequestException("Duplicate option text is not allowed for the same question");
+        }
+    }
+
+    private void sanitizeQuizForLearner(QuizDetailDTO quiz) {
+        if (quiz == null || quiz.getQuestions() == null) {
+            return;
+        }
+
+        for (QuizQuestionDetailDTO question : quiz.getQuestions()) {
+            if (question.getOptions() == null) {
+                question.setCorrectOptionCount(0);
+                continue;
+            }
+
+            int correctCount = 0;
+
+            for (QuizOptionDetailDTO option : question.getOptions()) {
+                if (option.isCorrect()) {
+                    correctCount++;
+                }
+                option.setCorrect(false);
+                option.setFeedback(null);
+            }
+            question.setCorrectOptionCount(correctCount);
+        }
     }
 }

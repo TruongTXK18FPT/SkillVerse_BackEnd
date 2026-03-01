@@ -28,6 +28,8 @@ public interface QuizService {
 
     QuizDetailDTO getQuiz(Long quizId);
 
+    QuizDetailDTO getQuizForAttempt(Long quizId);
+
     List<QuizSummaryDTO> listQuizzesByModule(Long moduleId);
 
     // ========== Quiz Attempt & Submission ==========
@@ -37,6 +39,8 @@ public interface QuizService {
     List<QuizAttemptDTO> getUserAttempts(Long quizId, Long userId);
 
     List<QuizAttemptDTO> getUserAttemptsBatch(List<Long> quizIds, Long userId);
+
+    QuizAttemptReviewDTO getMyLatestReview(Long quizId, Long userId);
     
     /**
      * Lấy thông tin trạng thái attempt của user cho một quiz.

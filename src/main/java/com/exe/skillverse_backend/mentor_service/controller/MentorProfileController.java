@@ -160,6 +160,72 @@ public class MentorProfileController {
         }
     }
 
+    @PostMapping(value = "/signature", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Upload current mentor signature")
+    public ResponseEntity<SignatureUploadResponse> uploadMyMentorSignature(
+            @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt,
+            @Parameter(description = "Signature image file") @RequestParam("file") MultipartFile file) {
+
+        Long mentorId = Long.parseLong(jwt.getSubject());
+        log.info("Uploading signature for current mentor ID: {}", mentorId);
+
+        try {
+            String signatureUrl = mentorProfileService.uploadMentorSignature(
+                    mentorId,
+                    file.getBytes(),
+                    file.getOriginalFilename(),
+                    file.getContentType());
+
+            return ResponseEntity.ok(new SignatureUploadResponse(signatureUrl));
+        } catch (IOException e) {
+            log.error("Error reading signature file for mentor ID: {}", mentorId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @PostMapping(value = "/{mentorId}/signature", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "Upload mentor signature by ID (Admin)")
+    public ResponseEntity<SignatureUploadResponse> uploadMentorSignature(
+            @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
+            @Parameter(description = "Signature image file") @RequestParam("file") MultipartFile file) {
+
+        log.info("Uploading signature for mentor ID: {}", mentorId);
+
+        try {
+            String signatureUrl = mentorProfileService.uploadMentorSignature(
+                    mentorId,
+                    file.getBytes(),
+                    file.getOriginalFilename(),
+                    file.getContentType());
+
+            return ResponseEntity.ok(new SignatureUploadResponse(signatureUrl));
+        } catch (IOException e) {
+            log.error("Error reading signature file for mentor ID: {}", mentorId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @DeleteMapping("/signature")
+    @Operation(summary = "Remove current mentor signature")
+    public ResponseEntity<Void> removeMyMentorSignature(
+            @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt) {
+
+        Long mentorId = Long.parseLong(jwt.getSubject());
+        log.info("Removing signature for current mentor ID: {}", mentorId);
+        mentorProfileService.removeMentorSignature(mentorId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{mentorId}/signature")
+    @Operation(summary = "Remove mentor signature by ID (Admin)")
+    public ResponseEntity<Void> removeMentorSignature(
+            @Parameter(description = "Mentor user ID") @PathVariable Long mentorId) {
+
+        log.info("Removing signature for mentor ID: {}", mentorId);
+        mentorProfileService.removeMentorSignature(mentorId);
+        return ResponseEntity.noContent().build();
+    }
+
     @PutMapping("/prechat-enabled")
     @Operation(summary = "Bật/tắt pre-chat cho mentor hiện tại")
     public ResponseEntity<Void> setPreChatEnabled(
@@ -216,6 +282,22 @@ public class MentorProfileController {
 
         public void setAvatarUrl(String avatarUrl) {
             this.avatarUrl = avatarUrl;
+        }
+    }
+
+    public static class SignatureUploadResponse {
+        private String signatureUrl;
+
+        public SignatureUploadResponse(String signatureUrl) {
+            this.signatureUrl = signatureUrl;
+        }
+
+        public String getSignatureUrl() {
+            return signatureUrl;
+        }
+
+        public void setSignatureUrl(String signatureUrl) {
+            this.signatureUrl = signatureUrl;
         }
     }
 

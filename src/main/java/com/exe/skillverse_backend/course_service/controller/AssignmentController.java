@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentGra
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionItemDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.PendingSubmissionItemDTO;
 import com.exe.skillverse_backend.course_service.service.AssignmentService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
@@ -64,6 +65,17 @@ public class AssignmentController {
 
         Long mentorId = extractUserId(jwt);
         List<PendingSubmissionItemDTO> items = assignmentService.getAllPendingForMentor(mentorId);
+        return ResponseEntity.ok(items);
+    }
+
+    @GetMapping("/mentor/submissions")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @Operation(summary = "Get all newest submissions for the authenticated mentor across all courses")
+    public ResponseEntity<List<MentorSubmissionItemDTO>> getAllMentorSubmissions(
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long mentorId = extractUserId(jwt);
+        List<MentorSubmissionItemDTO> items = assignmentService.getAllMentorSubmissions(mentorId);
         return ResponseEntity.ok(items);
     }
 

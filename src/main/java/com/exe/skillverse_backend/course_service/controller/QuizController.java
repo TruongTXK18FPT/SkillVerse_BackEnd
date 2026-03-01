@@ -164,12 +164,24 @@ public class QuizController {
     // ========== Quiz Query Operations ==========
 
     @GetMapping("/{quizId}")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
     @Operation(summary = "Get quiz details by ID")
     public ResponseEntity<QuizDetailDTO> getQuiz(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId) {
 
         log.info("Getting quiz details for {}", quizId);
         QuizDetailDTO quiz = quizService.getQuiz(quizId);
+        return ResponseEntity.ok(quiz);
+    }
+
+    @GetMapping("/{quizId}/attempt-view")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get learner-safe quiz details for attempts")
+    public ResponseEntity<QuizDetailDTO> getQuizForAttempt(
+            @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId) {
+
+        log.info("Getting learner-safe quiz details for {}", quizId);
+        QuizDetailDTO quiz = quizService.getQuizForAttempt(quizId);
         return ResponseEntity.ok(quiz);
     }
 
@@ -186,41 +198,52 @@ public class QuizController {
     // ========== Quiz Attempt & Submission ==========
 
     @PostMapping("/{quizId}/submit")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Submit quiz answers and get result")
     public ResponseEntity<?> submitQuiz(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
-            @Parameter(description = "User ID") @RequestParam @NotNull Long userId,
-            @Parameter(description = "Quiz submission data") @Valid @RequestBody SubmitQuizDTO submitData) {
+            @Parameter(description = "Quiz submission data") @Valid @RequestBody SubmitQuizDTO submitData,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long userId = extractUserId(jwt);
 
         log.info("[QUIZ_SUBMIT] User {} submitting quiz {}", userId, quizId);
+        QuizAttemptDTO attempt = quizService.submitQuiz(quizId, submitData, userId);
 
-        try {
-            QuizAttemptDTO attempt = quizService.submitQuiz(quizId, submitData, userId);
+        log.info("[QUIZ_SUBMIT] Result: score={}, passed={}", attempt.getScore(), attempt.getPassed());
 
-            log.info("[QUIZ_SUBMIT] Result: score={}, passed={}", attempt.getScore(), attempt.getPassed());
-
-            return ResponseEntity.ok(Map.of(
-                    "score", attempt.getScore(),
-                    "passed", attempt.getPassed(),
-                    "correctCount", attempt.getCorrectAnswers(),
-                    "totalQuestions", attempt.getTotalQuestions(),
-                    "attempt", attempt));
-        } catch (Exception e) {
-            log.error("[QUIZ_SUBMIT] Failed: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", e.getMessage()));
-        }
+        return ResponseEntity.ok(Map.of(
+                "score", attempt.getScore(),
+                "passed", attempt.getPassed(),
+                "correctCount", attempt.getCorrectAnswers(),
+                "totalQuestions", attempt.getTotalQuestions(),
+                "attempt", attempt));
     }
 
     @GetMapping("/{quizId}/attempts")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get user's quiz attempts")
     public ResponseEntity<List<QuizAttemptDTO>> getUserAttempts(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
-            @Parameter(description = "User ID") @RequestParam @NotNull Long userId) {
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long userId = extractUserId(jwt);
 
         log.info("Getting attempts for quiz {} by user {}", quizId, userId);
         List<QuizAttemptDTO> attempts = quizService.getUserAttempts(quizId, userId);
         return ResponseEntity.ok(attempts);
+    }
+
+    @GetMapping("/{quizId}/my-latest-review")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get latest quiz review for current user")
+    public ResponseEntity<QuizAttemptReviewDTO> getMyLatestReview(
+            @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long userId = extractUserId(jwt);
+        log.info("Getting latest review for quiz {} by user {}", quizId, userId);
+        return ResponseEntity.ok(quizService.getMyLatestReview(quizId, userId));
     }
 
     @PostMapping("/attempts/batch")
@@ -233,10 +256,13 @@ public class QuizController {
     }
 
     @GetMapping("/{quizId}/attempt-status")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get user's quiz attempt status with retry info")
     public ResponseEntity<QuizAttemptStatusDTO> getAttemptStatus(
             @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
-            @Parameter(description = "User ID") @RequestParam @NotNull Long userId) {
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long userId = extractUserId(jwt);
 
         log.info("Getting attempt status for quiz {} by user {}", quizId, userId);
         QuizAttemptStatusDTO status = quizService.getAttemptStatus(quizId, userId);

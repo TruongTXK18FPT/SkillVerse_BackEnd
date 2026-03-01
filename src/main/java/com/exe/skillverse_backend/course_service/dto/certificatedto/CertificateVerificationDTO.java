@@ -2,24 +2,25 @@ package com.exe.skillverse_backend.course_service.dto.certificatedto;
 
 import java.time.Instant;
 import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
 @Data
+@Builder
 @NoArgsConstructor
 @AllArgsConstructor
-
-public class CertificateDTO {
-    private Long id;
-    private Long courseId;
-    private Long userId;
+public class CertificateVerificationDTO {
+    private String serial;
     private String courseTitle;
     private String recipientName;
     private String instructorName;
     private String instructorSignatureUrl;
     private String issuerName;
     private String type;
-    private String serial;
     private Instant issuedAt;
     private Instant revokedAt;
-    private String criteria;
+    private String verificationStatus;
+    private String completionStatement;
+    private String disclaimer;
 }

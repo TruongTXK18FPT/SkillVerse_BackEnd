@@ -28,6 +28,16 @@ public interface MentorProfileService {
      */
     String uploadMentorAvatar(Long userId, byte[] fileData, String fileName, String contentType);
 
+    /**
+     * Upload mentor signature image
+     */
+    String uploadMentorSignature(Long userId, byte[] fileData, String fileName, String contentType);
+
+    /**
+     * Remove mentor signature image and fallback to platform verification.
+     */
+    void removeMentorSignature(Long userId);
+
     void setPreChatEnabled(Long userId, boolean enabled);
 
     /**

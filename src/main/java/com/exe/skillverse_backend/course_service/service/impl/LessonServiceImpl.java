@@ -12,8 +12,8 @@ import com.exe.skillverse_backend.course_service.mapper.LessonMapper;
 import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonProgressRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
+import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.course_service.service.LessonService;
-import com.exe.skillverse_backend.course_service.service.EnrollmentService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.shared.entity.Media;
@@ -44,7 +44,7 @@ public class LessonServiceImpl implements LessonService {
     private final LessonMapper lessonMapper;
     private final Clock clock;
     private final UserRepository userRepository;
-    private final EnrollmentService enrollmentService;
+    private final CourseLearningProgressService courseLearningProgressService;
 
     @Override
     @Transactional
@@ -191,41 +191,21 @@ public class LessonServiceImpl implements LessonService {
                     .completedAt(now())
                     .build();
             lessonProgressRepository.save(progress);
-            
-            // Auto-update course progress percentage (Coursera-like behavior)
-            updateCourseProgressPercent(lesson.getModule().getCourse().getId(), userId);
+
+            courseLearningProgressService.recalculateCourseProgress(
+                    lesson.getModule().getCourse().getId(),
+                    userId
+            );
             log.info("Marked lesson {} as completed for user {}. Course progress updated.", lessonId, userId);
         }
     }
-    
-    /**
-     * Tính toán và cập nhật phần trăm hoàn thành khóa học dựa trên số lesson đã hoàn thành.
-     * Logic giống Coursera: progress = (completedLessons / totalLessons) * 100
-     */
-    private void updateCourseProgressPercent(Long courseId, Long userId) {
-        // Đếm tổng số lessons trong course
-        long totalLessons = lessonRepository.countByCourseId(courseId);
-        if (totalLessons == 0) {
-            return;
-        }
-        
-        // Đếm số lessons đã completed
-        long completedLessons = lessonProgressRepository.countCompletedByCourseAndUser(courseId, userId);
-        
-        // Tính phần trăm
-        int progressPercent = (int) Math.round((completedLessons * 100.0) / totalLessons);
-        progressPercent = Math.min(progressPercent, 100); // Cap at 100%
-        
-        // Cập nhật enrollment
-        try {
-            enrollmentService.updateProgress(courseId, userId, progressPercent);
-            log.debug("Updated course {} progress for user {} to {}%", courseId, userId, progressPercent);
-        } catch (Exception e) {
-            log.warn("Failed to update course progress: {}", e.getMessage());
-            // Don't fail the whole transaction if progress update fails
-        }
-    }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<Long> listCompletedLessonIds(Long courseId, Long userId) {
+        return lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(courseId, userId);
+    }
+    
     // ===== Helper Methods =====
 
     private Module getModuleOrThrow(Long moduleId) {

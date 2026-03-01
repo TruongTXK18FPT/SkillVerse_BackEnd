@@ -57,6 +57,9 @@ public class MentorProfile {
     @Column(name = "avatar_url")
     private String avatarUrl; // Avatar image URL
 
+    @Column(name = "signature_url")
+    private String signatureUrl; // Optional handwritten/digital signature image URL
+
     @Column(name = "github_profile")
     private String githubProfile; // GitHub profile URL
 

@@ -26,4 +26,6 @@ public interface LessonService {
 
     // Progress
     void markLessonCompleted(Long moduleId, Long lessonId, Long userId);
+
+    List<Long> listCompletedLessonIds(Long courseId, Long userId);
 }

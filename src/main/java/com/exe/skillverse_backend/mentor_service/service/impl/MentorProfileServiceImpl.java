@@ -18,6 +18,7 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
 import com.exe.skillverse_backend.shared.dto.MediaDTO;
+import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.MediaService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -40,6 +41,11 @@ import java.util.stream.Collectors;
 public class MentorProfileServiceImpl implements MentorProfileService {
 
     private static final String MENTOR_PROFILE_NOT_FOUND = "MENTOR_PROFILE_NOT_FOUND";
+    private static final int MAX_SIGNATURE_SIZE_BYTES = 5 * 1024 * 1024;
+    private static final List<String> ALLOWED_SIGNATURE_CONTENT_TYPES = List.of(
+            "image/png",
+            "image/jpeg",
+            "image/webp");
 
     private final MentorProfileRepository mentorProfileRepository;
     private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
@@ -151,6 +157,10 @@ public class MentorProfileServiceImpl implements MentorProfileService {
             profile.setAvatarUrl(request.getAvatar());
         }
 
+        if (request.getSignatureUrl() != null) {
+            profile.setSignatureUrl(request.getSignatureUrl());
+        }
+
         if (request.getSocialLinks() != null) {
             if (request.getSocialLinks().getLinkedin() != null) {
                 profile.setLinkedinProfile(request.getSocialLinks().getLinkedin());
@@ -215,6 +225,54 @@ public class MentorProfileServiceImpl implements MentorProfileService {
 
         log.info("Avatar uploaded successfully for mentor user ID: {}", userId);
         return avatarUrl;
+    }
+
+    @Override
+    @Transactional
+    public String uploadMentorSignature(Long userId, byte[] fileData, String fileName, String contentType) {
+        log.info("Uploading signature for mentor user ID: {}", userId);
+
+        if (fileData == null || fileData.length == 0) {
+            throw new BadRequestException("SIGNATURE_FILE_IS_EMPTY");
+        }
+        if (fileData.length > MAX_SIGNATURE_SIZE_BYTES) {
+            throw new BadRequestException("SIGNATURE_FILE_TOO_LARGE");
+        }
+        if (contentType == null || ALLOWED_SIGNATURE_CONTENT_TYPES.stream().noneMatch(type -> type.equalsIgnoreCase(contentType))) {
+            throw new BadRequestException("SIGNATURE_FILE_TYPE_NOT_SUPPORTED");
+        }
+
+        MentorProfile profile = mentorProfileRepository.findByUserId(userId)
+                .orElseThrow(() -> new NotFoundException(MENTOR_PROFILE_NOT_FOUND));
+
+        MediaDTO mediaDto = mediaService.upload(
+                userId,
+                fileName,
+                contentType,
+                fileData.length,
+                new ByteArrayInputStream(fileData));
+
+        String signatureUrl = mediaDto.getUrl();
+
+        profile.setSignatureUrl(signatureUrl);
+        profile.setUpdatedAt(LocalDateTime.now());
+        mentorProfileRepository.save(profile);
+
+        log.info("Signature uploaded successfully for mentor user ID: {}", userId);
+        return signatureUrl;
+    }
+
+    @Override
+    @Transactional
+    public void removeMentorSignature(Long userId) {
+        log.info("Removing signature for mentor user ID: {}", userId);
+
+        MentorProfile profile = mentorProfileRepository.findByUserId(userId)
+                .orElseThrow(() -> new NotFoundException(MENTOR_PROFILE_NOT_FOUND));
+
+        profile.setSignatureUrl(null);
+        profile.setUpdatedAt(LocalDateTime.now());
+        mentorProfileRepository.save(profile);
     }
 
     @Override
@@ -406,6 +464,7 @@ public class MentorProfileServiceImpl implements MentorProfileService {
                 .specialization(profile.getMainExpertiseAreas())
                 .experience(profile.getYearsOfExperience())
                 .avatar(profile.getAvatarUrl())
+                .signatureUrl(profile.getSignatureUrl())
                 .socialLinks(socialLinks)
                 .skills(skills)
                 .achievements(achievements)

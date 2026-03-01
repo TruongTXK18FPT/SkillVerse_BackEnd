@@ -58,7 +58,8 @@ public class DatabaseSchemaFixer {
             """);
             log.info("course suspension columns ok.");
 
-            // Patch 3: Notification type constraint — add COURSE_REJECTED, COURSE_SUSPENDED, COURSE_RESTORED
+            // Patch 3: Notification type constraint.
+            // Add COURSE_REJECTED, COURSE_SUSPENDED, COURSE_RESTORED.
             jdbcTemplate.execute("""
                 DO $$
                 BEGIN
@@ -82,7 +83,8 @@ public class DatabaseSchemaFixer {
             """);;
             log.info("notification type constraint updated.");
 
-            // Patch 4: assignment_criteria.passing_points — backfill NULL → 0 and set NOT NULL DEFAULT
+            // Patch 4: assignment_criteria.passing_points.
+            // Backfill NULL to 0 and set NOT NULL DEFAULT.
             jdbcTemplate.execute("""
                 DO $$
                 BEGIN
@@ -98,7 +100,8 @@ public class DatabaseSchemaFixer {
             """);
             log.info("assignment_criteria.passing_points NOT NULL (default 0) ok.");
 
-            // Patch 5: assignment_submissions.is_passed — persist grading result (NULL = not yet graded)
+            // Patch 5: assignment_submissions.is_passed.
+            // Persist grading result, where NULL means not graded yet.
             jdbcTemplate.execute("""
                 DO $$
                 BEGIN
@@ -125,9 +128,137 @@ public class DatabaseSchemaFixer {
             """);
             log.info("courses.status CHECK constraint updated (added REJECTED, SUSPENDED).");
 
+            ensureActiveCertificateUniqueIndex();
+            log.info("active certificate uniqueness guard ok.");
+
+            ensureCertificateSnapshotColumns();
+            log.info("certificate snapshot columns ok.");
+
+            ensureQuizAttemptAnswerSnapshotsTable();
+            log.info("quiz attempt answer snapshot table ok.");
+
             log.info("All schema patches applied successfully.");
         } catch (Exception e) {
             log.error("Failed to apply schema patches: {}", e.getMessage());
         }
+    }
+
+    private void ensureActiveCertificateUniqueIndex() {
+        Integer duplicateGroups = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*) FROM (
+                SELECT user_id, course_id, type
+                FROM certificates
+                WHERE revoked_at IS NULL
+                GROUP BY user_id, course_id, type
+                HAVING COUNT(*) > 1
+            ) duplicate_groups
+        """, Integer.class);
+
+        if (duplicateGroups != null && duplicateGroups > 0) {
+            log.warn(
+                    "Skipped creating active certificate unique index because {} duplicate active certificate group(s) already exist",
+                    duplicateGroups
+            );
+            return;
+        }
+
+        Boolean indexExists = jdbcTemplate.queryForObject("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_indexes
+                WHERE schemaname = current_schema()
+                  AND indexname = 'uk_certificates_active_user_course_type'
+            )
+        """, Boolean.class);
+
+        if (Boolean.TRUE.equals(indexExists)) {
+            return;
+        }
+
+        jdbcTemplate.execute("""
+            CREATE UNIQUE INDEX uk_certificates_active_user_course_type
+            ON certificates (user_id, course_id, type)
+            WHERE revoked_at IS NULL
+        """);
+    }
+
+    private void ensureCertificateSnapshotColumns() {
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'certificates' AND column_name = 'recipient_name_snapshot') THEN
+                    ALTER TABLE certificates ADD COLUMN recipient_name_snapshot VARCHAR(255);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'certificates' AND column_name = 'course_title_snapshot') THEN
+                    ALTER TABLE certificates ADD COLUMN course_title_snapshot VARCHAR(255);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'certificates' AND column_name = 'instructor_name_snapshot') THEN
+                    ALTER TABLE certificates ADD COLUMN instructor_name_snapshot VARCHAR(255);
+                END IF;
+            END $$;
+        """);
+    }
+
+    private void ensureQuizAttemptAnswerSnapshotsTable() {
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_name = 'quiz_attempt_answer_snapshots'
+                ) THEN
+                    CREATE TABLE quiz_attempt_answer_snapshots (
+                        id BIGSERIAL PRIMARY KEY,
+                        attempt_id BIGINT NOT NULL,
+                        question_id BIGINT NOT NULL,
+                        question_order_index INTEGER NULL,
+                        question_text TEXT NOT NULL,
+                        question_type VARCHAR(20) NOT NULL,
+                        submitted_answer_text TEXT NULL,
+                        correct_answer_text TEXT NULL,
+                        submitted_answer_json JSONB NULL,
+                        options_snapshot_json JSONB NULL,
+                        answered BOOLEAN NOT NULL DEFAULT FALSE,
+                        is_correct BOOLEAN NOT NULL DEFAULT FALSE,
+                        score_earned INTEGER NOT NULL DEFAULT 0,
+                        max_score INTEGER NOT NULL DEFAULT 0,
+                        CONSTRAINT fk_quiz_attempt_answer_snapshots_attempt
+                            FOREIGN KEY (attempt_id) REFERENCES quiz_attempts(id) ON DELETE CASCADE
+                    );
+                END IF;
+            END $$;
+        """);
+
+        jdbcTemplate.execute("""
+            CREATE INDEX IF NOT EXISTS idx_quiz_attempt_answer_snapshots_attempt_id
+            ON quiz_attempt_answer_snapshots(attempt_id)
+        """);
+
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'quiz_attempt_answer_snapshots'
+                      AND column_name = 'submitted_answer_json'
+                ) THEN
+                    ALTER TABLE quiz_attempt_answer_snapshots
+                    ADD COLUMN submitted_answer_json JSONB NULL;
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'quiz_attempt_answer_snapshots'
+                      AND column_name = 'options_snapshot_json'
+                ) THEN
+                    ALTER TABLE quiz_attempt_answer_snapshots
+                    ADD COLUMN options_snapshot_json JSONB NULL;
+                END IF;
+            END $$;
+        """);
     }
 }

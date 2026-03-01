@@ -3,9 +3,11 @@ package com.exe.skillverse_backend.course_service.repository;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment.CourseEnrollmentId;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -23,8 +25,17 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
          */
         @Transactional(readOnly = true)
         @Query("SELECT ce FROM CourseEnrollment ce WHERE ce.course.id = :courseId AND ce.user.id = :userId")
-        Optional<CourseEnrollment> findByCourseIdAndUserId(@Param("courseId") Long courseId,
-                        @Param("userId") Long userId);
+        Optional<CourseEnrollment> findByCourseIdAndUserId(
+                        @Param("courseId") Long courseId,
+                        @Param("userId") Long userId
+        );
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @Query("SELECT ce FROM CourseEnrollment ce WHERE ce.course.id = :courseId AND ce.user.id = :userId")
+        Optional<CourseEnrollment> findByCourseIdAndUserIdForUpdate(
+                        @Param("courseId") Long courseId,
+                        @Param("userId") Long userId
+        );
 
         /**
          * Find enrollments by user ID with pagination

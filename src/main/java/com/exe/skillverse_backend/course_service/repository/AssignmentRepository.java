@@ -63,6 +63,13 @@ public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
     long countByCourseId(@Param("courseId") Long courseId);
 
     /**
+     * Count required assignments in a course.
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(a) FROM Assignment a WHERE a.module.course.id = :courseId AND (a.isRequired = true OR a.isRequired IS NULL)")
+    long countRequiredByCourseId(@Param("courseId") Long courseId);
+
+    /**
      * Check if assignment exists for module
      */
     @Transactional(readOnly = true)

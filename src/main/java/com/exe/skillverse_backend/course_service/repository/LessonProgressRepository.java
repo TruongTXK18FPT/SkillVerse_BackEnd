@@ -34,4 +34,14 @@ public interface LessonProgressRepository extends JpaRepository<LessonProgress, 
            "AND lp.lesson.module.course.id = :courseId " +
            "AND lp.completed = true")
     long countCompletedByCourseAndUser(@Param("courseId") Long courseId, @Param("userId") Long userId);
+
+    /**
+     * Lấy danh sách lesson IDs đã hoàn thành trong một course cho một user.
+     * Dùng để hydrate trạng thái completed ở sidebar khi load lại trang.
+     */
+    @Query("SELECT lp.lesson.id FROM LessonProgress lp " +
+           "WHERE lp.user.id = :userId " +
+           "AND lp.lesson.module.course.id = :courseId " +
+           "AND lp.completed = true")
+    List<Long> findCompletedLessonIdsByCourseAndUser(@Param("courseId") Long courseId, @Param("userId") Long userId);
 }

@@ -9,6 +9,7 @@ import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.service.LessonAttachmentService;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
+import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +17,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -51,6 +55,21 @@ public class LessonAttachmentServiceImpl implements LessonAttachmentService {
         // Verify access (actor is course author or admin)
         verifyAccess(lesson, actorId);
 
+        String externalUrl = normalizeExternalUrl(request.getExternalUrl());
+        boolean hasMedia = request.getMediaId() != null;
+        boolean hasExternalUrl = externalUrl != null;
+
+        if (hasMedia == hasExternalUrl) {
+            log.error("[ATTACHMENT_ADD] Invalid request: must provide exactly one source");
+            throw new BadRequestException("Must provide exactly one of mediaId or externalUrl");
+        }
+
+        validateAttachmentType(request.getType(), hasMedia, hasExternalUrl);
+
+        if (hasExternalUrl) {
+            validateExternalUrl(externalUrl);
+        }
+
         // Build attachment entity
         LessonAttachment attachment = LessonAttachment.builder()
                 .lesson(lesson)
@@ -76,16 +95,9 @@ public class LessonAttachmentServiceImpl implements LessonAttachmentService {
         }
 
         // Handle external link
-        if (request.getExternalUrl() != null && !request.getExternalUrl().isEmpty()) {
-            log.debug("[ATTACHMENT_ADD] Processing external link: url={}", request.getExternalUrl());
-            attachment.setExternalUrl(request.getExternalUrl());
-        }
-
-        // Validate: must have either media or external URL
-        if (attachment.getMedia() == null &&
-                (attachment.getExternalUrl() == null || attachment.getExternalUrl().isEmpty())) {
-            log.error("[ATTACHMENT_ADD] Invalid request: no media or external URL provided");
-            throw new IllegalArgumentException("Must provide either mediaId or externalUrl");
+        if (hasExternalUrl) {
+            log.debug("[ATTACHMENT_ADD] Processing external link: url={}", externalUrl);
+            attachment.setExternalUrl(externalUrl);
         }
 
         // Save attachment
@@ -191,5 +203,51 @@ public class LessonAttachmentServiceImpl implements LessonAttachmentService {
                 .orderIndex(attachment.getOrderIndex())
                 .createdAt(attachment.getCreatedAt() != null ? attachment.getCreatedAt().toString() : null)
                 .build();
+    }
+
+    private String normalizeExternalUrl(String externalUrl) {
+        if (externalUrl == null) {
+            return null;
+        }
+        String trimmed = externalUrl.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private void validateExternalUrl(String externalUrl) {
+        try {
+            URI parsed = new URI(externalUrl);
+            String scheme = parsed.getScheme() == null ? "" : parsed.getScheme().toLowerCase(Locale.ROOT);
+            if (!"http".equals(scheme) && !"https".equals(scheme)) {
+                throw new BadRequestException("External attachment URL must use http or https");
+            }
+            if (parsed.getHost() == null || parsed.getHost().isBlank()) {
+                throw new BadRequestException("External attachment URL must include a valid host");
+            }
+        } catch (URISyntaxException e) {
+            throw new BadRequestException("External attachment URL is invalid");
+        }
+    }
+
+    private void validateAttachmentType(
+            com.exe.skillverse_backend.course_service.entity.enums.AttachmentType type,
+            boolean hasMedia,
+            boolean hasExternalUrl
+    ) {
+        if (type == null) {
+            throw new BadRequestException("Attachment type is required");
+        }
+
+        boolean isExternalType = switch (type) {
+            case EXTERNAL_LINK, GOOGLE_DRIVE, GITHUB, YOUTUBE, WEBSITE -> true;
+            default -> false;
+        };
+
+        if (hasMedia && isExternalType) {
+            throw new BadRequestException("External-link attachment types must use externalUrl");
+        }
+
+        if (hasExternalUrl && !isExternalType) {
+            throw new BadRequestException("Uploaded file attachment types must use mediaId");
+        }
     }
 }

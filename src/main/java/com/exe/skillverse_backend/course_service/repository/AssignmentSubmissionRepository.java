@@ -165,4 +165,36 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
             "AND asub.isNewest = true AND asub.score IS NULL " +
             "ORDER BY asub.submittedAt ASC")
     List<AssignmentSubmission> findAllPendingByAuthorId(@Param("authorId") Long authorId);
+
+    /**
+     * Find all newest submissions across all assignments owned by a specific mentor/author.
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT asub FROM AssignmentSubmission asub " +
+            "JOIN asub.assignment a " +
+            "JOIN a.module m " +
+            "JOIN m.course c " +
+            "WHERE c.author.id = :authorId " +
+            "AND asub.isNewest = true " +
+            "ORDER BY asub.submittedAt DESC")
+    List<AssignmentSubmission> findAllLatestByAuthorId(@Param("authorId") Long authorId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT DISTINCT asub.assignment.id FROM AssignmentSubmission asub " +
+            "WHERE asub.user.id = :userId " +
+            "AND asub.assignment.module.course.id = :courseId " +
+            "AND asub.isNewest = true " +
+            "AND asub.isPassed = true")
+    List<Long> findPassedAssignmentIdsByCourseAndUser(@Param("courseId") Long courseId,
+                                                      @Param("userId") Long userId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT DISTINCT asub.assignment.id FROM AssignmentSubmission asub " +
+            "WHERE asub.user.id = :userId " +
+            "AND asub.assignment.module.course.id = :courseId " +
+            "AND asub.isNewest = true " +
+            "AND asub.isPassed = true " +
+            "AND (asub.assignment.isRequired = true OR asub.assignment.isRequired IS NULL)")
+    List<Long> findPassedRequiredAssignmentIdsByCourseAndUser(@Param("courseId") Long courseId,
+                                                              @Param("userId") Long userId);
 }

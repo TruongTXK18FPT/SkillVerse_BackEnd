@@ -122,4 +122,12 @@ public class LessonController {
         lessonService.markLessonCompleted(moduleId, lessonId, userId);
         return ResponseEntity.noContent().build();
     }
+
+    @GetMapping("/progress/course/{courseId}/user/{userId}/completed-ids")
+    @Operation(summary = "Get completed lesson IDs for a user in a course")
+    public ResponseEntity<List<Long>> getCompletedLessonIds(
+            @PathVariable @NotNull Long courseId,
+            @PathVariable @NotNull Long userId) {
+        return ResponseEntity.ok(lessonService.listCompletedLessonIds(courseId, userId));
+    }
 }

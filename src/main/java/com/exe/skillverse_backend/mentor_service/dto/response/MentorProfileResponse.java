@@ -39,6 +39,9 @@ public class MentorProfileResponse {
     @Schema(description = "Avatar URL", example = "https://example.com/avatar.jpg")
     private String avatar;
 
+    @Schema(description = "Mentor signature image URL", example = "https://example.com/signature.png")
+    private String signatureUrl;
+
     @Schema(description = "Social links")
     private SocialLinks socialLinks;
 

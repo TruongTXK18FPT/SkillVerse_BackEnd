@@ -17,4 +17,5 @@ public class QuizQuestionDetailDTO {
     private Integer score;
     private Integer orderIndex;
     private List<QuizOptionDetailDTO> options;
+    private Integer correctOptionCount;
 }

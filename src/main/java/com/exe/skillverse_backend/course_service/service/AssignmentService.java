@@ -44,4 +44,10 @@ public interface AssignmentService {
      * owned by the given mentor. Single-query batch load.
      */
     List<PendingSubmissionItemDTO> getAllPendingForMentor(Long mentorId);
+
+    /**
+     * Get all newest submissions across all courses/modules/assignments
+     * owned by the given mentor.
+     */
+    List<MentorSubmissionItemDTO> getAllMentorSubmissions(Long mentorId);
 }

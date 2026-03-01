@@ -30,6 +30,18 @@ public class Certificate {
   @Column(nullable = false, length = 64)
   private String serial;
 
+  @Column(name = "recipient_name_snapshot", length = 255)
+  private String recipientNameSnapshot;
+
+  @Column(name = "course_title_snapshot", length = 255)
+  private String courseTitleSnapshot;
+
+  @Column(name = "instructor_name_snapshot", length = 255)
+  private String instructorNameSnapshot;
+
+  @Column(name = "instructor_signature_url_snapshot", length = 1000)
+  private String instructorSignatureUrlSnapshot;
+
   @Column(nullable = false)
   private Instant issuedAt = Instant.now();
 

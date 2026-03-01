@@ -48,12 +48,24 @@ public interface CertificateRepository extends JpaRepository<Certificate, Long> 
     @Query("SELECT c FROM Certificate c WHERE c.user.id = :userId AND c.revokedAt IS NULL")
     List<Certificate> findActiveByUserId(@Param("userId") Long userId);
 
+    @Transactional(readOnly = true)
+    Optional<Certificate> findFirstByUser_IdAndCourse_IdOrderByIssuedAtDesc(Long userId, Long courseId);
+
+    @Transactional(readOnly = true)
+    Optional<Certificate> findFirstByUser_IdAndCourse_IdAndRevokedAtIsNullOrderByIssuedAtDesc(
+            Long userId,
+            Long courseId
+    );
+
     /**
-     * Find certificate by user and course
+     * Find a certificate by ID owned by a specific user.
      */
     @Transactional(readOnly = true)
-    @Query("SELECT c FROM Certificate c WHERE c.user.id = :userId AND c.course.id = :courseId")
-    Optional<Certificate> findByUserIdAndCourseId(@Param("userId") Long userId, @Param("courseId") Long courseId);
+    @Query("SELECT c FROM Certificate c WHERE c.id = :certificateId AND c.user.id = :userId")
+    Optional<Certificate> findByIdAndUserId(
+            @Param("certificateId") Long certificateId,
+            @Param("userId") Long userId
+    );
 
     /**
      * Count certificates issued for a course

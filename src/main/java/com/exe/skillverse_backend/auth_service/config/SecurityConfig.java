@@ -43,6 +43,7 @@ public class SecurityConfig {
                         "/api/mentors/register",
                         // Business service registration
                         "/api/business/register",
+                        "/api/certificates/verify/**",
                         "/api/courses",
                         "/api/courses/**",
                         "/api/courses/by-author/**",

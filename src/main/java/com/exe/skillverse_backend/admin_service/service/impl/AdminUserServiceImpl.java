@@ -270,10 +270,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                                                         .courseName(cert.getCourse().getTitle())
                                                         .issuedAt(LocalDateTime.ofInstant(cert.getIssuedAt(),
                                                                         ZoneId.systemDefault()))
-                                                        .certificateUrl("/api/certificates/" + cert.getSerial()) // Generate
-                                                                                                                 // URL
-                                                                                                                 // from
-                                                                                                                 // serial
+                                                        .certificateUrl("/verify/certificate/" + cert.getSerial())
                                                         .build())
                                         .collect(Collectors.toList());
                 }
