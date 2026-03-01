@@ -17,11 +17,13 @@ import com.exe.skillverse_backend.course_service.mapper.QuizMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizOptionMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizQuestionMapper;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizAttemptAnswerSnapshotRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizAttemptRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizOptionRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizQuestionRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 import com.exe.skillverse_backend.course_service.service.impl.QuizServiceImpl;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -68,6 +70,12 @@ class QuizServiceImplTest {
 
     @Mock
     private QuizAttemptMapper attemptMapper;
+
+    @Mock
+    private QuizAttemptAnswerSnapshotRepository attemptAnswerSnapshotRepository;
+
+    @Mock
+    private ObjectMapper objectMapper;
 
     @Mock
     private Clock clock;
@@ -120,7 +128,7 @@ class QuizServiceImplTest {
     }
 
     @Test
-    void submitQuiz_shortAnswerIgnoresCaseAndExtraWhitespace() {
+    void submitQuiz_shortAnswerIgnoresCaseAndExtraWhitespace() throws Exception {
         Course course = Course.builder().id(99L).build();
         Module module = Module.builder().id(5L).course(course).build();
         Quiz quiz = Quiz.builder()
@@ -148,6 +156,7 @@ class QuizServiceImplTest {
         when(attemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(12L, 7L)).thenReturn(List.of());
         when(attemptRepository.save(any(QuizAttempt.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0, QuizAttempt.class));
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
         when(attemptMapper.toDto(any(QuizAttempt.class)))
                 .thenAnswer(invocation -> {
                     QuizAttempt saved = invocation.getArgument(0, QuizAttempt.class);

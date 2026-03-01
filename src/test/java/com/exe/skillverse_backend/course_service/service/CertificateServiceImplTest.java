@@ -10,7 +10,9 @@ import com.exe.skillverse_backend.course_service.mapper.CertificateMapper;
 import com.exe.skillverse_backend.course_service.repository.CertificateRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.service.impl.CertificateServiceImpl;
+import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,7 +26,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -48,6 +49,12 @@ class CertificateServiceImplTest {
     private UserRepository userRepository;
 
     @Mock
+    private MentorProfileRepository mentorProfileRepository;
+
+    @Mock
+    private UserProfileRepository userProfileRepository;
+
+    @Mock
     private CertificateMapper certificateMapper;
 
     @Mock
@@ -65,7 +72,6 @@ class CertificateServiceImplTest {
                 .id(99L)
                 .serial("SV-C-1-U-2-EXISTING")
                 .build();
-        CertificateDTO expectedDto = new CertificateDTO();
         CourseLearningStatusDTO completionStatus = CourseLearningStatusDTO.builder().percent(100).build();
 
         when(
@@ -73,10 +79,11 @@ class CertificateServiceImplTest {
                         .findFirstByUser_IdAndCourse_IdAndRevokedAtIsNullOrderByIssuedAtDesc(2L, 1L)
         )
                 .thenReturn(Optional.of(existingCertificate));
-        when(certificateMapper.toDto(existingCertificate)).thenReturn(expectedDto);
         CertificateDTO actualDto = certificateService.issueCourseCertificate(1L, 2L, completionStatus);
 
-        assertSame(expectedDto, actualDto);
+        assertEquals(99L, actualDto.getId());
+        assertEquals("SV-C-1-U-2-EXISTING", actualDto.getSerial());
+        assertEquals("Skillverse", actualDto.getIssuerName());
         verify(courseRepository, never()).findById(1L);
         verify(userRepository, never()).findById(2L);
         verify(certificateRepository, never()).save(existingCertificate);
@@ -104,7 +111,6 @@ class CertificateServiceImplTest {
                 .id(77L)
                 .serial("SV-C-1-U-2-EXISTING")
                 .build();
-        CertificateDTO expectedDto = new CertificateDTO();
 
         when(
                 certificateRepository
@@ -120,14 +126,15 @@ class CertificateServiceImplTest {
                 .thenReturn(pendingCertificate);
         when(certificateRepository.save(pendingCertificate))
                 .thenThrow(new DataIntegrityViolationException("duplicate active certificate"));
-        when(certificateMapper.toDto(existingCertificate)).thenReturn(expectedDto);
         when(clock.instant()).thenReturn(
                 Instant.parse("2026-02-28T12:00:00Z")
         );
 
         CertificateDTO actualDto = certificateService.issueCourseCertificate(1L, 2L, completionStatus);
 
-        assertSame(expectedDto, actualDto);
+        assertEquals(77L, actualDto.getId());
+        assertEquals("SV-C-1-U-2-EXISTING", actualDto.getSerial());
+        assertEquals("Skillverse", actualDto.getIssuerName());
         verify(certificateRepository).save(pendingCertificate);
     }
 
@@ -236,13 +243,6 @@ class CertificateServiceImplTest {
                         .build());
         when(certificateRepository.save(any(Certificate.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0, Certificate.class));
-        when(certificateMapper.toDto(any(Certificate.class)))
-                .thenAnswer(invocation -> {
-                    Certificate savedCertificate = invocation.getArgument(0, Certificate.class);
-                    CertificateDTO dto = new CertificateDTO();
-                    dto.setSerial(savedCertificate.getSerial());
-                    return dto;
-                });
         when(clock.instant()).thenReturn(Instant.parse("2026-03-01T12:00:00Z"));
 
         CertificateDTO issuedCertificate = certificateService.issueCourseCertificate(1L, 2L, completionStatus);
@@ -277,13 +277,6 @@ class CertificateServiceImplTest {
         when(certificateRepository.save(any(Certificate.class)))
                 .thenThrow(new DataIntegrityViolationException("serial duplicate"))
                 .thenAnswer(invocation -> invocation.getArgument(0, Certificate.class));
-        when(certificateMapper.toDto(any(Certificate.class)))
-                .thenAnswer(invocation -> {
-                    Certificate savedCertificate = invocation.getArgument(0, Certificate.class);
-                    CertificateDTO dto = new CertificateDTO();
-                    dto.setSerial(savedCertificate.getSerial());
-                    return dto;
-                });
         when(clock.instant()).thenReturn(Instant.parse("2026-03-01T12:00:00Z"));
 
         CertificateDTO issuedCertificate = certificateService.issueCourseCertificate(1L, 2L, completionStatus);
