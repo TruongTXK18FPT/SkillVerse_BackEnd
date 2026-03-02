@@ -23,6 +23,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.text.Normalizer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -149,7 +150,7 @@ public class MentorRegistrationServiceImpl
                 request.setBio(bio);
                 request.setAddress(address);
                 request.setRegion(region);
-                request.setLinkedinProfile(linkedinProfile);
+                request.setLinkedinProfile(normalizeOptionalUrl(linkedinProfile));
                 request.setMainExpertiseArea(mainExpertiseArea);
                 request.setYearsOfExperience(yearsOfExperience);
                 request.setPersonalProfile(personalProfile);
@@ -275,6 +276,32 @@ public class MentorRegistrationServiceImpl
                 }
 
                 return request;
+        }
+
+        private String normalizeOptionalUrl(String value) {
+                if (value == null) {
+                        return null;
+                }
+
+                String trimmedValue = value.trim();
+                if (trimmedValue.isEmpty()) {
+                        return null;
+                }
+
+                String normalizedValue = trimmedValue.matches("^[a-zA-Z][a-zA-Z\\d+.-]*://.*$")
+                                ? trimmedValue
+                                : "https://" + trimmedValue;
+
+                try {
+                        URI parsedUri = URI.create(normalizedValue);
+                        if (parsedUri.getHost() == null || parsedUri.getHost().isBlank()) {
+                                return trimmedValue;
+                        }
+                        return parsedUri.toString();
+                } catch (IllegalArgumentException ex) {
+                        log.warn("Could not normalize mentor URL: {}", trimmedValue);
+                        return trimmedValue;
+                }
         }
 
         private String slugify(String input) {

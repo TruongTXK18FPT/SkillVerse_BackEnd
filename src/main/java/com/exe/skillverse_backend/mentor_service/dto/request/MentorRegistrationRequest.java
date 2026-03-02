@@ -32,9 +32,8 @@ public class MentorRegistrationRequest extends BaseRegistrationRequest {
     @Schema(description = "Years of professional experience", example = "5", required = true)
     private Integer yearsOfExperience;
 
-    @NotBlank(message = "Personal profile is required")
     @Size(max = 1000, message = "Personal profile must not exceed 1000 characters")
-    @Schema(description = "Personal achievements and experience description", example = "mo ta co ban ve ban than...", required = true)
+    @Schema(description = "Personal achievements and experience description (optional)", example = "mo ta co ban ve ban than...")
     private String personalProfile;
 
     // Documents Section
