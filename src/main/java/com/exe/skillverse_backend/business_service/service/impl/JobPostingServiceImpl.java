@@ -45,6 +45,8 @@ public class JobPostingServiceImpl implements JobPostingService {
     private final WalletService walletService;
 
     private static final BigDecimal JOB_POSTING_FEE = new BigDecimal("50000"); // 50,000 VND
+    private static final BigDecimal JOB_REOPEN_FEE = new BigDecimal("20000"); // 20,000 VND
+    private static final long REOPEN_GRACE_SECONDS = 300; // 5 minutes = 300 seconds
 
     /**
      * Create a new job posting (status = PENDING_APPROVAL)
@@ -58,9 +60,15 @@ public class JobPostingServiceImpl implements JobPostingService {
         // Try subscription quota first, fall back to direct wallet payment
         boolean usedSubscription = recruiterSubscriptionService.tryUseSubscriptionQuota(userId);
         if (!usedSubscription) {
-            log.info("No subscription — deducting {} VND from wallet for user {}", JOB_POSTING_FEE, userId);
-            walletService.deductCash(userId, JOB_POSTING_FEE,
-                    "Phí đăng tin tuyển dụng full-time", "JOB_POSTING", "new");
+            try {
+                log.info("No subscription — deducting {} VND from wallet for user {}", JOB_POSTING_FEE, userId);
+                walletService.deductCash(userId, JOB_POSTING_FEE,
+                        "Phí đăng tin tuyển dụng full-time", "JOB_POSTING", "new");
+            } catch (IllegalStateException ex) {
+                throw ex; // keep insufficient funds as-is
+            } catch (Exception ex) {
+                throw new IllegalStateException("Wallet service error", ex);
+            }
         }
 
         // Validate budget
@@ -304,27 +312,43 @@ public class JobPostingServiceImpl implements JobPostingService {
 
     /**
      * Reopen job (optionally delete applications, set status to OPEN)
-     * If recruiter has premium — uses quota; otherwise deducts 50,000 VND
+     * If recruiter has premium — uses quota; otherwise deducts 20,000 VND (free within 5 mins grace period)
      */
     @Transactional
     public JobPostingResponse reopenJob(Long userId, Long jobId, ReopenJobRequest request) {
         log.info("Reopening job ID: {} by user ID: {}", jobId, userId);
 
-        // Try subscription quota first, fall back to direct wallet payment
-        boolean usedSubscription = recruiterSubscriptionService.tryUseSubscriptionQuota(userId);
-        if (!usedSubscription) {
-            log.info("No subscription — deducting {} VND from wallet for reopen, user {}", JOB_POSTING_FEE, userId);
-            walletService.deductCash(userId, JOB_POSTING_FEE,
-                    "Phí mở lại tin tuyển dụng", "JOB_REOPEN", String.valueOf(jobId));
-        }
-
-        // Find job and validate ownership
+        // Find job and validate ownership FIRST
         JobPosting job = jobPostingRepository.findByIdAndRecruiterProfileUserId(jobId, userId)
                 .orElseThrow(() -> new NotFoundException("Job not found or you don't have permission to reopen it"));
 
         // Only allow reopen if CLOSED
         if (job.getStatus() != JobStatus.CLOSED) {
             throw new IllegalStateException("Can only reopen CLOSED jobs");
+        }
+
+        // Check grace period (free if closed within 5 minutes)
+        boolean withinGracePeriod = false;
+        if (job.getClosedAt() != null) {
+            long secs = ChronoUnit.SECONDS.between(job.getClosedAt(), LocalDateTime.now());
+            withinGracePeriod = secs <= REOPEN_GRACE_SECONDS;
+            log.info("Job closed {} seconds ago, grace period: {}", secs, withinGracePeriod);
+        }
+
+        // Try subscription quota first, fall back to direct wallet payment
+        boolean usedSubscription = recruiterSubscriptionService.tryUseSubscriptionQuota(userId);
+
+        // Only deduct if no subscription AND not within grace period
+        if (!usedSubscription && !withinGracePeriod) {
+            try {
+                log.info("No subscription and outside grace period — deducting {} VND from wallet for reopen, user {}", JOB_REOPEN_FEE, userId);
+                walletService.deductCash(userId, JOB_REOPEN_FEE,
+                        "Phí mở lại tin tuyển dụng", "JOB_REOPEN", String.valueOf(jobId));
+            } catch (Exception ex) {
+                throw new IllegalStateException("Wallet deduction failed", ex);
+            }
+        } else if (withinGracePeriod) {
+            log.info("Reopen is free (within {} seconds grace period)", REOPEN_GRACE_SECONDS);
         }
 
         // Handle applications (delete or keep)

@@ -163,8 +163,8 @@ public class BusinessRegistrationServiceTest {
                 assertNotEquals(savedProfile.getCompanyPhone(), savedProfile.getContactPersonPhone(),
                                 "Company Phone and Contact Person Phone should be distinct in this test case");
 
-                // 3. Verify OTP generation
-                verify(userCreationService).generateOtpForUser(eq(validRequest.getEmail()));
+                // 3. Verify OTP generation - OTP is already generated inside createUserForRecruiter
+                verify(userCreationService, never()).generateOtpForUser(anyString());
 
                 // 4. Verify Response
                 assertTrue(response.isSuccess());

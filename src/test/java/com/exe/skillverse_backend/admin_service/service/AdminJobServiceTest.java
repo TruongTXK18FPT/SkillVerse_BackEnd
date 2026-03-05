@@ -152,7 +152,7 @@ public class AdminJobServiceTest {
 
         assertNotNull(response);
         assertEquals(JobStatus.REJECTED, job.getStatus());
-        verify(walletService).processRefund(eq(100L), eq(new BigDecimal("50000")), contains("Refund"), eq("1"));
+        verify(walletService).processRefund(eq(100L), eq(new BigDecimal("50000")), contains("Hoàn tiền"), eq("1"));
         verify(jobPostingRepository).save(job);
     }
 

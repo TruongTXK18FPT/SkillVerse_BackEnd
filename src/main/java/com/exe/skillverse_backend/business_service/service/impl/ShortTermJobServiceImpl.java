@@ -54,7 +54,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     // ==================== STATUS TRANSITION RULES ====================
 
     private static final List<ShortTermJobStatus> DRAFT_TRANSITIONS = Arrays.asList(
-            ShortTermJobStatus.PENDING_APPROVAL, ShortTermJobStatus.CANCELLED
+            ShortTermJobStatus.PENDING_APPROVAL, ShortTermJobStatus.PUBLISHED, ShortTermJobStatus.CANCELLED
     );
     private static final List<ShortTermJobStatus> PENDING_APPROVAL_TRANSITIONS = Arrays.asList(
             ShortTermJobStatus.PUBLISHED, ShortTermJobStatus.REJECTED, ShortTermJobStatus.CANCELLED

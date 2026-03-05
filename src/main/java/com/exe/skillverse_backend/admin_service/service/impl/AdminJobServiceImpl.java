@@ -75,13 +75,17 @@ public class AdminJobServiceImpl implements AdminJobService {
         // Refund if recruiter paid via wallet (not subscription)
         if (job.getPaidViaSubscription() == null || !job.getPaidViaSubscription()) {
             Long recruiterId = job.getRecruiterProfile().getUser().getId();
-            walletService.processRefund(
-                    recruiterId,
-                    JOB_POSTING_FEE,
-                    "Hoàn tiền phí đăng tin tuyển dụng bị từ chối",
-                    String.valueOf(jobId)
-            );
-            log.info("Refunded 50,000 VND to recruiter user ID: {} for rejected job ID: {}", recruiterId, jobId);
+            try {
+                walletService.processRefund(
+                        recruiterId,
+                        JOB_POSTING_FEE,
+                        "Hoàn tiền phí đăng tin tuyển dụng bị từ chối",
+                        String.valueOf(jobId)
+                );
+                log.info("Refunded 50,000 VND to recruiter user ID: {} for rejected job ID: {}", recruiterId, jobId);
+            } catch (Exception ex) {
+                throw new IllegalStateException("Refund failed", ex);
+            }
         }
         // If paid via subscription, quota is consumed — no refund
 
