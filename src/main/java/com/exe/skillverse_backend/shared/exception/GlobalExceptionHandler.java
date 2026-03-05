@@ -6,9 +6,9 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -117,15 +117,67 @@ public class GlobalExceptionHandler {
         }
 
         /**
-         * Handles authentication exceptions for login and auth errors.
+         * Handles IllegalArgumentException for bad request scenarios.
          *
-         * @param ex  the AuthenticationException
+         * @param ex  the IllegalArgumentException
          * @param req the HTTP request
          * @return error response entity
          */
-        @ExceptionHandler(AuthenticationException.class)
-        public ResponseEntity<ErrorResponse> handleAuthentication(
-                        AuthenticationException ex, HttpServletRequest req) {
+        @ExceptionHandler(IllegalArgumentException.class)
+        public ResponseEntity<ErrorResponse> handleIllegalArgument(
+                        IllegalArgumentException ex, HttpServletRequest req) {
+                var body = ErrorResponse.builder()
+                                .code(ErrorCode.BAD_REQUEST.code)
+                                .message(ex.getMessage())
+                                .status(ErrorCode.BAD_REQUEST.status.value())
+                                .timestamp(Instant.now())
+                                .path(req.getRequestURI())
+                                .build();
+                return ResponseEntity.status(ErrorCode.BAD_REQUEST.status).body(body);
+        }
+
+        /**
+         * Handles custom authentication exceptions thrown by application services.
+         *
+         * @param ex  the custom AuthenticationException
+         * @param req the HTTP request
+         * @return error response entity
+         */
+        @ExceptionHandler(com.exe.skillverse_backend.shared.exception.AuthenticationException.class)
+        public ResponseEntity<ErrorResponse> handleCustomAuthentication(
+                        com.exe.skillverse_backend.shared.exception.AuthenticationException ex,
+                        HttpServletRequest req) {
+                HttpStatus status = HttpStatus.resolve(ex.getHttpStatus());
+                if (status == null) {
+                        status = ErrorCode.UNAUTHORIZED.status;
+                }
+
+                String code = ex.getErrorCode();
+                if (code == null || code.isBlank()) {
+                        code = ErrorCode.UNAUTHORIZED.code;
+                }
+
+                var body = ErrorResponse.builder()
+                                .code(code)
+                                .message(ex.getMessage())
+                                .status(status.value())
+                                .timestamp(Instant.now())
+                                .path(req.getRequestURI())
+                                .build();
+                return ResponseEntity.status(status).body(body);
+        }
+
+        /**
+         * Handles Spring Security authentication exceptions.
+         *
+         * @param ex  the Spring Security AuthenticationException
+         * @param req the HTTP request
+         * @return error response entity
+         */
+        @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
+        public ResponseEntity<ErrorResponse> handleSpringAuthentication(
+                        org.springframework.security.core.AuthenticationException ex,
+                        HttpServletRequest req) {
                 var body = ErrorResponse.builder()
                                 .code(ErrorCode.UNAUTHORIZED.code)
                                 .message(ex.getMessage())

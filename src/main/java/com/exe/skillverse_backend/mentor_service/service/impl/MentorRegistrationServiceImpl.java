@@ -12,6 +12,8 @@ import com.exe.skillverse_backend.shared.service.RegistrationService;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,10 +27,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.text.Normalizer;
+import java.util.Set;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -39,12 +43,14 @@ public class MentorRegistrationServiceImpl
         private final UserCreationService userCreationService;
         private final MentorProfileRepository mentorProfileRepository;
         private final CloudinaryService cloudinaryService;
+        private final Validator validator;
 
         @Override
         @Transactional
         public MentorRegistrationResponse register(MentorRegistrationRequest request) {
                 try {
                         log.info("Starting mentor registration for email: {}", request.getEmail());
+                        validateRequest(request);
 
                         // 1. Create User entity via auth_service
                         User user = userCreationService.createUserForMentor(
@@ -55,10 +61,9 @@ public class MentorRegistrationServiceImpl
                         // 2. Create MentorProfile in mentor_service
                         createMentorProfile(user, request);
 
-                        // 3. Generate OTP for email verification (only after successful profile
-                        // creation)
-                        userCreationService.generateOtpForUser(request.getEmail());
-                        log.info("Generated OTP for mentor user: {}", request.getEmail());
+                        // 3. OTP is already generated in UserCreationService#createUserForMentor
+                        // (avoid duplicate send and resend-cooldown errors)
+                        log.info("OTP already generated during mentor user creation: {}", request.getEmail());
 
                         // 4. Log successful registration
                         return MentorRegistrationResponse.builder()
@@ -302,6 +307,20 @@ public class MentorRegistrationServiceImpl
                         log.warn("Could not normalize mentor URL: {}", trimmedValue);
                         return trimmedValue;
                 }
+        }
+
+        private void validateRequest(MentorRegistrationRequest request) {
+                Set<ConstraintViolation<MentorRegistrationRequest>> violations = validator.validate(request);
+                if (violations.isEmpty()) {
+                        return;
+                }
+
+                String errorMessage = violations.stream()
+                                .map(ConstraintViolation::getMessage)
+                                .distinct()
+                                .collect(Collectors.joining("; "));
+
+                throw new IllegalArgumentException(errorMessage);
         }
 
         private String slugify(String input) {

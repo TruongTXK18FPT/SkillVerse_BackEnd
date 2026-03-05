@@ -11,6 +11,8 @@ import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -30,12 +34,14 @@ public class BusinessRegistrationServiceImpl
         private final UserCreationService userCreationService;
         private final RecruiterProfileRepository recruiterProfileRepository;
         private final CloudinaryService cloudinaryService;
+        private final Validator validator;
 
         @Override
         @Transactional
         public BusinessRegistrationResponse register(BusinessRegistrationRequest request) {
                 try {
                         log.info("Starting business/recruiter registration for email: {}", request.getEmail());
+                        validateRequest(request);
 
                         // 1. Create User entity via auth_service
                         User user = userCreationService.createUserForRecruiter(
@@ -47,10 +53,9 @@ public class BusinessRegistrationServiceImpl
                         // 2. Create RecruiterProfile in business_service
                         createRecruiterProfile(user, request);
 
-                        // 3. Generate OTP for email verification (only after successful profile
-                        // creation)
-                        userCreationService.generateOtpForUser(request.getEmail());
-                        log.info("Generated OTP for recruiter user: {}", request.getEmail());
+                        // 3. OTP is already generated in UserCreationService#createUserForRecruiter
+                        // (avoid duplicate send and resend-cooldown errors)
+                        log.info("OTP already generated during recruiter user creation: {}", request.getEmail());
 
                         // 4. Log successful registration
                         return BusinessRegistrationResponse.builder()
@@ -71,6 +76,20 @@ public class BusinessRegistrationServiceImpl
                         log.error("Business registration failed for email: {}", request.getEmail(), e);
                         throw e;
                 }
+        }
+
+        private void validateRequest(BusinessRegistrationRequest request) {
+                Set<ConstraintViolation<BusinessRegistrationRequest>> violations = validator.validate(request);
+                if (violations.isEmpty()) {
+                        return;
+                }
+
+                String errorMessage = violations.stream()
+                                .map(ConstraintViolation::getMessage)
+                                .distinct()
+                                .collect(Collectors.joining("; "));
+
+                throw new IllegalArgumentException(errorMessage);
         }
 
         /**

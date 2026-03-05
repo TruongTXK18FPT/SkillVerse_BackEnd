@@ -130,7 +130,9 @@ public class AuthServiceImpl implements AuthService {
                                 // Provide specific error messages based on user type
                                 if (!user.isEmailVerified()) {
                                         throw new AuthenticationException(
-                                                        "Email not verified. Please verify your email before logging in.");
+                                                        "Email not verified. Please verify your email before logging in.",
+                                                        "EMAIL_NOT_VERIFIED",
+                                                        401);
                                 } else if (user.getPrimaryRole() == PrimaryRole.MENTOR) {
                                         throw AccountPendingApprovalException.forMentor();
                                 } else if (user.getPrimaryRole() == PrimaryRole.RECRUITER) {

@@ -51,7 +51,7 @@ public class MentorRegistrationController {
             @RequestParam(value = "linkedinProfile", required = false) String linkedinProfile,
             @RequestParam("mainExpertiseArea") String mainExpertiseArea,
             @RequestParam("yearsOfExperience") Integer yearsOfExperience,
-            @RequestParam("personalProfile") String personalProfile,
+            @RequestParam(value = "personalProfile", required = false) String personalProfile,
             @RequestParam(value = "cvPortfolioFile", required = false) MultipartFile cvPortfolioFile,
             @RequestParam(value = "certificatesFile", required = false) MultipartFile certificatesFile,
             @RequestParam(value = "certificatesFiles", required = false) MultipartFile[] certificatesFiles,
