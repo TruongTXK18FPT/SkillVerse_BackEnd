@@ -21,6 +21,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -30,6 +32,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 /**
@@ -80,6 +83,7 @@ import static org.mockito.Mockito.*;
 import com.exe.skillverse_backend.business_service.dto.request.ReopenJobRequest;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 public class JobPostingServiceTest {
 
     @Mock
@@ -96,6 +100,9 @@ public class JobPostingServiceTest {
 
     @Mock
     private ObjectMapper objectMapper;
+
+    @Mock
+    private com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionService recruiterSubscriptionService;
 
     @InjectMocks
     private JobPostingServiceImpl jobPostingService;
@@ -129,6 +136,9 @@ public class JobPostingServiceTest {
                 .genderRequirement("ANY")
                 .isNegotiable(false)
                 .build();
+
+        // Default: no subscription, so wallet will be deducted
+        when(recruiterSubscriptionService.tryUseSubscriptionQuota(anyLong())).thenReturn(false);
     }
 
     // 1. Case: Tạo tin tuyển dụng thành công

@@ -22,6 +22,11 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.Validator;
+
+import java.util.Collections;
+
 /**
  * =========================================================================================
  * HƯỚNG DẪN CHẠY TEST (TESTING GUIDE)
@@ -80,6 +85,9 @@ public class BusinessRegistrationServiceTest {
         @Mock
         private CloudinaryService cloudinaryService;
 
+        @Mock
+        private Validator validator;
+
         @InjectMocks
         private BusinessRegistrationServiceImpl businessRegistrationService;
 
@@ -113,6 +121,9 @@ public class BusinessRegistrationServiceTest {
                                 .lastName("Owner")
                                 .phoneNumber("0901234567")
                                 .build();
+
+                // Mock validator to return empty set (valid request)
+                when(validator.validate(any(BusinessRegistrationRequest.class))).thenReturn(java.util.Collections.emptySet());
         }
 
         @Test
