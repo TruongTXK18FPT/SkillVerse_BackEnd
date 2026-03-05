@@ -23,4 +23,6 @@ public class CertificateVerificationDTO {
     private String verificationStatus;
     private String completionStatement;
     private String disclaimer;
+    private String platformProof;
+    private Boolean proofVerified;
 }

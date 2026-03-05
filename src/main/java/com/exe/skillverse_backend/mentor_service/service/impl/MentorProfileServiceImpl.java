@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.mentor_service.service.impl;
 
 import com.exe.skillverse_backend.mentor_service.dto.request.MentorProfileUpdateRequest;
+import com.exe.skillverse_backend.mentor_service.dto.request.MentorSignatureDrawRequest;
 import com.exe.skillverse_backend.mentor_service.dto.response.MentorProfileResponse;
 import com.exe.skillverse_backend.mentor_service.dto.response.SkillTabResponse;
 import com.exe.skillverse_backend.mentor_service.dto.response.BadgeInfo;
@@ -12,11 +13,13 @@ import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProf
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingReviewRepository;
+import com.exe.skillverse_backend.course_service.repository.CertificateRepository;
 import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
+import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
@@ -29,11 +32,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
-import java.time.LocalDate;
+import java.io.ByteArrayOutputStream;
+import java.awt.BasicStroke;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import javax.imageio.ImageIO;
 
 @Slf4j
 @Service
@@ -42,18 +52,30 @@ public class MentorProfileServiceImpl implements MentorProfileService {
 
     private static final String MENTOR_PROFILE_NOT_FOUND = "MENTOR_PROFILE_NOT_FOUND";
     private static final int MAX_SIGNATURE_SIZE_BYTES = 5 * 1024 * 1024;
-    private static final List<String> ALLOWED_SIGNATURE_CONTENT_TYPES = List.of(
-            "image/png",
-            "image/jpeg",
-            "image/webp");
+    private static final int MIN_SIGNATURE_WIDTH = 240;
+    private static final int MAX_SIGNATURE_WIDTH = 2400;
+    private static final int MIN_SIGNATURE_HEIGHT = 60;
+    private static final int MAX_SIGNATURE_HEIGHT = 600;
+    private static final double MIN_SIGNATURE_ASPECT_RATIO = 2.0d;
+    private static final double MAX_SIGNATURE_ASPECT_RATIO = 12.0d;
+    private static final double MIN_SIGNATURE_FOREGROUND_RATIO = 0.001d;
+    private static final double MAX_SIGNATURE_FOREGROUND_RATIO = 0.30d;
+    private static final int MAX_SIGNATURE_STROKES = 120;
+    private static final int MAX_POINTS_PER_STROKE = 2000;
+    private static final int MAX_TOTAL_SIGNATURE_POINTS = 20000;
+    private static final int MIN_TOTAL_SIGNATURE_POINTS = 10;
+    private static final double MIN_STROKE_WIDTH = 1.0d;
+    private static final double MAX_STROKE_WIDTH = 8.0d;
 
     private final MentorProfileRepository mentorProfileRepository;
     private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
     private final BookingRepository bookingRepository;
     private final BookingReviewRepository bookingReviewRepository;
+    private final CertificateRepository certificateRepository;
     private final CoursePurchaseRepository coursePurchaseRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final UserRepository userRepository;
+    private final MediaRepository mediaRepository;
     private final MediaService mediaService;
     private final ObjectMapper objectMapper;
 
@@ -157,10 +179,6 @@ public class MentorProfileServiceImpl implements MentorProfileService {
             profile.setAvatarUrl(request.getAvatar());
         }
 
-        if (request.getSignatureUrl() != null) {
-            profile.setSignatureUrl(request.getSignatureUrl());
-        }
-
         if (request.getSocialLinks() != null) {
             if (request.getSocialLinks().getLinkedin() != null) {
                 profile.setLinkedinProfile(request.getSocialLinks().getLinkedin());
@@ -230,16 +248,104 @@ public class MentorProfileServiceImpl implements MentorProfileService {
     @Override
     @Transactional
     public String uploadMentorSignature(Long userId, byte[] fileData, String fileName, String contentType) {
-        log.info("Uploading signature for mentor user ID: {}", userId);
+        throw new BadRequestException("SIGNATURE_FILE_UPLOAD_DISABLED_USE_SYSTEM_SIGNING");
+    }
 
-        if (fileData == null || fileData.length == 0) {
-            throw new BadRequestException("SIGNATURE_FILE_IS_EMPTY");
+    @Override
+    @Transactional
+    public String createMentorSignatureFromDrawing(Long userId, MentorSignatureDrawRequest request) {
+        if (request == null) {
+            throw new BadRequestException("SIGNATURE_DRAW_REQUEST_REQUIRED");
         }
-        if (fileData.length > MAX_SIGNATURE_SIZE_BYTES) {
+
+        int canvasWidth = requireInRange(
+                request.getCanvasWidth(),
+                MIN_SIGNATURE_WIDTH,
+                MAX_SIGNATURE_WIDTH,
+                "SIGNATURE_DRAW_WIDTH_INVALID"
+        );
+        int canvasHeight = requireInRange(
+                request.getCanvasHeight(),
+                MIN_SIGNATURE_HEIGHT,
+                MAX_SIGNATURE_HEIGHT,
+                "SIGNATURE_DRAW_HEIGHT_INVALID"
+        );
+
+        List<MentorSignatureDrawRequest.Stroke> strokes = request.getStrokes();
+        if (strokes == null || strokes.isEmpty()) {
+            throw new BadRequestException("SIGNATURE_DRAW_STROKES_REQUIRED");
+        }
+        if (strokes.size() > MAX_SIGNATURE_STROKES) {
+            throw new BadRequestException("SIGNATURE_DRAW_TOO_MANY_STROKES");
+        }
+
+        BufferedImage signatureImage = new BufferedImage(canvasWidth, canvasHeight, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = signatureImage.createGraphics();
+        int totalPoints = 0;
+
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            graphics.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+            graphics.setColor(java.awt.Color.WHITE);
+            graphics.fillRect(0, 0, canvasWidth, canvasHeight);
+            graphics.setColor(java.awt.Color.BLACK);
+
+            for (MentorSignatureDrawRequest.Stroke stroke : strokes) {
+                if (stroke == null || stroke.getPoints() == null || stroke.getPoints().size() < 2) {
+                    continue;
+                }
+                if (stroke.getPoints().size() > MAX_POINTS_PER_STROKE) {
+                    throw new BadRequestException("SIGNATURE_DRAW_STROKE_TOO_LARGE");
+                }
+
+                double lineWidth = stroke.getLineWidth() == null ? 3.0d : stroke.getLineWidth();
+                if (lineWidth < MIN_STROKE_WIDTH || lineWidth > MAX_STROKE_WIDTH) {
+                    throw new BadRequestException("SIGNATURE_DRAW_STROKE_WIDTH_INVALID");
+                }
+
+                graphics.setStroke(new BasicStroke(
+                        (float) lineWidth,
+                        BasicStroke.CAP_ROUND,
+                        BasicStroke.JOIN_ROUND
+                ));
+
+                MentorSignatureDrawRequest.Point previous = null;
+                for (MentorSignatureDrawRequest.Point point : stroke.getPoints()) {
+                    if (point == null || point.getX() == null || point.getY() == null) {
+                        throw new BadRequestException("SIGNATURE_DRAW_POINT_INVALID");
+                    }
+                    double x = point.getX();
+                    double y = point.getY();
+                    if (x < 0 || x > canvasWidth || y < 0 || y > canvasHeight) {
+                        throw new BadRequestException("SIGNATURE_DRAW_POINT_OUT_OF_BOUNDS");
+                    }
+                    if (previous != null) {
+                        graphics.drawLine(
+                                (int) Math.round(previous.getX()),
+                                (int) Math.round(previous.getY()),
+                                (int) Math.round(x),
+                                (int) Math.round(y)
+                        );
+                    }
+                    previous = point;
+                    totalPoints++;
+                    if (totalPoints > MAX_TOTAL_SIGNATURE_POINTS) {
+                        throw new BadRequestException("SIGNATURE_DRAW_TOO_MANY_POINTS");
+                    }
+                }
+            }
+        } finally {
+            graphics.dispose();
+        }
+
+        if (totalPoints < MIN_TOTAL_SIGNATURE_POINTS) {
+            throw new BadRequestException("SIGNATURE_DRAW_INSUFFICIENT_POINTS");
+        }
+
+        validateSignatureImage(signatureImage);
+        byte[] normalizedSignature = encodeSignatureAsPng(signatureImage);
+        if (normalizedSignature.length > MAX_SIGNATURE_SIZE_BYTES) {
             throw new BadRequestException("SIGNATURE_FILE_TOO_LARGE");
-        }
-        if (contentType == null || ALLOWED_SIGNATURE_CONTENT_TYPES.stream().noneMatch(type -> type.equalsIgnoreCase(contentType))) {
-            throw new BadRequestException("SIGNATURE_FILE_TYPE_NOT_SUPPORTED");
         }
 
         MentorProfile profile = mentorProfileRepository.findByUserId(userId)
@@ -247,10 +353,10 @@ public class MentorProfileServiceImpl implements MentorProfileService {
 
         MediaDTO mediaDto = mediaService.upload(
                 userId,
-                fileName,
-                contentType,
-                fileData.length,
-                new ByteArrayInputStream(fileData));
+                resolveSignatureFileName("mentor-signature-system"),
+                "image/png",
+                normalizedSignature.length,
+                new ByteArrayInputStream(normalizedSignature));
 
         String signatureUrl = mediaDto.getUrl();
 
@@ -258,8 +364,117 @@ public class MentorProfileServiceImpl implements MentorProfileService {
         profile.setUpdatedAt(LocalDateTime.now());
         mentorProfileRepository.save(profile);
 
-        log.info("Signature uploaded successfully for mentor user ID: {}", userId);
+        log.info("System-drawn signature saved successfully for mentor user ID: {}", userId);
         return signatureUrl;
+    }
+
+    private int requireInRange(Integer value, int min, int max, String errorCode) {
+        if (value == null || value < min || value > max) {
+            throw new BadRequestException(errorCode);
+        }
+        return value;
+    }
+
+    private void validateSignatureImage(BufferedImage image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+
+        if (width < MIN_SIGNATURE_WIDTH || width > MAX_SIGNATURE_WIDTH
+                || height < MIN_SIGNATURE_HEIGHT || height > MAX_SIGNATURE_HEIGHT) {
+            throw new BadRequestException("SIGNATURE_IMAGE_DIMENSIONS_INVALID");
+        }
+
+        double aspectRatio = (double) width / (double) height;
+        if (aspectRatio < MIN_SIGNATURE_ASPECT_RATIO || aspectRatio > MAX_SIGNATURE_ASPECT_RATIO) {
+            throw new BadRequestException("SIGNATURE_IMAGE_ASPECT_RATIO_INVALID");
+        }
+
+        long foregroundPixels = 0L;
+        long totalPixels = (long) width * height;
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int argb = image.getRGB(x, y);
+                int alpha = (argb >>> 24) & 0xFF;
+                int red = (argb >>> 16) & 0xFF;
+                int green = (argb >>> 8) & 0xFF;
+                int blue = argb & 0xFF;
+
+                boolean transparent = alpha < 20;
+                boolean nearWhite = red > 245 && green > 245 && blue > 245;
+                if (!transparent && !nearWhite) {
+                    foregroundPixels++;
+                }
+            }
+        }
+
+        double foregroundRatio = (double) foregroundPixels / (double) totalPixels;
+        if (foregroundRatio < MIN_SIGNATURE_FOREGROUND_RATIO || foregroundRatio > MAX_SIGNATURE_FOREGROUND_RATIO) {
+            throw new BadRequestException("SIGNATURE_IMAGE_CONTENT_INVALID");
+        }
+    }
+
+    private byte[] encodeSignatureAsPng(BufferedImage image) {
+        BufferedImage normalized = new BufferedImage(
+                image.getWidth(),
+                image.getHeight(),
+                BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = normalized.createGraphics();
+        try {
+            graphics.drawImage(image, 0, 0, null);
+        } finally {
+            graphics.dispose();
+        }
+
+        try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            boolean writeSuccess = ImageIO.write(normalized, "png", outputStream);
+            if (!writeSuccess) {
+                throw new BadRequestException("SIGNATURE_FILE_IMAGE_ENCODE_FAILED");
+            }
+            return outputStream.toByteArray();
+        } catch (BadRequestException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BadRequestException("SIGNATURE_FILE_IMAGE_ENCODE_FAILED");
+        }
+    }
+
+    private String resolveSignatureFileName(String originalFileName) {
+        String suffix = ".png";
+        if (originalFileName != null && !originalFileName.isBlank()) {
+            String trimmed = originalFileName.trim();
+            int extensionIndex = trimmed.lastIndexOf('.');
+            String baseName = extensionIndex > 0 ? trimmed.substring(0, extensionIndex) : trimmed;
+            String sanitizedBase = baseName.replaceAll("[^a-zA-Z0-9_-]", "-");
+            if (!sanitizedBase.isBlank()) {
+                return sanitizedBase + "-" + UUID.randomUUID() + suffix;
+            }
+        }
+        return "mentor-signature-" + UUID.randomUUID() + suffix;
+    }
+
+    private String sanitizeSignatureUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.isBlank()) {
+            return null;
+        }
+
+        String normalized = rawUrl.trim()
+                .replace("://res cloudinary com/", "://res.cloudinary.com/")
+                .replace("://res%20cloudinary%20com/", "://res.cloudinary.com/");
+
+        try {
+            URI uri = new URI(normalized);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null) {
+                return null;
+            }
+            if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+                return null;
+            }
+            return normalized;
+        } catch (URISyntaxException exception) {
+            return null;
+        }
     }
 
     @Override
@@ -269,6 +484,45 @@ public class MentorProfileServiceImpl implements MentorProfileService {
 
         MentorProfile profile = mentorProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new NotFoundException(MENTOR_PROFILE_NOT_FOUND));
+
+        String signatureUrl = profile.getSignatureUrl();
+        if (signatureUrl != null && !signatureUrl.isBlank()) {
+            String rawTrimmed = signatureUrl.trim();
+            String normalizedSignatureUrl = sanitizeSignatureUrl(signatureUrl);
+            String lookupUrl = normalizedSignatureUrl != null ? normalizedSignatureUrl : rawTrimmed;
+            long certificateRefCount = certificateRepository.countByInstructorSignatureUrlSnapshot(lookupUrl);
+            if (!rawTrimmed.equals(lookupUrl)) {
+                certificateRefCount += certificateRepository.countByInstructorSignatureUrlSnapshot(rawTrimmed);
+            }
+            if (certificateRefCount == 0) {
+                mediaRepository.findFirstByUrl(lookupUrl)
+                        .or(() -> {
+                            if (!rawTrimmed.equals(lookupUrl)) {
+                                return mediaRepository.findFirstByUrl(rawTrimmed);
+                            }
+                            return java.util.Optional.empty();
+                        })
+                        .ifPresent(media -> {
+                            try {
+                                mediaService.delete(media.getId(), userId);
+                                log.info("Deleted signature media {} for mentor user ID: {}", media.getId(), userId);
+                            } catch (Exception ex) {
+                                log.warn(
+                                        "Failed to delete signature media {} for mentor user ID {}: {}",
+                                        media.getId(),
+                                        userId,
+                                        ex.getMessage()
+                                );
+                            }
+                        });
+            } else {
+                log.info(
+                        "Keeping signature file for mentor user ID {} because {} certificates reference it.",
+                        userId,
+                        certificateRefCount
+                );
+            }
+        }
 
         profile.setSignatureUrl(null);
         profile.setUpdatedAt(LocalDateTime.now());

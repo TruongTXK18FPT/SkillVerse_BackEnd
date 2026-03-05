@@ -1,10 +1,14 @@
 package com.exe.skillverse_backend.mentor_booking_service.controller;
 
 import com.exe.skillverse_backend.mentor_booking_service.dto.BookingReviewDTO;
+import com.exe.skillverse_backend.mentor_booking_service.dto.BookingReviewStatsDTO;
 import com.exe.skillverse_backend.mentor_booking_service.service.BookingReviewService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -58,6 +62,27 @@ public class BookingReviewController {
         Long userId = Long.parseLong(authentication.getName());
         List<BookingReviewDTO> reviews = reviewService.getMentorReviews(userId);
         return ResponseEntity.ok(reviews);
+    }
+
+    @GetMapping("/mentor/me/paged")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get my reviews with pagination/filter/sort (Mentor)")
+    public ResponseEntity<Page<BookingReviewDTO>> getMyReviewsPaged(
+            Authentication authentication,
+            @RequestParam(required = false) Integer rating,
+            @PageableDefault(size = 10) Pageable pageable) {
+        Long userId = Long.parseLong(authentication.getName());
+        Page<BookingReviewDTO> reviews = reviewService.getMentorReviews(userId, rating, pageable);
+        return ResponseEntity.ok(reviews);
+    }
+
+    @GetMapping("/mentor/me/stats")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get aggregate review stats for current mentor")
+    public ResponseEntity<BookingReviewStatsDTO> getMyReviewStats(Authentication authentication) {
+        Long userId = Long.parseLong(authentication.getName());
+        BookingReviewStatsDTO stats = reviewService.getMentorReviewStats(userId);
+        return ResponseEntity.ok(stats);
     }
 
     @GetMapping("/mentor/{mentorId}")

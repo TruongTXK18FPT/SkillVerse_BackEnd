@@ -22,4 +22,6 @@ public class CertificateDTO {
     private Instant issuedAt;
     private Instant revokedAt;
     private String criteria;
+    private String platformProof;
+    private Boolean proofVerified;
 }

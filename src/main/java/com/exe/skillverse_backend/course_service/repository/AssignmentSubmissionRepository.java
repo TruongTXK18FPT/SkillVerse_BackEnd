@@ -180,6 +180,76 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
     List<AssignmentSubmission> findAllLatestByAuthorId(@Param("authorId") Long authorId);
 
     @Transactional(readOnly = true)
+    @Query("SELECT asub FROM AssignmentSubmission asub " +
+            "JOIN asub.assignment a " +
+            "JOIN a.module m " +
+            "JOIN m.course c " +
+            "LEFT JOIN asub.user u " +
+            "WHERE c.author.id = :authorId " +
+            "AND asub.isNewest = true " +
+            "AND (" +
+            "  :filter = 'ALL' " +
+            "  OR (:filter = 'PENDING' AND asub.score IS NULL) " +
+            "  OR (:filter = 'GRADED' AND asub.score IS NOT NULL) " +
+            "  OR (:filter = 'LATE' AND a.dueAt IS NOT NULL AND asub.submittedAt > a.dueAt)" +
+            ") " +
+            "AND (" +
+            "  :search IS NULL OR :search = '' " +
+            "  OR LOWER(CONCAT(CONCAT(COALESCE(u.firstName, ''), ' '), COALESCE(u.lastName, ''))) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "  OR LOWER(COALESCE(u.email, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "  OR LOWER(COALESCE(c.title, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "  OR LOWER(COALESCE(m.title, '')) LIKE LOWER(CONCAT('%', :search, '%')) " +
+            "  OR LOWER(COALESCE(a.title, '')) LIKE LOWER(CONCAT('%', :search, '%'))" +
+            ") " +
+            "ORDER BY CASE WHEN asub.score IS NULL THEN 0 ELSE 1 END, asub.submittedAt DESC")
+    Page<AssignmentSubmission> findMentorLatestByAuthorIdWithFilters(
+            @Param("authorId") Long authorId,
+            @Param("filter") String filter,
+            @Param("search") String search,
+            Pageable pageable
+    );
+
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub " +
+            "JOIN asub.assignment a " +
+            "JOIN a.module m " +
+            "JOIN m.course c " +
+            "WHERE c.author.id = :authorId " +
+            "AND asub.isNewest = true")
+    long countAllLatestByAuthorId(@Param("authorId") Long authorId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub " +
+            "JOIN asub.assignment a " +
+            "JOIN a.module m " +
+            "JOIN m.course c " +
+            "WHERE c.author.id = :authorId " +
+            "AND asub.isNewest = true " +
+            "AND asub.score IS NULL")
+    long countPendingLatestByAuthorId(@Param("authorId") Long authorId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub " +
+            "JOIN asub.assignment a " +
+            "JOIN a.module m " +
+            "JOIN m.course c " +
+            "WHERE c.author.id = :authorId " +
+            "AND asub.isNewest = true " +
+            "AND asub.score IS NOT NULL")
+    long countGradedLatestByAuthorId(@Param("authorId") Long authorId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub " +
+            "JOIN asub.assignment a " +
+            "JOIN a.module m " +
+            "JOIN m.course c " +
+            "WHERE c.author.id = :authorId " +
+            "AND asub.isNewest = true " +
+            "AND a.dueAt IS NOT NULL " +
+            "AND asub.submittedAt > a.dueAt")
+    long countLateLatestByAuthorId(@Param("authorId") Long authorId);
+
+    @Transactional(readOnly = true)
     @Query("SELECT DISTINCT asub.assignment.id FROM AssignmentSubmission asub " +
             "WHERE asub.user.id = :userId " +
             "AND asub.assignment.module.course.id = :courseId " +

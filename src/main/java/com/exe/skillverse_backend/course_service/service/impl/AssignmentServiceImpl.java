@@ -845,6 +845,46 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public Page<MentorSubmissionItemDTO> getMentorSubmissionsPage(
+            Long mentorId,
+            String filter,
+            String search,
+            Pageable pageable
+    ) {
+        String normalizedFilter = (filter == null || filter.isBlank()) ? "ALL" : filter.trim().toUpperCase();
+        if (!List.of("ALL", "PENDING", "GRADED", "LATE").contains(normalizedFilter)) {
+            normalizedFilter = "ALL";
+        }
+        String normalizedSearch = (search == null || search.isBlank()) ? null : search.trim();
+
+        Page<AssignmentSubmission> submissionsPage = submissionRepository.findMentorLatestByAuthorIdWithFilters(
+                mentorId,
+                normalizedFilter,
+                normalizedSearch,
+                pageable
+        );
+
+        return submissionsPage.map(this::toMentorSubmissionItem);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public MentorSubmissionStatsDTO getMentorSubmissionStats(Long mentorId) {
+        long totalCount = submissionRepository.countAllLatestByAuthorId(mentorId);
+        long pendingCount = submissionRepository.countPendingLatestByAuthorId(mentorId);
+        long gradedCount = submissionRepository.countGradedLatestByAuthorId(mentorId);
+        long lateCount = submissionRepository.countLateLatestByAuthorId(mentorId);
+
+        return MentorSubmissionStatsDTO.builder()
+                .totalCount(totalCount)
+                .pendingCount(pendingCount)
+                .gradedCount(gradedCount)
+                .lateCount(lateCount)
+                .build();
+    }
+
     private Instant now() {
         return Instant.now(clock);
     }

@@ -1,9 +1,11 @@
 package com.exe.skillverse_backend.mentor_service.controller;
 
 import com.exe.skillverse_backend.mentor_service.dto.request.MentorProfileUpdateRequest;
+import com.exe.skillverse_backend.mentor_service.dto.request.MentorSignatureDrawRequest;
 import com.exe.skillverse_backend.mentor_service.dto.response.MentorProfileResponse;
 import com.exe.skillverse_backend.mentor_service.dto.response.SkillTabResponse;
 import com.exe.skillverse_backend.mentor_service.service.MentorProfileService;
+import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -14,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -54,6 +57,7 @@ public class MentorProfileController {
 
     @GetMapping("/skilltab")
     @Operation(summary = "Get current mentor skill tab")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     public ResponseEntity<SkillTabResponse> getMySkillTab(
             @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt) {
         Long mentorId = Long.parseLong(jwt.getSubject());
@@ -69,6 +73,7 @@ public class MentorProfileController {
 
     @GetMapping("/profile")
     @Operation(summary = "Get current mentor profile")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     public ResponseEntity<MentorProfileResponse> getMyMentorProfile(
             @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt) {
 
@@ -90,6 +95,7 @@ public class MentorProfileController {
 
     @PutMapping("/profile")
     @Operation(summary = "Update current mentor profile")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     public ResponseEntity<MentorProfileResponse> updateMyMentorProfile(
             @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt,
             @Parameter(description = "Profile update data") @Valid @RequestBody MentorProfileUpdateRequest request) {
@@ -102,6 +108,7 @@ public class MentorProfileController {
 
     @PutMapping("/{mentorId}/profile")
     @Operation(summary = "Update mentor profile by ID (Admin)")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<MentorProfileResponse> updateMentorProfile(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
             @Parameter(description = "Profile update data") @Valid @RequestBody MentorProfileUpdateRequest request) {
@@ -113,6 +120,7 @@ public class MentorProfileController {
 
     @PostMapping(value = "/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "Upload current mentor avatar")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     public ResponseEntity<AvatarUploadResponse> uploadMyMentorAvatar(
             @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt,
             @Parameter(description = "Avatar file") @RequestParam("file") MultipartFile file) {
@@ -138,6 +146,7 @@ public class MentorProfileController {
 
     @PostMapping(value = "/{mentorId}/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "Upload mentor avatar by ID (Admin)")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AvatarUploadResponse> uploadMentorAvatar(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
             @Parameter(description = "Avatar file") @RequestParam("file") MultipartFile file) {
@@ -162,51 +171,48 @@ public class MentorProfileController {
 
     @PostMapping(value = "/signature", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "Upload current mentor signature")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     public ResponseEntity<SignatureUploadResponse> uploadMyMentorSignature(
             @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt,
             @Parameter(description = "Signature image file") @RequestParam("file") MultipartFile file) {
-
-        Long mentorId = Long.parseLong(jwt.getSubject());
-        log.info("Uploading signature for current mentor ID: {}", mentorId);
-
-        try {
-            String signatureUrl = mentorProfileService.uploadMentorSignature(
-                    mentorId,
-                    file.getBytes(),
-                    file.getOriginalFilename(),
-                    file.getContentType());
-
-            return ResponseEntity.ok(new SignatureUploadResponse(signatureUrl));
-        } catch (IOException e) {
-            log.error("Error reading signature file for mentor ID: {}", mentorId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        throw new BadRequestException("SIGNATURE_FILE_UPLOAD_DISABLED_USE_SYSTEM_SIGNING");
     }
 
     @PostMapping(value = "/{mentorId}/signature", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "Upload mentor signature by ID (Admin)")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<SignatureUploadResponse> uploadMentorSignature(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
             @Parameter(description = "Signature image file") @RequestParam("file") MultipartFile file) {
+        throw new BadRequestException("SIGNATURE_FILE_UPLOAD_DISABLED_USE_SYSTEM_SIGNING");
+    }
 
-        log.info("Uploading signature for mentor ID: {}", mentorId);
+    @PostMapping(value = "/signature/system", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Create current mentor signature from system drawing strokes")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    public ResponseEntity<SignatureUploadResponse> createMyMentorSignatureFromDrawing(
+            @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt,
+            @Valid @RequestBody MentorSignatureDrawRequest request) {
+        Long mentorId = Long.parseLong(jwt.getSubject());
+        log.info("Creating system signature for current mentor ID: {}", mentorId);
+        String signatureUrl = mentorProfileService.createMentorSignatureFromDrawing(mentorId, request);
+        return ResponseEntity.ok(new SignatureUploadResponse(signatureUrl));
+    }
 
-        try {
-            String signatureUrl = mentorProfileService.uploadMentorSignature(
-                    mentorId,
-                    file.getBytes(),
-                    file.getOriginalFilename(),
-                    file.getContentType());
-
-            return ResponseEntity.ok(new SignatureUploadResponse(signatureUrl));
-        } catch (IOException e) {
-            log.error("Error reading signature file for mentor ID: {}", mentorId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+    @PostMapping(value = "/{mentorId}/signature/system", consumes = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Create mentor signature from system drawing strokes by ID (Admin)")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<SignatureUploadResponse> createMentorSignatureFromDrawing(
+            @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
+            @Valid @RequestBody MentorSignatureDrawRequest request) {
+        log.info("Creating system signature for mentor ID: {}", mentorId);
+        String signatureUrl = mentorProfileService.createMentorSignatureFromDrawing(mentorId, request);
+        return ResponseEntity.ok(new SignatureUploadResponse(signatureUrl));
     }
 
     @DeleteMapping("/signature")
     @Operation(summary = "Remove current mentor signature")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     public ResponseEntity<Void> removeMyMentorSignature(
             @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt) {
 
@@ -218,6 +224,7 @@ public class MentorProfileController {
 
     @DeleteMapping("/{mentorId}/signature")
     @Operation(summary = "Remove mentor signature by ID (Admin)")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> removeMentorSignature(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId) {
 
@@ -228,6 +235,7 @@ public class MentorProfileController {
 
     @PutMapping("/prechat-enabled")
     @Operation(summary = "Bật/tắt pre-chat cho mentor hiện tại")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     public ResponseEntity<Void> setPreChatEnabled(
             @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt,
             @RequestParam("enabled") boolean enabled) {
@@ -240,6 +248,7 @@ public class MentorProfileController {
 
     @PutMapping("/{mentorId}/prechat-enabled")
     @Operation(summary = "Bật/tắt pre-chat cho mentor (Admin)")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> setPreChatEnabledAdmin(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
             @RequestParam("enabled") boolean enabled) {
@@ -251,6 +260,7 @@ public class MentorProfileController {
 
     @GetMapping("/stats/total-students")
     @Operation(summary = "Get total students count for current mentor across all courses")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     public ResponseEntity<TotalStudentsResponse> getMyTotalStudents(
             @Parameter(hidden = true) @AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt) {
         Long mentorId = Long.parseLong(jwt.getSubject());

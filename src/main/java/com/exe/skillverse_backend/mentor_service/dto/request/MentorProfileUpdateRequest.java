@@ -38,10 +38,6 @@ public class MentorProfileUpdateRequest {
     @Size(max = 500, message = "Avatar URL must not exceed 500 characters")
     private String avatar;
 
-    @Schema(description = "Mentor signature URL", example = "https://example.com/signature.png")
-    @Size(max = 500, message = "Signature URL must not exceed 500 characters")
-    private String signatureUrl;
-
     @Schema(description = "Social links")
     private SocialLinks socialLinks;
 

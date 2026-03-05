@@ -84,4 +84,7 @@ public interface CertificateRepository extends JpaRepository<Certificate, Long> 
     @Transactional(readOnly = true)
     @Query("SELECT COUNT(c) FROM Certificate c WHERE c.user.id = :userId")
     long countByUserId(@Param("userId") Long userId);
+
+    @Transactional(readOnly = true)
+    long countByInstructorSignatureUrlSnapshot(String instructorSignatureUrlSnapshot);
 }

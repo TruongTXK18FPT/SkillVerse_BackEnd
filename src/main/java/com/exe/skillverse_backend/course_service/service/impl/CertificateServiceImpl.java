@@ -16,21 +16,27 @@ import com.exe.skillverse_backend.mentor_service.repository.MentorProfileReposit
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.security.SecureRandom;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 @Service
 @RequiredArgsConstructor
@@ -52,6 +58,8 @@ public class CertificateServiceImpl implements CertificateService {
     private static final String SERIAL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final int SERIAL_RANDOM_LENGTH = 16;
     private static final int MAX_SERIAL_GENERATION_ATTEMPTS = 5;
+    private static final String PLATFORM_PROOF_FIELD = "platformProof";
+    private static final String HMAC_ALGORITHM = "HmacSHA256";
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final CertificateRepository certificateRepository;
@@ -62,6 +70,8 @@ public class CertificateServiceImpl implements CertificateService {
     private final CertificateMapper certificateMapper;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    @Value("${app.certificate.proof-secret:skillverse-certificate-proof-dev-secret}")
+    private String certificateProofSecret = "skillverse-certificate-proof-dev-secret";
 
     @Override
     @Transactional
@@ -96,7 +106,6 @@ public class CertificateServiceImpl implements CertificateService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException(USER_NOT_FOUND));
 
-        String criteria = buildCriteriaSnapshot(courseId, userId, completionStatus);
         String recipientNameSnapshot = resolveRecipientName(user);
         String courseTitleSnapshot = resolveCourseTitle(course);
         String instructorNameSnapshot = resolveInstructorName(course);
@@ -105,6 +114,7 @@ public class CertificateServiceImpl implements CertificateService {
 
         for (int attempt = 1; attempt <= MAX_SERIAL_GENERATION_ATTEMPTS; attempt++) {
             String serial = generateSerial();
+            String criteria = buildCriteriaSnapshot(courseId, userId, completionStatus, serial, issuedAt);
             Certificate certificate = certificateMapper.toEntity(
                     new CertificateIssueRequestDTO(courseId),
                     user,
@@ -169,6 +179,8 @@ public class CertificateServiceImpl implements CertificateService {
 
         String instructorName = resolveInstructorDisplayName(certificate);
         String recipientName = resolveRecipientDisplayName(certificate);
+        String platformProof = extractStoredPlatformProof(certificate.getCriteria());
+        Boolean proofVerified = verifyPlatformProof(certificate, platformProof);
         String courseTitle = certificate.getCourseTitleSnapshot() != null
                 ? certificate.getCourseTitleSnapshot()
                 : (certificate.getCourse() != null ? certificate.getCourse().getTitle() : null);
@@ -191,6 +203,8 @@ public class CertificateServiceImpl implements CertificateService {
                 )
                 .completionStatement(COMPLETION_STATEMENT)
                 .disclaimer(DISCLAIMER)
+                .platformProof(platformProof)
+                .proofVerified(proofVerified)
                 .build();
     }
 
@@ -263,6 +277,8 @@ public class CertificateServiceImpl implements CertificateService {
         String courseTitle = certificate.getCourseTitleSnapshot() != null
                 ? certificate.getCourseTitleSnapshot()
                 : (certificate.getCourse() != null ? certificate.getCourse().getTitle() : null);
+        String platformProof = extractStoredPlatformProof(certificate.getCriteria());
+        Boolean proofVerified = verifyPlatformProof(certificate, platformProof);
 
         return new CertificateDTO(
                 certificate.getId(),
@@ -277,7 +293,9 @@ public class CertificateServiceImpl implements CertificateService {
                 certificate.getSerial(),
                 certificate.getIssuedAt(),
                 certificate.getRevokedAt(),
-                certificate.getCriteria()
+                certificate.getCriteria(),
+                platformProof,
+                proofVerified
         );
     }
 
@@ -399,7 +417,9 @@ public class CertificateServiceImpl implements CertificateService {
     private String buildCriteriaSnapshot(
             Long courseId,
             Long userId,
-            CourseLearningStatusDTO completionStatus
+            CourseLearningStatusDTO completionStatus,
+            String serial,
+            Instant issuedAt
     ) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("rule", "ALL_LESSONS_AND_REQUIRED_ASSESSMENTS_PASSED");
@@ -420,13 +440,72 @@ public class CertificateServiceImpl implements CertificateService {
         snapshot.put("completedItemCount", completionStatus.getCompletedItemCount());
         snapshot.put("totalItemCount", completionStatus.getTotalItemCount());
         snapshot.put("percent", completionStatus.getPercent());
-        snapshot.put("issuedAt", Instant.now(clock));
+        snapshot.put("issuedAt", issuedAt);
+        snapshot.put(PLATFORM_PROOF_FIELD, computePlatformProof(serial, courseId, userId, issuedAt));
 
         try {
             return objectMapper.writeValueAsString(snapshot);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("CERTIFICATE_CRITERIA_SERIALIZATION_FAILED", exception);
         }
+    }
+
+    private String computePlatformProof(String serial, Long courseId, Long userId, Instant issuedAt) {
+        try {
+            String payload = String.join(
+                    "|",
+                    serial == null ? "" : serial,
+                    courseId == null ? "" : String.valueOf(courseId),
+                    userId == null ? "" : String.valueOf(userId),
+                    issuedAt == null ? "" : issuedAt.toString()
+            );
+            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+            SecretKeySpec secretKey = new SecretKeySpec(
+                    certificateProofSecret.getBytes(StandardCharsets.UTF_8),
+                    HMAC_ALGORITHM
+            );
+            mac.init(secretKey);
+            byte[] digest = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (Exception exception) {
+            throw new IllegalStateException("CERTIFICATE_PROOF_GENERATION_FAILED", exception);
+        }
+    }
+
+    private String extractStoredPlatformProof(String criteriaJson) {
+        if (criteriaJson == null || criteriaJson.isBlank()) {
+            return null;
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(criteriaJson);
+            JsonNode proofNode = root.path(PLATFORM_PROOF_FIELD);
+            if (proofNode.isMissingNode() || proofNode.isNull()) {
+                return null;
+            }
+
+            String proofValue = proofNode.asText(null);
+            return proofValue == null || proofValue.isBlank() ? null : proofValue.trim();
+        } catch (Exception exception) {
+            log.warn("Failed to parse certificate proof for serial validation");
+            return null;
+        }
+    }
+
+    private Boolean verifyPlatformProof(Certificate certificate, String storedProof) {
+        if (certificate == null || storedProof == null) {
+            return null;
+        }
+
+        Long courseId = certificate.getCourse() != null ? certificate.getCourse().getId() : null;
+        Long userId = certificate.getUser() != null ? certificate.getUser().getId() : null;
+        String expectedProof = computePlatformProof(
+                certificate.getSerial(),
+                courseId,
+                userId,
+                certificate.getIssuedAt()
+        );
+        return storedProof.equals(expectedProof);
     }
 
     private String generateSerial() {

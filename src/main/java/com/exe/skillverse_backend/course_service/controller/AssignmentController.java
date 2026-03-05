@@ -7,6 +7,7 @@ import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSub
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentUpdateDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionItemDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionStatsDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.PendingSubmissionItemDTO;
 import com.exe.skillverse_backend.course_service.service.AssignmentService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
@@ -15,6 +16,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -77,6 +79,36 @@ public class AssignmentController {
         Long mentorId = extractUserId(jwt);
         List<MentorSubmissionItemDTO> items = assignmentService.getAllMentorSubmissions(mentorId);
         return ResponseEntity.ok(items);
+    }
+
+    @GetMapping("/mentor/submissions/paged")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @Operation(summary = "Get paged newest submissions for the authenticated mentor across all courses")
+    public ResponseEntity<Page<MentorSubmissionItemDTO>> getMentorSubmissionsPage(
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(defaultValue = "ALL") String filter,
+            @RequestParam(required = false) String search,
+            @PageableDefault(size = 10) Pageable pageable) {
+
+        Long mentorId = extractUserId(jwt);
+        Page<MentorSubmissionItemDTO> items = assignmentService.getMentorSubmissionsPage(
+                mentorId,
+                filter,
+                search,
+                pageable
+        );
+        return ResponseEntity.ok(items);
+    }
+
+    @GetMapping("/mentor/submissions/stats")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @Operation(summary = "Get aggregated mentor submission stats (total/pending/graded/late)")
+    public ResponseEntity<MentorSubmissionStatsDTO> getMentorSubmissionStats(
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long mentorId = extractUserId(jwt);
+        MentorSubmissionStatsDTO stats = assignmentService.getMentorSubmissionStats(mentorId);
+        return ResponseEntity.ok(stats);
     }
 
     // ========== Assignment Management ==========

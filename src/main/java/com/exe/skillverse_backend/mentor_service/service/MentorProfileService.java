@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.mentor_service.service;
 
 import com.exe.skillverse_backend.mentor_service.dto.request.MentorProfileUpdateRequest;
+import com.exe.skillverse_backend.mentor_service.dto.request.MentorSignatureDrawRequest;
 import com.exe.skillverse_backend.mentor_service.dto.response.MentorProfileResponse;
 import com.exe.skillverse_backend.mentor_service.dto.response.SkillTabResponse;
 
@@ -32,6 +33,11 @@ public interface MentorProfileService {
      * Upload mentor signature image
      */
     String uploadMentorSignature(Long userId, byte[] fileData, String fileName, String contentType);
+
+    /**
+     * Generate mentor signature image from system drawing strokes only.
+     */
+    String createMentorSignatureFromDrawing(Long userId, MentorSignatureDrawRequest request);
 
     /**
      * Remove mentor signature image and fallback to platform verification.

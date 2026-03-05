@@ -12,6 +12,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface MediaRepository extends JpaRepository<Media, Long>, JpaSpecificationExecutor<Media> {
@@ -51,6 +52,12 @@ public interface MediaRepository extends JpaRepository<Media, Long>, JpaSpecific
      */
     @Transactional(readOnly = true)
     boolean existsByUrl(String url);
+
+    /**
+     * Find first media record by exact URL.
+     */
+    @Transactional(readOnly = true)
+    Optional<Media> findFirstByUrl(String url);
 
     /**
      * Find media files by uploaded user ID, ordered by upload date descending

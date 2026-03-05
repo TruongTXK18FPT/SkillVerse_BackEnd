@@ -161,6 +161,7 @@ public class MentorRegistrationServiceImpl
                 request.setPersonalProfile(personalProfile);
 
                 if (cvPortfolioFile != null && !cvPortfolioFile.isEmpty()) {
+                        validateCvPortfolioFile(cvPortfolioFile);
                         try {
                                 log.info("Uploading mentor CV/Portfolio to Cloudinary for: {}", email);
                                 String nameSlug = slugify(fullName);
@@ -281,6 +282,26 @@ public class MentorRegistrationServiceImpl
                 }
 
                 return request;
+        }
+
+        private void validateCvPortfolioFile(MultipartFile cvPortfolioFile) {
+                String fileName = cvPortfolioFile.getOriginalFilename() != null
+                                ? cvPortfolioFile.getOriginalFilename().toLowerCase()
+                                : "";
+                String contentType = cvPortfolioFile.getContentType();
+
+                boolean isPdfByMime = contentType != null && contentType.equalsIgnoreCase("application/pdf");
+                boolean isPdfByExtension = fileName.endsWith(".pdf");
+
+                if (!isPdfByMime && !isPdfByExtension) {
+                        throw new IllegalArgumentException(
+                                        "CV/Portfolio chỉ hỗ trợ định dạng PDF để hệ thống có thể xem trước và duyệt ổn định.");
+                }
+
+                long maxSizeBytes = 10L * 1024 * 1024;
+                if (cvPortfolioFile.getSize() > maxSizeBytes) {
+                        throw new IllegalArgumentException("CV/Portfolio vượt quá 10MB. Vui lòng chọn file nhỏ hơn.");
+                }
         }
 
         private String normalizeOptionalUrl(String value) {

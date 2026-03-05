@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.course_service.service;
 
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.*;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
@@ -50,4 +51,6 @@ public interface AssignmentService {
      * owned by the given mentor.
      */
     List<MentorSubmissionItemDTO> getAllMentorSubmissions(Long mentorId);
+    Page<MentorSubmissionItemDTO> getMentorSubmissionsPage(Long mentorId, String filter, String search, Pageable pageable);
+    MentorSubmissionStatsDTO getMentorSubmissionStats(Long mentorId);
 }
