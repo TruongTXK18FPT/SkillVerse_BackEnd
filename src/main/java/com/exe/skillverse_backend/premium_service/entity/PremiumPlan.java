@@ -106,7 +106,8 @@ public class PremiumPlan {
         FREE_TIER,
         PREMIUM_BASIC,
         PREMIUM_PLUS,
-        STUDENT_PACK
+        STUDENT_PACK,
+        RECRUITER_PRO
     }
 
     /**

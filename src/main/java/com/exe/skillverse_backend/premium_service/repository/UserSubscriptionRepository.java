@@ -44,12 +44,48 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
                 ORDER BY CASE p.planType 
                     WHEN 'PREMIUM_PLUS' THEN 1 
                     WHEN 'PREMIUM_BASIC' THEN 2 
+                    WHEN 'RECRUITER_PRO' THEN 2 
                     WHEN 'STUDENT_PACK' THEN 3 
                     WHEN 'FREE_TIER' THEN 4 
                     ELSE 5 
                 END
         """)
         Optional<UserSubscription> findCurrentActiveSubscription(@Param("user") User user);
+
+        /**
+         * Check if user has an active RECRUITER_PRO subscription
+         * Also checks for PREMIUM_PLUS and PREMIUM_BASIC which can be used for job posting
+         */
+        @Query("SELECT CASE WHEN COUNT(s) > 0 THEN true ELSE false END FROM UserSubscription s " +
+                "JOIN s.plan p " +
+                "WHERE s.user.id = :userId AND s.isActive = true AND s.status = 'ACTIVE' " +
+                "AND s.startDate <= CURRENT_TIMESTAMP AND s.endDate > CURRENT_TIMESTAMP " +
+                "AND p.planType IN ('RECRUITER_PRO', 'PREMIUM_PLUS', 'PREMIUM_BASIC')")
+        Boolean hasActiveRecruiterSubscription(@Param("userId") Long userId);
+
+        /**
+         * Find user's active RECRUITER_PRO subscription specifically.
+         * Also checks for PREMIUM_PLUS and PREMIUM_BASIC which can be used for job posting.
+         * Unlike findCurrentActiveSubscription, this filters by specific planTypes
+         * to avoid returning a student/free tier plan when user has multiple subscriptions.
+         */
+        @Query("""
+                SELECT s FROM UserSubscription s
+                JOIN FETCH s.plan p
+                WHERE s.user = :user
+                AND s.isActive = true
+                AND s.status = 'ACTIVE'
+                AND s.startDate <= CURRENT_TIMESTAMP
+                AND s.endDate > CURRENT_TIMESTAMP
+                AND p.planType IN ('RECRUITER_PRO', 'PREMIUM_PLUS', 'PREMIUM_BASIC')
+                ORDER BY CASE p.planType
+                    WHEN 'RECRUITER_PRO' THEN 1
+                    WHEN 'PREMIUM_PLUS' THEN 2
+                    WHEN 'PREMIUM_BASIC' THEN 3
+                    ELSE 4
+                END, p.price DESC
+        """)
+        Optional<UserSubscription> findActiveRecruiterSubscription(@Param("user") User user);
 
         /**
          * @deprecated Use {@link #findCurrentActiveSubscription(User)} instead for proper validation
@@ -246,4 +282,18 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
                 AND p.planType = 'FREE_TIER'
         """)
         List<Long> findUserIdsWithExistingFreeTier(@Param("userIds") List<Long> userIds);
+
+        /**
+         * Find PENDING RECRUITER_PRO subscriptions for a user.
+         * Used by auto-recovery to activate subscriptions that were paid but never activated.
+         */
+        @Query("""
+                SELECT s FROM UserSubscription s
+                JOIN FETCH s.plan p
+                WHERE s.user.id = :userId
+                AND s.status = 'PENDING'
+                AND p.planType = 'RECRUITER_PRO'
+                ORDER BY s.createdAt DESC
+        """)
+        List<UserSubscription> findPendingRecruiterSubscriptions(@Param("userId") Long userId);
 }

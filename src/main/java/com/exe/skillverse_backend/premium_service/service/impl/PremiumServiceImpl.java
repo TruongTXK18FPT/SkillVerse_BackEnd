@@ -132,8 +132,10 @@ public class PremiumServiceImpl implements PremiumService {
                                 isValidStudentEmail(user.getEmail());
 
                 LocalDateTime startDate = LocalDateTime.now();
-                // Enforce fixed 1-month validity for upgrades
-                LocalDateTime endDate = startDate.plusMonths(1);
+                // Use plan's actual duration (will be recalculated on activation)
+                int durationMonths = plan.getDurationMonths() != null && plan.getDurationMonths() > 0
+                                ? plan.getDurationMonths() : 1;
+                LocalDateTime endDate = startDate.plusMonths(durationMonths);
 
                 // Active FREE_TIER (if any) was cancelled above; proceed to create pending paid
                 // subscription
@@ -154,12 +156,24 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         @Override
-        @Transactional(readOnly = true)
+        @Transactional
         public Optional<UserSubscriptionResponse> getCurrentSubscription(Long userId) {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
-                return userSubscriptionRepository.findCurrentActiveSubscription(user)
-                                .map(this::convertToUserSubscriptionResponse);
+                Optional<UserSubscription> activeSub = userSubscriptionRepository.findCurrentActiveSubscription(user);
+                if (activeSub.isPresent()) {
+                        return activeSub.map(this::convertToUserSubscriptionResponse);
+                }
+
+                // Auto-recovery: try to activate PENDING subscriptions with completed payments
+                boolean recovered = tryRecoverPendingSubscriptions(userId);
+                if (recovered) {
+                        // Re-query after recovery
+                        return userSubscriptionRepository.findCurrentActiveSubscription(user)
+                                        .map(this::convertToUserSubscriptionResponse);
+                }
+
+                return Optional.empty();
         }
 
         @Override
@@ -199,6 +213,13 @@ public class PremiumServiceImpl implements PremiumService {
                         throw new RuntimeException("Payment transaction is not completed");
                 }
 
+                // Recalculate dates from activation time to give user full duration
+                LocalDateTime activationTime = LocalDateTime.now();
+                PremiumPlan plan = subscription.getPlan();
+                int durationMonths = (plan != null && plan.getDurationMonths() != null && plan.getDurationMonths() > 0)
+                                ? plan.getDurationMonths() : 1;
+                subscription.setStartDate(activationTime);
+                subscription.setEndDate(activationTime.plusMonths(durationMonths));
                 subscription.setIsActive(true);
                 subscription.setStatus(UserSubscription.SubscriptionStatus.ACTIVE);
                 subscription.setPaymentTransaction(paymentTransaction);
@@ -1052,5 +1073,92 @@ public class PremiumServiceImpl implements PremiumService {
                         log.warn("Failed to get avatar URL for user {}: {}", user.getId(), e.getMessage());
                 }
                 return null;
+        }
+
+        @Override
+        @Transactional
+        public boolean tryRecoverPendingSubscriptions(Long userId) {
+                log.info("Checking for recoverable PENDING subscriptions for user {}", userId);
+
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found"));
+
+                // Find all PENDING subscriptions for this user (any plan type)
+                List<UserSubscription> pendingSubs = userSubscriptionRepository
+                                .findPendingRecruiterSubscriptions(userId);
+
+                // Also check general PENDING subscriptions via subscription history
+                List<UserSubscription> allUserSubs = userSubscriptionRepository
+                                .findByUserOrderByCreatedAtDesc(user, Pageable.unpaged())
+                                .getContent()
+                                .stream()
+                                .filter(s -> s.getStatus() == UserSubscription.SubscriptionStatus.PENDING)
+                                .toList();
+
+                // Combine both lists, deduplicate by ID
+                java.util.Set<Long> seenIds = new java.util.HashSet<>();
+                List<UserSubscription> allPending = new java.util.ArrayList<>();
+                for (UserSubscription s : pendingSubs) {
+                        if (seenIds.add(s.getId())) allPending.add(s);
+                }
+                for (UserSubscription s : allUserSubs) {
+                        if (seenIds.add(s.getId())) allPending.add(s);
+                }
+
+                if (allPending.isEmpty()) {
+                        log.info("No PENDING subscriptions found for user {}", userId);
+                        return false;
+                }
+
+                // Find completed PREMIUM_SUBSCRIPTION payments for this user
+                List<PaymentTransaction> completedPayments = paymentTransactionRepository
+                                .findByUserAndType(user, PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION)
+                                .stream()
+                                .filter(p -> p.getStatus() == PaymentTransaction.PaymentStatus.COMPLETED)
+                                .toList();
+
+                if (completedPayments.isEmpty()) {
+                        log.info("No COMPLETED premium payments found for user {}", userId);
+                        return false;
+                }
+
+                // Try to match pending subscriptions with completed payments via metadata
+                for (PaymentTransaction payment : completedPayments) {
+                        String metadata = payment.getMetadata();
+                        if (metadata == null || metadata.isEmpty()) continue;
+
+                        try {
+                                com.fasterxml.jackson.databind.ObjectMapper mapper =
+                                                new com.fasterxml.jackson.databind.ObjectMapper();
+                                com.fasterxml.jackson.databind.JsonNode node = mapper.readTree(metadata);
+                                com.fasterxml.jackson.databind.JsonNode subIdNode = node.get("subscriptionId");
+                                if (subIdNode == null || subIdNode.isNull()) continue;
+
+                                Long subscriptionId = subIdNode.asLong();
+
+                                // Check if this subscription ID is in our pending list
+                                for (UserSubscription pendingSub : allPending) {
+                                        if (pendingSub.getId().equals(subscriptionId)) {
+                                                log.info("Found matching PENDING subscription {} with COMPLETED payment {}. Activating...",
+                                                                subscriptionId, payment.getInternalReference());
+                                                try {
+                                                        activateSubscription(subscriptionId, payment.getInternalReference());
+                                                        log.info("Successfully auto-recovered subscription {} for user {}",
+                                                                        subscriptionId, userId);
+                                                        return true;
+                                                } catch (Exception e) {
+                                                        log.error("Failed to auto-recover subscription {}: {}",
+                                                                        subscriptionId, e.getMessage());
+                                                }
+                                        }
+                                }
+                        } catch (Exception e) {
+                                log.warn("Failed to parse metadata for payment {}: {}",
+                                                payment.getInternalReference(), e.getMessage());
+                        }
+                }
+
+                log.info("No recoverable subscriptions found for user {}", userId);
+                return false;
         }
 }

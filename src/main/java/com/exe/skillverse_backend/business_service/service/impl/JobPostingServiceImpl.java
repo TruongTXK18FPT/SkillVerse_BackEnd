@@ -26,6 +26,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 
+import com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import java.math.BigDecimal;
 
@@ -40,14 +41,27 @@ public class JobPostingServiceImpl implements JobPostingService {
     private final RecruiterProfileRepository recruiterProfileRepository;
     private final JobApplicationRepository jobApplicationRepository;
     private final ObjectMapper objectMapper;
+    private final RecruiterSubscriptionService recruiterSubscriptionService;
     private final WalletService walletService;
 
+    private static final BigDecimal JOB_POSTING_FEE = new BigDecimal("50000"); // 50,000 VND
+
     /**
-     * Create a new job posting (status = PENDING_APPROVAL, fee = 50k)
+     * Create a new job posting (status = PENDING_APPROVAL)
+     * If recruiter has premium subscription — uses quota (free)
+     * If not — deducts 50,000 VND from wallet
      */
     @Transactional
     public JobPostingResponse createJob(Long userId, CreateJobRequest request) {
         log.info("Creating job for recruiter user ID: {}", userId);
+
+        // Try subscription quota first, fall back to direct wallet payment
+        boolean usedSubscription = recruiterSubscriptionService.tryUseSubscriptionQuota(userId);
+        if (!usedSubscription) {
+            log.info("No subscription — deducting {} VND from wallet for user {}", JOB_POSTING_FEE, userId);
+            walletService.deductCash(userId, JOB_POSTING_FEE,
+                    "Phí đăng tin tuyển dụng full-time", "JOB_POSTING", "new");
+        }
 
         // Validate budget
         if (request.getMaxBudget().compareTo(request.getMinBudget()) < 0) {
@@ -96,26 +110,12 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .benefits(request.getBenefits())
                 .genderRequirement(request.getGenderRequirement())
                 .isNegotiable(request.getIsNegotiable() != null ? request.getIsNegotiable() : false)
+                .isHighlighted(usedSubscription && recruiterSubscriptionService.canHighlightJob(userId))
+                .paidViaSubscription(usedSubscription)
                 .recruiterProfile(recruiterProfile)
                 .build();
 
         JobPosting savedJob = jobPostingRepository.save(job);
-
-        // Deduct Job Posting Fee (50,000 VND)
-        try {
-            BigDecimal fee = new BigDecimal("50000");
-            walletService.deductCash(
-                    userId,
-                    fee,
-                    "Phí đăng tin tuyển dụng: " + savedJob.getTitle(),
-                    "JOB_POSTING",
-                    String.valueOf(savedJob.getId()));
-            log.info("Deducted 50,000 VND for job ID: {}", savedJob.getId());
-        } catch (Exception e) {
-            log.error("Failed to deduct job posting fee", e);
-            throw new IllegalStateException(
-                    "Số dư ví không đủ 50.000 VNĐ để đăng tin tuyển dụng. Vui lòng nạp thêm tiền.");
-        }
 
         log.info("Job created successfully with ID: {}", savedJob.getId());
 
@@ -304,11 +304,19 @@ public class JobPostingServiceImpl implements JobPostingService {
 
     /**
      * Reopen job (optionally delete applications, set status to OPEN)
-     * FEE: 20,000 VND (unless reopened within 5 mins of closing - GRACE PERIOD)
+     * If recruiter has premium — uses quota; otherwise deducts 50,000 VND
      */
     @Transactional
     public JobPostingResponse reopenJob(Long userId, Long jobId, ReopenJobRequest request) {
         log.info("Reopening job ID: {} by user ID: {}", jobId, userId);
+
+        // Try subscription quota first, fall back to direct wallet payment
+        boolean usedSubscription = recruiterSubscriptionService.tryUseSubscriptionQuota(userId);
+        if (!usedSubscription) {
+            log.info("No subscription — deducting {} VND from wallet for reopen, user {}", JOB_POSTING_FEE, userId);
+            walletService.deductCash(userId, JOB_POSTING_FEE,
+                    "Phí mở lại tin tuyển dụng", "JOB_REOPEN", String.valueOf(jobId));
+        }
 
         // Find job and validate ownership
         JobPosting job = jobPostingRepository.findByIdAndRecruiterProfileUserId(jobId, userId)
@@ -317,58 +325,6 @@ public class JobPostingServiceImpl implements JobPostingService {
         // Only allow reopen if CLOSED
         if (job.getStatus() != JobStatus.CLOSED) {
             throw new IllegalStateException("Can only reopen CLOSED jobs");
-        }
-
-        // Check Grace Period (5 minutes from CLOSING time)
-        // STRICT RULE: If job was EDITED after closing (updatedAt > closedAt), Grace
-        // Period is VOIDED.
-        boolean isFreeReopen = false;
-        if (job.getClosedAt() != null) {
-            LocalDateTime now = LocalDateTime.now();
-            long secondsSinceClose = ChronoUnit.SECONDS.between(job.getClosedAt(), now);
-            log.info("Grace Period Check - JobID: {}, ClosedAt: {}, Now: {}, SecondsDiff: {}",
-                    jobId, job.getClosedAt(), now, secondsSinceClose);
-
-            // Check if edited after closing (allow 1 second buffer for execution time diff)
-            boolean wasEditedAfterClose = false;
-            if (job.getUpdatedAt().isAfter(job.getClosedAt().plusSeconds(1))) {
-                wasEditedAfterClose = true;
-                log.info("Job ID {} was edited after closing. Grace period voided. UpdatedAt: {}", jobId,
-                        job.getUpdatedAt());
-            }
-
-            // Grace period: 5 minutes (300 seconds)
-            if (secondsSinceClose >= 0 && secondsSinceClose <= 300 && !wasEditedAfterClose) {
-                isFreeReopen = true;
-                log.info("DECISION: FREE REOPEN (Within 300s grace period and no edits)");
-            } else {
-                log.info("DECISION: PAID REOPEN (Time > 300s or Edited). Seconds: {}, Edited: {}", secondsSinceClose,
-                        wasEditedAfterClose);
-            }
-        } else {
-            // Fallback for legacy jobs without closedAt (treat as expired grace period)
-            log.info("Job ID {} has no closedAt timestamp. Treating as paid reopen.", jobId);
-        }
-
-        // Deduct Reopen Fee (20,000 VND) if not free
-        if (!isFreeReopen) {
-            try {
-                BigDecimal fee = new BigDecimal("20000");
-                log.info("Attempting to deduct fee: {} for User: {}", fee, userId);
-
-                walletService.deductCash(
-                        userId,
-                        fee,
-                        "Phí mở lại tin tuyển dụng: " + job.getTitle(),
-                        "JOB_REOPEN",
-                        String.valueOf(job.getId()));
-
-                log.info("SUCCESS: Deducted 20,000 VND for reopening job ID: {}", job.getId());
-            } catch (Exception e) {
-                log.error("Failed to deduct job reopen fee", e);
-                throw new IllegalStateException(
-                        "Số dư ví không đủ 20.000 VNĐ để mở lại tin tuyển dụng. Vui lòng nạp thêm tiền.");
-            }
         }
 
         // Handle applications (delete or keep)
@@ -383,6 +339,8 @@ public class JobPostingServiceImpl implements JobPostingService {
         // Set status to OPEN and clear closedAt
         job.setStatus(JobStatus.OPEN);
         job.setClosedAt(null);
+        job.setPaidViaSubscription(usedSubscription);
+        job.setIsHighlighted(usedSubscription && recruiterSubscriptionService.canHighlightJob(userId));
 
         // Handle Deadline
         if (request.getDeadline() != null) {
@@ -447,6 +405,7 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .benefits(job.getBenefits())
                 .genderRequirement(job.getGenderRequirement())
                 .isNegotiable(job.getIsNegotiable())
+                .isHighlighted(job.getIsHighlighted())
                 .recruiterCompanyName(job.getRecruiterProfile().getCompanyName())
                 .recruiterEmail(job.getRecruiterProfile().getUser().getEmail())
                 .recruiterUserId(job.getRecruiterProfile().getUser().getId())

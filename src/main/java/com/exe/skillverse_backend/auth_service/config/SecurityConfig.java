@@ -58,8 +58,7 @@ public class SecurityConfig {
                         // Public jobs listing
                         "/api/jobs/public",
                         "/api/jobs/public/**",
-                        // Public premium plans listing
-                        "/api/premium/plans",
+                        // Premium plans listing (now requires auth for role-based filtering)
                         // Support tickets (public create/track)
                         "/api/v1/support/tickets",
                         "/api/v1/support/tickets/code/**",
@@ -119,6 +118,15 @@ public class SecurityConfig {
                                 
                                 // Mentors: allow public GET for mentor list and profiles
                                 .requestMatchers(HttpMethod.GET, "/api/mentors", "/api/mentors/**").permitAll()
+
+                                // Short-term jobs: allow public GET for browsing and detail
+                                .requestMatchers(HttpMethod.GET, "/api/short-term-jobs/public", "/api/short-term-jobs/public/**").permitAll()
+                                .requestMatchers(HttpMethod.GET, "/api/short-term-jobs/search").permitAll()
+                                .requestMatchers(HttpMethod.GET, "/api/short-term-jobs/{id}").permitAll()
+
+                                // Job reviews: allow public GET for user rating summaries
+                                .requestMatchers(HttpMethod.GET, "/api/job-reviews/user/*/summary").permitAll()
+                                .requestMatchers(HttpMethod.GET, "/api/job-reviews/public/**").permitAll()
 
                                 // Allow all preflight CORS requests
                                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()

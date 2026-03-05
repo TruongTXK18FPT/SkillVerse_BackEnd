@@ -1,8 +1,12 @@
 package com.exe.skillverse_backend.premium_service.controller;
 
+import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
+import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.premium_service.dto.request.CreateSubscriptionRequest;
 import com.exe.skillverse_backend.premium_service.dto.response.PremiumPlanResponse;
 import com.exe.skillverse_backend.premium_service.dto.response.UserSubscriptionResponse;
+import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -26,12 +30,34 @@ import java.util.Map;
 public class PremiumController {
 
     private final PremiumService premiumService;
+    private final UserRepository userRepository;
 
     @GetMapping("/plans")
-    @Operation(summary = "Get available premium plans")
-    public ResponseEntity<List<PremiumPlanResponse>> getAvailablePlans() {
+    @Operation(summary = "Get available premium plans (filtered by user role)")
+    public ResponseEntity<List<PremiumPlanResponse>> getAvailablePlans(Authentication authentication) {
         log.info("Fetching available premium plans");
         List<PremiumPlanResponse> plans = premiumService.getAvailablePlans();
+
+        // Filter plans based on user role
+        if (authentication != null) {
+            Jwt jwt = (Jwt) authentication.getPrincipal();
+            Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+            User user = userRepository.findById(userId).orElse(null);
+
+            if (user != null && user.getPrimaryRole() == PrimaryRole.RECRUITER) {
+                // Recruiters only see FREE_TIER + RECRUITER_PRO
+                plans = plans.stream()
+                        .filter(p -> p.getPlanType() == PremiumPlan.PlanType.FREE_TIER
+                                || p.getPlanType() == PremiumPlan.PlanType.RECRUITER_PRO)
+                        .toList();
+            } else {
+                // Non-recruiters: hide RECRUITER_PRO plans
+                plans = plans.stream()
+                        .filter(p -> p.getPlanType() != PremiumPlan.PlanType.RECRUITER_PRO)
+                        .toList();
+            }
+        }
+
         return ResponseEntity.ok(plans);
     }
 
@@ -82,6 +108,24 @@ public class PremiumController {
         List<UserSubscriptionResponse> history = premiumService.getSubscriptionHistory(userId);
 
         return ResponseEntity.ok(history);
+    }
+
+    @PostMapping("/subscription/recover")
+    @Operation(summary = "Try to recover PENDING subscriptions that were paid but not activated")
+    public ResponseEntity<Map<String, Object>> recoverPendingSubscriptions(Authentication authentication) {
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+        log.info("Attempting subscription recovery for user: {}", userId);
+        boolean recovered = premiumService.tryRecoverPendingSubscriptions(userId);
+
+        Map<String, Object> response = new java.util.HashMap<>();
+        response.put("recovered", recovered);
+        response.put("message", recovered
+                ? "Đã kích hoạt gói Premium thành công!"
+                : "Không tìm thấy gói cần kích hoạt.");
+
+        return ResponseEntity.ok(response);
     }
 
     @PutMapping("/subscription/cancel")

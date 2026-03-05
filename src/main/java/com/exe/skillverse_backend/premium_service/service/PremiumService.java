@@ -159,4 +159,11 @@ public interface PremiumService {
      * Admin: Get premium statistics
      */
     Map<String, Object> getPremiumStatistics();
+
+    /**
+     * Try to auto-recover PENDING subscriptions that have completed payments
+     * but were never activated (e.g., PayOS webhook failure).
+     * Returns true if a subscription was recovered and activated.
+     */
+    boolean tryRecoverPendingSubscriptions(Long userId);
 }

@@ -25,8 +25,10 @@ import java.util.stream.Collectors;
 public class AdminJobServiceImpl implements AdminJobService {
 
     private final JobPostingRepository jobPostingRepository;
-    private final WalletService walletService;
     private final ObjectMapper objectMapper;
+    private final WalletService walletService;
+
+    private static final BigDecimal JOB_POSTING_FEE = new BigDecimal("50000");
 
     @Override
     @Transactional(readOnly = true)
@@ -50,7 +52,7 @@ public class AdminJobServiceImpl implements AdminJobService {
             throw new IllegalStateException("Job is not in pending status");
         }
 
-        // Just change status to OPEN, money was already deducted
+        // Just change status to OPEN — no fee to deduct (recruiter pays via subscription)
         job.setStatus(JobStatus.OPEN);
         JobPosting savedJob = jobPostingRepository.save(job);
         
@@ -70,19 +72,18 @@ public class AdminJobServiceImpl implements AdminJobService {
             throw new IllegalStateException("Job is not in pending status");
         }
 
-        // Refund 50,000 VND
-        Long userId = job.getRecruiterProfile().getUser().getId();
-        try {
+        // Refund if recruiter paid via wallet (not subscription)
+        if (job.getPaidViaSubscription() == null || !job.getPaidViaSubscription()) {
+            Long recruiterId = job.getRecruiterProfile().getUser().getId();
             walletService.processRefund(
-                userId,
-                new BigDecimal("50000"),
-                "Refund Job Posting Fee (Rejected): " + job.getTitle() + ". Reason: " + reason,
-                String.valueOf(job.getId())
+                    recruiterId,
+                    JOB_POSTING_FEE,
+                    "Hoàn tiền phí đăng tin tuyển dụng bị từ chối",
+                    String.valueOf(jobId)
             );
-        } catch (Exception e) {
-            log.error("Failed to refund job fee", e);
-            throw new IllegalStateException("Failed to refund job fee: " + e.getMessage());
+            log.info("Refunded 50,000 VND to recruiter user ID: {} for rejected job ID: {}", recruiterId, jobId);
         }
+        // If paid via subscription, quota is consumed — no refund
 
         job.setStatus(JobStatus.REJECTED);
         JobPosting savedJob = jobPostingRepository.save(job);
@@ -109,6 +110,7 @@ public class AdminJobServiceImpl implements AdminJobService {
                 .jobType(job.getJobType())
                 .hiringQuantity(job.getHiringQuantity())
                 .benefits(job.getBenefits())
+                .isHighlighted(job.getIsHighlighted())
                 .recruiterCompanyName(job.getRecruiterProfile().getCompanyName())
                 .recruiterEmail(job.getRecruiterProfile().getUser().getEmail())
                 .recruiterUserId(job.getRecruiterProfile().getUser().getId())

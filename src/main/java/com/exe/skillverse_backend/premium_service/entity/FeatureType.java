@@ -49,7 +49,81 @@ public enum FeatureType {
      * Priority support access
      * Boolean feature - user has access to priority support
      */
-    PRIORITY_SUPPORT("Priority Support", "Hỗ trợ ưu tiên");
+    PRIORITY_SUPPORT("Priority Support", "Hỗ trợ ưu tiên"),
+
+    // ==================== Recruiter Services ====================
+
+    /**
+     * Monthly job posting limit for recruiters (Full-time jobs)
+     * Tracks number of full-time job postings per month
+     */
+    JOB_POSTING_MONTHLY("Job Posting (Monthly)", "Số lượng tin tuyển dụng dài hạn mỗi tháng"),
+
+    /**
+     * Monthly short-term job/gig posting limit for recruiters
+     * Tracks number of short-term job/gig postings per month
+     */
+    SHORT_TERM_JOB_POSTING("Short-term Job Posting", "Số lượng tin công việc ngắn hạn/gig mỗi tháng"),
+
+    /**
+     * Highlight job post
+     * Boolean feature - recruiter can highlight/feature their job posts
+     */
+    HIGHLIGHT_JOB_POST("Highlight Job Post", "Đánh dấu nổi bật tin tuyển dụng"),
+
+    /**
+     * AI Candidate Suggestion
+     * Boolean feature - AI suggests matching candidates for job posts
+     */
+    AI_CANDIDATE_SUGGESTION("AI Candidate Suggestion", "AI gợi ý ứng viên phù hợp"),
+
+    /**
+     * Premium Company Profile
+     * Boolean feature - Access to enhanced company profile with logo, banner, video
+     */
+    COMPANY_PROFILE_PREMIUM("Premium Company Profile", "Hồ sơ công ty nâng cao với logo, banner, video"),
+
+    /**
+     * Analytics Dashboard
+     * Boolean feature - Access to detailed recruitment analytics
+     */
+    ANALYTICS_DASHBOARD("Analytics Dashboard", "Bảng phân tích chi tiết tuyển dụng"),
+
+    /**
+     * Candidate Database Access
+     * Boolean feature - Access to search and view candidate profiles
+     */
+    CANDIDATE_DATABASE_ACCESS("Candidate Database Access", "Truy cập cơ sở dữ liệu ứng viên"),
+
+    /**
+     * Job Boost
+     * Number of job boosts per month - push job to top of listings
+     */
+    JOB_BOOST_MONTHLY("Job Boost (Monthly)", "Đẩy tin tuyển dụng lên đầu danh sách"),
+
+    /**
+     * Automated Outreach
+     * Boolean feature - Send automated messages to matching candidates
+     */
+    AUTOMATED_OUTREACH("Automated Outreach", "Tự động tiếp cận ứng viên phù hợp"),
+
+    /**
+     * Bulk Import Candidates
+     * Number of candidate imports per month
+     */
+    BULK_IMPORT_CANDIDATES("Bulk Import Candidates", "Nhập khẩu hàng loạt ứng viên"),
+
+    /**
+     * API Access
+     * Boolean feature - Access to REST API for integration
+     */
+    API_ACCESS("API Access", "Truy cập API để tích hợp hệ thống"),
+
+    /**
+     * Priority Support
+     * Boolean feature - Priority support access
+     */
+    RECRUITER_PRIORITY_SUPPORT("Recruiter Priority Support", "Hỗ trợ ưu tiên dành riêng cho recruiter");
 
     private final String displayName;
     private final String displayNameVi;
@@ -72,7 +146,11 @@ public enum FeatureType {
      * limit
      */
     public boolean isBooleanFeature() {
-        return this == PRIORITY_SUPPORT;
+        return this == PRIORITY_SUPPORT || this == RECRUITER_PRIORITY_SUPPORT
+            || this == HIGHLIGHT_JOB_POST || this == AI_CANDIDATE_SUGGESTION
+            || this == COMPANY_PROFILE_PREMIUM || this == ANALYTICS_DASHBOARD
+            || this == CANDIDATE_DATABASE_ACCESS || this == AUTOMATED_OUTREACH
+            || this == API_ACCESS;
     }
 
     /**

@@ -73,6 +73,14 @@ public class DataInitializer implements CommandLineRunner {
                                         "'PREMIUM_ADMIN', 'AI_ADMIN', 'SUPPORT_ADMIN', 'SYSTEM_ADMIN'))";
                         jdbcTemplate.execute(addConstraintSql);
 
+                        // Fix premium_plans_plan_type_check — add RECRUITER_PRO
+                        String dropPlanTypeConstraint = "ALTER TABLE premium_plans DROP CONSTRAINT IF EXISTS premium_plans_plan_type_check";
+                        jdbcTemplate.execute(dropPlanTypeConstraint);
+
+                        String addPlanTypeConstraint = "ALTER TABLE premium_plans ADD CONSTRAINT premium_plans_plan_type_check " +
+                                        "CHECK (plan_type IN ('FREE_TIER', 'PREMIUM_BASIC', 'PREMIUM_PLUS', 'STUDENT_PACK', 'RECRUITER_PRO'))";
+                        jdbcTemplate.execute(addPlanTypeConstraint);
+
                         log.info("✅ Database constraints fixed successfully");
                 } catch (Exception e) {
                         log.error("⚠️ Failed to fix database constraints: {}", e.getMessage());
@@ -259,8 +267,7 @@ public class DataInitializer implements CommandLineRunner {
 
         private void initializePremiumPlans() {
                 try {
-                        // ✅ ONLY create FREE_TIER plan (mandatory for new users)
-                        // Other premium plans should be created by admin via UI to avoid conflicts
+                        // ✅ Create FREE_TIER plan (mandatory for new users)
                         createPremiumPlanIfNotExists(
                                         "free_tier",
                                         "Free Tier",
@@ -271,13 +278,52 @@ public class DataInitializer implements CommandLineRunner {
                                         new BigDecimal("0"),
                                         "[\"Truy cập cơ bản\", \"Tham gia cộng đồng\"]");
 
-                        // ❌ REMOVED: Auto-creation of other plans to prevent conflicts with admin UI
-                        // Admin can create these plans via Premium Management UI:
-                        // - PREMIUM_BASIC
-                        // - PREMIUM_PLUS
-                        // - STUDENT_PACK
+                        // ✅ Create RECRUITER plans (Plus + Enterprise, monthly + yearly — 4 gói)
+                        // Gói Plus Monthly: 30 bài/tháng - Highlight, priority support
+                        createPremiumPlanIfNotExists(
+                                        "recruiter_plus_monthly",
+                                        "Recruiter Plus",
+                                        "Gói Recruiter Plus - 30 tin tuyển dụng mỗi tháng, highlight bài đăng",
+                                        1, // 1 month
+                                        new BigDecimal("149000"), // 149,000 VND/month
+                                        PremiumPlan.PlanType.RECRUITER_PRO,
+                                        new BigDecimal("0"),
+                                        "[\"30 tin tuyển dụng/tháng\", \"10 tin ngắn hạn/tháng\", \"Highlight bài đăng\", \"Hỗ trợ ưu tiên\"]");
 
-                        log.info("✅ Premium plans initialization completed (FREE_TIER only)");
+                        // Gói Plus Yearly: tiết kiệm ~20%
+                        createPremiumPlanIfNotExists(
+                                        "recruiter_plus_yearly",
+                                        "Recruiter Plus (Năm)",
+                                        "Gói Recruiter Plus theo năm - Tiết kiệm 20% so với gói tháng",
+                                        12, // 12 months
+                                        new BigDecimal("1430000"), // ~119k/tháng, tiết kiệm ~20%
+                                        PremiumPlan.PlanType.RECRUITER_PRO,
+                                        new BigDecimal("0"),
+                                        "[\"30 tin tuyển dụng/tháng\", \"10 tin ngắn hạn/tháng\", \"Highlight bài đăng\", \"Hỗ trợ ưu tiên\", \"Tiết kiệm 20%\"]");
+
+                        // Gói Enterprise Monthly: Không giới hạn, AI gợi ý, analytics
+                        createPremiumPlanIfNotExists(
+                                        "recruiter_enterprise_monthly",
+                                        "Recruiter Enterprise",
+                                        "Gói Recruiter Enterprise - Đăng tin không giới hạn, AI gợi ý ứng viên",
+                                        1, // 1 month
+                                        new BigDecimal("499000"), // 499,000 VND/month
+                                        PremiumPlan.PlanType.RECRUITER_PRO,
+                                        new BigDecimal("0"),
+                                        "[\"Đăng tin không giới hạn\", \"Tin ngắn hạn không giới hạn\", \"AI gợi ý ứng viên\", \"Job Boost 5 lần/tháng\", \"Dashboard phân tích\", \"Hỗ trợ 24/7\"]");
+
+                        // Gói Enterprise Yearly: tiết kiệm ~20%
+                        createPremiumPlanIfNotExists(
+                                        "recruiter_enterprise_yearly",
+                                        "Recruiter Enterprise (Năm)",
+                                        "Gói Recruiter Enterprise theo năm - Tiết kiệm 20% so với gói tháng",
+                                        12, // 12 months
+                                        new BigDecimal("4790000"), // ~399k/tháng, tiết kiệm ~20%
+                                        PremiumPlan.PlanType.RECRUITER_PRO,
+                                        new BigDecimal("0"),
+                                        "[\"Đăng tin không giới hạn\", \"Tin ngắn hạn không giới hạn\", \"AI gợi ý ứng viên\", \"Job Boost 5 lần/tháng\", \"Dashboard phân tích\", \"Hỗ trợ 24/7\", \"Tiết kiệm 20%\"]");
+
+                        log.info("✅ Premium plans initialization completed (FREE_TIER + 4 RECRUITER plans)");
                 } catch (Exception e) {
                         log.error("❌ Error initializing premium plans: {}", e.getMessage(), e);
                         throw new RuntimeException("Failed to initialize premium plans", e);

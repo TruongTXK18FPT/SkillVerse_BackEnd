@@ -8,6 +8,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * User subscription entity tracking premium subscriptions
@@ -60,6 +62,13 @@ public class UserSubscription {
     @Column(name = "status", nullable = false, length = 20)
     @Builder.Default
     private SubscriptionStatus status = SubscriptionStatus.ACTIVE;
+
+    /**
+     * Cancellation records associated with this subscription
+     */
+    @OneToMany(mappedBy = "subscription", cascade = CascadeType.ALL, orphanRemoval = true)
+    @Builder.Default
+    private Set<SubscriptionCancellation> cancellations = new HashSet<>();
 
     /**
      * Whether this is a student subscription with discount

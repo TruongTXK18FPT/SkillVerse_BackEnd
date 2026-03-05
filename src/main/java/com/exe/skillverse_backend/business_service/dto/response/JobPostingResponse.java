@@ -36,6 +36,7 @@ public class JobPostingResponse {
     private String benefits;
     private String genderRequirement;
     private Boolean isNegotiable;
+    private Boolean isHighlighted;
 
     // Recruiter information
     private String recruiterCompanyName;

@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AdminPremiumServiceImpl implements AdminPremiumService {
 
-    private static final int MAX_PREMIUM_PLANS = 4; // Excluding FREE_TIER
+    private static final int MAX_PREMIUM_PLANS = 10; // Excluding FREE_TIER
     private static final String FREE_TIER_NAME = "free_tier";
 
     private final PremiumPlanRepository premiumPlanRepository;

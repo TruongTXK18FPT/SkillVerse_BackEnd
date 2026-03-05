@@ -549,9 +549,8 @@ public class PortfolioServiceImpl implements PortfolioService {
         List<ExternalCertificateDTO> certificates = getUserCertificates(userId);
         List<MentorReviewDTO> reviews = getUserReviews(userId);
 
-        // Generate CV using AI
-        String cvContent = cvGeneratorAIService.generateCV(profile, projects, certificates, reviews, request);
-        String cvJson = cvGeneratorAIService.generateCVJson(profile, projects, certificates, reviews);
+        // Generate structured CV JSON using AI
+        String cvJson = cvGeneratorAIService.generateCV(profile, projects, certificates, reviews, request);
 
         // Deactivate previous active CVs
         cvRepository.findByUserIdAndIsActiveTrue(userId).ifPresent(oldCv -> {
@@ -563,10 +562,11 @@ public class PortfolioServiceImpl implements PortfolioService {
         long cvCount = cvRepository.countByUserId(userId);
         int nextVersion = (int) cvCount + 1;
 
-        // Save new CV
+        // Save new CV — cvJson holds AI-generated structured data,
+        // cvContent kept empty (frontend renders via React templates)
         GeneratedCV cv = GeneratedCV.builder()
                 .user(user)
-                .cvContent(cvContent)
+                .cvContent("")
                 .cvJson(cvJson)
                 .templateName(request.getTemplateName())
                 .isActive(true)

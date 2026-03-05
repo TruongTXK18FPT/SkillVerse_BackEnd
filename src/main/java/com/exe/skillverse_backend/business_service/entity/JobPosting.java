@@ -74,6 +74,12 @@ public class JobPosting {
     @Column(name = "is_negotiable")
     private Boolean isNegotiable = false;
 
+    @Column(name = "is_highlighted")
+    private Boolean isHighlighted = false;
+
+    @Column(name = "paid_via_subscription")
+    private Boolean paidViaSubscription = false;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "recruiter_id", nullable = false)
     private RecruiterProfile recruiterProfile;

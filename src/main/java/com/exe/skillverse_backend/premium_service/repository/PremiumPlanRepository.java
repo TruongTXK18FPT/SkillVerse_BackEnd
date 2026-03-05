@@ -27,9 +27,14 @@ public interface PremiumPlanRepository extends JpaRepository<PremiumPlan, Long> 
         List<PremiumPlan> findByIsActiveTrueOrderByPrice();
 
         /**
-         * Find plan by type
+         * Find plan by type (single result)
          */
         Optional<PremiumPlan> findByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType planType);
+
+        /**
+         * Find all active plans by type (multiple plans, e.g. monthly/yearly)
+         */
+        List<PremiumPlan> findAllByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType planType);
 
         /**
          * Find plans within price range
