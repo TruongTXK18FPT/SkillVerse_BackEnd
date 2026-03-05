@@ -52,7 +52,7 @@ public class AssignmentController {
 
     /**
      * Extract userId from JWT. Delegates to {@link JwtUtils#extractUserId(Jwt)}.
-     * Tries the "userId" claim first, falls back to "sub" claim.
+     * Tries the "userId" claim first, falls back to "sub" claimtest
      */
     private Long extractUserId(Jwt jwt) {
         return JwtUtils.extractUserId(jwt);
