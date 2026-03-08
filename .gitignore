@@ -52,3 +52,6 @@ serena-temp/
 # MCP server related files
 mcp-server/
 .mcp/
+
+### Local Documentation ###
+docs/
