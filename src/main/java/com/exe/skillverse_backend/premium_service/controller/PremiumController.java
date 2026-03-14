@@ -39,8 +39,7 @@ public class PremiumController {
         List<PremiumPlanResponse> plans = premiumService.getAvailablePlans();
 
         // Filter plans based on user role
-        if (authentication != null) {
-            Jwt jwt = (Jwt) authentication.getPrincipal();
+        if (authentication != null && authentication.getPrincipal() instanceof Jwt jwt) {
             Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
             User user = userRepository.findById(userId).orElse(null);
 
@@ -56,6 +55,11 @@ public class PremiumController {
                         .filter(p -> p.getPlanType() != PremiumPlan.PlanType.RECRUITER_PRO)
                         .toList();
             }
+        } else {
+            // Guest users: hide recruiter-only plans
+            plans = plans.stream()
+                    .filter(p -> p.getPlanType() != PremiumPlan.PlanType.RECRUITER_PRO)
+                    .toList();
         }
 
         return ResponseEntity.ok(plans);

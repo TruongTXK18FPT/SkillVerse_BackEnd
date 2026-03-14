@@ -56,7 +56,6 @@ public class SecurityConfig {
                         // Public jobs listing
                         "/api/jobs/public",
                         "/api/jobs/public/**",
-                        // Premium plans listing (now requires auth for role-based filtering)
                         // Support tickets (public create/track)
                         "/api/v1/support/tickets",
                         "/api/v1/support/tickets/code/**",
@@ -102,6 +101,8 @@ public class SecurityConfig {
                                 // Public authentication endpoints
                                 .requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll()
                                 .requestMatchers(HttpMethod.GET, PUBLIC_ENDPOINTS).permitAll()
+                                .requestMatchers(HttpMethod.GET, "/api/premium/plans", "/api/premium/plans/**")
+                                .permitAll()
                                 .requestMatchers("/ws/**").permitAll()
 
                                 // Community posts: allow public GET only
