@@ -61,7 +61,7 @@ public class AuthServiceImpl implements AuthService {
         @Value("${jwt.access-token-expiration}") // 1 hour
         private Long accessTokenExpiration;
 
-        @Value("${jwt.refresh-token-expiration:604800}") // 7 days (only used when rememberMe=true)
+        @Value("${jwt.refresh-token-expiration:604800}") // 7 days (only used when rememberMe=true) fix
         private Long refreshTokenExpiration;
 
         @Value("${jwt.refresh-pepper:skillverse-refresh-pepper}")
