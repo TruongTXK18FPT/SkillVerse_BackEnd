@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.payment_service.controller;
 
+import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.service.PaymentService;
 import com.exe.skillverse_backend.payment_service.service.impl.PayOSGatewayService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -33,15 +34,6 @@ public class PayOSWebhookController {
         log.info("Received PayOS webhook: {}", payload);
 
         try {
-            // Validate signature if provided
-            if (signature != null && !signature.isEmpty()) {
-                boolean isValid = payOSGatewayService.validateCallback(signature, payload);
-                if (!isValid) {
-                    log.warn("Invalid PayOS webhook signature");
-                    return ResponseEntity.badRequest().body(Map.of("error", "Invalid signature"));
-                }
-            }
-
             // Extract payment information (PayOS usually wraps inside 'data')
             String orderCode;
             String status;
@@ -68,6 +60,39 @@ public class PayOSWebhookController {
             if (orderCode == null || orderCode.equals("null") || orderCode.isEmpty()) {
                 log.error("PayOS webhook missing orderCode: {}", payload);
                 return ResponseEntity.badRequest().body(Map.of("error", "Missing orderCode"));
+            }
+
+            // PayOS sends signature in body; header is only fallback for compatibility.
+            String bodySignature = payload.get("signature") != null
+                    ? String.valueOf(payload.get("signature"))
+                    : null;
+            String effectiveSignature = (bodySignature != null && !bodySignature.isBlank())
+                    ? bodySignature
+                    : signature;
+
+            boolean hasSignature = effectiveSignature != null && !effectiveSignature.isBlank();
+            if (hasSignature) {
+                boolean isValid = payOSGatewayService.validateCallback(effectiveSignature, payload);
+                if (!isValid) {
+                    log.warn("Invalid PayOS webhook signature");
+                    return ResponseEntity.badRequest().body(Map.of("error", "Invalid signature"));
+                }
+            } else {
+                // Fallback hardening: no signature => verify directly with PayOS before applying
+                // any local state transition to prevent forged callbacks.
+                PaymentTransaction.PaymentStatus verifiedStatus = payOSGatewayService.verifyPayment(orderCode);
+                status = switch (verifiedStatus) {
+                    case COMPLETED -> "PAID";
+                    case CANCELLED -> "CANCELLED";
+                    case FAILED -> "FAILED";
+                    default -> null;
+                };
+
+                if (status == null) {
+                    log.warn("Unsigned webhook ignored because gateway status is not terminal yet. orderCode={}",
+                            orderCode);
+                    return ResponseEntity.ok(Map.of("message", "Webhook received - payment not completed yet"));
+                }
             }
             
             // Ignore test webhooks from PayOS (orderCode like "123", "456", etc.)

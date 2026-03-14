@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.wallet_service.service.impl;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.wallet_service.dto.response.WalletResponse;
 import com.exe.skillverse_backend.wallet_service.dto.response.WalletTransactionResponse;
@@ -28,7 +29,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.text.NumberFormat;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -196,6 +200,21 @@ public class WalletServiceImpl implements WalletService {
                         String referenceId) {
                 if (coinAmount <= 0) {
                         throw new IllegalArgumentException("Số Coin phải lớn hơn 0");
+                }
+
+                // Idempotency guard for payment-driven coin credit.
+                if ("PAYMENT".equals(referenceType) && referenceId != null && !referenceId.isEmpty()) {
+                        boolean alreadyProcessed = transactionRepository.existsByReferenceIdAndReferenceTypeAndStatus(
+                                        referenceId,
+                                        referenceType,
+                                        WalletTransaction.TransactionStatus.COMPLETED);
+                        if (alreadyProcessed) {
+                                log.warn("⚠️ Coin credit already processed for payment reference: {}. Ignoring duplicate.",
+                                                referenceId);
+                                return transactionRepository
+                                                .findByReferenceIdAndReferenceType(referenceId, referenceType)
+                                                .orElse(null);
+                        }
                 }
 
                 // Try to get wallet with lock, create if not exists
@@ -782,12 +801,12 @@ public class WalletServiceImpl implements WalletService {
          * @return Map with total cash, total coins, and wallet count
          */
         @Transactional(readOnly = true)
-        public java.util.Map<String, Object> getSystemWalletStats() {
-                java.math.BigDecimal totalCash = walletRepository.getTotalCashBalance();
+        public Map<String, Object> getSystemWalletStats() {
+                BigDecimal totalCash = walletRepository.getTotalCashBalance();
                 Long totalCoins = walletRepository.getTotalCoinBalance();
                 Long walletCount = walletRepository.countActiveWallets();
 
-                java.util.Map<String, Object> stats = new java.util.HashMap<>();
+                Map<String, Object> stats = new HashMap<>();
                 stats.put("totalCashBalance", totalCash != null ? totalCash.toString() : "0");
                 stats.put("totalCoinBalance", totalCoins != null ? totalCoins : 0L);
                 stats.put("activeWalletCount", walletCount != null ? walletCount : 0L);
@@ -922,15 +941,15 @@ public class WalletServiceImpl implements WalletService {
                         if (cashAmount.compareTo(BigDecimal.ZERO) > 0 && coinAmount > 0) {
                                 notificationMessage = String.format(
                                                 "Bạn đã nhận được %s VNĐ và %d Xu từ Admin. Lý do: %s",
-                                                java.text.NumberFormat
-                                                                .getCurrencyInstance(new java.util.Locale("vi", "VN"))
+                                                NumberFormat
+                                                                .getCurrencyInstance(new Locale("vi", "VN"))
                                                                 .format(cashAmount),
                                                 coinAmount,
                                                 reason != null ? reason : "Quà tặng");
                         } else if (cashAmount.compareTo(BigDecimal.ZERO) > 0) {
                                 notificationMessage = String.format("Bạn đã nhận được %s VNĐ từ Admin. Lý do: %s",
-                                                java.text.NumberFormat
-                                                                .getCurrencyInstance(new java.util.Locale("vi", "VN"))
+                                                NumberFormat
+                                                                .getCurrencyInstance(new Locale("vi", "VN"))
                                                                 .format(cashAmount),
                                                 reason != null ? reason : "Quà tặng");
                         } else if (coinAmount > 0) {
@@ -943,7 +962,7 @@ public class WalletServiceImpl implements WalletService {
                                         userId,
                                         notificationTitle,
                                         notificationMessage,
-                                        com.exe.skillverse_backend.notification_service.entity.NotificationType.SYSTEM,
+                                        NotificationType.SYSTEM,
                                         lastTransaction != null ? lastTransaction.getTransactionId().toString()
                                                         : "GIFT");
                 } catch (Exception e) {

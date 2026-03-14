@@ -7,6 +7,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
 import jakarta.annotation.PostConstruct;
 
@@ -16,7 +18,6 @@ import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -135,8 +136,8 @@ public class PayOSGatewayService implements PaymentGatewayService {
                 throw new RuntimeException("Failed to create PayOS payment: " + response.getStatusCode());
             }
 
-        } catch (org.springframework.web.client.HttpClientErrorException
-                | org.springframework.web.client.HttpServerErrorException e) {
+        } catch (HttpClientErrorException
+                | HttpServerErrorException e) {
             log.error("PayOS API error: status={} body={}", e.getStatusCode(), e.getResponseBodyAsString());
             throw new RuntimeException("PayOS API error: " + e.getStatusCode() + " - " + e.getResponseBodyAsString(),
                     e);
@@ -201,12 +202,13 @@ public class PayOSGatewayService implements PaymentGatewayService {
     }
 
     @Override
-    public boolean validateCallback(String signature, Map<String, Object> data) {
+    public boolean validateCallback(String signature, Map<String, Object> payload) {
         log.info("Validating PayOS callback signature");
 
         try {
-            String expectedSignature = createSignature(data);
-            boolean isValid = signature.equals(expectedSignature);
+            Map<String, Object> dataToVerify = extractCallbackData(payload);
+            String expectedSignature = createSignature(dataToVerify);
+            boolean isValid = signature != null && signature.trim().equalsIgnoreCase(expectedSignature);
 
             log.info("PayOS signature validation result: {}", isValid);
             return isValid;
@@ -227,24 +229,41 @@ public class PayOSGatewayService implements PaymentGatewayService {
     }
 
     private String createSignature(Map<String, Object> data) throws NoSuchAlgorithmException, InvalidKeyException {
-        // Remove signature field if present
         Map<String, Object> dataToSign = new HashMap<>(data);
         dataToSign.remove("signature");
 
-        // Sort and concatenate values
+        // PayOS signature string format: key=value&key2=value2 (sorted by key)
         String dataString = dataToSign.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
-                .map(entry -> entry.getValue().toString())
-                .reduce("", (a, b) -> a + b);
+                .map(entry -> entry.getKey() + "=" + (entry.getValue() == null ? "" : entry.getValue().toString()))
+                .reduce((a, b) -> a + "&" + b)
+                .orElse("");
 
-        // Create HMAC-SHA256 signature
         Mac mac = Mac.getInstance("HmacSHA256");
         SecretKeySpec secretKey = new SecretKeySpec(
                 payOSProperties.getChecksumKey().getBytes(StandardCharsets.UTF_8), "HmacSHA256");
         mac.init(secretKey);
 
         byte[] signatureBytes = mac.doFinal(dataString.getBytes(StandardCharsets.UTF_8));
-        return Base64.getEncoder().encodeToString(signatureBytes);
+        StringBuilder hex = new StringBuilder(signatureBytes.length * 2);
+        for (byte b : signatureBytes) {
+            hex.append(String.format("%02x", b));
+        }
+        return hex.toString();
+    }
+
+    private Map<String, Object> extractCallbackData(Map<String, Object> payload) {
+        Object dataObj = payload.get("data");
+        if (dataObj instanceof Map<?, ?> rawDataMap) {
+            Map<String, Object> normalized = new HashMap<>();
+            rawDataMap.forEach((k, v) -> {
+                if (k != null) {
+                    normalized.put(String.valueOf(k), v);
+                }
+            });
+            return normalized;
+        }
+        return new HashMap<>(payload);
     }
 
     /**

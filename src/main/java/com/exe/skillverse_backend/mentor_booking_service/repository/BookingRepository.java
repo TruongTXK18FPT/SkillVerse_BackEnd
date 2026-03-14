@@ -18,4 +18,6 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     Booking findTopByMentorAndLearnerOrderByStartTimeDesc(User mentor, User learner);
     Booking findTopByMentorAndLearnerAndStatusNotInOrderByStartTimeDesc(User mentor, User learner, java.util.Collection<BookingStatus> statuses);
     long countByMentorAndStatus(User mentor, BookingStatus status);
+    boolean existsByPaymentReference(String paymentReference);
+    java.util.Optional<Booking> findByPaymentReference(String paymentReference);
 }

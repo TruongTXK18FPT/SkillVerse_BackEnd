@@ -26,9 +26,19 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     Optional<PaymentTransaction> findByInternalReference(String internalReference);
 
     /**
+     * Find transaction by internal reference and owner user ID
+     */
+    Optional<PaymentTransaction> findByInternalReferenceAndUserId(String internalReference, Long userId);
+
+    /**
      * Find transaction by external reference ID
      */
     Optional<PaymentTransaction> findByReferenceId(String referenceId);
+
+    /**
+     * Find transaction by ID and owner user ID
+     */
+    Optional<PaymentTransaction> findByIdAndUserId(Long id, Long userId);
 
     /**
      * Find all transactions for a user

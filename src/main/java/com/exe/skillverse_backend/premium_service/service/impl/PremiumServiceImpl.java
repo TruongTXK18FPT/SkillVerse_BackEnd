@@ -1,5 +1,7 @@
 package com.exe.skillverse_backend.premium_service.service.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
@@ -34,10 +36,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -211,6 +216,21 @@ public class PremiumServiceImpl implements PremiumService {
 
                 if (paymentTransaction.getStatus() != PaymentTransaction.PaymentStatus.COMPLETED) {
                         throw new RuntimeException("Payment transaction is not completed");
+                }
+
+                if (paymentTransaction.getType() != PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION) {
+                        throw new RuntimeException("Invalid payment type for premium activation");
+                }
+
+                Long payerUserId = paymentTransaction.getUser().getId();
+                Long beneficiaryUserId = subscription.getUser().getId();
+                if (!payerUserId.equals(beneficiaryUserId)) {
+                        ParentStudentLink link = parentStudentLinkRepository
+                                        .findByParentIdAndStudentId(payerUserId, beneficiaryUserId)
+                                        .orElseThrow(() -> new RuntimeException("Payment user is not allowed for this subscription"));
+                        if (link.getStatus() != LinkStatus.ACTIVE) {
+                                throw new RuntimeException("Parent-student link is not active");
+                        }
                 }
 
                 // Recalculate dates from activation time to give user full duration
@@ -1096,8 +1116,8 @@ public class PremiumServiceImpl implements PremiumService {
                                 .toList();
 
                 // Combine both lists, deduplicate by ID
-                java.util.Set<Long> seenIds = new java.util.HashSet<>();
-                List<UserSubscription> allPending = new java.util.ArrayList<>();
+                Set<Long> seenIds = new HashSet<>();
+                List<UserSubscription> allPending = new ArrayList<>();
                 for (UserSubscription s : pendingSubs) {
                         if (seenIds.add(s.getId())) allPending.add(s);
                 }
@@ -1128,10 +1148,9 @@ public class PremiumServiceImpl implements PremiumService {
                         if (metadata == null || metadata.isEmpty()) continue;
 
                         try {
-                                com.fasterxml.jackson.databind.ObjectMapper mapper =
-                                                new com.fasterxml.jackson.databind.ObjectMapper();
-                                com.fasterxml.jackson.databind.JsonNode node = mapper.readTree(metadata);
-                                com.fasterxml.jackson.databind.JsonNode subIdNode = node.get("subscriptionId");
+                                ObjectMapper mapper = new ObjectMapper();
+                                JsonNode node = mapper.readTree(metadata);
+                                JsonNode subIdNode = node.get("subscriptionId");
                                 if (subIdNode == null || subIdNode.isNull()) continue;
 
                                 Long subscriptionId = subIdNode.asLong();

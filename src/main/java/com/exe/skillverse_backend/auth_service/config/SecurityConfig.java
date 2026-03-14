@@ -48,8 +48,6 @@ public class SecurityConfig {
                         "/api/courses/**",
                         "/api/courses/by-author/**",
                         "/api/v1/payments/callback/payos",
-                        "/api/payment/payos/webhook", // PayOS webhook (alternative endpoint)
-                        "/api/payments/test/**", // Payment test endpoints (DEV ONLY)
                         // Meowl Chat Service (AI assistant - public access)
                         "/api/v1/meowl/chat",
                         "/api/v1/meowl/reminders/**",

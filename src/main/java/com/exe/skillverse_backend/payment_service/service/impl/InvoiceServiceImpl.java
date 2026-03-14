@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.payment_service.service.impl;
 
+import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.service.InvoiceService;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -316,9 +318,9 @@ public class InvoiceServiceImpl implements InvoiceService {
 
         if (logo == null) {
             try {
-                java.io.File file = new java.io.File(LOGO_PATH);
+                File file = new File(LOGO_PATH);
                 if (!file.exists()) {
-                    file = new java.io.File("src/assets/skillverse.png");
+                    file = new File("src/assets/skillverse.png");
                 }
                 if (file.exists()) {
                     logo = Image.getInstance(file.getAbsolutePath());
@@ -535,7 +537,7 @@ public class InvoiceServiceImpl implements InvoiceService {
      * Get display name for user - uses UserProfile.fullName first, falls back to
      * User fields
      */
-    private String getUserDisplayName(com.exe.skillverse_backend.auth_service.entity.User user) {
+    private String getUserDisplayName(User user) {
         if (user == null)
             return "N/A";
 

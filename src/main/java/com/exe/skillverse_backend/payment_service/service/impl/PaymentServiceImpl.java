@@ -37,13 +37,20 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.WeekFields;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -357,7 +364,7 @@ public class PaymentServiceImpl implements PaymentService {
                         profile.setSkillPoints(points);
 
                         long saleCount = coursePurchaseRepository.countSuccessfulPurchasesByCourseId(courseId);
-                        java.util.Set<String> badges = parseBadges(profile.getBadges());
+                        Set<String> badges = parseBadges(profile.getBadges());
                         if (saleCount == 1 && !badges.contains("FIRST_COURSE_SALE")) {
                             badges.add("FIRST_COURSE_SALE");
                             profile.setSkillPoints(profile.getSkillPoints() + 50);
@@ -390,7 +397,7 @@ public class PaymentServiceImpl implements PaymentService {
                                     NotificationType.MENTOR_LEVEL_UP, "LEVEL_" + newLevel,
                                     transaction.getUser().getId());
                         }
-                        profile.setUpdatedAt(java.time.LocalDateTime.now());
+                        profile.setUpdatedAt(LocalDateTime.now());
                         mentorProfileRepository.save(profile);
                     });
                 }
@@ -524,7 +531,7 @@ public class PaymentServiceImpl implements PaymentService {
         return result;
     }
 
-    private String buildCoursePurchaseSuccessHtml(String name, String courseTitle, java.math.BigDecimal amount,
+    private String buildCoursePurchaseSuccessHtml(String name, String courseTitle, BigDecimal amount,
             String ref) {
         String amountStr = amount != null ? amount.toPlainString() + " VND" : "-";
         return """
@@ -615,8 +622,8 @@ public class PaymentServiceImpl implements PaymentService {
         }
     }
 
-    private java.util.Set<String> parseBadges(String badgesJson) {
-        java.util.Set<String> set = new java.util.HashSet<>();
+    private Set<String> parseBadges(String badgesJson) {
+        Set<String> set = new HashSet<>();
         try {
             if (badgesJson != null && !badgesJson.isEmpty()) {
                 ObjectMapper mapper = new ObjectMapper();
@@ -633,7 +640,7 @@ public class PaymentServiceImpl implements PaymentService {
         return set;
     }
 
-    private String toBadgesJson(java.util.Set<String> badges) {
+    private String toBadgesJson(Set<String> badges) {
         try {
             ObjectMapper mapper = new ObjectMapper();
             return mapper.writeValueAsString(badges.toArray(new String[0]));
@@ -906,7 +913,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         // Calculate total revenue from WalletTransactions (purchases made via wallet)
         // This includes: PURCHASE_PREMIUM, PURCHASE_COURSE, PURCHASE_COINS
-        java.math.BigDecimal walletPurchaseRevenue = walletTransactionRepository
+        BigDecimal walletPurchaseRevenue = walletTransactionRepository
                 .calculateTotalPurchaseRevenueInRange(startDate, endDate);
 
         // Also add PayOS payments for premium/course/coins (if any paid directly via
@@ -966,7 +973,7 @@ public class PaymentServiceImpl implements PaymentService {
         log.info("Admin fetching revenue breakdown - period: {}, lookback: {} days", period, lookbackDays);
 
         Map<String, Object> result = new HashMap<>();
-        List<Map<String, Object>> data = new java.util.ArrayList<>();
+        List<Map<String, Object>> data = new ArrayList<>();
 
         LocalDateTime fromDate;
 
@@ -974,7 +981,7 @@ public class PaymentServiceImpl implements PaymentService {
             case "daily":
                 // Last N days - combine PaymentTransactions + WalletTransactions
                 fromDate = LocalDateTime.now().minusDays(lookbackDays);
-                Map<String, double[]> dailyAgg = new java.util.LinkedHashMap<>();
+                Map<String, double[]> dailyAgg = new LinkedHashMap<>();
 
                 // Get PayOS purchases
                 List<Object[]> dailyPayOS = paymentTransactionRepository.getDailyRevenue(fromDate);
@@ -1013,15 +1020,15 @@ public class PaymentServiceImpl implements PaymentService {
             case "weekly":
                 // Aggregate by week (last N weeks) - combine PayOS + wallet
                 fromDate = LocalDateTime.now().minusWeeks(lookbackDays);
-                Map<String, double[]> weeklyAgg = new java.util.LinkedHashMap<>();
+                Map<String, double[]> weeklyAgg = new LinkedHashMap<>();
 
                 // PayOS purchases
                 List<Object[]> weeklyPayOS = paymentTransactionRepository.getDailyRevenue(fromDate);
                 for (Object[] row : weeklyPayOS) {
                     if (row[0] != null) {
-                        java.time.LocalDate date = (java.time.LocalDate) row[0];
+                        LocalDate date = (LocalDate) row[0];
                         String weekKey = date.getYear() + "-W"
-                                + String.format("%02d", date.get(java.time.temporal.WeekFields.ISO.weekOfYear()));
+                                + String.format("%02d", date.get(WeekFields.ISO.weekOfYear()));
                         double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
                         long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
                         weeklyAgg.merge(weekKey, new double[] { revenue, txCount },
@@ -1033,9 +1040,9 @@ public class PaymentServiceImpl implements PaymentService {
                 List<Object[]> weeklyWallet = walletTransactionRepository.getDailyPurchaseRevenue(fromDate);
                 for (Object[] row : weeklyWallet) {
                     if (row[0] != null) {
-                        java.time.LocalDate date = (java.time.LocalDate) row[0];
+                        LocalDate date = (LocalDate) row[0];
                         String weekKey = date.getYear() + "-W"
-                                + String.format("%02d", date.get(java.time.temporal.WeekFields.ISO.weekOfYear()));
+                                + String.format("%02d", date.get(WeekFields.ISO.weekOfYear()));
                         double revenue = row[1] != null ? Double.parseDouble(row[1].toString()) : 0;
                         long txCount = row[2] != null ? ((Number) row[2]).longValue() : 0;
                         weeklyAgg.merge(weekKey, new double[] { revenue, txCount },
@@ -1055,7 +1062,7 @@ public class PaymentServiceImpl implements PaymentService {
             case "monthly":
                 // Last N months - combine PayOS + wallet
                 fromDate = LocalDateTime.now().minusMonths(lookbackDays);
-                Map<String, double[]> monthlyAgg = new java.util.LinkedHashMap<>();
+                Map<String, double[]> monthlyAgg = new LinkedHashMap<>();
 
                 // PayOS purchases
                 List<Object[]> monthlyPayOS = paymentTransactionRepository.getMonthlyRevenue(fromDate);
@@ -1092,7 +1099,7 @@ public class PaymentServiceImpl implements PaymentService {
 
             case "yearly":
                 // All years - combine PayOS + wallet
-                Map<Integer, double[]> yearlyAgg = new java.util.LinkedHashMap<>();
+                Map<Integer, double[]> yearlyAgg = new LinkedHashMap<>();
 
                 // PayOS purchases
                 List<Object[]> yearlyPayOS = paymentTransactionRepository.getYearlyRevenue();
@@ -1126,7 +1133,7 @@ public class PaymentServiceImpl implements PaymentService {
             default:
                 log.warn("Unknown period: {}, defaulting to daily", period);
                 fromDate = LocalDateTime.now().minusDays(30);
-                Map<String, double[]> defaultAgg = new java.util.LinkedHashMap<>();
+                Map<String, double[]> defaultAgg = new LinkedHashMap<>();
 
                 List<Object[]> defaultPayOS = paymentTransactionRepository.getDailyRevenue(fromDate);
                 for (Object[] row : defaultPayOS) {

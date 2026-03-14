@@ -28,6 +28,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -40,6 +42,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -83,6 +87,9 @@ class AuthServiceImplTest {
     @Mock
     private GoogleTokenVerificationService googleTokenVerificationService;
 
+    @Mock
+    private JwtDecoder jwtDecoder;
+
     @InjectMocks
     private AuthServiceImpl authService;
 
@@ -120,10 +127,12 @@ class AuthServiceImplTest {
         LoginRequest request = new LoginRequest();
         request.setEmail(activeUser.getEmail());
         request.setPassword("plain-password");
+        request.setRememberMe(true);
 
         when(userRepository.findByEmailWithRoles(activeUser.getEmail())).thenReturn(Optional.of(activeUser));
         when(passwordEncoder.matches("plain-password", "encoded-password")).thenReturn(true);
         when(userProfileService.hasProfile(anyLong())).thenReturn(false);
+        when(jwtDecoder.decode(anyString())).thenReturn(mock(Jwt.class));
         when(refreshTokenRepository.save(any(RefreshToken.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -138,7 +147,7 @@ class AuthServiceImplTest {
 
         ArgumentCaptor<RefreshToken> refreshTokenCaptor = ArgumentCaptor.forClass(RefreshToken.class);
         verify(refreshTokenRepository).save(refreshTokenCaptor.capture());
-        verify(refreshTokenRepository).deleteByUserId(activeUser.getId());
+        verify(refreshTokenRepository, atLeastOnce()).deleteByUserId(activeUser.getId());
 
         RefreshToken storedToken = refreshTokenCaptor.getValue();
         assertEquals(activeUser.getId(), storedToken.getUserId());
@@ -164,6 +173,7 @@ class AuthServiceImplTest {
                 .thenReturn(Optional.of(existingToken));
         when(userRepository.findByIdWithRoles(activeUser.getId())).thenReturn(Optional.of(activeUser));
         when(userProfileService.hasProfile(anyLong())).thenReturn(false);
+        when(jwtDecoder.decode(anyString())).thenReturn(mock(Jwt.class));
         when(refreshTokenRepository.save(any(RefreshToken.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -177,7 +187,7 @@ class AuthServiceImplTest {
 
         ArgumentCaptor<RefreshToken> refreshTokenCaptor = ArgumentCaptor.forClass(RefreshToken.class);
         verify(refreshTokenRepository).save(refreshTokenCaptor.capture());
-        verify(refreshTokenRepository).delete(existingToken);
+        verify(refreshTokenRepository).deleteByUserId(activeUser.getId());
 
         RefreshToken rotatedToken = refreshTokenCaptor.getValue();
         assertEquals(hashRefreshToken(response.getRefreshToken()), rotatedToken.getToken());

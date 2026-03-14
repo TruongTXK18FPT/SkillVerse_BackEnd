@@ -4,18 +4,23 @@ import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentReque
 import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
 import com.exe.skillverse_backend.payment_service.dto.response.PaymentTransactionResponse;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
+import com.exe.skillverse_backend.payment_service.repository.PaymentTransactionRepository;
 import com.exe.skillverse_backend.payment_service.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/payments")
@@ -25,6 +30,7 @@ import java.util.List;
 public class PaymentController {
 
     private final PaymentService paymentService;
+    private final PaymentTransactionRepository paymentTransactionRepository;
 
     @PostMapping("/create")
     @Operation(summary = "Create a new payment", description = "Create a payment transaction for a subscription or service")
@@ -39,19 +45,6 @@ public class PaymentController {
         CreatePaymentResponse response = paymentService.createPayment(userId, request);
 
         return ResponseEntity.ok(response);
-    }
-
-    @PostMapping("/callback/{gatewayReference}")
-    @Operation(summary = "Handle payment gateway callback", description = "Process callback from payment gateway")
-    public ResponseEntity<String> handleCallback(
-            @PathVariable String gatewayReference,
-            @RequestParam String status,
-            @RequestBody(required = false) String metadata) {
-
-        log.info("Processing payment callback for gateway reference: {}", gatewayReference);
-        PaymentTransaction transaction = paymentService.processPaymentCallback(gatewayReference, status, metadata);
-
-        return ResponseEntity.ok("Callback processed successfully. Payment status: " + transaction.getStatus());
     }
 
     @GetMapping("/history")
@@ -71,9 +64,14 @@ public class PaymentController {
     @GetMapping("/transaction/{internalReference}")
     @Operation(summary = "Get payment by reference", description = "Get payment details by internal reference")
     public ResponseEntity<PaymentTransactionResponse> getPaymentByReference(
-            @PathVariable String internalReference) {
+            @PathVariable String internalReference,
+            Authentication authentication) {
 
         log.info("Fetching payment by reference: {}", internalReference);
+        if (!canAccessByReference(authentication, internalReference)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
         return paymentService.getPaymentByReference(internalReference)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -82,9 +80,13 @@ public class PaymentController {
     @PostMapping("/verify/{internalReference}")
     @Operation(summary = "Verify & sync payment with gateway", description = "Verify payment status with PayOS gateway and update local payment if necessary (fallback for webhook)")
     public ResponseEntity<PaymentTransactionResponse> verifyPaymentWithGateway(
-            @PathVariable String internalReference) {
+            @PathVariable String internalReference,
+            Authentication authentication) {
 
         log.info(" Verifying payment with gateway for reference: {}", internalReference);
+        if (!canAccessByReference(authentication, internalReference)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         
         try {
             // Verify with gateway and update status
@@ -110,9 +112,14 @@ public class PaymentController {
     @GetMapping("/transaction/id/{paymentId}")
     @Operation(summary = "Get payment by ID", description = "Get payment details by payment ID")
     public ResponseEntity<PaymentTransactionResponse> getPaymentById(
-            @PathVariable Long paymentId) {
+            @PathVariable Long paymentId,
+            Authentication authentication) {
 
         log.info("Fetching payment by ID: {}", paymentId);
+        if (!canAccessById(authentication, paymentId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
         return paymentService.getPaymentById(paymentId)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
@@ -122,15 +129,21 @@ public class PaymentController {
     @Operation(summary = "Cancel payment", description = "Cancel a pending payment transaction")
     public ResponseEntity<String> cancelPayment(
             @PathVariable String internalReference,
-            @RequestParam(required = false) String reason) {
+            @RequestParam(required = false) String reason,
+            Authentication authentication) {
 
         log.info("Cancelling payment: {}", internalReference);
+        if (!canAccessByReference(authentication, internalReference)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
         paymentService.cancelPayment(internalReference, reason);
 
         return ResponseEntity.ok("Payment cancelled successfully");
     }
 
     @PutMapping("/status/{internalReference}")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Update payment status", description = "Update the status of a payment transaction")
     public ResponseEntity<PaymentTransaction> updatePaymentStatus(
             @PathVariable String internalReference,
@@ -141,5 +154,35 @@ public class PaymentController {
         PaymentTransaction transaction = paymentService.updatePaymentStatus(internalReference, status, failureReason);
 
         return ResponseEntity.ok(transaction);
+    }
+
+    private Long getCurrentUserId(Authentication authentication) {
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        return Long.valueOf(jwt.getClaimAsString("userId"));
+    }
+
+    private boolean isAdmin(Authentication authentication) {
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch("ROLE_ADMIN"::equals);
+    }
+
+    private boolean canAccessByReference(Authentication authentication, String internalReference) {
+        if (isAdmin(authentication)) {
+            return true;
+        }
+        Long userId = getCurrentUserId(authentication);
+        return paymentTransactionRepository
+                .findByInternalReferenceAndUserId(internalReference, userId)
+                .isPresent();
+    }
+
+    private boolean canAccessById(Authentication authentication, Long paymentId) {
+        if (isAdmin(authentication)) {
+            return true;
+        }
+        Long userId = getCurrentUserId(authentication);
+        Optional<PaymentTransaction> tx = paymentTransactionRepository.findByIdAndUserId(paymentId, userId);
+        return tx.isPresent();
     }
 }

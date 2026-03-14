@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.mentor_booking_service.service.impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exe.skillverse_backend.auth_service.entity.User;
@@ -10,10 +11,13 @@ import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
 import com.exe.skillverse_backend.mentor_booking_service.service.BookingService;
+import com.exe.skillverse_backend.portfolio_service.entity.MentorReview;
+import com.exe.skillverse_backend.portfolio_service.repository.MentorReviewRepository;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
 import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
+import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.service.PaymentService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
@@ -24,6 +28,7 @@ import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.payment_service.service.InvoiceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -31,9 +36,20 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -45,14 +61,14 @@ public class BookingServiceImpl implements BookingService {
     private final PaymentService paymentService;
     private final NotificationService notificationService;
     private final WalletService walletService;
-    private final com.exe.skillverse_backend.portfolio_service.repository.MentorReviewRepository mentorReviewRepository;
+    private final MentorReviewRepository mentorReviewRepository;
     private final MentorProfileRepository mentorProfileRepository;
-    private final com.exe.skillverse_backend.user_service.service.UserProfileService userProfileService;
+    private final UserProfileService userProfileService;
     private final ObjectMapper objectMapper;
     private final EmailService emailService;
     private final InvoiceService invoiceService;
 
-    @org.springframework.beans.factory.annotation.Value("${jitsi.base-url:https://meet.jit.si}")
+    @Value("${jitsi.base-url:https://meet.jit.si}")
     private String jitsiBaseUrl;
 
     @EventListener
@@ -145,7 +161,7 @@ public class BookingServiceImpl implements BookingService {
                 .orElseThrow(() -> new IllegalArgumentException("Booking không tồn tại"));
         Long mentorId = booking.getMentor() != null ? booking.getMentor().getId() : null;
         Long learnerId = booking.getLearner() != null ? booking.getLearner().getId() : null;
-        if (!java.util.Objects.equals(mentorId, userId) && !java.util.Objects.equals(learnerId, userId)) {
+        if (!Objects.equals(mentorId, userId) && !Objects.equals(learnerId, userId)) {
             throw new IllegalArgumentException("Không có quyền tải hóa đơn này");
         }
         return booking;
@@ -186,6 +202,14 @@ public class BookingServiceImpl implements BookingService {
     @Transactional
     public Booking createPendingFromPayment(PaymentTransaction transaction) {
         try {
+            String paymentReference = transaction.getInternalReference();
+            if (bookingRepository.existsByPaymentReference(paymentReference)) {
+                log.warn("Booking already exists for payment reference {}, skipping duplicate callback",
+                        paymentReference);
+                return bookingRepository.findByPaymentReference(paymentReference)
+                        .orElseThrow(() -> new IllegalStateException("Booking reference exists but cannot be loaded"));
+            }
+
             ObjectMapper mapper = new ObjectMapper();
             JsonNode node = mapper.readTree(transaction.getMetadata());
             Long mentorId = node.get("mentorId").asLong();
@@ -207,7 +231,7 @@ public class BookingServiceImpl implements BookingService {
                     .durationMinutes(duration)
                     .status(BookingStatus.PENDING)
                     .priceVnd(price)
-                    .paymentReference(transaction.getInternalReference())
+                    .paymentReference(paymentReference)
                     .build();
 
             Booking saved = bookingRepository.save(booking);
@@ -362,7 +386,7 @@ public class BookingServiceImpl implements BookingService {
                 notificationService.createNotification(mentorId, "Lên level", message, NotificationType.MENTOR_LEVEL_UP,
                         "LEVEL_" + newLevel, saved.getId());
             }
-            java.util.Set<String> badges = parseBadges(profile.getBadges());
+            Set<String> badges = parseBadges(profile.getBadges());
             long completedCount = bookingRepository.countByMentorAndStatus(saved.getMentor(), BookingStatus.COMPLETED);
             if (completedCount == 1 && !badges.contains("FIRST_SESSION")) {
                 badges.add("FIRST_SESSION");
@@ -392,7 +416,7 @@ public class BookingServiceImpl implements BookingService {
                 notificationService.createNotification(mentorId, "Lên level", msg2, NotificationType.MENTOR_LEVEL_UP,
                         "LEVEL_" + recalculatedLevel, saved.getId());
             }
-            profile.setUpdatedAt(java.time.LocalDateTime.now());
+            profile.setUpdatedAt(LocalDateTime.now());
             mentorProfileRepository.save(profile);
         });
 
@@ -401,13 +425,13 @@ public class BookingServiceImpl implements BookingService {
 
     private void scheduleMeetingReminderEmails(Booking booking) {
         try {
-            java.time.Instant now = java.time.Instant.now();
-            java.time.Instant target = booking.getStartTime().atZone(java.time.ZoneId.systemDefault()).toInstant();
-            long delayMs = java.time.Duration.between(now, target).toMillis();
+            Instant now = Instant.now();
+            Instant target = booking.getStartTime().atZone(ZoneId.systemDefault()).toInstant();
+            long delayMs = Duration.between(now, target).toMillis();
             if (delayMs < 0)
                 delayMs = 0;
 
-            java.util.concurrent.Executors.newSingleThreadScheduledExecutor().schedule(() -> {
+            Executors.newSingleThreadScheduledExecutor().schedule(() -> {
                 try {
                     String subject = "⏰ Nhắc lịch mentoring bắt đầu";
                     String htmlLearner = buildBookingReminderHtml(booking, false);
@@ -416,7 +440,7 @@ public class BookingServiceImpl implements BookingService {
                     emailService.sendHtmlEmail(booking.getMentor().getEmail(), subject, htmlMentor);
                 } catch (Exception e) {
                 }
-            }, delayMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            }, delayMs, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
         }
     }
@@ -424,9 +448,9 @@ public class BookingServiceImpl implements BookingService {
     private String formatTimeVN(LocalDateTime utcTime) {
         try {
             // Assume stored time is UTC, convert to Vietnam time (UTC+7)
-            java.time.ZonedDateTime vnTime = utcTime.atZone(java.time.ZoneId.of("UTC"))
-                    .withZoneSameInstant(java.time.ZoneId.of("Asia/Ho_Chi_Minh"));
-            return java.time.format.DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy").format(vnTime);
+            ZonedDateTime vnTime = utcTime.atZone(ZoneId.of("UTC"))
+                    .withZoneSameInstant(ZoneId.of("Asia/Ho_Chi_Minh"));
+            return DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy").format(vnTime);
         } catch (Exception e) {
             return utcTime.toString();
         }
@@ -582,7 +606,7 @@ public class BookingServiceImpl implements BookingService {
         if (booking.getStatus() != BookingStatus.COMPLETED) {
             throw new IllegalStateException("Chỉ được đánh giá sau khi hoàn tất buổi học");
         }
-        var review = com.exe.skillverse_backend.portfolio_service.entity.MentorReview.builder()
+        var review = MentorReview.builder()
                 .user(booking.getLearner())
                 .mentor(booking.getMentor())
                 .feedback(comment != null ? comment : "")
@@ -611,7 +635,7 @@ public class BookingServiceImpl implements BookingService {
             profile.setRatingAverage(avg);
             if (stars != null && stars == 5) {
                 long fiveStarCount = mentorReviewRepository.countByMentorIdAndRating(booking.getMentor().getId(), 5);
-                java.util.Set<String> badges = parseBadges(profile.getBadges());
+                Set<String> badges = parseBadges(profile.getBadges());
                 if (fiveStarCount == 1 && !badges.contains("FIRST_5_STAR")) {
                     badges.add("FIRST_5_STAR");
                     profile.setSkillPoints(
@@ -646,7 +670,7 @@ public class BookingServiceImpl implements BookingService {
                             NotificationType.MENTOR_LEVEL_UP, "LEVEL_" + newLevel);
                 }
             }
-            profile.setUpdatedAt(java.time.LocalDateTime.now());
+            profile.setUpdatedAt(LocalDateTime.now());
             mentorProfileRepository.save(profile);
         });
     }
@@ -767,22 +791,22 @@ public class BookingServiceImpl implements BookingService {
         return null;
     }
 
-    private java.util.Set<String> parseBadges(String badgesJson) {
+    private Set<String> parseBadges(String badgesJson) {
         try {
             if (badgesJson == null || badgesJson.isBlank())
-                return new java.util.HashSet<>();
-            java.util.List<String> list = objectMapper.readValue(badgesJson,
-                    new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {
+                return new HashSet<>();
+            List<String> list = objectMapper.readValue(badgesJson,
+                    new TypeReference<List<String>>() {
                     });
-            return new java.util.HashSet<>(list);
+            return new HashSet<>(list);
         } catch (Exception e) {
-            return new java.util.HashSet<>();
+            return new HashSet<>();
         }
     }
 
-    private String toBadgesJson(java.util.Set<String> badges) {
+    private String toBadgesJson(Set<String> badges) {
         try {
-            return objectMapper.writeValueAsString(new java.util.ArrayList<>(badges));
+            return objectMapper.writeValueAsString(new ArrayList<>(badges));
         } catch (Exception e) {
             return "[]";
         }
