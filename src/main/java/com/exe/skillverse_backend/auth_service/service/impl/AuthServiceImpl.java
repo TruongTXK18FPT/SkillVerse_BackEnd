@@ -19,13 +19,14 @@ import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.nimbusds.jose.*;
 import com.nimbusds.jose.crypto.MACSigner;
-import com.nimbusds.jose.crypto.MACVerifier;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,6 +53,7 @@ public class AuthServiceImpl implements AuthService {
         private final EmailService emailService;
         private final PremiumService premiumService;
         private final GoogleTokenVerificationService googleTokenVerificationService;
+        private final JwtDecoder jwtDecoder;
 
         @Value("${jwt.secret}")
         private String jwtSecret;
@@ -59,7 +61,7 @@ public class AuthServiceImpl implements AuthService {
         @Value("${jwt.access-token-expiration}") // 1 hour
         private Long accessTokenExpiration;
 
-        @Value("${jwt.refresh-token-expiration}") // 24 hours
+        @Value("${jwt.refresh-token-expiration:604800}") // 7 days (only used when rememberMe=true)
         private Long refreshTokenExpiration;
 
         @Value("${jwt.refresh-pepper:skillverse-refresh-pepper}")
@@ -150,7 +152,7 @@ public class AuthServiceImpl implements AuthService {
 
                         // Generate tokens
                         String accessToken = generateToken(user);
-                        String refreshToken = generateRefreshToken(user);
+                        String refreshToken = generateLoginRefreshToken(user, request.getRememberMe());
                         // Get user profile information if exists
                         String fullName = getUserFullName(user);
                         String avatarUrl = getUserAvatarUrl(user);
@@ -219,28 +221,8 @@ public class AuthServiceImpl implements AuthService {
 
         public boolean verifyToken(String token) {
                 try {
-                        SignedJWT signedJWT = SignedJWT.parse(token);
-
-                        // Verify signature
-                        JWSVerifier verifier = new MACVerifier(jwtSecret.getBytes());
-                        if (!signedJWT.verify(verifier)) {
-                                return false;
-                        }
-
-                        // Check expiration
-                        Date expirationTime = signedJWT.getJWTClaimsSet().getExpirationTime();
-                        if (expirationTime.before(new Date())) {
-                                return false;
-                        }
-
-                        // Check if token is invalidated
-                        String jti = signedJWT.getJWTClaimsSet().getJWTID();
-                        if (invalidatedTokenRepository.existsByJti(jti)) {
-                                return false;
-                        }
-
+                        jwtDecoder.decode(token);
                         return true;
-
                 } catch (Exception e) {
                         log.error("Error verifying JWT token", e);
                         return false;
@@ -294,15 +276,19 @@ public class AuthServiceImpl implements AuthService {
                                                 return new RuntimeException("User not found");
                                         });
 
+                        // Account may have been deactivated/blocked after initial login.
+                        if (user.getStatus() != UserStatus.ACTIVE) {
+                                log.warn("Refresh denied for inactive user: {} (ID: {})", user.getEmail(), user.getId());
+                                refreshTokenRepository.deleteByUserId(user.getId());
+                                throw new AuthenticationException("Your account is inactive. Please contact support.");
+                        }
+
                         log.info("Refreshing tokens for user: {} (ID: {})", user.getEmail(), user.getId());
 
                         // Generate new tokens (absolute lifetime enforcement: do not extend beyond
                         // current expiry)
                         String newAccessToken = generateToken(user);
                         String newRefreshToken = generateRefreshToken(user, tokenRecord.getExpiryDate());
-
-                        // Delete old refresh token
-                        refreshTokenRepository.delete(tokenRecord);
 
                         // Get user profile information
                         String fullName = getUserFullName(user);
@@ -360,12 +346,21 @@ public class AuthServiceImpl implements AuthService {
                                 .collect(Collectors.joining(" "));
         }
 
-        private String generateRefreshToken(User user) {
+        private String generateLoginRefreshToken(User user, Boolean rememberMe) {
+                // Always clear existing refresh sessions on new login for this account.
+                // Delete existing refresh token for user
+                refreshTokenRepository.deleteByUserId(user.getId());
+
+                // No remember-me => short-lived, non-persistent session (access token only).
+                if (!Boolean.TRUE.equals(rememberMe)) {
+                        return null;
+                }
+
                 return generateRefreshToken(user, null);
         }
 
-        private String generateRefreshToken(User user, LocalDateTime legacyExpiry) {
-                // Delete existing refresh token for user
+        private String generateRefreshToken(User user, LocalDateTime fixedExpiry) {
+                // Rotate to a single active refresh token per user.
                 refreshTokenRepository.deleteByUserId(user.getId());
 
                 // Create new refresh token (plaintext to return to client)
@@ -375,12 +370,11 @@ public class AuthServiceImpl implements AuthService {
                 RefreshToken refreshToken = new RefreshToken();
                 refreshToken.setUserId(user.getId());
                 refreshToken.setToken(tokenHash); // store hash only
-                // Absolute lifetime: do not extend beyond previous expiry when rotating via
-                // refresh
-                LocalDateTime newExpiry = LocalDateTime.now().plusSeconds(refreshTokenExpiration);
-                if (legacyExpiry != null && legacyExpiry.isBefore(newExpiry)) {
-                        newExpiry = legacyExpiry; // cap to legacy expiry
-                }
+                // If fixedExpiry is provided (refresh flow), preserve absolute session expiry.
+                // Otherwise, use configured refresh TTL.
+                LocalDateTime newExpiry = (fixedExpiry != null)
+                                ? fixedExpiry
+                                : LocalDateTime.now().plusSeconds(refreshTokenExpiration);
                 refreshToken.setExpiryDate(newExpiry);
 
                 refreshTokenRepository.save(refreshToken);
@@ -481,29 +475,41 @@ public class AuthServiceImpl implements AuthService {
          * Only USER role can login with Google (MENTOR/BUSINESS must use local auth).
          * 
          * @param idToken Google ID Token from frontend
+         * @param rememberMe optional remember-me hint from client
          * @return AuthResponse with JWT tokens and user info
          * @throws RuntimeException if authentication fails
          */
         @Transactional
-        public AuthResponse authenticateWithGoogle(String idToken) {
+        public AuthResponse authenticateWithGoogle(String idToken, Boolean rememberMe) {
                 try {
                         log.info("Starting Google authentication");
 
                         // ✅ SECURITY: Validate input token
                         if (idToken == null || idToken.trim().isEmpty()) {
-                                log.error("Empty or null access token provided");
-                                throw new IllegalArgumentException("Access token is required");
+                                log.error("Empty or null Google token provided");
+                                throw new IllegalArgumentException("Google token is required");
                         }
 
                         if (idToken.length() > 2048) { // Reasonable token size limit
-                                log.error("Access token too long: {} characters", idToken.length());
-                                throw new IllegalArgumentException("Invalid access token format");
+                                log.error("Google token too long: {} characters", idToken.length());
+                                throw new IllegalArgumentException("Invalid Google token format");
                         }
 
-                        // 1. Get user info from Google using access token
-                        // Note: idToken parameter actually contains access_token from frontend
-                        Map<String, Object> userInfo = googleTokenVerificationService
-                                        .getUserInfoFromAccessToken(idToken);
+                        // 1. Resolve Google identity from token
+                        // Backward compatible:
+                        // - JWT-like token => verify as Google ID token
+                        // - otherwise => validate Google access token + fetch userinfo
+                        Map<String, Object> userInfo;
+                        if (isJwtLikeToken(idToken)) {
+                                GoogleIdToken.Payload payload = googleTokenVerificationService.verifyIdToken(idToken);
+                                userInfo = new HashMap<>();
+                                userInfo.put("email", payload.getEmail());
+                                userInfo.put("name", payload.get("name"));
+                                userInfo.put("picture", payload.get("picture"));
+                                userInfo.put("verified_email", payload.getEmailVerified());
+                        } else {
+                                userInfo = googleTokenVerificationService.getUserInfoFromAccessToken(idToken);
+                        }
 
                         String email = (String) userInfo.get("email");
                         String name = (String) userInfo.get("name");
@@ -666,7 +672,7 @@ public class AuthServiceImpl implements AuthService {
 
                         // 8. Generate JWT tokens
                         String accessToken = generateToken(user);
-                        String refreshToken = generateRefreshToken(user);
+                        String refreshToken = generateLoginRefreshToken(user, rememberMe);
 
                         // 9. Get user full name and avatar
                         String fullName = isNewUser ? name : getUserFullName(user);
@@ -702,12 +708,16 @@ public class AuthServiceImpl implements AuthService {
 
                 } catch (IllegalArgumentException e) {
                         log.error("Invalid Google token: {}", e.getMessage());
-                        throw new AuthenticationException("Invalid Google ID token: " + e.getMessage());
+                        throw new AuthenticationException("Invalid Google token: " + e.getMessage());
                 } catch (AuthenticationException e) {
                         throw e;
                 } catch (Exception e) {
                         log.error("Google authentication failed", e);
                         throw new AuthenticationException("Google authentication failed: " + e.getMessage());
                 }
+        }
+
+        private boolean isJwtLikeToken(String token) {
+                return token != null && token.split("\\.").length == 3;
         }
 }

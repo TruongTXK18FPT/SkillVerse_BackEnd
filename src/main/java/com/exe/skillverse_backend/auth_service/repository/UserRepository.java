@@ -15,6 +15,11 @@ import java.util.Optional;
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
 
+    interface UserSecurityInfo {
+        LocalDateTime getPasswordChangedAt();
+        UserStatus getStatus();
+    }
+
     Optional<User> findByEmail(String email);
 
     boolean existsByEmail(String email);
@@ -78,4 +83,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     @Query("SELECT u.passwordChangedAt FROM User u WHERE u.id = :userId")
     Optional<LocalDateTime> findPasswordChangedAtById(@Param("userId") Long userId);
+
+    /**
+     * [OPTIMIZED] Get security-relevant user fields for JWT validation in one query.
+     */
+    @Query("SELECT u.passwordChangedAt as passwordChangedAt, u.status as status FROM User u WHERE u.id = :userId")
+    Optional<UserSecurityInfo> findSecurityInfoById(@Param("userId") Long userId);
 }

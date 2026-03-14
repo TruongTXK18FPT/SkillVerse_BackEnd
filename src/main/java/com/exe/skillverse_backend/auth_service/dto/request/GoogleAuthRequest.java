@@ -16,4 +16,11 @@ public class GoogleAuthRequest {
 
     @NotBlank(message = "Google ID token is required")
     private String idToken;
+
+    /**
+     * Optional remember-me hint from client.
+     * - true: longer refresh session
+     * - false/null: shorter refresh session
+     */
+    private Boolean rememberMe = false;
 }

@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.auth_service.config;
 
 import com.exe.skillverse_backend.auth_service.repository.InvalidatedTokenRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.nimbusds.jose.crypto.MACVerifier;
 import com.nimbusds.jwt.SignedJWT;
 import lombok.RequiredArgsConstructor;
@@ -33,7 +34,7 @@ public class CustomJwtDecoder implements JwtDecoder {
     @Value("${jwt.access-token-expiration:3600}")
     private long accessTokenExpiration;
 
-    @Value("${jwt.refresh-token-expiration:86400}")
+    @Value("${jwt.refresh-token-expiration:604800}")
     private long refreshTokenExpiration;
 
     @Value("${jwt.issuer:skillverse}")
@@ -96,28 +97,36 @@ public class CustomJwtDecoder implements JwtDecoder {
                 throw new JwtException("JWT token has been invalidated");
             }
 
-            // ✅ SECURITY: Check if token was issued before password change
-            // Tokens issued before passwordChangedAt are invalid (user changed password)
-            // [OPTIMIZED] Uses projection query instead of loading full User entity
-            // [TIMEZONE-SAFE] Uses UTC for both JWT iat and passwordChangedAt comparison
+            // ✅ SECURITY: Validate account status + password change state.
+            // - Non-ACTIVE users are rejected immediately (inactive/blocked semantics)
+            // - Tokens issued at/before passwordChangedAt are rejected
             String userId = signedJWT.getJWTClaimsSet().getSubject();
             Date issuedAt = signedJWT.getJWTClaimsSet().getIssueTime();
-            if (userId != null && issuedAt != null) {
+            if (userId != null) {
                 try {
                     Long userIdLong = Long.parseLong(userId);
-                    Optional<LocalDateTime> passwordChangedAtOpt = userRepository.findPasswordChangedAtById(userIdLong);
-                    
-                    if (passwordChangedAtOpt.isPresent()) {
-                        LocalDateTime passwordChangedAt = passwordChangedAtOpt.get();
-                        // Convert issuedAt to LocalDateTime using UTC for consistent comparison
-                        // Both JWT iat and passwordChangedAt are stored/compared in UTC
+                    Optional<UserRepository.UserSecurityInfo> securityInfoOpt =
+                            userRepository.findSecurityInfoById(userIdLong);
+                    if (securityInfoOpt.isEmpty()) {
+                        throw new JwtException("User account not found");
+                    }
+
+                    UserRepository.UserSecurityInfo securityInfo = securityInfoOpt.get();
+                    if (securityInfo.getStatus() != UserStatus.ACTIVE) {
+                        throw new JwtException("User account is inactive");
+                    }
+
+                    LocalDateTime passwordChangedAt = securityInfo.getPasswordChangedAt();
+                    if (passwordChangedAt != null && issuedAt != null) {
+                        // Convert issuedAt to UTC for consistent comparison with passwordChangedAt
                         Instant iatInstant = issuedAt.toInstant();
                         LocalDateTime iatDateTime = LocalDateTime.ofInstant(iatInstant, ZoneId.of("UTC"));
-                        
-                        // If token was issued before password change, reject it
-                        // Allow CLOCK_SKEW tolerance to handle minor time differences
-                        if (iatDateTime.isBefore(passwordChangedAt.minus(CLOCK_SKEW))) {
-                            log.warn("Token issued before password change for user {}. Token iat (UTC): {}, Password changed at (UTC): {}", 
+
+                        // Invalidate tokens issued before password change.
+                        // Use strict-before to avoid edge-case false logout when timestamps are equal.
+                        if (iatDateTime.isBefore(passwordChangedAt)) {
+                            log.warn(
+                                    "Token rejected due to password change for user {}. Token iat (UTC): {}, passwordChangedAt (UTC): {}",
                                     userId, iatDateTime, passwordChangedAt);
                             throw new JwtException("Token invalidated due to password change. Please login again.");
                         }

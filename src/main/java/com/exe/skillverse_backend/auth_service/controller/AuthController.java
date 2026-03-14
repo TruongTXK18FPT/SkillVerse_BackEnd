@@ -30,6 +30,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -94,7 +95,9 @@ public class AuthController {
     public ResponseEntity<?> googleLogin(
             @Valid @RequestBody GoogleAuthRequest request) {
         try {
-            AuthResponse response = authService.authenticateWithGoogle(request.getIdToken());
+            AuthResponse response = authService.authenticateWithGoogle(
+                    request.getIdToken(),
+                    request.getRememberMe());
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
@@ -108,12 +111,27 @@ public class AuthController {
             @ApiResponse(responseCode = "200", description = "Token refreshed successfully", content = @Content(schema = @Schema(implementation = AuthResponse.class))),
             @ApiResponse(responseCode = "401", description = "Invalid or expired refresh token", content = @Content)
     })
-    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+    public ResponseEntity<?> refresh(@Valid @RequestBody RefreshTokenRequest request) {
         try {
             AuthResponse response = authService.refreshToken(request.getRefreshToken());
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            String rawMessage = e.getMessage() != null ? e.getMessage() : "";
+            String normalized = rawMessage.toLowerCase();
+            String code = "INVALID_REFRESH_TOKEN";
+            String message = "Invalid or expired refresh token";
+            if (normalized.contains("expired")) {
+                code = "REFRESH_TOKEN_EXPIRED";
+                message = "Refresh token expired";
+            } else if (normalized.contains("inactive")) {
+                code = "ACCOUNT_INACTIVE";
+                message = "Account is inactive";
+            }
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    Map.of(
+                            "code", code,
+                            "message", message,
+                            "status", HttpStatus.UNAUTHORIZED.value()));
         }
     }
 

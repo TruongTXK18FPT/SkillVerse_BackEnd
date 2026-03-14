@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Collections;
 import java.util.Map;
@@ -52,6 +53,8 @@ public class GoogleTokenVerificationServiceImpl implements GoogleTokenVerificati
      */
     public Map<String, Object> getUserInfoFromAccessToken(String accessToken) throws Exception {
         log.info("Fetching user info from Google using access token");
+
+        validateAccessTokenAudience(accessToken);
 
         String url = "https://www.googleapis.com/oauth2/v2/userinfo";
 
@@ -135,6 +138,63 @@ public class GoogleTokenVerificationServiceImpl implements GoogleTokenVerificati
         } else {
             log.error("Invalid Google ID token");
             throw new IllegalArgumentException("Invalid Google ID token");
+        }
+    }
+
+    private void validateAccessTokenAudience(String accessToken) {
+        if (googleClientId == null || googleClientId.isEmpty()) {
+            log.error("Google Client ID not configured. Please set GOOGLE_CLIENT_ID environment variable.");
+            throw new IllegalStateException(
+                    "Google OAuth is not configured. Please contact system administrator.");
+        }
+
+        String tokenInfoUrl = UriComponentsBuilder
+                .fromHttpUrl("https://oauth2.googleapis.com/tokeninfo")
+                .queryParam("access_token", accessToken)
+                .build(true)
+                .toUriString();
+        try {
+            @SuppressWarnings("rawtypes")
+            ResponseEntity<Map> tokenInfoResponse = restTemplate.exchange(
+                    tokenInfoUrl,
+                    HttpMethod.GET,
+                    HttpEntity.EMPTY,
+                    Map.class);
+
+            if (!tokenInfoResponse.getStatusCode().is2xxSuccessful() || tokenInfoResponse.getBody() == null) {
+                throw new IllegalArgumentException("Invalid Google access token");
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> tokenInfo = (Map<String, Object>) tokenInfoResponse.getBody();
+            String aud = (String) tokenInfo.get("aud");
+            String issuedTo = (String) tokenInfo.get("issued_to");
+            String audience = aud != null ? aud : issuedTo;
+
+            if (audience == null || !googleClientId.equals(audience)) {
+                log.warn("Google access token audience mismatch. Expected: {}, got: {}", googleClientId, audience);
+                throw new IllegalArgumentException("Google token audience mismatch");
+            }
+
+            Object expiresInObj = tokenInfo.get("expires_in");
+            if (expiresInObj != null) {
+                long expiresInSeconds;
+                try {
+                    expiresInSeconds = Long.parseLong(expiresInObj.toString());
+                } catch (NumberFormatException e) {
+                    log.warn("Unexpected expires_in format from tokeninfo: {}", expiresInObj);
+                    throw new IllegalArgumentException("Invalid Google token metadata", e);
+                }
+                if (expiresInSeconds <= 0) {
+                    throw new IllegalArgumentException("Invalid or expired access token");
+                }
+            }
+        } catch (HttpClientErrorException e) {
+            log.error("Google tokeninfo rejected access token: {} - {}", e.getStatusCode(), e.getMessage());
+            throw new IllegalArgumentException("Invalid or expired access token", e);
+        } catch (RestClientException e) {
+            log.error("Network error during Google tokeninfo validation: {}", e.getMessage());
+            throw new IllegalArgumentException("Network error contacting Google", e);
         }
     }
 }

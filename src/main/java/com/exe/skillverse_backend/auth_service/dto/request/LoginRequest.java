@@ -12,4 +12,11 @@ public class LoginRequest {
 
     @NotBlank
     private String password;
+
+    /**
+     * Optional remember-me hint from client.
+     * - true: longer refresh session
+     * - false/null: shorter refresh session
+     */
+    private Boolean rememberMe = false;
 }

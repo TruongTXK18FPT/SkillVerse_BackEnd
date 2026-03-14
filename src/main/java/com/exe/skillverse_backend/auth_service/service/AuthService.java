@@ -21,5 +21,5 @@ public interface AuthService {
 
     String buildScope(User user);
 
-    AuthResponse authenticateWithGoogle(String idToken);
+    AuthResponse authenticateWithGoogle(String idToken, Boolean rememberMe);
 }
