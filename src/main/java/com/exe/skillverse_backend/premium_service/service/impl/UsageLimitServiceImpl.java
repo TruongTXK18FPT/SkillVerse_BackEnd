@@ -30,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.temporal.TemporalAdjusters;
 import java.time.temporal.ChronoUnit;
 import java.time.Instant;
@@ -329,14 +330,36 @@ public class UsageLimitServiceImpl implements UsageLimitService {
         }
 
         // Handle regular count-based features
-        UserUsageTracking tracking = getOrCreateUsageTracking(user, featureType, limit.getResetPeriod());
+        Optional<UserUsageTracking> trackingOpt = usageTrackingRepository
+                .findByUserAndFeatureType(user, featureType);
+
+        Integer currentUsage = 0;
+        LocalDateTime nextResetAt;
+        String timeUntilReset;
+
+        if (trackingOpt.isPresent()) {
+            UserUsageTracking tracking = trackingOpt.get();
+            if (tracking.needsReset()) {
+                LocalDateTime periodStart = limit.getResetPeriod().calculatePeriodStart();
+                nextResetAt = limit.getResetPeriod().calculateNextReset(periodStart);
+                timeUntilReset = formatTimeUntilReset(nextResetAt);
+            } else {
+                currentUsage = tracking.getUsageCount();
+                nextResetAt = tracking.getCurrentPeriodEnd();
+                timeUntilReset = tracking.getFormattedTimeUntilReset();
+            }
+        } else {
+            LocalDateTime periodStart = limit.getResetPeriod().calculatePeriodStart();
+            nextResetAt = limit.getResetPeriod().calculateNextReset(periodStart);
+            timeUntilReset = formatTimeUntilReset(nextResetAt);
+        }
 
         FeatureLimitInfo info = builder
                 .limit(limit.getLimitValue())
-                .currentUsage(tracking.getUsageCount())
+                .currentUsage(currentUsage)
                 .resetPeriod(limit.getResetPeriod())
-                .nextResetAt(tracking.getCurrentPeriodEnd())
-                .timeUntilReset(tracking.getFormattedTimeUntilReset())
+                .nextResetAt(nextResetAt)
+                .timeUntilReset(timeUntilReset)
                 .isUnlimited(false)
                 .build();
 
@@ -354,13 +377,35 @@ public class UsageLimitServiceImpl implements UsageLimitService {
         UserSubscription subscription = getActiveSubscriptionOrThrow(user);
         PremiumPlan plan = subscription.getPlan();
 
-        List<PlanFeatureLimits> limits = featureLimitsRepository.findByPlanAndIsActiveTrue(plan);
         List<FeatureLimitInfo> result = new ArrayList<>();
 
-        for (PlanFeatureLimits limit : limits) {
-            FeatureLimitInfo info = getUserUsage(userId, limit.getFeatureType());
-            result.add(info);
+        // Read by known enum values to avoid crashing on stale/invalid DB rows.
+        for (FeatureType featureType : FeatureType.values()) {
+            Optional<PlanFeatureLimits> limitConfig;
+            try {
+                limitConfig = featureLimitsRepository.findByPlanAndFeatureTypeAndIsActiveTrue(plan, featureType);
+            } catch (Exception ex) {
+                log.warn("Failed to read plan limit config for user {} feature {}. Skipping this feature.",
+                        userId, featureType, ex);
+                continue;
+            }
+
+            if (limitConfig.isEmpty()) {
+                continue;
+            }
+
+            try {
+                FeatureLimitInfo info = getUserUsage(userId, featureType);
+                result.add(info);
+            } catch (Exception ex) {
+                log.error("Failed to build usage info for user {} feature {}. Skipping this feature.",
+                        userId, featureType, ex);
+            }
         }
+
+        result.sort(Comparator
+                .comparingInt((FeatureLimitInfo info) -> getFeatureDisplayPriority(info.getFeatureType()))
+                .thenComparing(FeatureLimitInfo::getFeatureName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)));
 
         return result;
     }
@@ -642,6 +687,55 @@ public class UsageLimitServiceImpl implements UsageLimitService {
             return usageTrackingRepository.findByUserAndFeatureType(user, featureType)
                     .orElseThrow(() -> new ApiException(ErrorCode.INTERNAL_ERROR, 
                             "Failed to create or find usage tracking for user " + user.getId()));
+        }
+    }
+
+    private int getFeatureDisplayPriority(FeatureType featureType) {
+        if (featureType == null) {
+            return Integer.MAX_VALUE;
+        }
+
+        return switch (featureType) {
+            case AI_CHATBOT_REQUESTS -> 0;
+            case AI_ROADMAP_GENERATION -> 1;
+            case COIN_EARNING_MULTIPLIER -> 2;
+            case MENTOR_BOOKING_MONTHLY -> 3;
+            case PRIORITY_SUPPORT -> 4;
+            case JOB_POSTING_MONTHLY -> 10;
+            case SHORT_TERM_JOB_POSTING -> 11;
+            case JOB_BOOST_MONTHLY -> 12;
+            case HIGHLIGHT_JOB_POST -> 13;
+            case AI_CANDIDATE_SUGGESTION -> 14;
+            case COMPANY_PROFILE_PREMIUM -> 15;
+            case ANALYTICS_DASHBOARD -> 16;
+            case CANDIDATE_DATABASE_ACCESS -> 17;
+            case AUTOMATED_OUTREACH -> 18;
+            case BULK_IMPORT_CANDIDATES -> 19;
+            case API_ACCESS -> 20;
+            case RECRUITER_PRIORITY_SUPPORT -> 21;
+        };
+    }
+
+    private String formatTimeUntilReset(LocalDateTime nextResetAt) {
+        if (nextResetAt == null) {
+            return "Unknown";
+        }
+
+        long seconds = Duration.between(LocalDateTime.now(), nextResetAt).getSeconds();
+        if (seconds <= 0) {
+            return "Expired";
+        }
+
+        long hours = seconds / 3600;
+        long minutes = (seconds % 3600) / 60;
+
+        if (hours > 24) {
+            long days = hours / 24;
+            return days + " day(s)";
+        } else if (hours > 0) {
+            return hours + "h " + minutes + "m";
+        } else {
+            return Math.max(1, minutes) + "m";
         }
     }
 }

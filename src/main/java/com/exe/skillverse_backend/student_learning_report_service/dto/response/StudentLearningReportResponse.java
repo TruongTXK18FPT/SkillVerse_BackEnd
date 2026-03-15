@@ -62,10 +62,15 @@ public class StudentLearningReportResponse {
         private Integer totalStudyMinutesToday;
         private Integer totalStudyMinutesWeek;
         private Integer totalStudyMinutesMonth;
+        private Integer totalStudyHours;  // Tổng giờ học (chuyển đổi từ minutes)
         private Integer streakDays;
+        private Integer currentStreak;    // Alias cho streakDays (frontend expectation)
         private Integer totalChatSessions;
         private Integer totalTasks;
         private Integer completedTasks;
+        private Integer totalTasksCompleted;  // Alias cho completedTasks (frontend expectation)
+        private Integer totalEnrolledCourses;
+        private Integer completedCourses;
         private List<SkillInfo> topSkills;
         private List<RoadmapProgress> roadmapDetails;
     }

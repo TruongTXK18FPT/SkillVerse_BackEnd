@@ -208,6 +208,14 @@ skillverse:
       max-tokens: ${LEARNING_REPORT_MAX_TOKENS:30000}
       temperature: ${LEARNING_REPORT_TEMPERATURE:0.7}
 
+    # AI Generate Test Configuration (separate Mistral API key for guided journey)
+    generate-test:
+      api-key: ${AI_GENERATE_TEST_KEY:}
+      model: ${AI_GENERATE_TEST_MODEL:mistral-large-latest}
+      enabled: ${AI_GENERATE_TEST_ENABLED:true}
+      max-tokens: ${AI_GENERATE_TEST_MAX_TOKENS:30000}
+      temperature: ${AI_GENERATE_TEST_TEMPERATURE:0.7}
+
 springdoc:
   api-docs:
     enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}

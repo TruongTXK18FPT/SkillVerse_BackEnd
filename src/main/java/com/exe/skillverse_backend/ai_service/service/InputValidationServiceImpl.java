@@ -248,13 +248,11 @@ public class InputValidationServiceImpl implements InputValidationService {
         String normalized = goal.toLowerCase(Locale.ROOT).trim();
 
         // Check profanity
-        for (String word : PROFANITY_WORDS) {
-            if (normalized.contains(word)) {
+        if (containsProfanity(normalized)) {
                 results.add(ValidationResult.error("goal",
                         "Nội dung chứa từ ngữ không phù hợp",
                         "Vui lòng nhập lại mục tiêu một cách lịch sự"));
                 return results;
-            }
         }
 
         // Check test scores
@@ -434,10 +432,8 @@ public class InputValidationServiceImpl implements InputValidationService {
         }
         // Basic profanity check only
         String normalized = input.toLowerCase(Locale.ROOT);
-        for (String w : PROFANITY_WORDS) {
-            if (normalized.contains(w)) {
+        if (containsProfanity(normalized)) {
                 throw new IllegalArgumentException("Nội dung chứa từ ngữ không phù hợp. Vui lòng nhập lại lịch sự.");
-            }
         }
     }
 
@@ -453,6 +449,44 @@ public class InputValidationServiceImpl implements InputValidationService {
         if (firstError.isPresent()) {
             throw new IllegalArgumentException(firstError.get().getMessage());
         }
+    }
+
+    private boolean containsProfanity(String input) {
+        if (input == null || input.isBlank()) {
+            return false;
+        }
+
+        String normalized = input.toLowerCase(Locale.ROOT).trim();
+        Set<String> tokens = new HashSet<>();
+        for (String token : normalized.split("[^\\p{L}\\p{N}]+")) {
+            if (!token.isBlank()) {
+                tokens.add(token);
+            }
+        }
+
+        for (String rawWord : PROFANITY_WORDS) {
+            if (rawWord == null || rawWord.isBlank()) {
+                continue;
+            }
+
+            String word = rawWord.toLowerCase(Locale.ROOT).trim();
+            if (word.isBlank()) {
+                continue;
+            }
+
+            if (word.contains(" ")) {
+                if (normalized.contains(word)) {
+                    return true;
+                }
+                continue;
+            }
+
+            if (tokens.contains(word)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // Helper class

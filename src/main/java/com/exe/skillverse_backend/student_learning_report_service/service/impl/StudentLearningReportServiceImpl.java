@@ -8,6 +8,8 @@ import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository
 import com.exe.skillverse_backend.ai_service.service.AiChatbotService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
+import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.student_learning_report_service.dto.request.GenerateStudentReportRequest;
@@ -54,6 +56,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     private final RoadmapSessionRepository roadmapSessionRepository;
     private final StudySessionRepository studySessionRepository;
     private final TaskRepository taskRepository;
+    private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final AiChatbotService aiChatbotService;
     private final ChatModel learningReportChatModel;
 
@@ -66,6 +69,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
             RoadmapSessionRepository roadmapSessionRepository,
             StudySessionRepository studySessionRepository,
             TaskRepository taskRepository,
+            CourseEnrollmentRepository courseEnrollmentRepository,
             AiChatbotService aiChatbotService,
             @Lazy @Qualifier("learningReportChatModel") ChatModel learningReportChatModel) {
         this.reportRepository = reportRepository;
@@ -73,6 +77,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         this.roadmapSessionRepository = roadmapSessionRepository;
         this.studySessionRepository = studySessionRepository;
         this.taskRepository = taskRepository;
+        this.courseEnrollmentRepository = courseEnrollmentRepository;
         this.aiChatbotService = aiChatbotService;
         this.learningReportChatModel = learningReportChatModel;
     }
@@ -278,19 +283,19 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
             log.warn("Could not fetch study sessions for student {}", studentId);
         }
 
-        // Calculate duration from startTime and endTime
+        // Calculate duration from startTime and endTime (convert to VN timezone for comparison)
         int studyTimeToday = studySessions.stream()
-                .filter(s -> s.getStartTime() != null && s.getStartTime().isAfter(startOfDay))
+                .filter(s -> s.getStartTime() != null && convertToVnTimezone(s.getStartTime()).isAfter(startOfDay))
                 .mapToInt(s -> calculateDurationMinutes(s))
                 .sum();
 
         int studyTimeWeek = studySessions.stream()
-                .filter(s -> s.getStartTime() != null && s.getStartTime().isAfter(startOfWeek))
+                .filter(s -> s.getStartTime() != null && convertToVnTimezone(s.getStartTime()).isAfter(startOfWeek))
                 .mapToInt(s -> calculateDurationMinutes(s))
                 .sum();
 
         int studyTimeMonth = studySessions.stream()
-                .filter(s -> s.getStartTime() != null && s.getStartTime().isAfter(startOfMonth))
+                .filter(s -> s.getStartTime() != null && convertToVnTimezone(s.getStartTime()).isAfter(startOfMonth))
                 .mapToInt(s -> calculateDurationMinutes(s))
                 .sum();
 
@@ -320,6 +325,22 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         // Extract top skills from roadmaps
         List<StudentLearningReportResponse.SkillInfo> topSkills = extractSkillsFromRoadmaps(roadmaps);
 
+        // Course enrollment metrics
+        List<CourseEnrollment> enrollments = List.of();
+        try {
+            enrollments = courseEnrollmentRepository.findActiveEnrollmentsByUserId(studentId);
+        } catch (Exception e) {
+            log.warn("Could not fetch course enrollments for student {}", studentId);
+        }
+        int totalEnrolledCourses = enrollments.size();
+        int completedCourses = (int) enrollments.stream()
+                .filter(e -> e.getProgressPercent() != null && e.getProgressPercent() >= 100)
+                .count();
+
+        // Calculate total study hours (sum of all study time in month)
+        int totalStudyMinutes = studyTimeMonth;
+        int totalStudyHours = totalStudyMinutes / 60;
+
         return StudentLearningReportResponse.StudentMetrics.builder()
                 .totalRoadmaps(totalRoadmaps)
                 .completedRoadmaps(completedRoadmaps)
@@ -328,10 +349,15 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                 .totalStudyMinutesToday(studyTimeToday)
                 .totalStudyMinutesWeek(studyTimeWeek)
                 .totalStudyMinutesMonth(studyTimeMonth)
+                .totalStudyHours(totalStudyHours)
                 .streakDays(streakDays)
+                .currentStreak(streakDays)  // Frontend expectation
                 .totalChatSessions(chatSessionsCount)
                 .totalTasks(totalTasks)
                 .completedTasks(completedTasks)
+                .totalTasksCompleted(completedTasks)  // Frontend expectation
+                .totalEnrolledCourses(totalEnrolledCourses)
+                .completedCourses(completedCourses)
                 .topSkills(topSkills)
                 .roadmapDetails(roadmapDetails)
                 .build();
@@ -392,6 +418,8 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         ctx.append("- Tiến độ trung bình: ").append(metrics.getAverageProgress()).append("%\n");
         ctx.append("- Số phiên chat AI: ").append(metrics.getTotalChatSessions()).append("\n");
         ctx.append("- Tasks: ").append(metrics.getCompletedTasks()).append("/").append(metrics.getTotalTasks()).append(" hoàn thành\n");
+        ctx.append("- Khóa học đã đăng ký: ").append(metrics.getTotalEnrolledCourses()).append("\n");
+        ctx.append("- Khóa học hoàn thành: ").append(metrics.getCompletedCourses()).append("\n");
 
         // Roadmap details
         if (request.getIncludeRoadmapDetails() && !roadmaps.isEmpty()) {
@@ -771,8 +799,8 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
 
             boolean hasStudy = sessions.stream()
                     .anyMatch(s -> s.getStartTime() != null &&
-                            s.getStartTime().isAfter(checkDate) &&
-                            s.getStartTime().isBefore(nextDate));
+                            convertToVnTimezone(s.getStartTime()).isAfter(checkDate) &&
+                            convertToVnTimezone(s.getStartTime()).isBefore(nextDate));
 
             if (hasStudy) {
                 streak++;
@@ -824,7 +852,22 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         if (session.getStartTime() == null || session.getEndTime() == null) {
             return 0;
         }
-        long minutes = ChronoUnit.MINUTES.between(session.getStartTime(), session.getEndTime());
+        // Convert both times to VN timezone before calculating duration
+        LocalDateTime startVn = convertToVnTimezone(session.getStartTime());
+        LocalDateTime endVn = convertToVnTimezone(session.getEndTime());
+        long minutes = ChronoUnit.MINUTES.between(startVn, endVn);
         return minutes > 0 ? (int) minutes : 0;
+    }
+
+    /**
+     * Convert LocalDateTime to Vietnam timezone (Asia/Ho_Chi_Minh).
+     * Assumes the stored time is in UTC and adds 7 hours.
+     */
+    private LocalDateTime convertToVnTimezone(LocalDateTime dateTime) {
+        if (dateTime == null) {
+            return null;
+        }
+        // Assume stored time is UTC, add 7 hours for Vietnam timezone
+        return dateTime.plusHours(7);
     }
 }

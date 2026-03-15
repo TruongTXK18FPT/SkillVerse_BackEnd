@@ -549,6 +549,72 @@ public class AdminUserServiceImpl implements AdminUserService {
                         // Parent Service
                         entityManager.createNativeQuery("DELETE FROM parent_student_links WHERE parent_id = ?1 OR student_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM learning_reports WHERE parent_id = ?1 OR student_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
+                        // Student Learning Report Service
+                        entityManager.createNativeQuery("DELETE FROM student_learning_reports WHERE student_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
+                        // Gamification Service
+                        entityManager.createNativeQuery("DELETE FROM gamification_activity_logs WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM gamification_coin_transactions WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM gamification_game_sessions WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM gamification_user_badges WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM gamification_leaderboard_snapshots WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM gamification_user_wallets WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM daily_check_ins WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
+                        // Course Service - Quiz Attempts
+                        entityManager.createNativeQuery("DELETE FROM quiz_attempts WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
+                        // Mentor Booking Service
+                        entityManager.createNativeQuery("DELETE FROM bookings WHERE learner_id = ?1 OR mentor_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM booking_reviews WHERE student_id = ?1 OR mentor_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
+                        // Prechat Service
+                        entityManager.createNativeQuery("DELETE FROM prechat_messages WHERE sender_id = ?1 OR mentor_id = ?1 OR learner_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM prechat_thread_states WHERE mentor_id = ?1 OR learner_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM prechat_blocks WHERE mentor_id = ?1 OR learner_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM prechat_reports WHERE mentor_id = ?1 OR learner_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
+                        // Mentor Service - Favorite Mentors
+                        entityManager.createNativeQuery("DELETE FROM favorite_mentors WHERE student_id = ?1 OR mentor_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
+                        // Seminar Service
+                        entityManager.createNativeQuery("DELETE FROM seminar_tickets WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
+                        // Business Service - Job Deliverables
+                        entityManager.createNativeQuery("DELETE FROM job_deliverables WHERE uploaded_by = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
+                        // Community Service
+                        entityManager.createNativeQuery("DELETE FROM post_likes WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM post_dislikes WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM saved_posts WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM comments WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM posts WHERE user_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
 
                         // Finally delete the user itself
                         entityManager.createNativeQuery("DELETE FROM users WHERE id = ?1")

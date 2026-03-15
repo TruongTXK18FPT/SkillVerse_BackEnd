@@ -5,6 +5,8 @@ import com.exe.skillverse_backend.premium_service.dto.response.UsageCheckResult;
 import com.exe.skillverse_backend.premium_service.dto.response.UserCycleStatsDTO;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
 import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
+import com.exe.skillverse_backend.shared.exception.ApiException;
+import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -91,7 +93,26 @@ public class UsageLimitController {
      * Extract user ID from JWT authentication
      */
     private Long getUserIdFromAuth(Authentication authentication) {
-        Jwt jwt = (Jwt) authentication.getPrincipal();
-        return Long.valueOf(jwt.getClaimAsString("userId"));
+        if (authentication == null || authentication.getPrincipal() == null) {
+            throw new ApiException(ErrorCode.UNAUTHORIZED, "Unauthenticated request");
+        }
+
+        if (!(authentication.getPrincipal() instanceof Jwt jwt)) {
+            throw new ApiException(ErrorCode.UNAUTHORIZED, "Invalid authentication principal");
+        }
+
+        Object userIdClaim = jwt.getClaim("userId");
+        if (userIdClaim instanceof Number number) {
+            return number.longValue();
+        }
+        if (userIdClaim instanceof String userIdStr) {
+            try {
+                return Long.parseLong(userIdStr);
+            } catch (NumberFormatException ex) {
+                throw new ApiException(ErrorCode.BAD_REQUEST, "Invalid userId claim in token");
+            }
+        }
+
+        throw new ApiException(ErrorCode.BAD_REQUEST, "Missing userId claim in token");
     }
 }
