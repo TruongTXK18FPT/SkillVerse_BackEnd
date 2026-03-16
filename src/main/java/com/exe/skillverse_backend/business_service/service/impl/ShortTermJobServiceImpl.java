@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.business_service.entity.enums.*;
 import com.exe.skillverse_backend.business_service.repository.*;
 import com.exe.skillverse_backend.business_service.service.JobAuditService;
 import com.exe.skillverse_backend.business_service.service.ShortTermJobService;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
@@ -44,6 +45,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     private final RecruiterProfileRepository recruiterProfileRepository;
     private final UserRepository userRepository;
     private final JobReviewRepository reviewRepository;
+    private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
     private final JobAuditService auditService;
     private final ObjectMapper objectMapper;
     private final RecruiterSubscriptionService recruiterSubscriptionService;
@@ -767,6 +769,12 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
                         String.format("This job requires a minimum rating of %.1f", job.getMinRating())
                 );
             }
+        }
+
+        // Check if user has a portfolio before applying
+        boolean hasPortfolio = portfolioExtendedProfileRepository.existsByUserId(user.getId());
+        if (!hasPortfolio) {
+            throw new BadRequestException("You must create a portfolio before applying to jobs. Please create your portfolio first.");
         }
     }
 

@@ -66,6 +66,12 @@ public class JobApplicationServiceImpl implements JobApplicationService {
             throw new IllegalStateException("Recruiters cannot apply to their own job postings");
         }
 
+        // Check if user has a portfolio before applying
+        boolean hasPortfolio = portfolioExtendedProfileRepository.existsByUserId(userId);
+        if (!hasPortfolio) {
+            throw new IllegalStateException("You must create a portfolio before applying to jobs. Please create your portfolio first.");
+        }
+
         // Find user
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("User not found with ID: " + userId));
