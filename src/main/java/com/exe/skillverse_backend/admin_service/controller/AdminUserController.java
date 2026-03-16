@@ -123,7 +123,7 @@ public class AdminUserController {
 
     @DeleteMapping("/{userId}/permanent")
     @Operation(summary = "Permanently delete user",
-        description = "Permanently delete user from database. Only works for INACTIVE users.")
+        description = "Permanently delete user from database. Only works for banned/deactivated users (INACTIVE).")
     public ResponseEntity<Void> permanentlyDeleteUser(
         @Parameter(description = "User ID", required = true)
         @PathVariable Long userId

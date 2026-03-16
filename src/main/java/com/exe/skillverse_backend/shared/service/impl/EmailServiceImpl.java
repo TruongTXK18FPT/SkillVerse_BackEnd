@@ -842,4 +842,113 @@ public class EmailServiceImpl implements EmailService {
         // Use default batch size of 50 and 2 second delay
         return sendBulkEmailAsync(emails, subject, htmlContent, 50, 2000);
     }
+
+    // ==================== JOB APPROVAL/REJECTION NOTIFICATIONS ====================
+
+    @Override
+    public void sendJobApprovalNotification(String email, String jobTitle, String message) {
+        try {
+            String content = buildJobApprovalNotificationContent(jobTitle, message);
+            sendHtmlEmail(email, "Your Job Has Been Approved - SkillVerse", content);
+            log.info("📧 EMAIL SERVICE: Job approval notification sent to {} for job: {}", email, jobTitle);
+        } catch (Exception e) {
+            log.error("❌ Failed to send job approval notification to {}: {}", email, e.getMessage());
+            // Fallback to console logging
+            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending job approval notification to {} for job: {}", email, jobTitle);
+            log.info("📧 Subject: Your Job Has Been Approved - SkillVerse");
+            log.info("📝 Message: {}", message);
+            log.info("✉️  [SIMULATED] Job approval notification sent successfully to {}", email);
+        }
+    }
+
+    @Override
+    public void sendJobRejectionNotification(String email, String jobTitle, String reason) {
+        try {
+            String content = buildJobRejectionNotificationContent(jobTitle, reason);
+            sendHtmlEmail(email, "Your Job Has Been Rejected - SkillVerse", content);
+            log.info("📧 EMAIL SERVICE: Job rejection notification sent to {} for job: {}", email, jobTitle);
+        } catch (Exception e) {
+            log.error("❌ Failed to send job rejection notification to {}: {}", email, e.getMessage());
+            // Fallback to console logging
+            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending job rejection notification to {} for job: {}", email, jobTitle);
+            log.info("📧 Subject: Your Job Has Been Rejected - SkillVerse");
+            log.info("📝 Reason: {}", reason);
+            log.info("✉️  [SIMULATED] Job rejection notification sent successfully to {}", email);
+        }
+    }
+
+    @Override
+    public void sendApplicationRejectionNotification(String email, String jobTitle, String reason) {
+        try {
+            String content = buildApplicationAutoRejectionContent(jobTitle, reason);
+            sendHtmlEmail(email, "Application Status Update - SkillVerse", content);
+            log.info("📧 EMAIL SERVICE: Application rejection notification sent to {} for job: {}", email, jobTitle);
+        } catch (Exception e) {
+            log.error("❌ Failed to send application rejection notification to {}: {}", email, e.getMessage());
+            // Fallback to console logging
+            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending application rejection notification to {} for job: {}", email, jobTitle);
+            log.info("📧 Subject: Application Status Update - SkillVerse");
+            log.info("📝 Reason: {}", reason);
+            log.info("✉️  [SIMULATED] Application rejection notification sent successfully to {}", email);
+        }
+    }
+
+    private String buildJobApprovalNotificationContent(String jobTitle, String message) {
+        return """
+                Dear Recruiter,
+
+                Great news! 🎉
+
+                Your job posting has been APPROVED and is now live on SkillVerse.
+
+                📋 Job Title: %s
+
+                %s
+
+                Your job is now visible to all job seekers. You can start receiving applications immediately.
+
+                To manage your job posting, log in to your SkillVerse recruiter dashboard.
+
+                Best regards,
+                The SkillVerse Team
+                """.formatted(jobTitle, message != null && !message.isEmpty() ? "Message: " + message : "");
+    }
+
+    private String buildJobRejectionNotificationContent(String jobTitle, String reason) {
+        return """
+                Dear Recruiter,
+
+                We're sorry to inform you that your job posting has been rejected.
+
+                📋 Job Title: %s
+
+                Reason: %s
+
+                If you believe this is a mistake or would like to appeal this decision, please contact our support team.
+
+                Best regards,
+                The SkillVerse Team
+                """.formatted(jobTitle, reason);
+    }
+
+    private String buildApplicationAutoRejectionContent(String jobTitle, String reason) {
+        return """
+                Dear Candidate,
+
+                We're writing to inform you that your application has been automatically rejected.
+
+                📋 Job Title: %s
+
+                Reason: %s
+
+                This typically happens when:
+                - The job posting deadline has passed
+                - The job has been cancelled by the recruiter
+
+                We encourage you to apply for other available positions on SkillVerse that match your skills and interests.
+
+                Best regards,
+                The SkillVerse Team
+                """.formatted(jobTitle, reason);
+    }
 }

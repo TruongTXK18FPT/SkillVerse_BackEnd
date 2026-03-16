@@ -588,9 +588,10 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         application.setRevisionCount(application.getRevisionCount() + 1);
         application = applicationRepository.save(application);
 
-        // Update job status
-        job.setStatus(ShortTermJobStatus.REJECTED);
-        shortTermJobRepository.save(job);
+        // Keep job status as IN_PROGRESS so candidate can continue working after revision
+        // Do NOT change job status to REJECTED - that would prevent candidate from submitting
+        log.info("Revision requested for application ID: {}, job ID: {} remains IN_PROGRESS for candidate to fix",
+                request.getApplicationId(), job.getId());
 
         auditService.logApplicationStatusChange(
                 request.getApplicationId(), previousStatus, ShortTermApplicationStatus.REVISION_REQUIRED,

@@ -16,6 +16,7 @@ public interface TaskBoardService {
     TaskResponse updateTask(UUID taskId, UpdateTaskRequest request);
     void deleteTask(UUID taskId);
     void moveTask(UUID taskId, UUID targetColumnId);
+    int clearOverdueTasks(Long userId, int overdueDays, UUID columnId);
     void checkOverdueTasks(Long userId);
     void checkUpcomingDeadlines(Long userId);
 }

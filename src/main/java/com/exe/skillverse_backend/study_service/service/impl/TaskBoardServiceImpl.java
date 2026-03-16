@@ -201,6 +201,28 @@ public class TaskBoardServiceImpl implements TaskBoardService {
 
     @Override
     @Transactional
+    public int clearOverdueTasks(Long userId, int overdueDays, UUID columnId) {
+        int safeOverdueDays = Math.max(1, overdueDays);
+        LocalDateTime cutoffDateTime = LocalDateTime.now().minusDays(safeOverdueDays);
+
+        List<UUID> taskIdsToDelete = taskRepository.findByUserId(userId).stream()
+                .filter(task -> columnId == null || (task.getColumn() != null && columnId.equals(task.getColumn().getId())))
+                .filter(task -> task.getDeadline() != null && !task.getDeadline().isAfter(cutoffDateTime))
+                .filter(task -> task.getUserProgress() == null || task.getUserProgress() < 100)
+                .filter(task -> task.getStatus() == null || !"Done".equalsIgnoreCase(task.getStatus()))
+                .map(Task::getId)
+                .collect(Collectors.toList());
+
+        if (taskIdsToDelete.isEmpty()) {
+            return 0;
+        }
+
+        taskRepository.deleteAllByIdInBatch(taskIdsToDelete);
+        return taskIdsToDelete.size();
+    }
+
+    @Override
+    @Transactional
     public void checkOverdueTasks(Long userId) {
         List<Task> tasks = taskRepository.findByUserId(userId);
         // Find or create Overdue column

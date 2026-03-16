@@ -82,7 +82,7 @@ public interface AdminUserService {
     void deleteUser(Long userId);
     
     /**
-     * Permanently delete user from database (only for INACTIVE users)
+     * Permanently delete user from database (only for banned/deactivated users - INACTIVE status)
      * @param userId User ID
      * @throws RuntimeException if user is still ACTIVE
      */

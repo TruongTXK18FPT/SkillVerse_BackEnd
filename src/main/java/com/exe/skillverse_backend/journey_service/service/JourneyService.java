@@ -108,7 +108,12 @@ public interface JourneyService {
     /**
      * Create study plan for a specific roadmap node.
      */
-    Object createStudyPlanForNode(User user, Long journeyId, Long nodeId);
+    Object createStudyPlanForNode(User user, Long journeyId, String nodeId);
+
+    /**
+     * Create study plan for a specific roadmap node by roadmap session id.
+     */
+    Object createStudyPlanForRoadmapNode(User user, Long roadmapSessionId, String nodeId);
 
     // AI Report
 

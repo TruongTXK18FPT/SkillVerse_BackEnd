@@ -213,9 +213,23 @@ public class JourneyController {
     public ResponseEntity<?> createStudyPlanForNode(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long journeyId,
-            @PathVariable Long nodeId) {
+            @PathVariable String nodeId) {
         User user = getUserFromAuth(userDetails);
         return ResponseEntity.ok(journeyService.createStudyPlanForNode(user, journeyId, nodeId));
+    }
+
+    /**
+     * Create study plan for specific roadmap node via roadmap session id.
+     * POST /api/v1/journey/roadmap/{roadmapSessionId}/study-plan/node/{nodeId}
+     */
+    @PostMapping("/roadmap/{roadmapSessionId}/study-plan/node/{nodeId}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> createStudyPlanForRoadmapNode(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long roadmapSessionId,
+            @PathVariable String nodeId) {
+        User user = getUserFromAuth(userDetails);
+        return ResponseEntity.ok(journeyService.createStudyPlanForRoadmapNode(user, roadmapSessionId, nodeId));
     }
 
     /**

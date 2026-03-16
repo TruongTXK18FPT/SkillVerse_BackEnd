@@ -22,6 +22,14 @@ public interface EmailService {
 
     void sendJobApplicationRejected(String email, String fullName, String jobTitle, String rejectionReason);
 
+    // Job approval/rejection notifications (to recruiter)
+    void sendJobApprovalNotification(String email, String jobTitle, String message);
+
+    void sendJobRejectionNotification(String email, String jobTitle, String reason);
+
+    // Application auto-rejection notification (to candidate)
+    void sendApplicationRejectionNotification(String email, String jobTitle, String reason);
+
     void sendHtmlEmail(String to, String subject, String htmlContent);
 
     void sendHtmlEmailWithAttachment(String to, String subject, String htmlContent,

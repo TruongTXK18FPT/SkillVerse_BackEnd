@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.study_service.controller;
 
 import com.exe.skillverse_backend.study_service.dto.request.CreateTaskRequest;
 import com.exe.skillverse_backend.study_service.dto.request.UpdateTaskRequest;
+import com.exe.skillverse_backend.study_service.dto.response.ClearOverdueTasksResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
@@ -54,6 +55,28 @@ public class TaskBoardController {
     public ResponseEntity<Void> deleteTask(@PathVariable UUID taskId) {
         taskBoardService.deleteTask(taskId);
         return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/tasks/clear-overdue")
+    public ResponseEntity<ClearOverdueTasksResponse> clearOverdueTasks(
+            @RequestParam(defaultValue = "30") Integer overdueDays,
+            @RequestParam(required = false) UUID columnId,
+            Authentication authentication
+    ) {
+        int safeOverdueDays = overdueDays == null ? 30 : Math.max(1, overdueDays);
+        int deletedCount = taskBoardService.clearOverdueTasks(
+                getUserId(authentication),
+                safeOverdueDays,
+                columnId
+        );
+
+        String message = "Đã xóa " + deletedCount + " task quá hạn hơn " + safeOverdueDays + " ngày.";
+        return ResponseEntity.ok(ClearOverdueTasksResponse.builder()
+                .deletedCount(deletedCount)
+                .overdueDays(safeOverdueDays)
+                .columnId(columnId)
+                .message(message)
+                .build());
     }
 
     @PatchMapping("/tasks/{taskId}/move")

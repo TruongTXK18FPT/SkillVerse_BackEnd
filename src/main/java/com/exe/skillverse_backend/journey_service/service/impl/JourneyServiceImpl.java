@@ -12,6 +12,11 @@ import com.exe.skillverse_backend.journey_service.dto.response.*;
 import com.exe.skillverse_backend.journey_service.entity.*;
 import com.exe.skillverse_backend.journey_service.repository.*;
 import com.exe.skillverse_backend.journey_service.service.JourneyService;
+import com.exe.skillverse_backend.study_service.dto.request.CreateTaskRequest;
+import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
+import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
+import com.exe.skillverse_backend.study_service.entity.TaskPriority;
+import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +29,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -34,6 +40,7 @@ import java.util.stream.Collectors;
 public class JourneyServiceImpl implements JourneyService {
 
     private static final int MAX_ASSESSMENT_ATTEMPTS = 2;
+    private static final String STUDY_PLAN_LINK_MARKER_PREFIX = "[ROADMAP_NODE_LINK]";
     private static final Pattern OPTION_PREFIX_PATTERN = Pattern.compile("^\\s*([A-D])(?:\\s*[\\.:\\)\\-]|\\s+|$)", Pattern.CASE_INSENSITIVE);
     private static final Set<Journey.JourneyStatus> AUTO_PAUSE_ON_RESUME_STATUSES = EnumSet.of(
             Journey.JourneyStatus.ASSESSMENT_PENDING,
@@ -53,6 +60,7 @@ public class JourneyServiceImpl implements JourneyService {
     private final ChatModel generateTestChatModel;
     private final AiRoadmapService aiRoadmapService;
     private final AssessmentPromptService assessmentPromptService;
+    private final TaskBoardService taskBoardService;
     private final ObjectMapper objectMapper;
 
     private static final class QuestionEvaluation {
@@ -677,35 +685,321 @@ public class JourneyServiceImpl implements JourneyService {
     }
 
     @Override
+    @Transactional
     public Object generateStudyPlans(User user, Long journeyId) {
         Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
                 .orElseThrow(() -> new RuntimeException("Journey not found"));
 
-        if (journey.getRoadmapSessionId() == null) {
-            throw new RuntimeException("Please generate roadmap first");
+        RoadmapResponse roadmap = requireRoadmapForJourney(user, journey);
+        List<RoadmapResponse.RoadmapNode> nodes = roadmap.getRoadmap() != null ? roadmap.getRoadmap() : Collections.emptyList();
+
+        if (nodes.isEmpty()) {
+            throw new RuntimeException("Roadmap does not contain any nodes to convert into study tasks");
         }
 
-        journey.setStatus(Journey.JourneyStatus.STUDY_PLAN_IN_PROGRESS);
-        journey.setLastActivityAt(Instant.now());
-        journeyRepository.save(journey);
+        String nextEligibleNodeId = findNextEligibleNodeId(roadmap, nodes);
+        String nextEligibleNodeTitle = resolveNodeDisplayTitle(nodes, nextEligibleNodeId);
 
-        return Map.of(
-                "message", "Study plan generation triggered",
-                "roadmapId", journey.getRoadmapSessionId(),
-                "skillGaps", getSkillGapsForStudyPlan(journey)
-        );
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("message", "Study plan chỉ được tạo theo yêu cầu từng node, không tự động tạo hàng loạt.");
+        response.put("journeyId", journey.getId());
+        response.put("roadmapId", journey.getRoadmapSessionId());
+        response.put("totalNodes", nodes.size());
+        response.put("nextEligibleNodeId", nextEligibleNodeId);
+        response.put("nextEligibleNodeTitle", nextEligibleNodeTitle);
+        response.put("allNodesCompleted", nextEligibleNodeId == null);
+
+        if (nextEligibleNodeId == null) {
+            response.put("recommendation", "Tất cả node đã hoàn thành. Bạn có thể tổng kết journey hoặc tạo roadmap mới.");
+        } else {
+            response.put("recommendation", "Hoàn thành node hiện tại rồi mới mở node kế tiếp.");
+        }
+
+        return response;
     }
 
     @Override
-    public Object createStudyPlanForNode(User user, Long journeyId, Long nodeId) {
+    @Transactional
+    public Object createStudyPlanForNode(User user, Long journeyId, String nodeId) {
         Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
                 .orElseThrow(() -> new RuntimeException("Journey not found"));
 
+        return createStudyPlanForRoadmapNodeInternal(user, journey, nodeId);
+    }
+
+    @Override
+    @Transactional
+    public Object createStudyPlanForRoadmapNode(User user, Long roadmapSessionId, String nodeId) {
+        Journey journey = journeyRepository.findByRoadmapSessionId(roadmapSessionId)
+                .orElseThrow(() -> new RuntimeException("Journey not found for roadmap session"));
+
+        if (!Objects.equals(journey.getUser().getId(), user.getId())) {
+            throw new RuntimeException("Journey not found");
+        }
+
+        return createStudyPlanForRoadmapNodeInternal(user, journey, nodeId);
+    }
+
+    private Object createStudyPlanForRoadmapNodeInternal(User user, Journey journey, String nodeId) {
+        if (nodeId == null || nodeId.isBlank()) {
+            throw new RuntimeException("Node id is required");
+        }
+
+        String normalizedNodeId = nodeId.trim();
+        RoadmapResponse roadmap = requireRoadmapForJourney(user, journey);
+        List<RoadmapResponse.RoadmapNode> roadmapNodes = roadmap.getRoadmap() != null
+                ? roadmap.getRoadmap()
+                : Collections.emptyList();
+
+        RoadmapResponse.RoadmapNode node = roadmapNodes.stream()
+                .filter(item -> item != null && normalizedNodeId.equals(item.getId()))
+                .findFirst()
+                .orElse(null);
+
+        if (node == null) {
+            throw new RuntimeException("Roadmap node not found for id: " + normalizedNodeId);
+        }
+
+        if (isRoadmapNodeCompleted(roadmap, normalizedNodeId)) {
+            return Map.of(
+                    "message", "Node này đã hoàn thành. Hãy tạo/kích hoạt plan cho node tiếp theo.",
+                    "created", false,
+                    "journeyId", journey.getId(),
+                    "roadmapSessionId", journey.getRoadmapSessionId(),
+                    "nodeId", normalizedNodeId);
+        }
+
+        String nextEligibleNodeId = findNextEligibleNodeId(roadmap, roadmapNodes);
+        if (nextEligibleNodeId != null && !normalizedNodeId.equals(nextEligibleNodeId)) {
+            String nextNodeTitle = resolveNodeDisplayTitle(roadmapNodes, nextEligibleNodeId);
+            throw new IllegalArgumentException(
+                    String.format("Bạn cần hoàn thành node '%s' trước khi tạo plan cho node này.", nextNodeTitle));
+        }
+
+        List<TaskColumnResponse> board = taskBoardService.getBoard(user.getId());
+        UUID todoColumnId = resolveTodoColumnId(board);
+        List<TaskResponse> existingTasks = flattenBoardTasks(board);
+        String marker = buildStudyPlanMarker(journey.getId(), journey.getRoadmapSessionId(), normalizedNodeId);
+        Optional<TaskResponse> existingTask = findExistingNodeTask(existingTasks, marker);
+
+        if (existingTask.isPresent()) {
+            TaskResponse task = existingTask.get();
+            return Map.of(
+                    "message", "Roadmap node is already linked to a study planner task.",
+                    "created", false,
+                    "journeyId", journey.getId(),
+                    "roadmapSessionId", journey.getRoadmapSessionId(),
+                    "nodeId", normalizedNodeId,
+                    "task", Map.of(
+                            "id", task.getId(),
+                            "title", task.getTitle(),
+                            "status", task.getStatus() != null ? task.getStatus() : "",
+                            "columnId", task.getColumnId(),
+                            "priority", task.getPriority() != null ? task.getPriority().name() : "MEDIUM"));
+        }
+
+        TaskResponse createdTask = createTaskFromRoadmapNode(user, journey, node, todoColumnId, marker);
+
+        journey.setStatus(Journey.JourneyStatus.STUDY_PLAN_IN_PROGRESS);
+        journey.setLastActivityAt(Instant.now());
+        if (journey.getProgressPercentage() == null || journey.getProgressPercentage() < 40) {
+            journey.setProgressPercentage(40);
+        }
+        journeyRepository.save(journey);
+
         return Map.of(
-                "message", "Study plan created for node",
-                "nodeId", nodeId,
-                "journeyId", journeyId
+                "message", "Study planner task created from roadmap node.",
+                "created", true,
+                "journeyId", journey.getId(),
+                "roadmapSessionId", journey.getRoadmapSessionId(),
+                "nodeId", normalizedNodeId,
+                "task", Map.of(
+                        "id", createdTask.getId(),
+                        "title", createdTask.getTitle(),
+                        "status", createdTask.getStatus() != null ? createdTask.getStatus() : "",
+                        "columnId", createdTask.getColumnId(),
+                        "priority", createdTask.getPriority() != null ? createdTask.getPriority().name() : "MEDIUM")
         );
+    }
+
+    private RoadmapResponse requireRoadmapForJourney(User user, Journey journey) {
+        if (journey.getRoadmapSessionId() == null) {
+            throw new RuntimeException("Please generate roadmap first");
+        }
+        return aiRoadmapService.getRoadmapById(journey.getRoadmapSessionId(), user.getId());
+    }
+
+    private UUID resolveTodoColumnId(List<TaskColumnResponse> board) {
+        if (board == null || board.isEmpty()) {
+            throw new RuntimeException("Study planner board is unavailable");
+        }
+
+        return board.stream()
+                .filter(column -> column.getName() != null && "to do".equalsIgnoreCase(column.getName().trim()))
+                .map(TaskColumnResponse::getId)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElseGet(() -> board.stream()
+                        .map(TaskColumnResponse::getId)
+                        .filter(Objects::nonNull)
+                        .findFirst()
+                        .orElseThrow(() -> new RuntimeException("No study planner column found")));
+    }
+
+    private List<TaskResponse> flattenBoardTasks(List<TaskColumnResponse> board) {
+        if (board == null || board.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return board.stream()
+                .filter(Objects::nonNull)
+                .flatMap(column -> {
+                    List<TaskResponse> tasks = column.getTasks();
+                    return tasks == null ? Collections.<TaskResponse>emptyList().stream() : tasks.stream();
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private String buildStudyPlanMarker(Long journeyId, Long roadmapSessionId, String nodeId) {
+        return String.format("%s journey=%d roadmap=%d node=%s",
+                STUDY_PLAN_LINK_MARKER_PREFIX,
+                journeyId,
+                roadmapSessionId,
+                nodeId);
+    }
+
+    private Optional<TaskResponse> findExistingNodeTask(List<TaskResponse> existingTasks, String marker) {
+        return existingTasks.stream()
+                .filter(task -> task.getUserNotes() != null && task.getUserNotes().contains(marker))
+                .findFirst();
+    }
+
+    private TaskResponse createTaskFromRoadmapNode(
+            User user,
+            Journey journey,
+            RoadmapResponse.RoadmapNode node,
+            UUID todoColumnId,
+            String marker) {
+
+        LocalDateTime now = LocalDateTime.now();
+        CreateTaskRequest request = new CreateTaskRequest();
+        request.setColumnId(todoColumnId);
+        request.setTitle(safeTruncate(node.getTitle(), 255, "Roadmap task"));
+        request.setDescription(buildTaskDescriptionFromNode(journey, node));
+        request.setStartDate(now);
+        request.setDeadline(resolveTaskDeadline(node, now));
+        request.setPriority(resolveTaskPriority(node));
+        request.setUserProgress(0);
+        request.setUserNotes(marker);
+
+        return taskBoardService.createTask(user.getId(), request);
+    }
+
+    private LocalDateTime resolveTaskDeadline(RoadmapResponse.RoadmapNode node, LocalDateTime now) {
+        int estimatedMinutes = node.getEstimatedTimeMinutes() != null && node.getEstimatedTimeMinutes() > 0
+                ? node.getEstimatedTimeMinutes()
+                : 90;
+        int plusDays = Math.max(1, (int) Math.ceil(estimatedMinutes / 120.0));
+        return now.plusDays(plusDays);
+    }
+
+    private TaskPriority resolveTaskPriority(RoadmapResponse.RoadmapNode node) {
+        String difficulty = node.getDifficulty() != null ? node.getDifficulty().toLowerCase(Locale.ROOT) : "";
+        boolean hardNode = difficulty.contains("hard") || difficulty.contains("advanced") || difficulty.contains("expert");
+        boolean easyNode = difficulty.contains("easy") || difficulty.contains("beginner") || difficulty.contains("foundation");
+        boolean mainNode = node.getType() == RoadmapResponse.RoadmapNode.NodeType.MAIN;
+
+        if (hardNode || (mainNode && !easyNode)) {
+            return TaskPriority.HIGH;
+        }
+        if (easyNode || !mainNode) {
+            return TaskPriority.LOW;
+        }
+        return TaskPriority.MEDIUM;
+    }
+
+    private String buildTaskDescriptionFromNode(Journey journey, RoadmapResponse.RoadmapNode node) {
+        StringBuilder description = new StringBuilder();
+        if (node.getDescription() != null && !node.getDescription().isBlank()) {
+            description.append(node.getDescription().trim()).append("\n\n");
+        }
+
+        appendTaskSection(description, "Mục tiêu học tập", node.getLearningObjectives());
+        appendTaskSection(description, "Khái niệm cốt lõi", node.getKeyConcepts());
+        appendTaskSection(description, "Bài tập thực hành", node.getPracticalExercises());
+        appendTaskSection(description, "Tài nguyên gợi ý", node.getSuggestedResources());
+        appendTaskSection(description, "Tiêu chí hoàn thành", node.getSuccessCriteria());
+
+        description.append("Nguồn: Journey #")
+                .append(journey.getId())
+                .append(" • Roadmap #")
+                .append(journey.getRoadmapSessionId())
+                .append(" • Node ")
+                .append(node.getId());
+
+        return safeTruncate(description.toString().trim(), 5000, "Task được tạo từ roadmap node");
+    }
+
+    private void appendTaskSection(StringBuilder builder, String title, List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return;
+        }
+
+        List<String> sanitizedValues = values.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .collect(Collectors.toList());
+
+        if (sanitizedValues.isEmpty()) {
+            return;
+        }
+
+        builder.append(title).append(":\n");
+        for (String value : sanitizedValues) {
+            builder.append("- ").append(value).append("\n");
+        }
+        builder.append("\n");
+    }
+
+    private String findNextEligibleNodeId(RoadmapResponse roadmap, List<RoadmapResponse.RoadmapNode> nodes) {
+        if (nodes == null || nodes.isEmpty()) {
+            return null;
+        }
+
+        for (RoadmapResponse.RoadmapNode node : nodes) {
+            if (node == null || node.getId() == null || node.getId().isBlank()) {
+                continue;
+            }
+            if (!isRoadmapNodeCompleted(roadmap, node.getId())) {
+                return node.getId();
+            }
+        }
+        return null;
+    }
+
+    private boolean isRoadmapNodeCompleted(RoadmapResponse roadmap, String nodeId) {
+        if (roadmap == null || roadmap.getProgress() == null || nodeId == null || nodeId.isBlank()) {
+            return false;
+        }
+        RoadmapResponse.QuestProgress progress = roadmap.getProgress().get(nodeId);
+        return progress != null && "COMPLETED".equalsIgnoreCase(progress.getStatus());
+    }
+
+    private String resolveNodeDisplayTitle(List<RoadmapResponse.RoadmapNode> nodes, String nodeId) {
+        if (nodeId == null || nodeId.isBlank()) {
+            return null;
+        }
+        return nodes.stream()
+                .filter(node -> node != null && nodeId.equals(node.getId()))
+                .map(node -> {
+                    if (node.getTitle() == null || node.getTitle().isBlank()) {
+                        return nodeId;
+                    }
+                    return node.getTitle();
+                })
+                .findFirst()
+                .orElse(nodeId);
     }
 
     @Override
@@ -1503,13 +1797,13 @@ public class JourneyServiceImpl implements JourneyService {
 
         String goalForRoadmap = safeTruncate(
                 String.format(
-                        "Create a personalized roadmap for %s in %s to achieve %s based on assessment score %d%%.",
+                        "Học %s trong lĩnh vực %s để đạt mục tiêu %s, dựa trên kết quả đánh giá %d%%.",
                         target,
                         domain,
                         journeyGoal,
                         clampScore(testResult.getScorePercentage())),
                 500,
-                "Create a personalized learning roadmap");
+                "Học kỹ năng cốt lõi theo lộ trình cá nhân hóa");
 
         String finalObjective = safeTruncate(
                 careerJourney
@@ -2010,23 +2304,5 @@ public class JourneyServiceImpl implements JourneyService {
         }
 
         return roadmapResponse.getSessionId();
-    }
-
-    private List<String> getSkillGapsForStudyPlan(Journey journey) {
-        TestResult latestResult = testResultRepository.findTopByJourneyOrderByCreatedAtDesc(journey).orElse(null);
-        if (latestResult == null) {
-            return Collections.emptyList();
-        }
-
-        try {
-            List<Map<String, Object>> skillGaps = objectMapper.readValue(
-                    latestResult.getSkillGapsJson(), List.class);
-            return skillGaps.stream()
-                    .map(gap -> (String) gap.get("skill"))
-                    .collect(Collectors.toList());
-        } catch (Exception e) {
-            log.warn("Failed to parse skill gaps", e);
-            return Collections.emptyList();
-        }
     }
 }

@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.business_service.repository;
 
 import com.exe.skillverse_backend.business_service.entity.JobApplication;
+import com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -66,4 +67,9 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
     @Modifying
     @Query("DELETE FROM JobApplication ja WHERE ja.jobPosting.id = :jobId")
     void deleteByJobPostingId(@Param("jobId") Long jobId);
+
+    /**
+     * Find applications by job posting ID and status (for auto-reject scheduler)
+     */
+    List<JobApplication> findByJobPostingIdAndStatus(Long jobPostingId, JobApplicationStatus status);
 }
