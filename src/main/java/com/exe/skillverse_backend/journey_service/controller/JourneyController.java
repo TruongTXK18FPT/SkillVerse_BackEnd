@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.journey_service.dto.request.SubmitTestRequest;
 import com.exe.skillverse_backend.journey_service.dto.response.*;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.journey_service.service.JourneyService;
+import com.exe.skillverse_backend.study_service.dto.request.GenerateScheduleRequest;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import jakarta.validation.Valid;
@@ -213,9 +214,10 @@ public class JourneyController {
     public ResponseEntity<?> createStudyPlanForNode(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long journeyId,
-            @PathVariable String nodeId) {
+            @PathVariable String nodeId,
+            @RequestBody(required = false) GenerateScheduleRequest request) {
         User user = getUserFromAuth(userDetails);
-        return ResponseEntity.ok(journeyService.createStudyPlanForNode(user, journeyId, nodeId));
+        return ResponseEntity.ok(journeyService.createStudyPlanForNode(user, journeyId, nodeId, request));
     }
 
     /**
@@ -227,9 +229,10 @@ public class JourneyController {
     public ResponseEntity<?> createStudyPlanForRoadmapNode(
             @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long roadmapSessionId,
-            @PathVariable String nodeId) {
+            @PathVariable String nodeId,
+            @RequestBody(required = false) GenerateScheduleRequest request) {
         User user = getUserFromAuth(userDetails);
-        return ResponseEntity.ok(journeyService.createStudyPlanForRoadmapNode(user, roadmapSessionId, nodeId));
+        return ResponseEntity.ok(journeyService.createStudyPlanForRoadmapNode(user, roadmapSessionId, nodeId, request));
     }
 
     /**

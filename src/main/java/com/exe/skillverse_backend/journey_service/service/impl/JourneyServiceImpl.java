@@ -13,9 +13,12 @@ import com.exe.skillverse_backend.journey_service.entity.*;
 import com.exe.skillverse_backend.journey_service.repository.*;
 import com.exe.skillverse_backend.journey_service.service.JourneyService;
 import com.exe.skillverse_backend.study_service.dto.request.CreateTaskRequest;
+import com.exe.skillverse_backend.study_service.dto.request.GenerateScheduleRequest;
+import com.exe.skillverse_backend.study_service.dto.response.StudySessionResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
 import com.exe.skillverse_backend.study_service.entity.TaskPriority;
+import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -29,7 +32,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -41,6 +47,8 @@ public class JourneyServiceImpl implements JourneyService {
 
     private static final int MAX_ASSESSMENT_ATTEMPTS = 2;
     private static final String STUDY_PLAN_LINK_MARKER_PREFIX = "[ROADMAP_NODE_LINK]";
+    private static final int MAX_STUDY_TASKS_PER_NODE = 12;
+    private static final String DEFAULT_STUDY_TIMEZONE = "Asia/Ho_Chi_Minh";
     private static final Pattern OPTION_PREFIX_PATTERN = Pattern.compile("^\\s*([A-D])(?:\\s*[\\.:\\)\\-]|\\s+|$)", Pattern.CASE_INSENSITIVE);
     private static final Set<Journey.JourneyStatus> AUTO_PAUSE_ON_RESUME_STATUSES = EnumSet.of(
             Journey.JourneyStatus.ASSESSMENT_PENDING,
@@ -61,6 +69,7 @@ public class JourneyServiceImpl implements JourneyService {
     private final AiRoadmapService aiRoadmapService;
     private final AssessmentPromptService assessmentPromptService;
     private final TaskBoardService taskBoardService;
+    private final AiStudySupportService aiStudySupportService;
     private final ObjectMapper objectMapper;
 
     private static final class QuestionEvaluation {
@@ -720,16 +729,16 @@ public class JourneyServiceImpl implements JourneyService {
 
     @Override
     @Transactional
-    public Object createStudyPlanForNode(User user, Long journeyId, String nodeId) {
+    public Object createStudyPlanForNode(User user, Long journeyId, String nodeId, GenerateScheduleRequest request) {
         Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
                 .orElseThrow(() -> new RuntimeException("Journey not found"));
 
-        return createStudyPlanForRoadmapNodeInternal(user, journey, nodeId);
+        return createStudyPlanForRoadmapNodeInternal(user, journey, nodeId, request);
     }
 
     @Override
     @Transactional
-    public Object createStudyPlanForRoadmapNode(User user, Long roadmapSessionId, String nodeId) {
+    public Object createStudyPlanForRoadmapNode(User user, Long roadmapSessionId, String nodeId, GenerateScheduleRequest request) {
         Journey journey = journeyRepository.findByRoadmapSessionId(roadmapSessionId)
                 .orElseThrow(() -> new RuntimeException("Journey not found for roadmap session"));
 
@@ -737,10 +746,10 @@ public class JourneyServiceImpl implements JourneyService {
             throw new RuntimeException("Journey not found");
         }
 
-        return createStudyPlanForRoadmapNodeInternal(user, journey, nodeId);
+        return createStudyPlanForRoadmapNodeInternal(user, journey, nodeId, request);
     }
 
-    private Object createStudyPlanForRoadmapNodeInternal(User user, Journey journey, String nodeId) {
+    private Object createStudyPlanForRoadmapNodeInternal(User user, Journey journey, String nodeId, GenerateScheduleRequest request) {
         if (nodeId == null || nodeId.isBlank()) {
             throw new RuntimeException("Node id is required");
         }
@@ -776,29 +785,46 @@ public class JourneyServiceImpl implements JourneyService {
                     String.format("Bạn cần hoàn thành node '%s' trước khi tạo plan cho node này.", nextNodeTitle));
         }
 
+        int nodeOrder = resolveNodeOrder(roadmapNodes, normalizedNodeId);
+        int totalRoadmapNodes = countTrackableRoadmapNodes(roadmapNodes);
+
         List<TaskColumnResponse> board = taskBoardService.getBoard(user.getId());
         UUID todoColumnId = resolveTodoColumnId(board);
         List<TaskResponse> existingTasks = flattenBoardTasks(board);
         String marker = buildStudyPlanMarker(journey.getId(), journey.getRoadmapSessionId(), normalizedNodeId);
-        Optional<TaskResponse> existingTask = findExistingNodeTask(existingTasks, marker);
+        List<TaskResponse> existingTasksForNode = findExistingNodeTasks(existingTasks, marker);
 
-        if (existingTask.isPresent()) {
-            TaskResponse task = existingTask.get();
+        if (!existingTasksForNode.isEmpty()) {
+            TaskResponse firstTask = existingTasksForNode.get(0);
             return Map.of(
-                    "message", "Roadmap node is already linked to a study planner task.",
+                    "message", "Roadmap node is already linked to study planner tasks.",
                     "created", false,
                     "journeyId", journey.getId(),
                     "roadmapSessionId", journey.getRoadmapSessionId(),
                     "nodeId", normalizedNodeId,
-                    "task", Map.of(
-                            "id", task.getId(),
-                            "title", task.getTitle(),
-                            "status", task.getStatus() != null ? task.getStatus() : "",
-                            "columnId", task.getColumnId(),
-                            "priority", task.getPriority() != null ? task.getPriority().name() : "MEDIUM"));
+                    "taskCount", existingTasksForNode.size(),
+                    "task", toTaskSummary(firstTask),
+                    "tasks", existingTasksForNode.stream()
+                            .map(this::toTaskSummary)
+                            .collect(Collectors.toList()));
         }
 
-        TaskResponse createdTask = createTaskFromRoadmapNode(user, journey, node, todoColumnId, marker);
+        GenerateScheduleRequest scheduleRequest = buildRoadmapNodeScheduleRequest(journey, node, request);
+        List<StudySessionResponse> plannedSessions = generateNodeStudySessions(user, node, scheduleRequest);
+        List<TaskResponse> createdTasks = createTasksFromPlannedSessions(
+                user,
+                journey,
+                node,
+                todoColumnId,
+                marker,
+                plannedSessions,
+                nodeOrder,
+                totalRoadmapNodes,
+                scheduleRequest);
+
+        if (createdTasks.isEmpty()) {
+            throw new RuntimeException("Unable to create study tasks for this roadmap node");
+        }
 
         journey.setStatus(Journey.JourneyStatus.STUDY_PLAN_IN_PROGRESS);
         journey.setLastActivityAt(Instant.now());
@@ -808,17 +834,16 @@ public class JourneyServiceImpl implements JourneyService {
         journeyRepository.save(journey);
 
         return Map.of(
-                "message", "Study planner task created from roadmap node.",
+                "message", "Study planner tasks created from roadmap node.",
                 "created", true,
                 "journeyId", journey.getId(),
                 "roadmapSessionId", journey.getRoadmapSessionId(),
                 "nodeId", normalizedNodeId,
-                "task", Map.of(
-                        "id", createdTask.getId(),
-                        "title", createdTask.getTitle(),
-                        "status", createdTask.getStatus() != null ? createdTask.getStatus() : "",
-                        "columnId", createdTask.getColumnId(),
-                        "priority", createdTask.getPriority() != null ? createdTask.getPriority().name() : "MEDIUM")
+                "taskCount", createdTasks.size(),
+                "task", toTaskSummary(createdTasks.get(0)),
+                "tasks", createdTasks.stream()
+                        .map(this::toTaskSummary)
+                        .collect(Collectors.toList())
         );
     }
 
@@ -868,39 +893,371 @@ public class JourneyServiceImpl implements JourneyService {
                 nodeId);
     }
 
-    private Optional<TaskResponse> findExistingNodeTask(List<TaskResponse> existingTasks, String marker) {
-        return existingTasks.stream()
-                .filter(task -> task.getUserNotes() != null && task.getUserNotes().contains(marker))
-                .findFirst();
+    private int countTrackableRoadmapNodes(List<RoadmapResponse.RoadmapNode> nodes) {
+        if (nodes == null || nodes.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (RoadmapResponse.RoadmapNode node : nodes) {
+            if (node == null || node.getId() == null || node.getId().isBlank()) {
+                continue;
+            }
+            count++;
+        }
+        return count;
     }
 
-    private TaskResponse createTaskFromRoadmapNode(
+    private int resolveNodeOrder(List<RoadmapResponse.RoadmapNode> nodes, String nodeId) {
+        if (nodes == null || nodes.isEmpty() || nodeId == null || nodeId.isBlank()) {
+            return -1;
+        }
+        int index = 0;
+        for (RoadmapResponse.RoadmapNode node : nodes) {
+            if (node == null || node.getId() == null || node.getId().isBlank()) {
+                continue;
+            }
+            index++;
+            if (nodeId.equals(node.getId())) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private String buildStudyPlanTaskNotes(
+            String marker,
+            RoadmapResponse.RoadmapNode node,
+            StudySessionResponse session,
+            int step,
+            int totalSteps,
+            int nodeOrder,
+            int totalRoadmapNodes) {
+
+        String nodeOrderLabel = nodeOrder > 0 && totalRoadmapNodes > 0
+                ? String.format(Locale.ROOT, "%d/%d", nodeOrder, totalRoadmapNodes)
+                : "?/?";
+        String nodeTitle = sanitizeNoteValue(firstNonBlank(node.getTitle(), node.getId(), "Roadmap node"), 180);
+        String sessionTitle = sanitizeNoteValue(firstNonBlank(session.getTitle(), "Study session " + step), 220);
+
+        return String.format(
+                Locale.ROOT,
+                "Node %s - %s%nTask %d/%d - %s%n%s nodeOrder=%s step=%d/%d",
+                nodeOrderLabel,
+                nodeTitle,
+                step,
+                totalSteps,
+                sessionTitle,
+                marker,
+                nodeOrderLabel,
+                step,
+                totalSteps);
+    }
+
+    private String sanitizeNoteValue(String value, int maxLength) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = value.replaceAll("\\s+", " ").trim();
+        return safeTruncate(normalized, maxLength, "");
+    }
+
+    private List<TaskResponse> findExistingNodeTasks(List<TaskResponse> existingTasks, String marker) {
+        return existingTasks.stream()
+                .filter(task -> task.getUserNotes() != null && task.getUserNotes().contains(marker))
+                .collect(Collectors.toList());
+    }
+
+    private Map<String, Object> toTaskSummary(TaskResponse task) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("id", task.getId());
+        summary.put("title", task.getTitle());
+        summary.put("status", task.getStatus() != null ? task.getStatus() : "");
+        summary.put("columnId", task.getColumnId());
+        summary.put("priority", task.getPriority() != null ? task.getPriority().name() : "MEDIUM");
+        summary.put("startDate", task.getStartDate());
+        summary.put("endDate", task.getEndDate());
+        summary.put("deadline", task.getDeadline());
+        return summary;
+    }
+
+    private GenerateScheduleRequest buildRoadmapNodeScheduleRequest(
+            Journey journey,
+            RoadmapResponse.RoadmapNode node,
+            GenerateScheduleRequest inputRequest) {
+
+        GenerateScheduleRequest request = new GenerateScheduleRequest();
+        copyScheduleRequest(inputRequest, request);
+
+        ZoneId zoneId = resolveStudyTimeZone(request.getTimezone());
+        LocalDate startDate = request.getStartDate() != null ? request.getStartDate() : LocalDate.now(zoneId);
+        int durationMinutes = safeDurationMinutes(request.getDurationMinutes());
+        int maxSessionsPerDay = safeMaxSessionsPerDay(request.getMaxSessionsPerDay());
+
+        request.setSubjectName(safeTruncate(firstNonBlank(node.getTitle(), journey.getTitle(), "Roadmap node"), 200, "Roadmap node"));
+        request.setTopics(collectNodeTopics(node, 16));
+        request.setDesiredOutcome(firstNonBlank(request.getDesiredOutcome(), buildDefaultDesiredOutcome(journey, node)));
+        request.setFreeTimeDescription(firstNonBlank(
+                request.getFreeTimeDescription(),
+                "Auto-generated from roadmap node and user preferences"));
+        request.setDurationMinutes(durationMinutes);
+        request.setStartDate(startDate);
+        request.setTimezone(firstNonBlank(request.getTimezone(), DEFAULT_STUDY_TIMEZONE));
+        request.setPreferredDays(normalizePreferredDays(request.getPreferredDays()));
+        if (request.getPreferredTimeWindows() == null || request.getPreferredTimeWindows().isEmpty()) {
+            request.setPreferredTimeWindows(defaultPreferredTimeWindows(request.getStudyPreference()));
+        }
+        if (request.getDeadline() == null || request.getDeadline().isBefore(startDate)) {
+            request.setDeadline(resolveDefaultDeadline(node, startDate, durationMinutes, maxSessionsPerDay));
+        }
+        if (request.getIntensityLevel() == null || request.getIntensityLevel().isBlank()) {
+            request.setIntensityLevel("balanced");
+        }
+        if (request.getBreakMinutesBetweenSessions() == null || request.getBreakMinutesBetweenSessions() < 0) {
+            request.setBreakMinutesBetweenSessions(10);
+        }
+        if (request.getMaxSessionsPerDay() == null || request.getMaxSessionsPerDay() <= 0) {
+            request.setMaxSessionsPerDay(maxSessionsPerDay);
+        }
+        if (request.getMaxDailyStudyMinutes() == null || request.getMaxDailyStudyMinutes() <= 0) {
+            request.setMaxDailyStudyMinutes(durationMinutes * maxSessionsPerDay);
+        }
+        if (request.getStudyMethod() == null || request.getStudyMethod().isBlank()) {
+            request.setStudyMethod("Active Recall + Practical Exercise");
+        }
+        if (request.getResourcesPreference() == null || request.getResourcesPreference().isBlank()) {
+            request.setResourcesPreference("mixed resources");
+        }
+        if (request.getAvoidLateNight() == null && request.getAllowLateNight() == null) {
+            request.setAvoidLateNight(Boolean.TRUE);
+        }
+        return request;
+    }
+
+    private void copyScheduleRequest(GenerateScheduleRequest source, GenerateScheduleRequest target) {
+        if (source == null || target == null) {
+            return;
+        }
+        target.setSubjectName(source.getSubjectName());
+        target.setFreeTimeDescription(source.getFreeTimeDescription());
+        target.setDurationMinutes(source.getDurationMinutes());
+        target.setDeadline(source.getDeadline());
+        target.setStartDate(source.getStartDate());
+        target.setTimezone(source.getTimezone());
+        target.setPreferredDays(source.getPreferredDays() != null ? new ArrayList<>(source.getPreferredDays()) : null);
+        target.setPreferredTimeWindows(source.getPreferredTimeWindows() != null
+                ? new ArrayList<>(source.getPreferredTimeWindows())
+                : null);
+        target.setTopics(source.getTopics() != null ? new ArrayList<>(source.getTopics()) : null);
+        target.setDesiredOutcome(source.getDesiredOutcome());
+        target.setIntensityLevel(source.getIntensityLevel());
+        target.setBreakMinutesBetweenSessions(source.getBreakMinutesBetweenSessions());
+        target.setMaxSessionsPerDay(source.getMaxSessionsPerDay());
+        target.setStudyMethod(source.getStudyMethod());
+        target.setResourcesPreference(source.getResourcesPreference());
+        target.setStudyPreference(source.getStudyPreference());
+        target.setAvoidLateNight(source.getAvoidLateNight());
+        target.setAllowLateNight(source.getAllowLateNight());
+        target.setConfirmLateNight(source.getConfirmLateNight());
+        target.setEarliestStartLocalTime(source.getEarliestStartLocalTime());
+        target.setLatestEndLocalTime(source.getLatestEndLocalTime());
+        target.setMaxDailyStudyMinutes(source.getMaxDailyStudyMinutes());
+        target.setChronotype(source.getChronotype());
+        target.setIdealFocusWindows(source.getIdealFocusWindows() != null
+                ? new ArrayList<>(source.getIdealFocusWindows())
+                : null);
+    }
+
+    private List<StudySessionResponse> generateNodeStudySessions(
+            User user,
+            RoadmapResponse.RoadmapNode node,
+            GenerateScheduleRequest request) {
+
+        try {
+            List<StudySessionResponse> sessions = aiStudySupportService.generateProposedSchedule(user.getId(), request);
+            List<StudySessionResponse> normalized = normalizeGeneratedSessions(node, sessions, request);
+            if (!normalized.isEmpty()) {
+                return normalized;
+            }
+        } catch (Exception ex) {
+            log.warn("AI session generation failed for node {}: {}", node.getId(), ex.getMessage());
+        }
+        return buildFallbackSessions(node, request);
+    }
+
+    private List<StudySessionResponse> normalizeGeneratedSessions(
+            RoadmapResponse.RoadmapNode node,
+            List<StudySessionResponse> sessions,
+            GenerateScheduleRequest request) {
+        if (sessions == null || sessions.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        int durationMinutes = safeDurationMinutes(request.getDurationMinutes());
+        int breakMinutes = safeBreakMinutes(request.getBreakMinutesBetweenSessions());
+        LocalDate baseDate = request.getStartDate() != null
+                ? request.getStartDate()
+                : LocalDate.now(resolveStudyTimeZone(request.getTimezone()));
+        LocalDateTime fallbackCursor = LocalDateTime.of(baseDate, resolvePreferredStartTime(request));
+        List<StudySessionResponse> normalized = new ArrayList<>();
+
+        for (StudySessionResponse session : sessions) {
+            if (session == null) {
+                continue;
+            }
+            LocalDateTime startTime = session.getStartTime();
+            if (startTime == null || startTime.toLocalDate().isBefore(baseDate)) {
+                startTime = fallbackCursor;
+            }
+
+            LocalDateTime endTime = session.getEndTime();
+            if (endTime == null || !endTime.isAfter(startTime)) {
+                endTime = startTime.plusMinutes(durationMinutes);
+            }
+
+            String title = safeTruncate(
+                    firstNonBlank(session.getTitle(), node.getTitle(), "Study session"),
+                    255,
+                    "Study session");
+            String description = safeTruncate(
+                    firstNonBlank(session.getDescription(), buildNodeContextDescription(node)),
+                    5000,
+                    "Roadmap node practice");
+
+            normalized.add(StudySessionResponse.builder()
+                    .title(title)
+                    .description(description)
+                    .startTime(startTime)
+                    .endTime(endTime)
+                    .status(session.getStatus())
+                    .build());
+
+            fallbackCursor = endTime.plusMinutes(breakMinutes);
+            if (normalized.size() >= MAX_STUDY_TASKS_PER_NODE) {
+                break;
+            }
+        }
+
+        return normalized;
+    }
+
+    private List<StudySessionResponse> buildFallbackSessions(
+            RoadmapResponse.RoadmapNode node,
+            GenerateScheduleRequest request) {
+        int durationMinutes = safeDurationMinutes(request.getDurationMinutes());
+        int maxSessionsPerDay = safeMaxSessionsPerDay(request.getMaxSessionsPerDay());
+        int breakMinutes = safeBreakMinutes(request.getBreakMinutesBetweenSessions());
+
+        LocalDate startDate = request.getStartDate() != null
+                ? request.getStartDate()
+                : LocalDate.now(resolveStudyTimeZone(request.getTimezone()));
+        LocalDate deadline = request.getDeadline() != null
+                ? request.getDeadline()
+                : resolveDefaultDeadline(node, startDate, durationMinutes, maxSessionsPerDay);
+        LocalTime firstSlot = resolvePreferredStartTime(request);
+
+        int estimatedMinutes = node.getEstimatedTimeMinutes() != null && node.getEstimatedTimeMinutes() > 0
+                ? node.getEstimatedTimeMinutes()
+                : durationMinutes * 3;
+        int sessionCount = Math.max(3, (int) Math.ceil((double) estimatedMinutes / durationMinutes));
+        sessionCount = Math.min(MAX_STUDY_TASKS_PER_NODE, sessionCount);
+
+        List<String> focusItems = collectNodeTopics(node, 20);
+        if (focusItems.isEmpty()) {
+            focusItems = List.of(firstNonBlank(node.getDescription(), node.getTitle(), "Core topic"));
+        }
+
+        List<StudySessionResponse> fallbackSessions = new ArrayList<>();
+        for (int i = 0; i < sessionCount; i++) {
+            int dayOffset = i / maxSessionsPerDay;
+            int slotOffset = i % maxSessionsPerDay;
+            LocalDate sessionDate = startDate.plusDays(dayOffset);
+            if (sessionDate.isAfter(deadline)) {
+                sessionDate = deadline;
+            }
+
+            LocalDateTime startTime = LocalDateTime.of(sessionDate, firstSlot)
+                    .plusMinutes((long) slotOffset * (durationMinutes + breakMinutes));
+            LocalDateTime endTime = startTime.plusMinutes(durationMinutes);
+            String focus = focusItems.get(i % focusItems.size());
+
+            fallbackSessions.add(StudySessionResponse.builder()
+                    .title(safeTruncate(
+                            String.format("%s - Step %d", firstNonBlank(node.getTitle(), "Roadmap node"), i + 1),
+                            255,
+                            "Roadmap step"))
+                    .description(safeTruncate(
+                            String.format("Focus: %s%n%n%s", focus, buildNodeContextDescription(node)),
+                            5000,
+                            "Roadmap node practice"))
+                    .startTime(startTime)
+                    .endTime(endTime)
+                    .build());
+        }
+
+        return fallbackSessions;
+    }
+
+    private List<TaskResponse> createTasksFromPlannedSessions(
             User user,
             Journey journey,
             RoadmapResponse.RoadmapNode node,
             UUID todoColumnId,
-            String marker) {
+            String marker,
+            List<StudySessionResponse> sessions,
+            int nodeOrder,
+            int totalRoadmapNodes,
+            GenerateScheduleRequest request) {
 
-        LocalDateTime now = LocalDateTime.now();
-        CreateTaskRequest request = new CreateTaskRequest();
-        request.setColumnId(todoColumnId);
-        request.setTitle(safeTruncate(node.getTitle(), 255, "Roadmap task"));
-        request.setDescription(buildTaskDescriptionFromNode(journey, node));
-        request.setStartDate(now);
-        request.setDeadline(resolveTaskDeadline(node, now));
-        request.setPriority(resolveTaskPriority(node));
-        request.setUserProgress(0);
-        request.setUserNotes(marker);
+        List<StudySessionResponse> sourceSessions = sessions == null || sessions.isEmpty()
+                ? buildFallbackSessions(node, request)
+                : sessions.stream()
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(
+                        StudySessionResponse::getStartTime,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .limit(MAX_STUDY_TASKS_PER_NODE)
+                .collect(Collectors.toList());
 
-        return taskBoardService.createTask(user.getId(), request);
-    }
+        int durationMinutes = safeDurationMinutes(request.getDurationMinutes());
+        int breakMinutes = safeBreakMinutes(request.getBreakMinutesBetweenSessions());
+        LocalDate baseDate = request.getStartDate() != null
+                ? request.getStartDate()
+                : LocalDate.now(resolveStudyTimeZone(request.getTimezone()));
+        LocalDateTime fallbackCursor = LocalDateTime.of(baseDate, resolvePreferredStartTime(request));
 
-    private LocalDateTime resolveTaskDeadline(RoadmapResponse.RoadmapNode node, LocalDateTime now) {
-        int estimatedMinutes = node.getEstimatedTimeMinutes() != null && node.getEstimatedTimeMinutes() > 0
-                ? node.getEstimatedTimeMinutes()
-                : 90;
-        int plusDays = Math.max(1, (int) Math.ceil(estimatedMinutes / 120.0));
-        return now.plusDays(plusDays);
+        List<TaskResponse> createdTasks = new ArrayList<>();
+        int totalSteps = sourceSessions.size();
+
+        for (int i = 0; i < totalSteps; i++) {
+            StudySessionResponse session = sourceSessions.get(i);
+            LocalDateTime startTime = session.getStartTime() != null ? session.getStartTime() : fallbackCursor;
+            LocalDateTime endTime = session.getEndTime() != null && session.getEndTime().isAfter(startTime)
+                    ? session.getEndTime()
+                    : startTime.plusMinutes(durationMinutes);
+
+            CreateTaskRequest taskRequest = new CreateTaskRequest();
+            taskRequest.setColumnId(todoColumnId);
+            taskRequest.setTitle(buildTaskTitleFromSession(node, session, i + 1, totalSteps));
+            taskRequest.setDescription(buildTaskDescriptionFromSession(journey, node, session, i + 1, totalSteps));
+            taskRequest.setStartDate(startTime);
+            taskRequest.setEndDate(endTime);
+            taskRequest.setDeadline(endTime);
+            taskRequest.setPriority(resolveTaskPriority(node));
+            taskRequest.setUserProgress(0);
+            taskRequest.setUserNotes(buildStudyPlanTaskNotes(
+                    marker,
+                    node,
+                    session,
+                    i + 1,
+                    totalSteps,
+                    nodeOrder,
+                    totalRoadmapNodes));
+
+            createdTasks.add(taskBoardService.createTask(user.getId(), taskRequest));
+            fallbackCursor = endTime.plusMinutes(breakMinutes);
+        }
+
+        return createdTasks;
     }
 
     private TaskPriority resolveTaskPriority(RoadmapResponse.RoadmapNode node) {
@@ -940,6 +1297,55 @@ public class JourneyServiceImpl implements JourneyService {
         return safeTruncate(description.toString().trim(), 5000, "Task được tạo từ roadmap node");
     }
 
+    private String buildTaskTitleFromSession(
+            RoadmapResponse.RoadmapNode node,
+            StudySessionResponse session,
+            int step,
+            int totalSteps) {
+        String nodeTitle = firstNonBlank(node.getTitle(), "Roadmap node");
+        String sessionTitle = firstNonBlank(session.getTitle(), "Session " + step);
+        return safeTruncate(
+                String.format("%s | %d/%d - %s", nodeTitle, step, totalSteps, sessionTitle),
+                255,
+                nodeTitle + " | " + step + "/" + totalSteps);
+    }
+
+    private String buildTaskDescriptionFromSession(
+            Journey journey,
+            RoadmapResponse.RoadmapNode node,
+            StudySessionResponse session,
+            int step,
+            int totalSteps) {
+        StringBuilder description = new StringBuilder();
+        if (session.getDescription() != null && !session.getDescription().isBlank()) {
+            description.append(session.getDescription().trim()).append("\n\n");
+        } else {
+            description.append(buildNodeContextDescription(node)).append("\n\n");
+        }
+
+        description.append("Step ").append(step).append("/").append(totalSteps).append("\n");
+        description.append("Source: Journey #").append(journey.getId())
+                .append(" | Roadmap #").append(journey.getRoadmapSessionId())
+                .append(" | Node ").append(node.getId());
+
+        return safeTruncate(description.toString().trim(), 5000, "Roadmap study task");
+    }
+
+    private String buildNodeContextDescription(RoadmapResponse.RoadmapNode node) {
+        StringBuilder description = new StringBuilder();
+        if (node.getDescription() != null && !node.getDescription().isBlank()) {
+            description.append(node.getDescription().trim()).append("\n\n");
+        }
+
+        appendTaskSection(description, "Learning Objectives", node.getLearningObjectives());
+        appendTaskSection(description, "Key Concepts", node.getKeyConcepts());
+        appendTaskSection(description, "Practical Exercises", node.getPracticalExercises());
+        appendTaskSection(description, "Suggested Resources", node.getSuggestedResources());
+        appendTaskSection(description, "Success Criteria", node.getSuccessCriteria());
+
+        return safeTruncate(description.toString().trim(), 5000, "Roadmap node practice");
+    }
+
     private void appendTaskSection(StringBuilder builder, String title, List<String> values) {
         if (values == null || values.isEmpty()) {
             return;
@@ -960,6 +1366,186 @@ public class JourneyServiceImpl implements JourneyService {
             builder.append("- ").append(value).append("\n");
         }
         builder.append("\n");
+    }
+
+    private List<String> collectNodeTopics(RoadmapResponse.RoadmapNode node, int limit) {
+        LinkedHashSet<String> topics = new LinkedHashSet<>();
+        topics.addAll(sanitizeTextList(node.getLearningObjectives(), limit));
+        topics.addAll(sanitizeTextList(node.getKeyConcepts(), limit));
+        topics.addAll(sanitizeTextList(node.getPracticalExercises(), limit));
+        if (topics.isEmpty()) {
+            topics.add(firstNonBlank(node.getTitle(), "Core roadmap topic"));
+        }
+        return topics.stream().limit(limit).collect(Collectors.toList());
+    }
+
+    private List<String> sanitizeTextList(List<String> values, int limit) {
+        if (values == null || values.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return values.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .limit(limit)
+                .collect(Collectors.toList());
+    }
+
+    private String buildDefaultDesiredOutcome(Journey journey, RoadmapResponse.RoadmapNode node) {
+        String role = firstNonBlank(journey.getJobRole(), journey.getSubCategory(), journey.getDomain(), "target role");
+        return safeTruncate(
+                String.format("Master node '%s' and move closer to %s", firstNonBlank(node.getTitle(), "this topic"), role),
+                300,
+                "Master this roadmap node");
+    }
+
+    private LocalDate resolveDefaultDeadline(
+            RoadmapResponse.RoadmapNode node,
+            LocalDate startDate,
+            int durationMinutes,
+            int maxSessionsPerDay) {
+        int estimatedMinutes = node.getEstimatedTimeMinutes() != null && node.getEstimatedTimeMinutes() > 0
+                ? node.getEstimatedTimeMinutes()
+                : durationMinutes * 3;
+        int sessionsNeeded = Math.max(3, (int) Math.ceil((double) estimatedMinutes / durationMinutes));
+        int daysNeeded = Math.max(2, (int) Math.ceil((double) sessionsNeeded / Math.max(1, maxSessionsPerDay)));
+        return startDate.plusDays(daysNeeded);
+    }
+
+    private ZoneId resolveStudyTimeZone(String timezone) {
+        String normalized = firstNonBlank(timezone, DEFAULT_STUDY_TIMEZONE);
+        try {
+            return ZoneId.of(normalized);
+        } catch (Exception ex) {
+            return ZoneId.of(DEFAULT_STUDY_TIMEZONE);
+        }
+    }
+
+    private LocalTime resolvePreferredStartTime(GenerateScheduleRequest request) {
+        if (request.getPreferredTimeWindows() != null) {
+            for (String window : request.getPreferredTimeWindows()) {
+                LocalTime parsed = parseTimeRangeStart(window);
+                if (parsed != null) {
+                    return parsed;
+                }
+            }
+        }
+
+        if (request.getEarliestStartLocalTime() != null && !request.getEarliestStartLocalTime().isBlank()) {
+            try {
+                return LocalTime.parse(request.getEarliestStartLocalTime().trim());
+            } catch (Exception ignored) {
+                // Ignore invalid custom time and fallback.
+            }
+        }
+
+        String studyPreference = request.getStudyPreference() != null
+                ? request.getStudyPreference().trim().toLowerCase(Locale.ROOT)
+                : "";
+        return switch (studyPreference) {
+            case "morning" -> LocalTime.of(7, 0);
+            case "afternoon" -> LocalTime.of(14, 0);
+            case "evening", "night" -> LocalTime.of(19, 0);
+            default -> LocalTime.of(18, 30);
+        };
+    }
+
+    private LocalTime parseTimeRangeStart(String range) {
+        if (range == null || range.isBlank()) {
+            return null;
+        }
+        String[] parts = range.split("-");
+        if (parts.length == 0) {
+            return null;
+        }
+        try {
+            return LocalTime.parse(parts[0].trim());
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private int safeDurationMinutes(int durationMinutes) {
+        if (durationMinutes <= 0) {
+            return 90;
+        }
+        return Math.max(30, Math.min(180, durationMinutes));
+    }
+
+    private int safeMaxSessionsPerDay(Integer maxSessionsPerDay) {
+        if (maxSessionsPerDay == null || maxSessionsPerDay <= 0) {
+            return 2;
+        }
+        return Math.max(1, Math.min(5, maxSessionsPerDay));
+    }
+
+    private int safeBreakMinutes(Integer breakMinutes) {
+        if (breakMinutes == null || breakMinutes < 0) {
+            return 10;
+        }
+        return Math.max(5, Math.min(45, breakMinutes));
+    }
+
+    private List<String> normalizePreferredDays(List<String> preferredDays) {
+        if (preferredDays == null || preferredDays.isEmpty()) {
+            return defaultPreferredDays();
+        }
+
+        Map<String, String> dayAlias = new HashMap<>();
+        dayAlias.put("MON", "MONDAY");
+        dayAlias.put("MONDAY", "MONDAY");
+        dayAlias.put("TUE", "TUESDAY");
+        dayAlias.put("TUESDAY", "TUESDAY");
+        dayAlias.put("WED", "WEDNESDAY");
+        dayAlias.put("WEDNESDAY", "WEDNESDAY");
+        dayAlias.put("THU", "THURSDAY");
+        dayAlias.put("THURSDAY", "THURSDAY");
+        dayAlias.put("FRI", "FRIDAY");
+        dayAlias.put("FRIDAY", "FRIDAY");
+        dayAlias.put("SAT", "SATURDAY");
+        dayAlias.put("SATURDAY", "SATURDAY");
+        dayAlias.put("SUN", "SUNDAY");
+        dayAlias.put("SUNDAY", "SUNDAY");
+
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String day : preferredDays) {
+            if (day == null || day.isBlank()) {
+                continue;
+            }
+            String key = day.trim().toUpperCase(Locale.ROOT);
+            if (dayAlias.containsKey(key)) {
+                normalized.add(dayAlias.get(key));
+            }
+        }
+
+        if (normalized.isEmpty()) {
+            return defaultPreferredDays();
+        }
+        return new ArrayList<>(normalized);
+    }
+
+    private List<String> defaultPreferredDays() {
+        return new ArrayList<>(List.of(
+                "MONDAY",
+                "TUESDAY",
+                "WEDNESDAY",
+                "THURSDAY",
+                "FRIDAY",
+                "SATURDAY"));
+    }
+
+    private List<String> defaultPreferredTimeWindows(String studyPreference) {
+        if (studyPreference == null || studyPreference.isBlank()) {
+            return new ArrayList<>(List.of("18:30-21:30"));
+        }
+        String normalized = studyPreference.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "morning" -> new ArrayList<>(List.of("07:00-10:00"));
+            case "afternoon" -> new ArrayList<>(List.of("13:30-17:00"));
+            case "night", "evening" -> new ArrayList<>(List.of("18:30-22:00"));
+            default -> new ArrayList<>(List.of("18:30-21:30"));
+        };
     }
 
     private String findNextEligibleNodeId(RoadmapResponse roadmap, List<RoadmapResponse.RoadmapNode> nodes) {

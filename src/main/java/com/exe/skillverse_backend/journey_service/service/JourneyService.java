@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.journey_service.dto.request.SubmitTestRequest;
 import com.exe.skillverse_backend.journey_service.dto.response.*;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.study_service.dto.request.GenerateScheduleRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -108,12 +109,12 @@ public interface JourneyService {
     /**
      * Create study plan for a specific roadmap node.
      */
-    Object createStudyPlanForNode(User user, Long journeyId, String nodeId);
+    Object createStudyPlanForNode(User user, Long journeyId, String nodeId, GenerateScheduleRequest request);
 
     /**
      * Create study plan for a specific roadmap node by roadmap session id.
      */
-    Object createStudyPlanForRoadmapNode(User user, Long roadmapSessionId, String nodeId);
+    Object createStudyPlanForRoadmapNode(User user, Long roadmapSessionId, String nodeId, GenerateScheduleRequest request);
 
     // AI Report
 
