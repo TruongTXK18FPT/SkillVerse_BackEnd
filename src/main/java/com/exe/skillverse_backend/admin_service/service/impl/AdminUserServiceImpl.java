@@ -444,6 +444,9 @@ public class AdminUserServiceImpl implements AdminUserService {
                         // AI Service
                         entityManager.createNativeQuery("DELETE FROM chat_messages WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM user_roadmap_progress WHERE roadmap_session_id IN (SELECT id FROM roadmap_sessions WHERE user_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM roadmap_sessions WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
                         // Study Service (Tasks & Sessions)
