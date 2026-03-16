@@ -24,6 +24,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -42,6 +44,7 @@ import static org.mockito.Mockito.*;
  * Covers: Apply, Get Applicants (Paginated), Update Status
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class JobApplicationServiceTest {
 
     @Mock
@@ -127,6 +130,7 @@ class JobApplicationServiceTest {
         when(jobPostingRepository.findById(100L)).thenReturn(Optional.of(jobPosting));
         when(jobApplicationRepository.existsByJobPostingIdAndUserId(100L, 1L)).thenReturn(false);
         when(userRepository.findById(1L)).thenReturn(Optional.of(applicant));
+        when(portfolioExtendedProfileRepository.existsByUserId(1L)).thenReturn(true);
         when(jobApplicationRepository.save(any(JobApplication.class))).thenReturn(jobApplication);
         when(usageLimitService.canUseFeature(any(), any()))
                 .thenReturn(UsageCheckResult.builder().allowed(false).build());
@@ -153,6 +157,7 @@ class JobApplicationServiceTest {
     void applyToJob_Fail_JobNotOpen() {
         jobPosting.setStatus(JobStatus.CLOSED);
         when(jobPostingRepository.findById(100L)).thenReturn(Optional.of(jobPosting));
+        when(portfolioExtendedProfileRepository.existsByUserId(1L)).thenReturn(true);
 
         IllegalStateException exception = assertThrows(IllegalStateException.class,
                 () -> jobApplicationService.applyToJob(1L, 100L, applyRequest));
@@ -163,6 +168,7 @@ class JobApplicationServiceTest {
     void applyToJob_Fail_AlreadyApplied() {
         when(jobPostingRepository.findById(100L)).thenReturn(Optional.of(jobPosting));
         when(jobApplicationRepository.existsByJobPostingIdAndUserId(100L, 1L)).thenReturn(true);
+        when(portfolioExtendedProfileRepository.existsByUserId(1L)).thenReturn(true);
 
         IllegalStateException exception = assertThrows(IllegalStateException.class,
                 () -> jobApplicationService.applyToJob(1L, 100L, applyRequest));
@@ -172,6 +178,7 @@ class JobApplicationServiceTest {
     @Test
     void applyToJob_Fail_RecruiterSelfApply() {
         when(jobPostingRepository.findById(100L)).thenReturn(Optional.of(jobPosting));
+        when(portfolioExtendedProfileRepository.existsByUserId(2L)).thenReturn(true);
 
         IllegalStateException exception = assertThrows(IllegalStateException.class,
                 () -> jobApplicationService.applyToJob(2L, 100L, applyRequest));

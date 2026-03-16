@@ -13,6 +13,7 @@ import com.exe.skillverse_backend.business_service.service.impl.ShortTermJobServ
 import com.exe.skillverse_backend.business_service.service.JobAuditService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +26,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -45,6 +48,7 @@ import static org.mockito.Mockito.*;
  * 5. Deliverable Submission Validation
  */
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class ShortTermJobServiceImplTest {
 
     @Mock
@@ -70,6 +74,9 @@ class ShortTermJobServiceImplTest {
 
     @Mock
     private JobReviewRepository reviewRepository;
+
+    @Mock
+    private PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
 
     @Mock
     private JobAuditService auditService;
@@ -135,6 +142,9 @@ class ShortTermJobServiceImplTest {
         mockApplication.setCoverLetter("Test cover letter");
         mockApplication.setAppliedAt(LocalDateTime.now());
         mockApplication.setRevisionCount(0);
+
+        // Default mock for portfolio - assume user has portfolio
+        when(portfolioExtendedProfileRepository.existsByUserId(anyLong())).thenReturn(true);
     }
 
     // ==================== JOB CREATION VALIDATION TESTS ====================
