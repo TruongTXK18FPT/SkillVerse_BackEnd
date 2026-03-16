@@ -643,6 +643,9 @@ public class AdminUserServiceImpl implements AdminUserService {
                                         .setParameter(1, userId).executeUpdate();
 
                         // Course Service - Quiz Attempts
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM quiz_attempt_answer_snapshots WHERE attempt_id IN (SELECT id FROM quiz_attempts WHERE user_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM quiz_attempts WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
 
