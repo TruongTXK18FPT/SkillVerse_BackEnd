@@ -8,6 +8,8 @@ import com.exe.skillverse_backend.portfolio_service.dto.PortfolioProjectDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.UserProfileDTO;
 import com.exe.skillverse_backend.portfolio_service.entity.MentorReview;
 import com.exe.skillverse_backend.portfolio_service.repository.MentorReviewRepository;
+import com.exe.skillverse_backend.shared.exception.ConflictException;
+import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.portfolio_service.service.PortfolioService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -67,16 +69,8 @@ public class PortfolioController {
                     "success", true,
                     "message", "Portfolio extended profile created successfully",
                     "data", result));
-        } catch (RuntimeException e) {
-            if (e.getMessage().contains("already exists")) {
-                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
-                        "success", false,
-                        "message", e.getMessage()));
-            }
-            log.error("Error creating extended profile", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Failed to create extended profile: " + e.getMessage()));
+        } catch (Exception e) {
+            return handlePortfolioException(e, "Error creating extended profile", "Failed to create extended profile: ");
         }
     }
 
@@ -99,10 +93,7 @@ public class PortfolioController {
                     "message", "Portfolio extended profile updated successfully",
                     "data", result));
         } catch (Exception e) {
-            log.error("Error updating extended profile", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Failed to update extended profile: " + e.getMessage()));
+            return handlePortfolioException(e, "Error updating extended profile", "Failed to update extended profile: ");
         }
     }
 
@@ -118,10 +109,7 @@ public class PortfolioController {
                     "success", true,
                     "message", "Portfolio extended profile deleted successfully"));
         } catch (Exception e) {
-            log.error("Error deleting extended profile", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Failed to delete extended profile: " + e.getMessage()));
+            return handlePortfolioException(e, "Error deleting extended profile", "Failed to delete extended profile: ");
         }
     }
 
@@ -137,10 +125,7 @@ public class PortfolioController {
                     "success", true,
                     "data", profile));
         } catch (Exception e) {
-            log.error("Error retrieving profile", e);
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
-                    "success", false,
-                    "message", e.getMessage()));
+            return handlePortfolioException(e, "Error retrieving profile", "Failed to retrieve profile: ");
         }
     }
 
@@ -173,10 +158,10 @@ public class PortfolioController {
                     "success", true,
                     "data", profile));
         } catch (Exception e) {
-            log.error("Error retrieving profile by slug: {}", slug, e);
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
-                    "success", false,
-                    "message", e.getMessage()));
+            return handlePortfolioException(
+                    e,
+                    "Error retrieving profile by slug: " + slug,
+                    "Failed to retrieve profile by slug: ");
         }
     }
 
@@ -184,22 +169,13 @@ public class PortfolioController {
     @Operation(summary = "Get public profile", description = "Retrieve the public portfolio profile of any user")
     public ResponseEntity<?> getPublicProfile(@PathVariable Long userId) {
         try {
-            UserProfileDTO profile = portfolioService.getProfile(userId);
-
-            if (!profile.getIsPublic()) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
-                        "success", false,
-                        "message", "This profile is private"));
-            }
+            UserProfileDTO profile = portfolioService.getPublicProfile(userId);
 
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "data", profile));
         } catch (Exception e) {
-            log.error("Error retrieving public profile", e);
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
-                    "success", false,
-                    "message", e.getMessage()));
+            return handlePortfolioException(e, "Error retrieving public profile", "Failed to retrieve public profile: ");
         }
     }
 
@@ -227,6 +203,10 @@ public class PortfolioController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "data", projects));
+        } catch (NotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
         } catch (Exception e) {
             log.error("Error retrieving public projects", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
@@ -243,6 +223,10 @@ public class PortfolioController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "data", certificates));
+        } catch (NotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
         } catch (Exception e) {
             log.error("Error retrieving public certificates", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
@@ -259,6 +243,10 @@ public class PortfolioController {
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "data", reviews));
+        } catch (NotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
         } catch (Exception e) {
             log.error("Error retrieving public reviews", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
@@ -285,10 +273,7 @@ public class PortfolioController {
                     "message", "Project created successfully",
                     "data", result));
         } catch (Exception e) {
-            log.error("Error creating project", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Failed to create project: " + e.getMessage()));
+            return handlePortfolioException(e, "Error creating project", "Failed to create project: ");
         }
     }
 
@@ -309,10 +294,7 @@ public class PortfolioController {
                     "message", "Project updated successfully",
                     "data", result));
         } catch (Exception e) {
-            log.error("Error updating project", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Failed to update project: " + e.getMessage()));
+            return handlePortfolioException(e, "Error updating project", "Failed to update project: ");
         }
     }
 
@@ -349,10 +331,7 @@ public class PortfolioController {
                     "success", true,
                     "message", "Project deleted successfully"));
         } catch (Exception e) {
-            log.error("Error deleting project", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", e.getMessage()));
+            return handlePortfolioException(e, "Error deleting project", "");
         }
     }
 
@@ -374,10 +353,7 @@ public class PortfolioController {
                     "message", "Certificate added successfully",
                     "data", result));
         } catch (Exception e) {
-            log.error("Error creating certificate", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Failed to add certificate: " + e.getMessage()));
+            return handlePortfolioException(e, "Error creating certificate", "Failed to add certificate: ");
         }
     }
 
@@ -414,10 +390,7 @@ public class PortfolioController {
                     "success", true,
                     "message", "Certificate deleted successfully"));
         } catch (Exception e) {
-            log.error("Error deleting certificate", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", e.getMessage()));
+            return handlePortfolioException(e, "Error deleting certificate", "");
         }
     }
 
@@ -478,10 +451,7 @@ public class PortfolioController {
                     "message", "CV generated successfully",
                     "data", cv));
         } catch (Exception e) {
-            log.error("Error generating CV", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Failed to generate CV: " + e.getMessage()));
+            return handlePortfolioException(e, "Error generating CV", "Failed to generate CV: ");
         }
     }
 
@@ -504,10 +474,7 @@ public class PortfolioController {
                     "message", "CV updated successfully",
                     "data", cv));
         } catch (Exception e) {
-            log.error("Error updating CV", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Failed to update CV: " + e.getMessage()));
+            return handlePortfolioException(e, "Error updating CV", "Failed to update CV: ");
         }
     }
 
@@ -563,10 +530,7 @@ public class PortfolioController {
                     "message", "CV set as active successfully",
                     "data", cv));
         } catch (Exception e) {
-            log.error("Error setting CV as active", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Failed to set CV as active: " + e.getMessage()));
+            return handlePortfolioException(e, "Error setting CV as active", "Failed to set CV as active: ");
         }
     }
 
@@ -583,10 +547,38 @@ public class PortfolioController {
                     "success", true,
                     "message", "CV deleted successfully"));
         } catch (Exception e) {
-            log.error("Error deleting CV", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                    "success", false,
-                    "message", "Failed to delete CV: " + e.getMessage()));
+            return handlePortfolioException(e, "Error deleting CV", "Failed to delete CV: ");
         }
+    }
+
+    private ResponseEntity<Map<String, Object>> handlePortfolioException(
+            Exception e,
+            String logContext,
+            String fallbackMessagePrefix) {
+        if (e instanceof NotFoundException) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        }
+        if (e instanceof ForbiddenException) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        }
+        if (e instanceof ConflictException) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        }
+        if (e instanceof IllegalArgumentException) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        }
+
+        log.error(logContext, e);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                "success", false,
+                "message", fallbackMessagePrefix + e.getMessage()));
     }
 }

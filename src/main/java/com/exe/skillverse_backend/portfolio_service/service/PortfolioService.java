@@ -19,6 +19,8 @@ public interface PortfolioService {
 
         UserProfileDTO getProfile(Long userId);
 
+        UserProfileDTO getPublicProfile(Long userId);
+
         UserProfileDTO getProfileBySlug(String customUrlSlug);
 
         List<UserProfileDTO> getAllPublicPortfolios();

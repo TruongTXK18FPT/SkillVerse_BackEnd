@@ -14,6 +14,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.util.matcher.RegexRequestMatcher;
 import org.springframework.web.cors.CorsConfigurationSource;
 
 @Configuration(proxyBeanMethods = false)
@@ -117,6 +118,13 @@ public class SecurityConfig {
                                 
                                 // Mentors: allow public GET for mentor list and profiles
                                 .requestMatchers(HttpMethod.GET, "/api/mentors", "/api/mentors/**").permitAll()
+
+                                // Portfolio: allow public portfolio viewing endpoints
+                                .requestMatchers(HttpMethod.GET, "/api/portfolio/public", "/api/portfolio/public/**",
+                                                "/api/portfolio/profile/slug/**")
+                                .permitAll()
+                                .requestMatchers(new RegexRequestMatcher("^/api/portfolio/profile/\\d+$", "GET"))
+                                .permitAll()
 
                                 // Short-term jobs: allow public GET for browsing and detail
                                 .requestMatchers(HttpMethod.GET, "/api/short-term-jobs/public", "/api/short-term-jobs/public/**").permitAll()

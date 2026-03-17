@@ -7,6 +7,8 @@ import com.exe.skillverse_backend.portfolio_service.entity.*;
 import com.exe.skillverse_backend.portfolio_service.repository.*;
 import com.exe.skillverse_backend.portfolio_service.service.CVGeneratorAIService;
 import com.exe.skillverse_backend.portfolio_service.service.PortfolioService;
+import com.exe.skillverse_backend.shared.exception.ConflictException;
+import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import lombok.RequiredArgsConstructor;
@@ -18,12 +20,17 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PortfolioServiceImpl implements PortfolioService {
+    private static final Pattern CUSTOM_SLUG_PATTERN = Pattern.compile("^[a-z0-9]+(?:-[a-z0-9]+)*$");
+    private static final Set<String> RESERVED_CUSTOM_SLUGS = Set.of("create");
+    private static final String SUPPORTED_PREFERRED_CURRENCY = "VND";
 
     // Extended portfolio profile
     private final PortfolioExtendedProfileRepository extendedProfileRepository;
@@ -54,7 +61,7 @@ public class PortfolioServiceImpl implements PortfolioService {
 
         // Check if extended profile already exists
         if (extendedProfileRepository.existsByUserId(userId)) {
-            throw new RuntimeException("Portfolio extended profile already exists for user: " + userId);
+            throw new ConflictException("Portfolio extended profile already exists for user: " + userId);
         }
 
         // Create new extended profile
@@ -63,7 +70,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                 .build();
 
         // Upload and set fields
-        extendedProfile = uploadMediaAndSetFields(extendedProfile, dto, avatarFile, videoFile, coverImageFile);
+        extendedProfile = uploadMediaAndSetFields(extendedProfile, dto, avatarFile, videoFile, coverImageFile, userId);
         extendedProfile = extendedProfileRepository.save(extendedProfile);
 
         log.info("Created extended profile for user: {}", userId);
@@ -83,7 +90,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                 .orElseThrow(() -> new NotFoundException("Portfolio extended profile not found for user: " + userId));
 
         // Upload and update fields
-        extendedProfile = uploadMediaAndSetFields(extendedProfile, dto, avatarFile, videoFile, coverImageFile);
+        extendedProfile = uploadMediaAndSetFields(extendedProfile, dto, avatarFile, videoFile, coverImageFile, userId);
         extendedProfile = extendedProfileRepository.save(extendedProfile);
 
         log.info("Updated extended profile for user: {}", userId);
@@ -98,7 +105,8 @@ public class PortfolioServiceImpl implements PortfolioService {
             UserProfileDTO dto,
             MultipartFile avatarFile,
             MultipartFile videoFile,
-            MultipartFile coverImageFile) {
+            MultipartFile coverImageFile,
+            Long currentUserId) {
 
         // Upload portfolio avatar if provided (separate from basic profile avatar)
         if (avatarFile != null && !avatarFile.isEmpty()) {
@@ -199,8 +207,10 @@ public class PortfolioServiceImpl implements PortfolioService {
             extendedProfile.setAvailabilityStatus(dto.getAvailabilityStatus());
         if (dto.getHourlyRate() != null)
             extendedProfile.setHourlyRate(dto.getHourlyRate());
-        if (dto.getPreferredCurrency() != null)
-            extendedProfile.setPreferredCurrency(dto.getPreferredCurrency());
+        if (dto.getPreferredCurrency() != null) {
+            validatePreferredCurrency(dto.getPreferredCurrency());
+            extendedProfile.setPreferredCurrency(dto.getPreferredCurrency().trim().toUpperCase());
+        }
         if (dto.getTopSkills() != null)
             extendedProfile.setTopSkills(dto.getTopSkills());
         if (dto.getLanguagesSpoken() != null)
@@ -213,8 +223,10 @@ public class PortfolioServiceImpl implements PortfolioService {
             extendedProfile.setAllowJobOffers(dto.getAllowJobOffers());
         if (dto.getThemePreference() != null)
             extendedProfile.setThemePreference(dto.getThemePreference());
-        if (dto.getCustomUrlSlug() != null)
-            extendedProfile.setCustomUrlSlug(dto.getCustomUrlSlug());
+        if (dto.getCustomUrlSlug() != null) {
+            String normalizedSlug = normalizeAndValidateCustomUrlSlug(dto.getCustomUrlSlug(), currentUserId);
+            extendedProfile.setCustomUrlSlug(normalizedSlug);
+        }
         if (dto.getMetaDescription() != null)
             extendedProfile.setMetaDescription(dto.getMetaDescription());
         if (dto.getKeywords() != null)
@@ -274,10 +286,18 @@ public class PortfolioServiceImpl implements PortfolioService {
         return getCombinedProfile(userId);
     }
 
+    @Transactional(readOnly = true)
+    @Override
+    public UserProfileDTO getPublicProfile(Long userId) {
+        PortfolioExtendedProfile extendedProfile = getPublicExtendedProfileOrThrow(userId);
+        UserProfileDTO profile = mapToCombinedProfileDTO(extendedProfile);
+        return applyPublicVisibility(profile);
+    }
+
     /**
      * Get profile by custom URL slug (for public portfolio pages)
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public UserProfileDTO getProfileBySlug(String customUrlSlug) {
         PortfolioExtendedProfile extendedProfile = extendedProfileRepository.findByCustomUrlSlug(customUrlSlug)
                 .orElseThrow(() -> new NotFoundException("Portfolio not found with slug: " + customUrlSlug));
@@ -291,7 +311,8 @@ public class PortfolioServiceImpl implements PortfolioService {
         extendedProfile.incrementPortfolioViews();
         extendedProfileRepository.save(extendedProfile);
 
-        return getCombinedProfile(extendedProfile.getUserId());
+        UserProfileDTO profile = mapToCombinedProfileDTO(extendedProfile);
+        return applyPublicVisibility(profile);
     }
 
     /**
@@ -301,7 +322,8 @@ public class PortfolioServiceImpl implements PortfolioService {
     public List<UserProfileDTO> getAllPublicPortfolios() {
         return extendedProfileRepository.findByIsPublicTrue()
                 .stream()
-                .map(profile -> getCombinedProfile(profile.getUserId()))
+                .map(this::mapToCombinedProfileDTO)
+                .map(this::applyPublicVisibility)
                 .collect(Collectors.toList());
     }
 
@@ -365,7 +387,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                 .orElseThrow(() -> new NotFoundException("Project not found: " + projectId));
 
         if (!project.getUser().getId().equals(userId)) {
-            throw new RuntimeException("Unauthorized to update this project");
+            throw new ForbiddenException("Unauthorized to update this project");
         }
 
         // Upload new thumbnail if provided
@@ -417,6 +439,7 @@ public class PortfolioServiceImpl implements PortfolioService {
 
     @Transactional(readOnly = true)
     public List<PortfolioProjectDTO> getPublicUserProjects(Long userId) {
+        getPublicExtendedProfileOrThrow(userId);
         // For now, return all projects. In future, might filter by isPublic if projects
         // have that flag.
         return getUserProjects(userId);
@@ -428,7 +451,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                 .orElseThrow(() -> new NotFoundException("Project not found: " + projectId));
 
         if (!project.getUser().getId().equals(userId)) {
-            throw new RuntimeException("Unauthorized to delete this project");
+            throw new ForbiddenException("Unauthorized to delete this project");
         }
 
         // Delete thumbnail from Cloudinary
@@ -497,6 +520,7 @@ public class PortfolioServiceImpl implements PortfolioService {
 
     @Transactional(readOnly = true)
     public List<ExternalCertificateDTO> getPublicUserCertificates(Long userId) {
+        getPublicExtendedProfileOrThrow(userId);
         return getUserCertificates(userId);
     }
 
@@ -506,7 +530,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                 .orElseThrow(() -> new NotFoundException("Certificate not found: " + certificateId));
 
         if (!certificate.getUser().getId().equals(userId)) {
-            throw new RuntimeException("Unauthorized to delete this certificate");
+            throw new ForbiddenException("Unauthorized to delete this certificate");
         }
 
         // Delete image from Cloudinary
@@ -534,7 +558,11 @@ public class PortfolioServiceImpl implements PortfolioService {
 
     @Transactional(readOnly = true)
     public List<MentorReviewDTO> getPublicUserReviews(Long userId) {
-        return getUserReviews(userId);
+        getPublicExtendedProfileOrThrow(userId);
+        return reviewRepository.findByUserIdAndIsPublicTrueOrderByCreatedAtDesc(userId)
+                .stream()
+                .map(this::mapToReviewDTO)
+                .collect(Collectors.toList());
     }
 
     // ==================== CV GENERATION ====================
@@ -585,7 +613,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                 .orElseThrow(() -> new NotFoundException("CV not found: " + cvId));
 
         if (!cv.getUser().getId().equals(userId)) {
-            throw new RuntimeException("Unauthorized to update this CV");
+            throw new ForbiddenException("Unauthorized to update this CV");
         }
 
         cv.setCvContent(cvContent);
@@ -615,6 +643,32 @@ public class PortfolioServiceImpl implements PortfolioService {
     private User getUserOrThrow(Long userId) {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("User not found: " + userId));
+    }
+
+    private PortfolioExtendedProfile getPublicExtendedProfileOrThrow(Long userId) {
+        return extendedProfileRepository.findByUserId(userId)
+                .filter(profile -> Boolean.TRUE.equals(profile.getIsPublic()))
+                .orElseThrow(() -> new NotFoundException("Public portfolio not found"));
+    }
+
+    private UserProfileDTO applyPublicVisibility(UserProfileDTO profile) {
+        if (profile == null) {
+            return null;
+        }
+        if (Boolean.TRUE.equals(profile.getShowContactInfo())) {
+            return profile;
+        }
+
+        profile.setPhone(null);
+        profile.setAddress(null);
+        profile.setRegion(null);
+        profile.setSocialLinks(null);
+        profile.setLinkedinUrl(null);
+        profile.setGithubUrl(null);
+        profile.setPortfolioWebsiteUrl(null);
+        profile.setBehanceUrl(null);
+        profile.setDribbbleUrl(null);
+        return profile;
     }
 
     private String buildPromptSummary(CVGenerationRequest request) {
@@ -770,9 +824,9 @@ public class PortfolioServiceImpl implements PortfolioService {
 
         // Set new CV as active
         GeneratedCV newActiveCv = cvRepository.findById(cvId)
-                .orElseThrow(() -> new RuntimeException("CV not found: " + cvId));
+                .orElseThrow(() -> new NotFoundException("CV not found: " + cvId));
         if (!newActiveCv.getUser().getId().equals(userId)) {
-            throw new RuntimeException("Unauthorized to set this CV as active");
+            throw new ForbiddenException("Unauthorized to set this CV as active");
         }
         newActiveCv.setIsActive(true);
         newActiveCv = cvRepository.save(newActiveCv);
@@ -782,10 +836,10 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Transactional
     public void deleteCV(Long cvId, Long userId) {
         GeneratedCV cv = cvRepository.findById(cvId)
-                .orElseThrow(() -> new RuntimeException("CV not found: " + cvId));
+                .orElseThrow(() -> new NotFoundException("CV not found: " + cvId));
 
         if (!cv.getUser().getId().equals(userId)) {
-            throw new RuntimeException("Unauthorized to delete this CV");
+            throw new ForbiddenException("Unauthorized to delete this CV");
         }
 
         cvRepository.delete(cv);
@@ -805,5 +859,36 @@ public class PortfolioServiceImpl implements PortfolioService {
                 .createdAt(cv.getCreatedAt())
                 .updatedAt(cv.getUpdatedAt())
                 .build();
+    }
+
+    private String normalizeAndValidateCustomUrlSlug(String rawSlug, Long currentUserId) {
+        String normalized = rawSlug == null ? null : rawSlug.trim().toLowerCase();
+        if (normalized == null || normalized.isEmpty()) {
+            return null;
+        }
+        if (!CUSTOM_SLUG_PATTERN.matcher(normalized).matches()) {
+            throw new IllegalArgumentException(
+                    "Custom URL slug may only contain lowercase letters, numbers, and hyphens");
+        }
+        if (RESERVED_CUSTOM_SLUGS.contains(normalized)) {
+            throw new IllegalArgumentException("This slug is reserved by system");
+        }
+
+        extendedProfileRepository.findByCustomUrlSlug(normalized)
+                .filter(profile -> !profile.getUserId().equals(currentUserId))
+                .ifPresent(profile -> {
+                    throw new ConflictException("Custom URL slug already exists");
+                });
+        return normalized;
+    }
+
+    private void validatePreferredCurrency(String preferredCurrency) {
+        String normalized = preferredCurrency == null ? null : preferredCurrency.trim().toUpperCase();
+        if (normalized == null || normalized.isEmpty()) {
+            return;
+        }
+        if (!SUPPORTED_PREFERRED_CURRENCY.equals(normalized)) {
+            throw new IllegalArgumentException("Preferred currency must be VND");
+        }
     }
 }

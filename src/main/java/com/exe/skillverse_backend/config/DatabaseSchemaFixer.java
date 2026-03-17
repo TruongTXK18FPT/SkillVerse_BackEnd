@@ -137,6 +137,9 @@ public class DatabaseSchemaFixer {
             ensureQuizAttemptAnswerSnapshotsTable();
             log.info("quiz attempt answer snapshot table ok.");
 
+            ensureCourseRevisioningColumns();
+            log.info("course revisioning columns ok.");
+
             log.info("All schema patches applied successfully.");
         } catch (Exception e) {
             log.error("Failed to apply schema patches: {}", e.getMessage());
@@ -257,6 +260,22 @@ public class DatabaseSchemaFixer {
                 ) THEN
                     ALTER TABLE quiz_attempt_answer_snapshots
                     ADD COLUMN options_snapshot_json JSONB NULL;
+                END IF;
+            END $$;
+        """);
+    }
+
+    private void ensureCourseRevisioningColumns() {
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'courses' AND column_name = 'revisioning_enabled') THEN
+                    ALTER TABLE courses ADD COLUMN revisioning_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'courses' AND column_name = 'upgrade_policy') THEN
+                    ALTER TABLE courses ADD COLUMN upgrade_policy VARCHAR(32) NOT NULL DEFAULT 'MANUAL';
                 END IF;
             END $$;
         """);
