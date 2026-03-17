@@ -2,12 +2,20 @@ package com.exe.skillverse_backend.course_service.mapper;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.mapper.UserMapper;
-import com.exe.skillverse_backend.course_service.dto.coursedto.*;
+import com.exe.skillverse_backend.course_service.dto.coursedto.CourseCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.coursedto.CourseDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.coursedto.CourseSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.coursedto.CourseUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
-import org.mapstruct.*;
+import org.mapstruct.BeanMapping;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.Named;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
 import java.time.Instant;
 import java.time.LocalDateTime;

@@ -1,6 +1,11 @@
 package com.exe.skillverse_backend.portfolio_service.controller;
 
-import com.exe.skillverse_backend.portfolio_service.dto.*;
+import com.exe.skillverse_backend.portfolio_service.dto.CVGenerationRequest;
+import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.GeneratedCVDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.MentorReviewDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.PortfolioProjectDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.UserProfileDTO;
 import com.exe.skillverse_backend.portfolio_service.entity.MentorReview;
 import com.exe.skillverse_backend.portfolio_service.repository.MentorReviewRepository;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
@@ -15,7 +20,16 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
@@ -437,9 +451,9 @@ public class PortfolioController {
                     .orElseThrow(() -> new NotFoundException("Review not found: " + id));
             review.setIsVerified(verified);
             reviewRepository.save(review);
-            return ResponseEntity.ok(java.util.Map.of("success", true));
+            return ResponseEntity.ok(Map.of("success", true));
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(java.util.Map.of(
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
                     "success", false,
                     "message", e.getMessage()));
         }

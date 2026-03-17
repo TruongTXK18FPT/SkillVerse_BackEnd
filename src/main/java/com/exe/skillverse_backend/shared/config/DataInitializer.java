@@ -21,9 +21,19 @@ import com.exe.skillverse_backend.auth_service.entity.AuthProvider;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
-import com.exe.skillverse_backend.course_service.entity.*;
-import com.exe.skillverse_backend.course_service.entity.enums.*;
-import com.exe.skillverse_backend.course_service.repository.*;
+import com.exe.skillverse_backend.course_service.entity.Assignment;
+import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.Module;
+import com.exe.skillverse_backend.course_service.entity.Quiz;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
+import com.exe.skillverse_backend.course_service.entity.enums.LessonType;
+import com.exe.skillverse_backend.course_service.entity.enums.SubmissionType;
+import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseRepository;
+import com.exe.skillverse_backend.course_service.repository.LessonRepository;
+import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -544,8 +554,7 @@ public class DataInitializer implements CommandLineRunner {
                         String moduleTitle = modulesData[i][0];
                         String moduleDesc = modulesData[i][1];
 
-                        com.exe.skillverse_backend.course_service.entity.Module module = com.exe.skillverse_backend.course_service.entity.Module
-                                        .builder()
+                        Module module = Module.builder()
                                         .course(course)
                                         .title(moduleTitle)
                                         .description(moduleDesc)
@@ -568,7 +577,7 @@ public class DataInitializer implements CommandLineRunner {
                 }
         }
 
-        private void createLessonsForModule(com.exe.skillverse_backend.course_service.entity.Module module,
+        private void createLessonsForModule(Module module,
                         int moduleIndex) {
                 Instant now = Instant.now();
 
@@ -611,7 +620,7 @@ public class DataInitializer implements CommandLineRunner {
                 }
         }
 
-        private void createQuizForModule(com.exe.skillverse_backend.course_service.entity.Module module,
+        private void createQuizForModule(Module module,
                         int moduleIndex) {
                 Instant now = Instant.now();
 
@@ -627,7 +636,7 @@ public class DataInitializer implements CommandLineRunner {
                 quizRepository.save(quiz);
         }
 
-        private void createAssignmentForModule(com.exe.skillverse_backend.course_service.entity.Module module,
+        private void createAssignmentForModule(Module module,
                         int moduleIndex) {
                 Instant now = Instant.now();
 

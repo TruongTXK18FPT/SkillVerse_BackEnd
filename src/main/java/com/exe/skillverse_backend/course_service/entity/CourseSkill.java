@@ -1,10 +1,23 @@
 package com.exe.skillverse_backend.course_service.entity;
 
-import jakarta.persistence.*;
-import lombok.*;
-import java.io.Serializable;
-
 import com.exe.skillverse_backend.shared.entity.Skill;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Embeddable;
+import jakarta.persistence.EmbeddedId;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.MapsId;
+import jakarta.persistence.Table;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.io.Serializable;
 
 @Embeddable
 @Data @NoArgsConstructor @AllArgsConstructor @Builder

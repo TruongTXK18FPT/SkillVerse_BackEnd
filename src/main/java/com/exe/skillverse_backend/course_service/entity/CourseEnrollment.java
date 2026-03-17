@@ -3,8 +3,25 @@ package com.exe.skillverse_backend.course_service.entity;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.EntitlementSource;
-import jakarta.persistence.*;
-import lombok.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Embeddable;
+import jakarta.persistence.EmbeddedId;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.MapsId;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.Table;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
 import java.io.Serializable;
 import java.time.Instant;
 
@@ -61,6 +78,15 @@ public class CourseEnrollment {
 
   @Column(length = 64)
   private String entitlementRef;
+
+  @Column(name = "learning_revision_id")
+  private Long learningRevisionId;
+
+  @Column(name = "upgrade_policy_snapshot", length = 32)
+  private String upgradePolicySnapshot;
+
+  @Column(name = "last_upgraded_at")
+  private Instant lastUpgradedAt;
 
   // Ensure composite key is populated automatically from relations
   @PrePersist

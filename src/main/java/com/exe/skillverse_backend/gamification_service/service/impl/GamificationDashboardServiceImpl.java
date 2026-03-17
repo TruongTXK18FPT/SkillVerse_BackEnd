@@ -1,8 +1,23 @@
 package com.exe.skillverse_backend.gamification_service.service.impl;
 
-import com.exe.skillverse_backend.gamification_service.dto.response.*;
-import com.exe.skillverse_backend.gamification_service.entity.*;
-import com.exe.skillverse_backend.gamification_service.repository.*;
+import com.exe.skillverse_backend.gamification_service.dto.response.BadgeDefinitionResponse;
+import com.exe.skillverse_backend.gamification_service.dto.response.CoinTransactionResponse;
+import com.exe.skillverse_backend.gamification_service.dto.response.GamificationDashboardResponse;
+import com.exe.skillverse_backend.gamification_service.dto.response.MiniGameDefinitionResponse;
+import com.exe.skillverse_backend.gamification_service.dto.response.UserBadgeResponse;
+import com.exe.skillverse_backend.gamification_service.dto.response.UserWalletResponse;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationBadgeDefinition;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationCoinTransaction;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationLeaderboardSnapshot;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationMiniGameDefinition;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationUserBadge;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationUserWallet;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationBadgeDefinitionRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationCoinTransactionRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationLeaderboardSnapshotRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationMiniGameDefinitionRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationUserBadgeRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationUserWalletRepository;
 import com.exe.skillverse_backend.gamification_service.service.GamificationDashboardService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,7 +25,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**

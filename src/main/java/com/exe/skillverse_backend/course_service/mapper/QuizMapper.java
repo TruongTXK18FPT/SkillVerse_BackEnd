@@ -1,10 +1,17 @@
 package com.exe.skillverse_backend.course_service.mapper;
 
-import com.exe.skillverse_backend.course_service.dto.quizdto.*;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.Quiz;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
-import org.mapstruct.*;
+import org.mapstruct.BeanMapping;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
 @Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = { QuizQuestionMapper.class })
 public interface QuizMapper {

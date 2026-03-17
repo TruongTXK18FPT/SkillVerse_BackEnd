@@ -2,12 +2,24 @@ package com.exe.skillverse_backend.course_service.mapper;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.mapper.UserMapper;
-import com.exe.skillverse_backend.course_service.dto.codingdto.*;
-import com.exe.skillverse_backend.course_service.entity.*;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingSubmissionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingSubmissionDetailDTO;
+import com.exe.skillverse_backend.course_service.entity.CodingExercise;
+import com.exe.skillverse_backend.course_service.entity.CodingSubmission;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
-import org.mapstruct.*;
+import java.time.Instant;
+import org.mapstruct.BeanMapping;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
-@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {UserMapper.class})
+@Mapper(
+    componentModel = "spring",
+    config = CustomMapperConfig.class,
+    uses = {UserMapper.class},
+    imports = {Instant.class}
+)
 public interface CodingSubmissionMapper {
 
     @Mapping(target = "id", source = "id")
@@ -26,7 +38,7 @@ public interface CodingSubmissionMapper {
     @Mapping(target = "status", constant = "QUEUED")
     @Mapping(target = "score", ignore = true)
     @Mapping(target = "feedback", ignore = true)
-    @Mapping(target = "submittedAt", expression = "java(java.time.Instant.now())")
+    @Mapping(target = "submittedAt", expression = "java(Instant.now())")
     CodingSubmission toEntity(CodingSubmissionCreateDTO createDto, CodingExercise exercise, User user);
 
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)

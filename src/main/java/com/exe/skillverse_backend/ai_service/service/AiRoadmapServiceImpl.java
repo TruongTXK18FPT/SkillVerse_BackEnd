@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.ai_service.service;
 
 import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
 import com.exe.skillverse_backend.ai_service.dto.request.UpdateProgressRequest;
+import com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion;
 import com.exe.skillverse_backend.ai_service.dto.response.ProgressResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
@@ -31,15 +32,20 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.sql.Timestamp;
+import java.time.Instant;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Service for AI-powered roadmap generation using Spring AI with Gemini
@@ -99,7 +105,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         log.info("🔍 Pre-validating request: goal='{}', duration='{}', experience='{}', style='{}'",
                 request.getGoal(), request.getDuration(), request.getExperience(), request.getStyle());
 
-        List<ValidationResult> results = new java.util.ArrayList<>();
+        List<ValidationResult> results = new ArrayList<>();
 
         // 🚨 STAGE 1: AI Goal Validation (lightweight ~100 tokens)
         ValidationResult aiValidation = validateGoalWithAI(request.getGoal());
@@ -228,7 +234,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             }
 
             // Step 5: Time budget validator vs total_estimated_hours
-            java.util.List<String> warnings = new java.util.ArrayList<>();
+            List<String> warnings = new ArrayList<>();
             try {
                 if (parsed.statistics() != null && parsed.statistics().getTotalEstimatedHours() != null) {
                     int minutesPerDay = parseDailyTimeMinutes(request.getDailyTime());
@@ -366,7 +372,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return map;
     }
 
-    public Map<String, Long> getModeCountsGlobalRange(java.time.Instant from, java.time.Instant to) {
+    public Map<String, Long> getModeCountsGlobalRange(Instant from, Instant to) {
         Map<String, Long> map = new HashMap<>();
         try {
             List<Object[]> rows = roadmapSessionRepository.countGroupedByModeInRange(from, to);
@@ -384,7 +390,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return map;
     }
 
-    public Map<String, Long> getModeCountsForUserRange(Long userId, java.time.Instant from, java.time.Instant to) {
+    public Map<String, Long> getModeCountsForUserRange(Long userId, Instant from, Instant to) {
         Map<String, Long> map = new HashMap<>();
         try {
             List<Object[]> rows = roadmapSessionRepository.countGroupedByModeInRangeForUser(userId, from, to);
@@ -405,7 +411,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
     private Map<String, Map<String, Long>> aggregateBucketRows(List<Object[]> rows) {
         Map<String, Map<String, Long>> buckets = new LinkedHashMap<>();
         for (Object[] row : rows) {
-            java.sql.Timestamp ts = (java.sql.Timestamp) row[0];
+            Timestamp ts = (Timestamp) row[0];
             String mode = (String) row[1];
             Number cntNum = (Number) row[2];
             Long cnt = cntNum == null ? 0L : cntNum.longValue();
@@ -421,35 +427,35 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return buckets;
     }
 
-    public Map<String, Map<String, Long>> getModeCountsDaily(java.time.Instant from, java.time.Instant to) {
+    public Map<String, Map<String, Long>> getModeCountsDaily(Instant from, Instant to) {
         List<Object[]> rows = roadmapSessionRepository.countModeDaily(from, to);
         return aggregateBucketRows(rows);
     }
 
-    public Map<String, Map<String, Long>> getModeCountsDailyForUser(Long userId, java.time.Instant from,
-            java.time.Instant to) {
+    public Map<String, Map<String, Long>> getModeCountsDailyForUser(Long userId, Instant from,
+            Instant to) {
         List<Object[]> rows = roadmapSessionRepository.countModeDailyForUser(userId, from, to);
         return aggregateBucketRows(rows);
     }
 
-    public Map<String, Map<String, Long>> getModeCountsWeekly(java.time.Instant from, java.time.Instant to) {
+    public Map<String, Map<String, Long>> getModeCountsWeekly(Instant from, Instant to) {
         List<Object[]> rows = roadmapSessionRepository.countModeWeekly(from, to);
         return aggregateBucketRows(rows);
     }
 
-    public Map<String, Map<String, Long>> getModeCountsWeeklyForUser(Long userId, java.time.Instant from,
-            java.time.Instant to) {
+    public Map<String, Map<String, Long>> getModeCountsWeeklyForUser(Long userId, Instant from,
+            Instant to) {
         List<Object[]> rows = roadmapSessionRepository.countModeWeeklyForUser(userId, from, to);
         return aggregateBucketRows(rows);
     }
 
-    public Map<String, Map<String, Long>> getModeCountsMonthly(java.time.Instant from, java.time.Instant to) {
+    public Map<String, Map<String, Long>> getModeCountsMonthly(Instant from, Instant to) {
         List<Object[]> rows = roadmapSessionRepository.countModeMonthly(from, to);
         return aggregateBucketRows(rows);
     }
 
-    public Map<String, Map<String, Long>> getModeCountsMonthlyForUser(Long userId, java.time.Instant from,
-            java.time.Instant to) {
+    public Map<String, Map<String, Long>> getModeCountsMonthlyForUser(Long userId, Instant from,
+            Instant to) {
         List<Object[]> rows = roadmapSessionRepository.countModeMonthlyForUser(userId, from, to);
         return aggregateBucketRows(rows);
     }
@@ -1049,7 +1055,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 """, nullSafe(domainId), nullSafe(roleId), rolesList, toolsList, skillsList);
     }
 
-    public java.util.List<com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion> generateClarificationQuestions(
+    public List<ClarificationQuestion> generateClarificationQuestions(
             GenerateRoadmapRequest request) {
         return inputValidationService.generateClarificationQuestions(request);
     }
@@ -1103,9 +1109,9 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return 30;
     }
 
-    private java.util.List<String> computeWarnings(RoadmapResponse.RoadmapMetadata metadata,
+    private List<String> computeWarnings(RoadmapResponse.RoadmapMetadata metadata,
             RoadmapResponse.RoadmapStatistics statistics) {
-        java.util.List<String> warnings = new java.util.ArrayList<>();
+        List<String> warnings = new ArrayList<>();
         if (metadata == null || statistics == null || statistics.getTotalEstimatedHours() == null)
             return warnings;
         int minutesPerDay = parseDailyTimeMinutes(metadata.getDailyTime());
@@ -1790,7 +1796,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         if (request.getCompleted()) {
             progress.setStatus(UserRoadmapProgress.ProgressStatus.COMPLETED);
             progress.setProgress(100);
-            progress.setCompletedAt(java.time.Instant.now());
+            progress.setCompletedAt(Instant.now());
         } else {
             progress.setStatus(UserRoadmapProgress.ProgressStatus.NOT_STARTED);
             progress.setProgress(0);

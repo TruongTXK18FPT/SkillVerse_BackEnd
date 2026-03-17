@@ -1,12 +1,20 @@
 package com.exe.skillverse_backend.course_service.mapper;
 
-import com.exe.skillverse_backend.course_service.dto.lessondto.*;
-import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
+import com.exe.skillverse_backend.course_service.dto.lessondto.LessonCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.lessondto.LessonDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.lessondto.LessonUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
-import org.mapstruct.*;
+import org.mapstruct.BeanMapping;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.Named;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
 @Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = { MediaMapper.class })
 public interface LessonMapper {
@@ -45,8 +53,7 @@ public interface LessonMapper {
     @Mapping(target = "module", source = "module")
     @Mapping(target = "createdAt", ignore = true)
     @Mapping(target = "updatedAt", ignore = true)
-    Lesson toEntity(LessonCreateDTO createDto, com.exe.skillverse_backend.course_service.entity.Module module,
-            Media videoMedia);
+    Lesson toEntity(LessonCreateDTO createDto, Module module, Media videoMedia);
 
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     @Mapping(target = "id", ignore = true)

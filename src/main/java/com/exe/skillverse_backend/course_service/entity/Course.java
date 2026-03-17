@@ -2,14 +2,39 @@ package com.exe.skillverse_backend.course_service.entity;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.shared.entity.Media;
-import jakarta.persistence.*;
-import lombok.*;
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.Lob;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.Table;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
+import lombok.ToString;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.math.BigDecimal;
 
 @Entity
 @Table(
@@ -122,6 +147,22 @@ public class Course {
 
   @Column(name = "suspended_by")
   private Long suspendedBy;
+
+  /* ====== Revision pointers (phase rollout, additive) ====== */
+  @Column(name = "active_revision_id")
+  private Long activeRevisionId;
+
+  @Column(name = "latest_revision_id")
+  private Long latestRevisionId;
+
+  @Column(name = "revisioning_enabled", nullable = false)
+  @Builder.Default
+  private Boolean revisioningEnabled = false;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "upgrade_policy", nullable = false, length = 32)
+  @Builder.Default
+  private CourseUpgradePolicy upgradePolicy = CourseUpgradePolicy.MANUAL;
 
   @PrePersist
   protected void onCreate() {

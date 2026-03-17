@@ -2,14 +2,26 @@ package com.exe.skillverse_backend.course_service.mapper;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.mapper.UserMapper;
-import com.exe.skillverse_backend.course_service.dto.assignmentdto.*;
-import com.exe.skillverse_backend.course_service.entity.*;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionDetailDTO;
+import com.exe.skillverse_backend.course_service.entity.Assignment;
+import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
-import org.mapstruct.*;
+import java.time.Instant;
+import org.mapstruct.BeanMapping;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
-@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {UserMapper.class, MediaMapper.class})
+@Mapper(
+    componentModel = "spring",
+    config = CustomMapperConfig.class,
+    uses = {UserMapper.class, MediaMapper.class},
+    imports = {Instant.class}
+)
 public interface AssignmentSubmissionMapper {
 
     @Mapping(target = "id", source = "id")
@@ -40,7 +52,7 @@ public interface AssignmentSubmissionMapper {
     @Mapping(target = "fileMedia", source = "fileMedia")
     @Mapping(target = "submissionText", source = "createDto.submissionText")
     @Mapping(target = "linkUrl", source = "createDto.linkUrl")
-    @Mapping(target = "submittedAt", expression = "java(java.time.Instant.now())")
+    @Mapping(target = "submittedAt", expression = "java(Instant.now())")
     @Mapping(target = "score", ignore = true)
     @Mapping(target = "gradedBy", ignore = true)
     @Mapping(target = "gradedAt", ignore = true)
@@ -61,7 +73,7 @@ public interface AssignmentSubmissionMapper {
     @Mapping(target = "submittedAt", ignore = true)
     @Mapping(target = "score", source = "grading.score")
     @Mapping(target = "gradedBy", source = "gradedBy")
-    @Mapping(target = "gradedAt", expression = "java(java.time.Instant.now())")
+    @Mapping(target = "gradedAt", expression = "java(Instant.now())")
     @Mapping(target = "feedback", source = "grading.feedback")
     @Mapping(target = "attemptNumber", ignore = true)
     @Mapping(target = "isNewest", ignore = true)

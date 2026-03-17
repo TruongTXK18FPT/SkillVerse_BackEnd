@@ -1,10 +1,16 @@
 package com.exe.skillverse_backend.course_service.mapper;
 
-import com.exe.skillverse_backend.course_service.dto.codingdto.*;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.CodingExercise;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
-import org.mapstruct.*;
+import org.mapstruct.BeanMapping;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
 @Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {CodingTestCaseMapper.class})
 public interface CodingExerciseMapper {

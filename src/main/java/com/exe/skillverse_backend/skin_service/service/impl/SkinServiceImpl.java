@@ -18,7 +18,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.*;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.LinkedMultiValueMap;
@@ -27,12 +30,19 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
-import java.awt.*;
+import java.awt.Color;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -144,7 +154,7 @@ public class SkinServiceImpl implements SkinService {
         }
 
         // Check if free
-        if (skin.getPrice().compareTo(java.math.BigDecimal.ZERO) > 0) {
+        if (skin.getPrice().compareTo(BigDecimal.ZERO) > 0) {
             // Deduct coins
             walletService.deductCoins(userId, skin.getPrice().longValue(), 
                     WalletTransaction.TransactionType.SPEND_COINS,
@@ -370,8 +380,8 @@ public class SkinServiceImpl implements SkinService {
         @Override
         public InputStream getInputStream() throws IOException { return new ByteArrayInputStream(imgContent); }
         @Override
-        public void transferTo(java.io.File dest) throws IOException, IllegalStateException {
-            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(dest)) {
+        public void transferTo(File dest) throws IOException, IllegalStateException {
+            try (FileOutputStream fos = new FileOutputStream(dest)) {
                 fos.write(imgContent);
             }
         }

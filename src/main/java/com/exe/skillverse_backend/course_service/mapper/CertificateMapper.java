@@ -2,8 +2,10 @@ package com.exe.skillverse_backend.course_service.mapper;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.mapper.UserMapper;
-import com.exe.skillverse_backend.course_service.dto.certificatedto.*;
-import com.exe.skillverse_backend.course_service.entity.*;
+import com.exe.skillverse_backend.course_service.dto.certificatedto.CertificateDTO;
+import com.exe.skillverse_backend.course_service.dto.certificatedto.CertificateIssueRequestDTO;
+import com.exe.skillverse_backend.course_service.entity.Certificate;
+import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import java.time.Instant;
 import java.util.UUID;

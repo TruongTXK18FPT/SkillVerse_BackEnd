@@ -2,10 +2,15 @@ package com.exe.skillverse_backend.course_service.mapper;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.mapper.UserMapper;
-import com.exe.skillverse_backend.course_service.dto.enrollmentdto.*;
-import com.exe.skillverse_backend.course_service.entity.*;
-import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
-import org.mapstruct.*;
+import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollRequestDTO;
+import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollmentDTO;
+import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
+import java.time.Instant;
+import org.mapstruct.BeanMapping;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
 //@Mapper(componentModel = "spring", config = CustomMapperConfig.class)
 public interface EnrollmentMapper {
@@ -22,7 +27,7 @@ public interface EnrollmentMapper {
     @Mapping(target = "id.courseId", source = "course.id")
     @Mapping(target = "user", source = "user")
     @Mapping(target = "course", source = "course")
-    @Mapping(target = "enrollDate", expression = "java(java.time.Instant.now())")
+    @Mapping(target = "enrollDate", expression = "java(Instant.now())")
     @Mapping(target = "status", constant = "ENROLLED")
     @Mapping(target = "progressPercent", constant = "0")
     @Mapping(target = "entitlementSource", source = "entitlementSource")

@@ -1,11 +1,16 @@
 package com.exe.skillverse_backend.course_service.mapper;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
-import com.exe.skillverse_backend.auth_service.mapper.UserMapper;
-import com.exe.skillverse_backend.course_service.dto.purchasedto.*;
-import com.exe.skillverse_backend.course_service.entity.*;
+import com.exe.skillverse_backend.course_service.dto.purchasedto.CoursePurchaseDTO;
+import com.exe.skillverse_backend.course_service.dto.purchasedto.CoursePurchaseRequestDTO;
+import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.entity.CoursePurchase;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
-import org.mapstruct.*;
+import java.time.Instant;
+import org.mapstruct.BeanMapping;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
 //@Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = {UserMapper.class})
 public interface PurchaseMapper {
@@ -27,7 +32,7 @@ public interface PurchaseMapper {
     @Mapping(target = "price", source = "price")
     @Mapping(target = "currency", source = "currency")
     @Mapping(target = "status", constant = "PENDING")
-    @Mapping(target = "purchasedAt", expression = "java(java.time.Instant.now())")
+    @Mapping(target = "purchasedAt", expression = "java(Instant.now())")
     @Mapping(target = "couponCode", source = "couponCode")
     CoursePurchase toEntity(CoursePurchaseRequestDTO purchaseRequest, User user, Course course);
 

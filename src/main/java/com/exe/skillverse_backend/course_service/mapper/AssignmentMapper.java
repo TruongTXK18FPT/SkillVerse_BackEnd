@@ -1,13 +1,21 @@
 package com.exe.skillverse_backend.course_service.mapper;
 
 import com.exe.skillverse_backend.auth_service.mapper.UserMapper;
-import com.exe.skillverse_backend.course_service.dto.assignmentdto.*;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentCriteriaDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.AssignmentCriteria;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
-import org.mapstruct.*;
+import org.mapstruct.BeanMapping;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
 import java.util.List;
 import java.util.stream.Collectors;
