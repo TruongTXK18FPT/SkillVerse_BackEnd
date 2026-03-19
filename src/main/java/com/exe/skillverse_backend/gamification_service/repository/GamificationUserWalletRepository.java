@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.domain.Pageable;
 
 @Repository
 public interface GamificationUserWalletRepository extends JpaRepository<GamificationUserWallet, Long> {
@@ -36,8 +37,8 @@ public interface GamificationUserWalletRepository extends JpaRepository<Gamifica
     List<GamificationUserWallet> findTopByTotalXpOrderByDesc(int limit);
 
     @Query(value = "SELECT w FROM GamificationUserWallet w ORDER BY w.totalCoins DESC")
-    List<GamificationUserWallet> findTopCoinEarners(org.springframework.data.domain.Pageable pageable);
+    List<GamificationUserWallet> findTopCoinEarners(Pageable pageable);
 
     @Query(value = "SELECT w FROM GamificationUserWallet w ORDER BY w.totalXp DESC")
-    List<GamificationUserWallet> findTopXpEarners(org.springframework.data.domain.Pageable pageable);
+    List<GamificationUserWallet> findTopXpEarners(Pageable pageable);
 }

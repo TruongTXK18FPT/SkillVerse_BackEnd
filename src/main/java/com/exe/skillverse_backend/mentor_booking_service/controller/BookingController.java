@@ -18,7 +18,19 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.*;
+import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/mentor-bookings")
@@ -132,7 +144,7 @@ public class BookingController {
 
     @GetMapping("/{id}/invoice")
     @Operation(summary = "Tải hóa đơn booking", description = "Sinh PDF hóa đơn cho buổi mentoring")
-    public org.springframework.http.ResponseEntity<byte[]> downloadBookingInvoice(
+    public ResponseEntity<byte[]> downloadBookingInvoice(
             @PathVariable Long id,
             Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
@@ -143,7 +155,7 @@ public class BookingController {
             return "ROLE_USER".equals(r) || "ROLE_MENTOR".equals(r) || "ROLE_ADMIN".equals(r);
         });
         if (!allowed) {
-            throw new org.springframework.security.access.AccessDeniedException("Không có quyền tải hóa đơn");
+            throw new AccessDeniedException("Không có quyền tải hóa đơn");
         }
 
         var booking = bookingService.getBookingIfParticipant(userId, id);
@@ -156,14 +168,14 @@ public class BookingController {
         byte[] pdfBytes = invoiceService.generateBookingInvoice(booking, role);
 
         String filename = "booking-" + id + ".pdf";
-        return org.springframework.http.ResponseEntity.ok()
-                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
                         "attachment; filename=\"" + filename + "\"")
-                .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                .contentType(MediaType.APPLICATION_PDF)
                 .body(pdfBytes);
     }
 
-    private BookingResponse toResponse(com.exe.skillverse_backend.mentor_booking_service.entity.Booking booking) {
+    private BookingResponse toResponse(Booking booking) {
         String mentorName = booking.getMentor().getFullName();
         String mentorAvatar = booking.getMentor().getAvatarUrl();
 

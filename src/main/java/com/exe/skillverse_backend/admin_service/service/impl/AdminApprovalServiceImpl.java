@@ -7,7 +7,6 @@ import com.exe.skillverse_backend.admin_service.dto.response.ApplicationsRespons
 import com.exe.skillverse_backend.admin_service.dto.response.MentorApplicationDto;
 import com.exe.skillverse_backend.admin_service.dto.response.RecruiterApplicationDto;
 import com.exe.skillverse_backend.admin_service.service.AdminApprovalService;
-import com.exe.skillverse_backend.auth_service.entity.*;
 import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
@@ -23,6 +22,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
+import com.exe.skillverse_backend.auth_service.entity.Role;
+import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 
 @Service
 @RequiredArgsConstructor
@@ -382,9 +387,9 @@ public class AdminApprovalServiceImpl implements AdminApprovalService {
                 List<String> certUrls = null;
                 if (mentor.getCertifications() != null && !mentor.getCertifications().isBlank()) {
                         try {
-                                certUrls = new com.fasterxml.jackson.databind.ObjectMapper()
+                                certUrls = new ObjectMapper()
                                                 .readValue(mentor.getCertifications(),
-                                                                new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {
+                                                                new TypeReference<List<String>>() {
                                                                 });
                         } catch (Exception e) {
                                 log.warn("Failed to parse certifications JSON for mentor {}", mentor.getUserId(), e);

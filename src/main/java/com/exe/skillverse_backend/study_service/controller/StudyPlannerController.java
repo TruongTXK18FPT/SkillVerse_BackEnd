@@ -13,7 +13,18 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import com.exe.skillverse_backend.study_service.dto.request.CheckScheduleHealthRequest;
+import com.exe.skillverse_backend.study_service.dto.request.RefineScheduleRequest;
+import com.exe.skillverse_backend.study_service.dto.response.ScheduleHealthReport;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/study-planner")
@@ -74,19 +85,19 @@ public class StudyPlannerController {
     }
 
     @PostMapping("/refine-schedule")
-    public ResponseEntity<List<StudySessionResponse>> refineSchedule(@RequestBody com.exe.skillverse_backend.study_service.dto.request.RefineScheduleRequest request, Authentication authentication) {
+    public ResponseEntity<List<StudySessionResponse>> refineSchedule(@RequestBody RefineScheduleRequest request, Authentication authentication) {
         return ResponseEntity.ok(aiStudySupportService.refineSchedule(getUserId(authentication), request));
     }
 
     @PostMapping("/schedule-health")
-    public ResponseEntity<com.exe.skillverse_backend.study_service.dto.response.ScheduleHealthReport> checkHealth(
-            @RequestBody com.exe.skillverse_backend.study_service.dto.request.CheckScheduleHealthRequest request) {
+    public ResponseEntity<ScheduleHealthReport> checkHealth(
+            @RequestBody CheckScheduleHealthRequest request) {
         return ResponseEntity.ok(aiStudySupportService.checkScheduleHealth(request));
     }
 
     @PostMapping("/schedule-suggest-fix")
-    public ResponseEntity<com.exe.skillverse_backend.study_service.dto.response.ScheduleHealthReport> suggestFix(
-            @RequestBody com.exe.skillverse_backend.study_service.dto.request.CheckScheduleHealthRequest request) {
+    public ResponseEntity<ScheduleHealthReport> suggestFix(
+            @RequestBody CheckScheduleHealthRequest request) {
         return ResponseEntity.ok(aiStudySupportService.suggestHealthyAdjustments(request));
     }
 }

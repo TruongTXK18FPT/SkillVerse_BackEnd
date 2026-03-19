@@ -19,7 +19,6 @@ import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
 import com.exe.skillverse_backend.course_service.entity.enums.LessonType;
 import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
 import com.exe.skillverse_backend.course_service.entity.enums.SubmissionType;
-import com.exe.skillverse_backend.course_service.repository.*;
 import com.exe.skillverse_backend.course_service.service.CurriculumService;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
@@ -37,6 +36,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.course_service.repository.AssignmentCriteriaRepository;
+import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseRepository;
+import com.exe.skillverse_backend.course_service.repository.LessonRepository;
+import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizOptionRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizQuestionRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 
 @Slf4j
 @Service

@@ -3,8 +3,6 @@ package com.exe.skillverse_backend.gamification_service.service.impl;
 import com.exe.skillverse_backend.gamification_service.dto.request.BadgeDefinitionRequest;
 import com.exe.skillverse_backend.gamification_service.dto.response.BadgeDefinitionResponse;
 import com.exe.skillverse_backend.gamification_service.dto.response.UserBadgeResponse;
-import com.exe.skillverse_backend.gamification_service.entity.*;
-import com.exe.skillverse_backend.gamification_service.repository.*;
 import com.exe.skillverse_backend.gamification_service.service.GamificationBadgeService;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
@@ -16,6 +14,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationBadgeDefinition;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationUserBadge;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationActivityLogRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationBadgeDefinitionRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationUserBadgeRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationUserWalletRepository;
 
 @Service
 @RequiredArgsConstructor

@@ -6,8 +6,9 @@ import org.mapstruct.Mapper;
 import org.mapstruct.MappingTarget;
 
 import java.util.List;
+import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 
-@Mapper(config = com.exe.skillverse_backend.shared.config.CustomMapperConfig.class)
+@Mapper(config = CustomMapperConfig.class)
 public interface SkillMapper {
     
     SkillDto toDto(Skill e);

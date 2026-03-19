@@ -5,6 +5,7 @@ import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
 
 @Data
 @NoArgsConstructor
@@ -17,7 +18,7 @@ public class QuizDetailDTO {
     private Integer maxAttempts;
     private Integer timeLimitMinutes;
     private Integer roundingIncrement;
-    private com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod gradingMethod;
+    private QuizGradingMethod gradingMethod;
     private Boolean isAssessment;
     private Integer cooldownHours;
     private Integer orderIndex;

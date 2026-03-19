@@ -1,7 +1,10 @@
 package com.exe.skillverse_backend.prechat_service.dto;
 
-import lombok.*;
 import java.time.LocalDateTime;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @Builder

@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.course_service.service.impl;
 
-import com.exe.skillverse_backend.course_service.dto.moduledto.*;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.Lesson;
 import com.exe.skillverse_backend.course_service.entity.Module;
@@ -17,6 +16,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleProgressDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleUpdateDTO;
 
 @Slf4j
 @Service

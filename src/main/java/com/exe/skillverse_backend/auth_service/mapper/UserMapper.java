@@ -3,7 +3,9 @@ import com.exe.skillverse_backend.auth_service.dto.response.UserDto;
 import com.exe.skillverse_backend.auth_service.entity.Role;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
-import org.mapstruct.*;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.Mappings;
 
 import org.hibernate.Hibernate;
 

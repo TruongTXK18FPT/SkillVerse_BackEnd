@@ -1,10 +1,19 @@
 package com.exe.skillverse_backend.course_service.service;
 
-import com.exe.skillverse_backend.course_service.dto.assignmentdto.*;
 import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentGradeDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionItemDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionStatsDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.PendingSubmissionItemDTO;
 
 public interface AssignmentService {
     

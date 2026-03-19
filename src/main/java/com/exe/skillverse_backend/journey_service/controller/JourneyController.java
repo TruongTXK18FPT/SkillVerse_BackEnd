@@ -4,7 +4,6 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.journey_service.dto.request.StartJourneyRequest;
 import com.exe.skillverse_backend.journey_service.dto.request.SubmitTestRequest;
-import com.exe.skillverse_backend.journey_service.dto.response.*;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.journey_service.service.JourneyService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
@@ -23,7 +22,18 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.*;
+import com.exe.skillverse_backend.journey_service.dto.response.AssessmentTestResponse;
+import com.exe.skillverse_backend.journey_service.dto.response.GenerateTestResponse;
+import com.exe.skillverse_backend.journey_service.dto.response.JourneySummaryResponse;
+import com.exe.skillverse_backend.journey_service.dto.response.TestResultResponse;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * REST controller for Journey management.

@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.course_service.dto.quizdto;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
 
 @Data
 @NoArgsConstructor
@@ -14,7 +15,7 @@ public class QuizUpdateDTO {
     private Integer maxAttempts;
     private Integer timeLimitMinutes;
     private Integer roundingIncrement;
-    private com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod gradingMethod;
+    private QuizGradingMethod gradingMethod;
     private Boolean isAssessment;
     private Integer cooldownHours;
 }

@@ -1,6 +1,9 @@
 package com.exe.skillverse_backend.shared.config;
 
-import com.exe.skillverse_backend.premium_service.entity.*;
+import com.exe.skillverse_backend.premium_service.entity.FeatureType;
+import com.exe.skillverse_backend.premium_service.entity.PlanFeatureLimits;
+import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
+import com.exe.skillverse_backend.premium_service.entity.ResetPeriod;
 import com.exe.skillverse_backend.premium_service.repository.PlanFeatureLimitsRepository;
 import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -54,7 +58,7 @@ public class FeatureLimitsDataInitializer implements CommandLineRunner {
                 initializeFreeTierLimits(freeTier);
 
                 // Initialize RECRUITER_PRO limits (for all recruiter plans)
-                java.util.List<PremiumPlan> recruiterPlans = premiumPlanRepository
+                List<PremiumPlan> recruiterPlans = premiumPlanRepository
                                 .findAllByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType.RECRUITER_PRO);
                 for (PremiumPlan recruiterPlan : recruiterPlans) {
                         log.info("🔧 Initializing RECRUITER_PRO limits for plan: {} (ID: {})",
@@ -64,7 +68,7 @@ public class FeatureLimitsDataInitializer implements CommandLineRunner {
 
                 // Also initialize PREMIUM_PLUS limits with job posting quota
                 // This allows recruiters who bought PREMIUM_PLUS to also post jobs
-                java.util.List<PremiumPlan> premiumPlusPlans = premiumPlanRepository
+                List<PremiumPlan> premiumPlusPlans = premiumPlanRepository
                                 .findAllByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType.PREMIUM_PLUS);
                 for (PremiumPlan plusPlan : premiumPlusPlans) {
                         log.info("🔧 Initializing PREMIUM_PLUS limits for plan: {} (ID: {})",
@@ -73,7 +77,7 @@ public class FeatureLimitsDataInitializer implements CommandLineRunner {
                 }
 
                 // Initialize PREMIUM_BASIC limits (limited job posting)
-                java.util.List<PremiumPlan> premiumBasicPlans = premiumPlanRepository
+                List<PremiumPlan> premiumBasicPlans = premiumPlanRepository
                                 .findAllByPlanTypeAndIsActiveTrue(PremiumPlan.PlanType.PREMIUM_BASIC);
                 for (PremiumPlan basicPlan : premiumBasicPlans) {
                         log.info("🔧 Initializing PREMIUM_BASIC limits for plan: {} (ID: {})",

@@ -16,6 +16,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtGra
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.util.matcher.RegexRequestMatcher;
 import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 
 @Configuration(proxyBeanMethods = false)
 @EnableWebSecurity
@@ -77,7 +78,7 @@ public class SecurityConfig {
                         "/actuator/**"
         };
 
-        private final org.springframework.security.oauth2.jwt.JwtDecoder jwtDecoder;
+        private final JwtDecoder jwtDecoder;
         private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
         private final CorsConfigurationSource corsConfigurationSource;
 

@@ -11,7 +11,17 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import com.exe.skillverse_backend.study_service.entity.DashboardNote;
+import com.exe.skillverse_backend.study_service.service.DashboardService;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/task-board")
@@ -19,7 +29,7 @@ import org.springframework.web.bind.annotation.*;
 public class TaskBoardController {
 
     private final TaskBoardService taskBoardService;
-    private final com.exe.skillverse_backend.study_service.service.DashboardService dashboardService;
+    private final DashboardService dashboardService;
 
     private Long getUserId(Authentication authentication) {
         return Long.parseLong(authentication.getName());
@@ -94,17 +104,17 @@ public class TaskBoardController {
     // Dashboard Notes Endpoints
 
     @GetMapping("/notes")
-    public ResponseEntity<List<com.exe.skillverse_backend.study_service.entity.DashboardNote>> getNotes(Authentication authentication) {
+    public ResponseEntity<List<DashboardNote>> getNotes(Authentication authentication) {
         return ResponseEntity.ok(dashboardService.getUserNotes(getUserId(authentication)));
     }
 
     @PostMapping("/notes")
-    public ResponseEntity<com.exe.skillverse_backend.study_service.entity.DashboardNote> createNote(@RequestBody String content, Authentication authentication) {
+    public ResponseEntity<DashboardNote> createNote(@RequestBody String content, Authentication authentication) {
         return ResponseEntity.ok(dashboardService.createNote(getUserId(authentication), content));
     }
 
     @PatchMapping("/notes/{noteId}")
-    public ResponseEntity<com.exe.skillverse_backend.study_service.entity.DashboardNote> updateNote(@PathVariable UUID noteId, @RequestBody String content) {
+    public ResponseEntity<DashboardNote> updateNote(@PathVariable UUID noteId, @RequestBody String content) {
         return ResponseEntity.ok(dashboardService.updateNote(noteId, content));
     }
 

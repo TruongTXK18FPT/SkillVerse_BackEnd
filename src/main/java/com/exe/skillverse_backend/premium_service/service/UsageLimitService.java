@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.premium_service.dto.response.FeatureLimitInfo;
 import com.exe.skillverse_backend.premium_service.dto.response.UsageCheckResult;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
 import java.util.List;
+import com.exe.skillverse_backend.premium_service.dto.response.UserCycleStatsDTO;
 
 /**
  * Service for managing and enforcing usage limits
@@ -89,5 +90,5 @@ public interface UsageLimitService {
      * @param userId User ID
      * @return Cycle statistics
      */
-    com.exe.skillverse_backend.premium_service.dto.response.UserCycleStatsDTO getUserCycleStats(Long userId);
+    UserCycleStatsDTO getUserCycleStats(Long userId);
 }

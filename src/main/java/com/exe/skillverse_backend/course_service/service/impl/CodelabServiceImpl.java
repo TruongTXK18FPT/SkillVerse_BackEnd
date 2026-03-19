@@ -1,7 +1,6 @@
 package com.exe.skillverse_backend.course_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
-import com.exe.skillverse_backend.course_service.dto.codingdto.*;
 import com.exe.skillverse_backend.course_service.entity.CodingExercise;
 import com.exe.skillverse_backend.course_service.entity.CodingSubmission;
 import com.exe.skillverse_backend.course_service.entity.CodingTestCase;
@@ -10,7 +9,6 @@ import com.exe.skillverse_backend.course_service.entity.enums.CodeSubmissionStat
 import com.exe.skillverse_backend.course_service.mapper.CodingExerciseMapper;
 import com.exe.skillverse_backend.course_service.mapper.CodingSubmissionMapper;
 import com.exe.skillverse_backend.course_service.mapper.CodingTestCaseMapper;
-import com.exe.skillverse_backend.course_service.repository.*;
 import com.exe.skillverse_backend.course_service.service.CodelabService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
@@ -23,6 +21,19 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingSubmissionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingSubmissionDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseUpdateDTO;
+import com.exe.skillverse_backend.course_service.repository.CodingExerciseRepository;
+import com.exe.skillverse_backend.course_service.repository.CodingSubmissionRepository;
+import com.exe.skillverse_backend.course_service.repository.CodingTestCaseRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
+import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 
 @Slf4j
 @Service

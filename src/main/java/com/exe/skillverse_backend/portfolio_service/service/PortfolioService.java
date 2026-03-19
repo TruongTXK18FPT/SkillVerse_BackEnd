@@ -1,8 +1,13 @@
 package com.exe.skillverse_backend.portfolio_service.service;
 
-import com.exe.skillverse_backend.portfolio_service.dto.*;
 import java.util.List;
 import org.springframework.web.multipart.MultipartFile;
+import com.exe.skillverse_backend.portfolio_service.dto.CVGenerationRequest;
+import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.GeneratedCVDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.MentorReviewDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.PortfolioProjectDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.UserProfileDTO;
 
 public interface PortfolioService {
         // User Profile (Extended)

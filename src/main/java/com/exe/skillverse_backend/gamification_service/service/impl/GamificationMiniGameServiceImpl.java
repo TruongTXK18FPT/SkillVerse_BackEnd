@@ -5,8 +5,6 @@ import com.exe.skillverse_backend.gamification_service.dto.request.MiniGameDefin
 import com.exe.skillverse_backend.gamification_service.dto.request.StartGameSessionRequest;
 import com.exe.skillverse_backend.gamification_service.dto.response.GameSessionResponse;
 import com.exe.skillverse_backend.gamification_service.dto.response.MiniGameDefinitionResponse;
-import com.exe.skillverse_backend.gamification_service.entity.*;
-import com.exe.skillverse_backend.gamification_service.repository.*;
 import com.exe.skillverse_backend.gamification_service.service.GamificationMiniGameService;
 import com.exe.skillverse_backend.gamification_service.service.GamificationWalletService;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
@@ -21,6 +19,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationGameSession;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationMiniGameDefinition;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationGameSessionRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationMiniGameDefinitionRepository;
 
 @Service
 @RequiredArgsConstructor

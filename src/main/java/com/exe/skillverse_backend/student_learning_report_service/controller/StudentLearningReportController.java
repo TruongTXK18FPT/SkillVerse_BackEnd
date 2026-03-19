@@ -15,7 +15,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.*;
+import com.exe.skillverse_backend.shared.exception.ApiException;
+import com.exe.skillverse_backend.shared.exception.ErrorCode;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Controller cho Student Learning Report.
@@ -117,8 +125,8 @@ public class StudentLearningReportController {
         if (reportId == null || reportId.trim().isEmpty() || 
             "undefined".equalsIgnoreCase(reportId) || "null".equalsIgnoreCase(reportId)) {
             log.warn("Invalid reportId received: '{}' for user: {}", reportId, userId);
-            throw new com.exe.skillverse_backend.shared.exception.ApiException(
-                com.exe.skillverse_backend.shared.exception.ErrorCode.BAD_REQUEST,
+            throw new ApiException(
+                ErrorCode.BAD_REQUEST,
                 "Report ID không hợp lệ. Vui lòng chọn báo cáo từ danh sách."
             );
         }
@@ -131,8 +139,8 @@ public class StudentLearningReportController {
             }
         } catch (NumberFormatException e) {
             log.warn("Failed to parse reportId: '{}' for user: {}", reportId, userId);
-            throw new com.exe.skillverse_backend.shared.exception.ApiException(
-                com.exe.skillverse_backend.shared.exception.ErrorCode.BAD_REQUEST,
+            throw new ApiException(
+                ErrorCode.BAD_REQUEST,
                 "Report ID phải là số hợp lệ. Giá trị nhận được: " + reportId
             );
         }

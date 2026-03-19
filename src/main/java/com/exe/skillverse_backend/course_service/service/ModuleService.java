@@ -1,7 +1,11 @@
 package com.exe.skillverse_backend.course_service.service;
 
-import com.exe.skillverse_backend.course_service.dto.moduledto.*;
 import java.util.List;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleProgressDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleUpdateDTO;
 
 public interface ModuleService {
   ModuleDetailDTO createModule(Long courseId, ModuleCreateDTO dto, Long actorId);

@@ -1,8 +1,15 @@
 package com.exe.skillverse_backend.course_service.service;
 
-import com.exe.skillverse_backend.course_service.dto.codingdto.*;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import org.springframework.data.domain.Pageable;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingSubmissionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingSubmissionDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseUpdateDTO;
 
 public interface CodelabService {
     

@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.shared.entity.Skill;
 
 @Repository
 @Transactional(readOnly = true)
@@ -87,5 +88,5 @@ public interface CourseSkillRepository extends JpaRepository<CourseSkill, Serial
      */
     @Transactional(readOnly = true)
     @Query("SELECT cs.skill FROM CourseSkill cs WHERE cs.course.id = :courseId")
-    List<com.exe.skillverse_backend.shared.entity.Skill> findSkillsByCourseId(@Param("courseId") Long courseId);
+    List<Skill> findSkillsByCourseId(@Param("courseId") Long courseId);
 }

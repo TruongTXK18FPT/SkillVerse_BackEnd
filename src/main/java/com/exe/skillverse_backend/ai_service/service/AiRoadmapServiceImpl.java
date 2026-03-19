@@ -46,6 +46,8 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.json.JsonReadFeature;
 
 /**
  * Service for AI-powered roadmap generation using Spring AI with Gemini
@@ -1156,23 +1158,23 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             String sanitized = sanitizeJson(roadmapJson);
             try {
                 objectMapper.getFactory()
-                        .enable(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_JAVA_COMMENTS.mappedFeature());
+                        .enable(JsonReadFeature.ALLOW_JAVA_COMMENTS.mappedFeature());
                 objectMapper.getFactory()
-                        .enable(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_TRAILING_COMMA.mappedFeature());
+                        .enable(JsonReadFeature.ALLOW_TRAILING_COMMA.mappedFeature());
                 objectMapper.getFactory().enable(
-                        com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_UNQUOTED_FIELD_NAMES.mappedFeature());
+                        JsonReadFeature.ALLOW_UNQUOTED_FIELD_NAMES.mappedFeature());
                 objectMapper.getFactory()
-                        .enable(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_SINGLE_QUOTES.mappedFeature());
+                        .enable(JsonReadFeature.ALLOW_SINGLE_QUOTES.mappedFeature());
                 objectMapper.getFactory().enable(
-                        com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_NON_NUMERIC_NUMBERS.mappedFeature());
+                        JsonReadFeature.ALLOW_NON_NUMERIC_NUMBERS.mappedFeature());
             } catch (Throwable t) {
                 try {
-                    objectMapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_COMMENTS, true);
-                    objectMapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_TRAILING_COMMA, true);
-                    objectMapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES,
+                    objectMapper.configure(JsonParser.Feature.ALLOW_COMMENTS, true);
+                    objectMapper.configure(JsonParser.Feature.ALLOW_TRAILING_COMMA, true);
+                    objectMapper.configure(JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES,
                             true);
-                    objectMapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_SINGLE_QUOTES, true);
-                    objectMapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_NON_NUMERIC_NUMBERS,
+                    objectMapper.configure(JsonParser.Feature.ALLOW_SINGLE_QUOTES, true);
+                    objectMapper.configure(JsonParser.Feature.ALLOW_NON_NUMERIC_NUMBERS,
                             true);
                 } catch (Throwable ignored) {
                 }

@@ -5,8 +5,6 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.gamification_service.dto.response.AdminGamificationStatsResponse;
 import com.exe.skillverse_backend.gamification_service.dto.response.LeaderboardEntryResponse;
 import com.exe.skillverse_backend.gamification_service.dto.response.UserActivityTrackingResponse;
-import com.exe.skillverse_backend.gamification_service.entity.*;
-import com.exe.skillverse_backend.gamification_service.repository.*;
 import com.exe.skillverse_backend.gamification_service.service.GamificationAdminDashboardService;
 import com.exe.skillverse_backend.user_service.entity.UserProfile;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
@@ -25,6 +23,17 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationBadgeDefinition;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationGameSession;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationMiniGameDefinition;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationUserBadge;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationUserWallet;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationBadgeDefinitionRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationCoinTransactionRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationGameSessionRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationMiniGameDefinitionRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationUserBadgeRepository;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationUserWalletRepository;
 
 @Service
 @RequiredArgsConstructor

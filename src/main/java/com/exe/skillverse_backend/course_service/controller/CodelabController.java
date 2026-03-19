@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.course_service.controller;
 
-import com.exe.skillverse_backend.course_service.dto.codingdto.*;
 import com.exe.skillverse_backend.course_service.service.CodelabService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,7 +14,23 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.*;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingExerciseUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingSubmissionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingSubmissionDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseDTO;
+import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseUpdateDTO;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/codelabs")

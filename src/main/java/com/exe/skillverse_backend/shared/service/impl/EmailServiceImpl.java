@@ -20,6 +20,7 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.core.io.ByteArrayResource;
 
 @Service
 @Slf4j
@@ -685,7 +686,7 @@ public class EmailServiceImpl implements EmailService {
 
             if (attachmentBytes != null && attachmentBytes.length > 0 && attachmentFilename != null) {
                 helper.addAttachment(attachmentFilename,
-                        new org.springframework.core.io.ByteArrayResource(attachmentBytes) {
+                        new ByteArrayResource(attachmentBytes) {
                             @Override
                             public String getFilename() {
                                 return attachmentFilename;

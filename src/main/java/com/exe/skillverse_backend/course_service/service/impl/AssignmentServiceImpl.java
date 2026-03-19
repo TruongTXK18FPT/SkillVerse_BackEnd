@@ -3,7 +3,6 @@ package com.exe.skillverse_backend.course_service.service.impl;
 import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
-import com.exe.skillverse_backend.course_service.dto.assignmentdto.*;
 import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.AssignmentCriteria;
 import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
@@ -46,6 +45,18 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentCriteriaDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentGradeDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.CriteriaScoreDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionItemDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionStatsDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.PendingSubmissionItemDTO;
 
 @Slf4j
 @Service

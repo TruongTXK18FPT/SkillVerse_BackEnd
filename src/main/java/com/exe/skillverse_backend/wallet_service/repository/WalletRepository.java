@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.domain.Pageable;
 
 /**
  * Repository for Wallet entity
@@ -63,7 +64,7 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
      * Find top wallets by coin balance
      */
     @Query("SELECT w FROM Wallet w ORDER BY w.coinBalance DESC")
-    List<Wallet> findTopByCoinBalanceDesc(org.springframework.data.domain.Pageable pageable);
+    List<Wallet> findTopByCoinBalanceDesc(Pageable pageable);
     
     /**
      * Count total active wallets

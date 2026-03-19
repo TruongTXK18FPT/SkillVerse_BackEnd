@@ -10,7 +10,6 @@ import com.exe.skillverse_backend.gamification_service.repository.DailyCheckInRe
 import com.exe.skillverse_backend.premium_service.dto.response.FeatureLimitInfo;
 import com.exe.skillverse_backend.premium_service.dto.response.UsageCheckResult;
 import com.exe.skillverse_backend.premium_service.dto.response.UserCycleStatsDTO;
-import com.exe.skillverse_backend.premium_service.entity.*;
 import com.exe.skillverse_backend.premium_service.exception.UsageLimitExceededException;
 import com.exe.skillverse_backend.premium_service.repository.PlanFeatureLimitsRepository;
 import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
@@ -39,6 +38,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DataIntegrityViolationException;
+import com.exe.skillverse_backend.premium_service.entity.FeatureType;
+import com.exe.skillverse_backend.premium_service.entity.PlanFeatureLimits;
+import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
+import com.exe.skillverse_backend.premium_service.entity.ResetPeriod;
+import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
+import com.exe.skillverse_backend.premium_service.entity.UserUsageTracking;
 
 /**
  * Implementation of UsageLimitService
@@ -678,7 +684,7 @@ public class UsageLimitServiceImpl implements UsageLimitService {
         try {
             UserUsageTracking newTracking = UserUsageTracking.initializeTracking(user, featureType, resetPeriod);
             return usageTrackingRepository.save(newTracking);
-        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+        } catch (DataIntegrityViolationException e) {
             // Race condition: another thread created the record first
             // Fetch the existing record
             log.debug("Race condition detected when creating usage tracking for user {} feature {}, fetching existing", 

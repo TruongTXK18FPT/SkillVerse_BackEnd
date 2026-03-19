@@ -35,6 +35,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationActivityLogRepository;
 
 @Service
 @RequiredArgsConstructor
@@ -46,7 +47,7 @@ public class GamificationLeaderboardServiceImpl implements GamificationLeaderboa
     private final GamificationUserBadgeRepository badgeRepository;
     private final UserRepository userRepository;
     private final WalletRepository mainWalletRepository;
-    private final com.exe.skillverse_backend.gamification_service.repository.GamificationActivityLogRepository activityRepository;
+    private final GamificationActivityLogRepository activityRepository;
     private final UserSkinRepository userSkinRepository;
     private final PostRepository postRepository;
     private final UserProfileRepository userProfileRepository;

@@ -7,7 +7,11 @@ import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
-import org.mapstruct.*;
+import org.mapstruct.BeanMapping;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
+import org.mapstruct.MappingTarget;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
 @Mapper(componentModel = "spring", config = CustomMapperConfig.class, uses = { LessonMapper.class, QuizMapper.class,
     AssignmentMapper.class })

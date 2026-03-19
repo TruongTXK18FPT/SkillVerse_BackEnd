@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.course_service.service.impl;
 
-import com.exe.skillverse_backend.course_service.dto.quizdto.*;
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Quiz;
@@ -53,6 +52,23 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptAnswerOptionReviewDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptAnswerReviewDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptReviewDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptSessionDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptStatusDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptSubmittedAnswerReviewDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizOptionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizOptionDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizOptionUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizQuestionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizQuestionDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizQuestionUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.SubmitQuizDTO;
 
 @Slf4j
 @Service

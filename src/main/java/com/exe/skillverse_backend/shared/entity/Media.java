@@ -6,7 +6,6 @@ import com.exe.skillverse_backend.course_service.entity.Lesson;
 import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 // import com.exe.skillverse_backend.course_service.entity.Certificate; //
 
-import jakarta.persistence.*;
 import lombok.Data;
 import lombok.Builder;
 import lombok.NoArgsConstructor;
@@ -17,6 +16,16 @@ import lombok.ToString;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.Table;
 
 @Entity
 @Table(name = "media")

@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.business_service.service;
 
-import com.exe.skillverse_backend.business_service.dto.request.*;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermApplicationResponse;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
@@ -8,6 +7,12 @@ import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import com.exe.skillverse_backend.business_service.dto.request.ApplyShortTermJobRequest;
+import com.exe.skillverse_backend.business_service.dto.request.CreateShortTermJobRequest;
+import com.exe.skillverse_backend.business_service.dto.request.RequestRevisionRequest;
+import com.exe.skillverse_backend.business_service.dto.request.SubmitDeliverableRequest;
+import com.exe.skillverse_backend.business_service.dto.request.UpdateShortTermApplicationStatusRequest;
+import com.exe.skillverse_backend.business_service.dto.request.UpdateShortTermJobRequest;
 
 public interface ShortTermJobService {
 

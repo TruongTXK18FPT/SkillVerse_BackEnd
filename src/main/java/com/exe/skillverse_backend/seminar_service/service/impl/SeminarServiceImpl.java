@@ -50,6 +50,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @Service
 @RequiredArgsConstructor
@@ -315,7 +316,7 @@ public class SeminarServiceImpl implements SeminarService {
 
             try {
                 return mapToTicketResponse(ticketRepository.save(ticket));
-            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            } catch (DataIntegrityViolationException e) {
                 // Unique constraint violation - user already has a ticket
                 // Rollback capacity increment
                 seminarRepository.decrementTicketsSold(seminarId);
@@ -324,7 +325,7 @@ public class SeminarServiceImpl implements SeminarService {
 
         } catch (Exception e) {
             // Rollback capacity increment if payment or ticket creation failed
-            if (!paymentSuccessful || e instanceof org.springframework.dao.DataIntegrityViolationException) {
+            if (!paymentSuccessful || e instanceof DataIntegrityViolationException) {
                 seminarRepository.decrementTicketsSold(seminarId);
             }
             throw e;

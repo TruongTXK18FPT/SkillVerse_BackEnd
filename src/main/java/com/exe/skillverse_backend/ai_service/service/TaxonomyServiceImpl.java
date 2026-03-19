@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
+import com.exe.skillverse_backend.ai_service.entity.TaxonomyEntry;
 
 @Service
 public class TaxonomyServiceImpl implements TaxonomyService {
@@ -93,7 +94,7 @@ public class TaxonomyServiceImpl implements TaxonomyService {
 
     private boolean loadFromDb() {
         try {
-            List<com.exe.skillverse_backend.ai_service.entity.TaxonomyEntry> entries = taxonomyEntryRepository
+            List<TaxonomyEntry> entries = taxonomyEntryRepository
                     .findByActiveTrue();
             if (entries == null || entries.isEmpty())
                 return false;

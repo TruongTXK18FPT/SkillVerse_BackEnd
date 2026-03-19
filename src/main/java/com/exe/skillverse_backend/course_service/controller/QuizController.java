@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.course_service.controller;
 
-import com.exe.skillverse_backend.course_service.dto.quizdto.*;
 import com.exe.skillverse_backend.course_service.service.QuizService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
@@ -18,7 +17,32 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
-import org.springframework.web.bind.annotation.*;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptBatchRequestDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptReviewDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptSessionDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptSessionHeartbeatDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptStatusDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizOptionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizOptionDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizOptionUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizQuestionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizQuestionDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizQuestionUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.SubmitQuizDTO;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/quizzes")

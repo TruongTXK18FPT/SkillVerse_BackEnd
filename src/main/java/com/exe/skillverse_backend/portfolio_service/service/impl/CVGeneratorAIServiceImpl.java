@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.portfolio_service.service.impl;
 
-import com.exe.skillverse_backend.portfolio_service.dto.*;
 import com.exe.skillverse_backend.portfolio_service.service.CVGeneratorAIService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,10 +11,20 @@ import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
+import com.exe.skillverse_backend.portfolio_service.dto.CVGenerationRequest;
+import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.MentorReviewDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.PortfolioProjectDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.UserProfileDTO;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 @Slf4j
 @Service

@@ -5,6 +5,8 @@ import com.exe.skillverse_backend.seminar_service.dto.request.SeminarUpdateReque
 import com.exe.skillverse_backend.shared.exception.ValidationException;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -49,10 +51,10 @@ public class SeminarValidator {
 
         // Price validation
         if (request.getPrice() != null) {
-            if (request.getPrice().compareTo(java.math.BigDecimal.ZERO) < 0) {
+            if (request.getPrice().compareTo(BigDecimal.ZERO) < 0) {
                 errors.add("Giá vé không được âm");
             }
-            if (request.getPrice().compareTo(new java.math.BigDecimal("100000000")) > 0) {
+            if (request.getPrice().compareTo(new BigDecimal("100000000")) > 0) {
                 errors.add("Giá vé không được vượt quá 100,000,000 VNĐ");
             }
         }
@@ -112,10 +114,10 @@ public class SeminarValidator {
 
         // Price validation
         if (request.getPrice() != null) {
-            if (request.getPrice().compareTo(java.math.BigDecimal.ZERO) < 0) {
+            if (request.getPrice().compareTo(BigDecimal.ZERO) < 0) {
                 errors.add("Giá vé không được âm");
             }
-            if (request.getPrice().compareTo(new java.math.BigDecimal("100000000")) > 0) {
+            if (request.getPrice().compareTo(new BigDecimal("100000000")) > 0) {
                 errors.add("Giá vé không được vượt quá 100,000,000 VNĐ");
             }
         }
@@ -183,7 +185,7 @@ public class SeminarValidator {
             }
 
             // Check minimum duration (at least 30 minutes)
-            long minutesBetween = java.time.Duration.between(startTime, endTime).toMinutes();
+            long minutesBetween = Duration.between(startTime, endTime).toMinutes();
             if (minutesBetween < 30) {
                 errors.add("Hội thảo phải kéo dài ít nhất 30 phút");
             }
@@ -233,7 +235,7 @@ public class SeminarValidator {
         }
 
         // Check if start time is too soon (at least 24 hours in advance)
-        long hoursUntilStart = java.time.Duration.between(now, startTime).toHours();
+        long hoursUntilStart = Duration.between(now, startTime).toHours();
         if (hoursUntilStart < 24) {
             errors.add("Hội thảo phải được gửi duyệt trước ít nhất 24 giờ so với thời gian bắt đầu");
         }

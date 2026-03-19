@@ -21,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.course_service.entity.enums.AttachmentType;
 
 /**
  * Implementation of LessonAttachmentService
@@ -228,7 +229,7 @@ public class LessonAttachmentServiceImpl implements LessonAttachmentService {
     }
 
     private void validateAttachmentType(
-            com.exe.skillverse_backend.course_service.entity.enums.AttachmentType type,
+            AttachmentType type,
             boolean hasMedia,
             boolean hasExternalUrl
     ) {

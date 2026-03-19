@@ -22,6 +22,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 
 @Service
 @RequiredArgsConstructor
@@ -30,7 +31,7 @@ public class TaskBoardServiceImpl implements TaskBoardService {
     private final TaskRepository taskRepository;
     private final TaskColumnRepository taskColumnRepository;
     private final UserRepository userRepository;
-    private final com.exe.skillverse_backend.study_service.repository.StudySessionRepository studySessionRepository;
+    private final StudySessionRepository studySessionRepository;
     private final NotificationService notificationService;
 
     private static final String DEFAULT_COLUMN_TODO = "To Do";

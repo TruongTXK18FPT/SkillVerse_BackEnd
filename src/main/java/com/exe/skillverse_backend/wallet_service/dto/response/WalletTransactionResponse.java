@@ -7,6 +7,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import com.exe.skillverse_backend.auth_service.entity.User;
 
 /**
  * Response DTO cho giao dịch ví
@@ -86,7 +87,7 @@ public class WalletTransactionResponse {
     /**
      * Get display name for user - handles Google users who may have null firstName/lastName
      */
-    private static String getUserDisplayName(com.exe.skillverse_backend.auth_service.entity.User user) {
+    private static String getUserDisplayName(User user) {
         if (user == null) return null;
         
         String firstName = user.getFirstName();

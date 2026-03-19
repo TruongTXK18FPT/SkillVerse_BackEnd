@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
 
 @Data
 @Builder
@@ -26,7 +27,7 @@ public class QuizSummaryDTO {
 
     private Integer roundingIncrement;
 
-    private com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod gradingMethod;
+    private QuizGradingMethod gradingMethod;
 
     private Boolean isAssessment;
 
