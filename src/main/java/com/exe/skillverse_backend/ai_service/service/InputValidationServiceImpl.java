@@ -1,10 +1,17 @@
 package com.exe.skillverse_backend.ai_service.service;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
+import com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion;
 import com.exe.skillverse_backend.ai_service.dto.response.ValidationResult;
 import org.springframework.stereotype.Service;
 
@@ -151,12 +158,12 @@ public class InputValidationServiceImpl implements InputValidationService {
         return results;
     }
 
-    public List<com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion> generateClarificationQuestions(
+    public List<ClarificationQuestion> generateClarificationQuestions(
             GenerateRoadmapRequest request) {
-        List<com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion> qs = new ArrayList<>();
+        List<ClarificationQuestion> qs = new ArrayList<>();
 
         if (request.getRoadmapMode() == null) {
-            qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+            qs.add(ClarificationQuestion.builder()
                     .field("roadmapMode")
                     .question("Bạn chọn chế độ nào: Học kỹ năng (SKILL_BASED) hay Lộ trình nghề nghiệp (CAREER_BASED)?")
                     .examples(List.of("SKILL_BASED", "CAREER_BASED"))
@@ -166,7 +173,7 @@ public class InputValidationServiceImpl implements InputValidationService {
 
         if (request.getRoadmapMode() == GenerateRoadmapRequest.RoadmapMode.SKILL_BASED) {
             if (request.getSkillName() == null || request.getSkillName().isBlank()) {
-                qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+                qs.add(ClarificationQuestion.builder()
                         .field("skillName")
                         .question("Bạn muốn học kỹ năng nào?")
                         .examples(List.of("ReactJS", "SQL", "Figma"))
@@ -175,7 +182,7 @@ public class InputValidationServiceImpl implements InputValidationService {
             }
         } else if (request.getRoadmapMode() == GenerateRoadmapRequest.RoadmapMode.CAREER_BASED) {
             if (request.getTargetRole() == null || request.getTargetRole().isBlank()) {
-                qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+                qs.add(ClarificationQuestion.builder()
                         .field("targetRole")
                         .question("Bạn muốn hướng đến vai trò nghề nghiệp nào?")
                         .examples(List.of("Frontend Developer", "Digital Marketer", "UI Designer"))
@@ -184,7 +191,7 @@ public class InputValidationServiceImpl implements InputValidationService {
             }
         } else {
             if (request.getTarget() == null || request.getTarget().isBlank()) {
-                qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+                qs.add(ClarificationQuestion.builder()
                         .field("target")
                         .question("Mục tiêu cụ thể của bạn là gì (kỹ năng hoặc nghề)?")
                         .examples(List.of("ReactJS", "Frontend Developer", "Digital Marketing", "UI Designer"))
@@ -194,7 +201,7 @@ public class InputValidationServiceImpl implements InputValidationService {
         }
 
         if (request.getDailyTime() == null || request.getDailyTime().isBlank()) {
-            qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+            qs.add(ClarificationQuestion.builder()
                     .field("dailyTime")
                     .question("Bạn có thể dành bao nhiêu thời gian mỗi ngày?")
                     .examples(List.of("30 phút", "1 giờ", "2 giờ"))
@@ -203,7 +210,7 @@ public class InputValidationServiceImpl implements InputValidationService {
         }
 
         if (request.getLearningStyle() == null && (request.getStyle() == null || request.getStyle().isBlank())) {
-            qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+            qs.add(ClarificationQuestion.builder()
                     .field("learningStyle")
                     .question("Phong cách học ưa thích của bạn?")
                     .examples(List.of("Theo dự án", "Lý thuyết trước", "Video", "Thực hành"))
@@ -212,7 +219,7 @@ public class InputValidationServiceImpl implements InputValidationService {
         }
 
         if (request.getPriority() == null || request.getPriority().isBlank()) {
-            qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+            qs.add(ClarificationQuestion.builder()
                     .field("priority")
                     .question("Ưu tiên của bạn là nhanh đi làm hay học sâu?")
                     .examples(List.of("Nhanh đi làm", "Học sâu"))
@@ -221,7 +228,7 @@ public class InputValidationServiceImpl implements InputValidationService {
         }
 
         if (request.getIncomeGoal() == null) {
-            qs.add(com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion.builder()
+            qs.add(ClarificationQuestion.builder()
                     .field("incomeGoal")
                     .question("Bạn có mục tiêu thu nhập liên quan lộ trình này không?")
                     .examples(List.of("true", "false"))

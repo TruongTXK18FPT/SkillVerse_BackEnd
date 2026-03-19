@@ -238,3 +238,24 @@ ai:
 
 server:
   port: ${SERVER_PORT:8080}
+
+# Course revision feature flags
+app:
+  course:
+    revision:
+      read-enabled: ${APP_COURSE_REVISION_READ_ENABLED:true}
+      write-enabled: ${APP_COURSE_REVISION_WRITE_ENABLED:true}
+      approval-enabled: ${APP_COURSE_REVISION_APPROVAL_ENABLED:true}
+      submit-change-check-mode: ${APP_COURSE_REVISION_SUBMIT_CHANGE_CHECK_MODE:ENFORCE}
+      require-source-baseline: ${APP_COURSE_REVISION_REQUIRE_SOURCE_BASELINE:false}
+      require-source-baseline-rollout-percent: ${APP_COURSE_REVISION_REQUIRE_SOURCE_BASELINE_ROLLOUT_PERCENT:100}
+      max-content-snapshot-bytes: ${APP_COURSE_REVISION_MAX_CONTENT_SNAPSHOT_BYTES:1048576}
+      snapshot-hash-latency-warn-ms: ${APP_COURSE_REVISION_SNAPSHOT_HASH_LATENCY_WARN_MS:200}
+      learning-revision-backfill:
+        enabled: ${APP_COURSE_REVISION_LEARNING_REVISION_BACKFILL_ENABLED:false}
+        batch-size: ${APP_COURSE_REVISION_LEARNING_REVISION_BACKFILL_BATCH_SIZE:1000}
+        max-batches-per-run: ${APP_COURSE_REVISION_LEARNING_REVISION_BACKFILL_MAX_BATCHES_PER_RUN:3}
+        fixed-delay-ms: ${APP_COURSE_REVISION_LEARNING_REVISION_BACKFILL_FIXED_DELAY_MS:60000}
+    quiz-attempt-session:
+      enabled: ${APP_COURSE_QUIZ_ATTEMPT_SESSION_ENABLED:true}
+      ttl-minutes: ${APP_COURSE_QUIZ_ATTEMPT_SESSION_TTL_MINUTES:30}

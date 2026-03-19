@@ -2,14 +2,22 @@ package com.exe.skillverse_backend.ai_service.service.impl;
 
 import com.exe.skillverse_backend.ai_service.dto.response.SttResponse;
 import com.exe.skillverse_backend.ai_service.service.AiSpeechService;
+import com.exe.skillverse_backend.ai_service.util.MarkdownSpeechSanitizer;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.*;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.MultipartBodyBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,13 +25,14 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
-import java.net.URI;
-import java.time.Duration;
-import java.util.Map;
 import java.io.ByteArrayOutputStream;
-import org.springframework.http.ContentDisposition;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.client.MultipartBodyBuilder;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -40,6 +49,7 @@ public class AiSpeechServiceImpl implements AiSpeechService {
     private String fptTtsEndpoint;
 
     private final WebClient webClient = WebClient.builder().build();
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
     @Override
     public SttResponse transcribeAudio(MultipartFile audio, String language) {
@@ -75,7 +85,7 @@ public class AiSpeechServiceImpl implements AiSpeechService {
         }
 
         // Sanitize markdown formatting for speech output only
-        String speechText = com.exe.skillverse_backend.ai_service.util.MarkdownSpeechSanitizer.sanitizeForSpeech(text);
+        String speechText = MarkdownSpeechSanitizer.sanitizeForSpeech(text);
 
         String finalVoice = StringUtils.hasText(voice) ? voice : "banmai"; // default Vietnamese voice
         double finalSpeed = speed != null ? Math.max(-2.0, Math.min(2.0, speed)) : 0.0; // FPT supports -2..2
@@ -84,7 +94,7 @@ public class AiSpeechServiceImpl implements AiSpeechService {
             log.info("TTS request: length={}, voice={}, speed={}", speechText.length(), finalVoice, finalSpeed);
             // Call FPT TTS (v5) which returns JSON with "async" URL
             String ttsResponse = postJsonWithRetry(fptTtsEndpoint,
-                    java.util.Map.of("text", speechText, "voice", finalVoice, "speed", finalSpeed),
+                    Map.of("text", speechText, "voice", finalVoice, "speed", finalSpeed),
                     3, Duration.ofMillis(500), "TTS");
             validateTtsResponse(ttsResponse);
 
@@ -123,7 +133,7 @@ public class AiSpeechServiceImpl implements AiSpeechService {
 
     private byte[] synthesizeInChunks(String text, String voice, double speed) {
         String[] sentences = text.split("(?<=[.!?])\\s+|\\n+");
-        java.util.List<String> chunks = new java.util.ArrayList<>();
+        List<String> chunks = new ArrayList<>();
         StringBuilder buf = new StringBuilder();
         int maxLen = 240;
         for (String s : sentences) {
@@ -158,7 +168,7 @@ public class AiSpeechServiceImpl implements AiSpeechService {
         for (String piece : chunks) {
             idx++;
             String resp = postJsonWithRetry(fptTtsEndpoint,
-                    java.util.Map.of("text", piece, "voice", voice, "speed", speed),
+                    Map.of("text", piece, "voice", voice, "speed", speed),
                     3, Duration.ofMillis(500), "TTS-Chunk");
             validateTtsResponse(resp);
             String url = extractAsyncUrl(resp);
@@ -175,9 +185,9 @@ public class AiSpeechServiceImpl implements AiSpeechService {
         if (!StringUtils.hasText(json)) return null;
         try {
             // Try common FPT STT formats
-            com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+            JsonNode node = JSON_MAPPER.readTree(json);
             if (node.has("hypotheses") && node.get("hypotheses").isArray() && node.get("hypotheses").size() > 0) {
-                com.fasterxml.jackson.databind.JsonNode first = node.get("hypotheses").get(0);
+                JsonNode first = node.get("hypotheses").get(0);
                 if (first.has("transcript")) return first.get("transcript").asText();
             }
             if (node.has("result")) {
@@ -193,7 +203,7 @@ public class AiSpeechServiceImpl implements AiSpeechService {
     private String extractAsyncUrl(String json) {
         if (!StringUtils.hasText(json)) return null;
         try {
-            com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+            JsonNode node = JSON_MAPPER.readTree(json);
             if (node.has("async")) {
                 String v = node.get("async").asText();
                 if (StringUtils.hasText(v)) return v;
@@ -228,7 +238,7 @@ public class AiSpeechServiceImpl implements AiSpeechService {
                     }
                     String snippet = null;
                     try {
-                        String s = new String(resp.getBody(), java.nio.charset.StandardCharsets.UTF_8);
+                        String s = new String(resp.getBody(), StandardCharsets.UTF_8);
                         snippet = s.substring(0, Math.min(120, s.length()));
                     } catch (Exception ignored) {}
                     log.debug("Audio not ready: status={}, contentType={}, bodySnippet={}", resp.getStatusCode().value(), ct, snippet);
@@ -260,7 +270,7 @@ public class AiSpeechServiceImpl implements AiSpeechService {
                                 .flatMap(msg -> {
                                     int status = resp.statusCode().value();
                                     log.warn("{} attempt {} failed: status={}, body={} ", label, currentAttempt, status, msg);
-                                    Map<String, Object> details = new java.util.HashMap<>();
+                                    Map<String, Object> details = new HashMap<>();
                                     details.put("providerStatus", status);
                                     details.put("providerBody", msg);
                                     return Mono.error(new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "FPT " + label + " failed", details));
@@ -285,10 +295,10 @@ public class AiSpeechServiceImpl implements AiSpeechService {
             throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "FPT TTS không trả về dữ liệu");
         }
         try {
-            com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+            JsonNode node = JSON_MAPPER.readTree(json);
             boolean hasError = node.has("error") || (node.has("status") && node.get("status").asInt() != 200);
             if (hasError) {
-                Map<String, Object> details = new java.util.HashMap<>();
+                Map<String, Object> details = new HashMap<>();
                 details.put("providerBody", json);
                 throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "FPT TTS trả về lỗi", details);
             }
@@ -340,7 +350,7 @@ public class AiSpeechServiceImpl implements AiSpeechService {
                                 .flatMap(msg -> {
                                     int status = resp.statusCode().value();
                                     log.warn("{} attempt {} failed (multipart): status={}, body={} ", label, currentAttempt, status, msg);
-                                    Map<String, Object> details = new java.util.HashMap<>();
+                                    Map<String, Object> details = new HashMap<>();
                                     details.put("providerStatus", status);
                                     details.put("providerBody", msg);
                                     return Mono.error(new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "FPT " + label + " failed", details));
@@ -365,11 +375,11 @@ public class AiSpeechServiceImpl implements AiSpeechService {
             throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "FPT STT không trả về dữ liệu");
         }
         try {
-            com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+            JsonNode node = JSON_MAPPER.readTree(json);
             if (node.has("status")) {
                 int status = node.get("status").asInt();
                 if (status != 0 && status != 200) {
-                    Map<String, Object> details = new java.util.HashMap<>();
+                    Map<String, Object> details = new HashMap<>();
                     details.put("providerBody", json);
                     throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "FPT STT trả về lỗi", details);
                 }
@@ -377,7 +387,7 @@ public class AiSpeechServiceImpl implements AiSpeechService {
             boolean hasHypotheses = node.has("hypotheses") && node.get("hypotheses").isArray() && node.get("hypotheses").size() > 0;
             boolean hasResult = node.has("result") && StringUtils.hasText(node.get("result").asText());
             if (!hasHypotheses && !hasResult) {
-                Map<String, Object> details = new java.util.HashMap<>();
+                Map<String, Object> details = new HashMap<>();
                 details.put("providerBody", json);
                 throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "STT không trả về transcript", details);
             }
@@ -406,7 +416,7 @@ public class AiSpeechServiceImpl implements AiSpeechService {
                                 .flatMap(msg -> {
                                     int status = resp.statusCode().value();
                                     log.warn("{} attempt {} failed: status={}, body={} ", label, currentAttempt, status, msg);
-                                    Map<String, Object> details = new java.util.HashMap<>();
+                                    Map<String, Object> details = new HashMap<>();
                                     details.put("providerStatus", status);
                                     details.put("providerBody", msg);
                                     return Mono.error(new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "FPT " + label + " failed", details));

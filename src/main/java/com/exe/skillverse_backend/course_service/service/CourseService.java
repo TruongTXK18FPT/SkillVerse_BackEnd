@@ -4,10 +4,12 @@ import com.exe.skillverse_backend.course_service.dto.coursedto.CourseCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseSummaryDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseUpdateDTO;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
+import java.util.Map;
 
 public interface CourseService {
     
@@ -36,8 +38,10 @@ public interface CourseService {
     /** Restore a SUSPENDED course back to PUBLIC (admin-only) */
     CourseDetailDTO restoreCourse(Long courseId, Long adminId);
 
+    CourseDetailDTO updateUpgradePolicy(Long courseId, CourseUpgradePolicy policy, Long actorId);
+
     PageResponse<CourseSummaryDTO> listCoursesByStatus(CourseStatus status, Pageable pageable);
 
     /** Get course counts grouped by status (for admin dashboard) */
-    java.util.Map<String, Long> getCourseStats();
+    Map<String, Long> getCourseStats();
 }

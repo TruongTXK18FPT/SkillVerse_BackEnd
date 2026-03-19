@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.prechat_service.dto.PreChatMessageRequest;
 import com.exe.skillverse_backend.prechat_service.dto.PreChatMessageResponse;
+import com.exe.skillverse_backend.prechat_service.dto.PreChatThreadSummary;
 import com.exe.skillverse_backend.prechat_service.dto.PreChatTypingRequest;
 import com.exe.skillverse_backend.prechat_service.entity.PreChatBlock;
 import com.exe.skillverse_backend.prechat_service.entity.PreChatMessage;
@@ -28,13 +29,30 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.*;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/prechat")
@@ -96,13 +114,13 @@ public class PreChatController {
 
     @GetMapping("/threads")
     @Operation(summary = "Danh sách thread gần nhất")
-    public java.util.List<com.exe.skillverse_backend.prechat_service.dto.PreChatThreadSummary> getThreads(
+    public List<PreChatThreadSummary> getThreads(
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size,
             Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
-        java.util.List<PreChatMessage> latest = messageRepository.findLastThreads(userId);
-        java.util.List<com.exe.skillverse_backend.prechat_service.dto.PreChatThreadSummary> out = new java.util.ArrayList<>();
+        List<PreChatMessage> latest = messageRepository.findLastThreads(userId);
+        List<PreChatThreadSummary> out = new ArrayList<>();
         for (PreChatMessage m : latest) {
             Long counterpartId = m.getMentor().getId().equals(userId) ? m.getLearner().getId() : m.getMentor().getId();
             User counterpart = userRepository.findById(counterpartId).orElse(null);
@@ -123,7 +141,7 @@ public class PreChatController {
                 }
             }
 
-            java.util.Optional<PreChatThreadState> stOpt = threadStateRepository.findByMentorAndLearner(m.getMentor(),
+            Optional<PreChatThreadState> stOpt = threadStateRepository.findByMentorAndLearner(m.getMentor(),
                     m.getLearner());
             if (stOpt.isPresent()) {
                 PreChatThreadState st = stOpt.get();
@@ -140,7 +158,7 @@ public class PreChatController {
                 unread = messageRepository.countByMentorAndLearnerAndSenderAndReadByLearnerFalse(m.getMentor(),
                         m.getLearner(), m.getMentor());
             }
-            out.add(com.exe.skillverse_backend.prechat_service.dto.PreChatThreadSummary.builder()
+            out.add(PreChatThreadSummary.builder()
                     .counterpartId(counterpartId)
                     .counterpartName(name.isEmpty() ? ("User #" + counterpartId) : name)
                     .counterpartAvatar(avatar)
@@ -153,7 +171,7 @@ public class PreChatController {
         int from = Math.max(0, page * size);
         int to = Math.min(out.size(), from + size);
         if (from >= to)
-            return java.util.Collections.emptyList();
+            return Collections.emptyList();
         return out.subList(from, to);
     }
 
@@ -161,7 +179,7 @@ public class PreChatController {
     public void typing(PreChatTypingRequest req, Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long senderId = Long.valueOf(jwt.getClaimAsString("userId"));
-        java.util.Map<String, Object> payload = new java.util.HashMap<>();
+        Map<String, Object> payload = new HashMap<>();
         payload.put("senderId", senderId);
         payload.put("typing", req.isTyping());
         messagingTemplate.convertAndSendToUser(req.getTargetUserId().toString(), "/queue/prechat.typing", payload);
@@ -223,7 +241,7 @@ public class PreChatController {
     @PostMapping("/mentor/send")
     @Operation(summary = "Mentor gửi tin nhắn pre-chat (REST)")
     public PreChatMessageResponse sendAsMentor(@RequestParam Long learnerId,
-            @RequestBody java.util.Map<String, String> body, Authentication authentication) {
+            @RequestBody Map<String, String> body, Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long mentorId = Long.valueOf(jwt.getClaimAsString("userId"));
         PreChatMessageRequest req = new PreChatMessageRequest();
@@ -399,7 +417,7 @@ public class PreChatController {
     @PostMapping("/threads/{counterpartId}/report")
     @Operation(summary = "Báo cáo nội dung chat")
     @Transactional
-    public Long reportThread(@PathVariable Long counterpartId, @RequestBody java.util.Map<String, Object> body,
+    public Long reportThread(@PathVariable Long counterpartId, @RequestBody Map<String, Object> body,
             Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long reporterId = Long.valueOf(jwt.getClaimAsString("userId"));
@@ -431,7 +449,7 @@ public class PreChatController {
     @GetMapping("/reports")
     @Operation(summary = "Danh sách báo cáo (Admin)")
     public Page<PreChatReport> listReports(@RequestParam(required = false) PreChatReport.Status status,
-            @org.springframework.data.web.PageableDefault(size = 20) org.springframework.data.domain.Pageable pageable) {
+            @PageableDefault(size = 20) Pageable pageable) {
         if (status == null)
             return reportRepository.findAll(pageable);
         return reportRepository.findByStatus(status, pageable);

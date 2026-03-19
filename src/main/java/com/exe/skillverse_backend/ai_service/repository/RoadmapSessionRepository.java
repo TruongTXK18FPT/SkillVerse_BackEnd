@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -47,38 +48,38 @@ public interface RoadmapSessionRepository extends JpaRepository<RoadmapSession, 
     List<Object[]> countGroupedByModeForUser(@Param("userId") Long userId);
 
     @Query("SELECT rs.roadmapMode, COUNT(rs) FROM RoadmapSession rs WHERE rs.createdAt BETWEEN :from AND :to GROUP BY rs.roadmapMode")
-    List<Object[]> countGroupedByModeInRange(@Param("from") java.time.Instant from, @Param("to") java.time.Instant to);
+    List<Object[]> countGroupedByModeInRange(@Param("from") Instant from, @Param("to") Instant to);
 
     @Query("SELECT rs.roadmapMode, COUNT(rs) FROM RoadmapSession rs WHERE rs.user.id = :userId AND rs.createdAt BETWEEN :from AND :to GROUP BY rs.roadmapMode")
-    List<Object[]> countGroupedByModeInRangeForUser(@Param("userId") Long userId, @Param("from") java.time.Instant from, @Param("to") java.time.Instant to);
+    List<Object[]> countGroupedByModeInRangeForUser(@Param("userId") Long userId, @Param("from") Instant from, @Param("to") Instant to);
 
     @Query(value = "SELECT date_trunc('day', created_at AT TIME ZONE 'Asia/Ho_Chi_Minh') AS bucket, roadmap_mode, COUNT(*) AS cnt " +
             "FROM roadmap_sessions WHERE created_at BETWEEN :from AND :to " +
             "GROUP BY bucket, roadmap_mode ORDER BY bucket", nativeQuery = true)
-    List<Object[]> countModeDaily(@Param("from") java.time.Instant from, @Param("to") java.time.Instant to);
+    List<Object[]> countModeDaily(@Param("from") Instant from, @Param("to") Instant to);
 
     @Query(value = "SELECT date_trunc('day', created_at AT TIME ZONE 'Asia/Ho_Chi_Minh') AS bucket, roadmap_mode, COUNT(*) AS cnt " +
             "FROM roadmap_sessions WHERE user_id = :userId AND created_at BETWEEN :from AND :to " +
             "GROUP BY bucket, roadmap_mode ORDER BY bucket", nativeQuery = true)
-    List<Object[]> countModeDailyForUser(@Param("userId") Long userId, @Param("from") java.time.Instant from, @Param("to") java.time.Instant to);
+    List<Object[]> countModeDailyForUser(@Param("userId") Long userId, @Param("from") Instant from, @Param("to") Instant to);
 
     @Query(value = "SELECT date_trunc('week', created_at AT TIME ZONE 'Asia/Ho_Chi_Minh') AS bucket, roadmap_mode, COUNT(*) AS cnt " +
             "FROM roadmap_sessions WHERE created_at BETWEEN :from AND :to " +
             "GROUP BY bucket, roadmap_mode ORDER BY bucket", nativeQuery = true)
-    List<Object[]> countModeWeekly(@Param("from") java.time.Instant from, @Param("to") java.time.Instant to);
+    List<Object[]> countModeWeekly(@Param("from") Instant from, @Param("to") Instant to);
 
     @Query(value = "SELECT date_trunc('week', created_at AT TIME ZONE 'Asia/Ho_Chi_Minh') AS bucket, roadmap_mode, COUNT(*) AS cnt " +
             "FROM roadmap_sessions WHERE user_id = :userId AND created_at BETWEEN :from AND :to " +
             "GROUP BY bucket, roadmap_mode ORDER BY bucket", nativeQuery = true)
-    List<Object[]> countModeWeeklyForUser(@Param("userId") Long userId, @Param("from") java.time.Instant from, @Param("to") java.time.Instant to);
+    List<Object[]> countModeWeeklyForUser(@Param("userId") Long userId, @Param("from") Instant from, @Param("to") Instant to);
 
     @Query(value = "SELECT date_trunc('month', created_at AT TIME ZONE 'Asia/Ho_Chi_Minh') AS bucket, roadmap_mode, COUNT(*) AS cnt " +
             "FROM roadmap_sessions WHERE created_at BETWEEN :from AND :to " +
             "GROUP BY bucket, roadmap_mode ORDER BY bucket", nativeQuery = true)
-    List<Object[]> countModeMonthly(@Param("from") java.time.Instant from, @Param("to") java.time.Instant to);
+    List<Object[]> countModeMonthly(@Param("from") Instant from, @Param("to") Instant to);
 
     @Query(value = "SELECT date_trunc('month', created_at AT TIME ZONE 'Asia/Ho_Chi_Minh') AS bucket, roadmap_mode, COUNT(*) AS cnt " +
             "FROM roadmap_sessions WHERE user_id = :userId AND created_at BETWEEN :from AND :to " +
             "GROUP BY bucket, roadmap_mode ORDER BY bucket", nativeQuery = true)
-    List<Object[]> countModeMonthlyForUser(@Param("userId") Long userId, @Param("from") java.time.Instant from, @Param("to") java.time.Instant to);
+    List<Object[]> countModeMonthlyForUser(@Param("userId") Long userId, @Param("from") Instant from, @Param("to") Instant to);
 }

@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment.CourseEnrollmentId;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -58,6 +59,57 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
         @Transactional(readOnly = true)
         @Query("SELECT COUNT(ce) FROM CourseEnrollment ce WHERE ce.course.id = :courseId")
         long countByCourseId(@Param("courseId") Long courseId);
+
+        @Transactional(readOnly = true)
+        @Query(
+                value = """
+                        SELECT COUNT(*)
+                        FROM course_enrollment ce
+                        WHERE ce.learning_revision_id IS NULL
+                        """,
+                nativeQuery = true
+        )
+        long countLearningRevisionBackfillRemaining();
+
+        @Transactional(readOnly = true)
+        @Query(
+                value = """
+                        SELECT COUNT(*)
+                        FROM course_enrollment ce
+                        JOIN courses c ON c.id = ce.course_id
+                        WHERE ce.learning_revision_id IS NULL
+                          AND COALESCE(c.active_revision_id, c.latest_revision_id) IS NULL
+                        """,
+                nativeQuery = true
+        )
+        long countLearningRevisionBackfillNoTarget();
+
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
+        @Query(
+                value = """
+                        WITH candidates AS (
+                            SELECT ce2.user_id,
+                                   ce2.course_id,
+                                   COALESCE(c2.active_revision_id, c2.latest_revision_id) AS target_revision_id
+                            FROM course_enrollment ce2
+                            JOIN courses c2 ON c2.id = ce2.course_id
+                            WHERE ce2.learning_revision_id IS NULL
+                              AND COALESCE(c2.active_revision_id, c2.latest_revision_id) IS NOT NULL
+                            ORDER BY ce2.course_id, ce2.user_id
+                            LIMIT :batchSize
+                        )
+                        UPDATE course_enrollment ce
+                        SET learning_revision_id = candidates.target_revision_id,
+                            upgrade_policy_snapshot = COALESCE(ce.upgrade_policy_snapshot, c.upgrade_policy),
+                            last_upgraded_at = COALESCE(ce.last_upgraded_at, NOW())
+                        FROM candidates
+                        JOIN courses c ON c.id = candidates.course_id
+                        WHERE ce.user_id = candidates.user_id
+                          AND ce.course_id = candidates.course_id
+                        """,
+                nativeQuery = true
+        )
+        int backfillLearningRevisionBatch(@Param("batchSize") int batchSize);
 
         /**
          * Find enrollments by course ID with pagination
@@ -117,4 +169,78 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
         @Query("SELECT COUNT(DISTINCT ce.user.id) FROM CourseEnrollment ce " +
                         "WHERE ce.course.author.id = :mentorId")
         long countTotalStudentsByMentorId(@Param("mentorId") Long mentorId);
+
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
+        @Query("""
+                        UPDATE CourseEnrollment ce
+                        SET ce.learningRevisionId = :targetRevisionId,
+                            ce.upgradePolicySnapshot = :policySnapshot,
+                            ce.lastUpgradedAt = :upgradedAt
+                        WHERE ce.course.id = :courseId
+                          AND ce.learningRevisionId = :sourceRevisionId
+                          AND ce.upgradePolicySnapshot = :policySnapshot
+                          AND ce.status = :requiredStatus
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM AssignmentSubmission s
+                              JOIN s.assignment a
+                              JOIN a.module m
+                              WHERE m.course.id = :courseId
+                                AND s.user.id = ce.user.id
+                                AND s.isNewest = true
+                                AND s.score IS NULL
+                          )
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM QuizAttemptSession qas
+                              JOIN qas.quiz q
+                              JOIN q.module qm
+                              WHERE qm.course.id = :courseId
+                                AND qas.userId = ce.user.id
+                                AND qas.status = com.exe.skillverse_backend.course_service.entity.enums.QuizAttemptSessionStatus.IN_PROGRESS
+                                AND qas.expiresAt > CURRENT_TIMESTAMP
+                          )
+                        """)
+        int autoUpgradePinnedRevisionForEligibleEnrollments(
+                        @Param("courseId") Long courseId,
+                        @Param("sourceRevisionId") Long sourceRevisionId,
+                        @Param("targetRevisionId") Long targetRevisionId,
+                        @Param("policySnapshot") String policySnapshot,
+                        @Param("upgradedAt") Instant upgradedAt,
+                        @Param("requiredStatus") EnrollmentStatus requiredStatus);
+
+        @Transactional(readOnly = true)
+        @Query("""
+                        SELECT COUNT(ce)
+                        FROM CourseEnrollment ce
+                        WHERE ce.course.id = :courseId
+                          AND ce.learningRevisionId = :sourceRevisionId
+                          AND ce.upgradePolicySnapshot = :policySnapshot
+                          AND ce.status = :requiredStatus
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM AssignmentSubmission s
+                              JOIN s.assignment a
+                              JOIN a.module m
+                              WHERE m.course.id = :courseId
+                                AND s.user.id = ce.user.id
+                                AND s.isNewest = true
+                                AND s.score IS NULL
+                          )
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM QuizAttemptSession qas
+                              JOIN qas.quiz q
+                              JOIN q.module qm
+                              WHERE qm.course.id = :courseId
+                                AND qas.userId = ce.user.id
+                                AND qas.status = com.exe.skillverse_backend.course_service.entity.enums.QuizAttemptSessionStatus.IN_PROGRESS
+                                AND qas.expiresAt > CURRENT_TIMESTAMP
+                          )
+                        """)
+        long countEligibleEnrollmentsForAutoUpgrade(
+                        @Param("courseId") Long courseId,
+                        @Param("sourceRevisionId") Long sourceRevisionId,
+                        @Param("policySnapshot") String policySnapshot,
+                        @Param("requiredStatus") EnrollmentStatus requiredStatus);
 }

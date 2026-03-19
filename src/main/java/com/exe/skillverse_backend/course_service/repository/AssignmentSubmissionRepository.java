@@ -267,4 +267,14 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
             "AND (asub.assignment.isRequired = true OR asub.assignment.isRequired IS NULL)")
     List<Long> findPassedRequiredAssignmentIdsByCourseAndUser(@Param("courseId") Long courseId,
                                                               @Param("userId") Long userId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT CASE WHEN COUNT(asub) > 0 THEN true ELSE false END " +
+            "FROM AssignmentSubmission asub " +
+            "WHERE asub.assignment.module.course.id = :courseId " +
+            "AND asub.user.id = :userId " +
+            "AND asub.isNewest = true " +
+            "AND asub.score IS NULL")
+    boolean existsNewestPendingGradeByCourseAndUser(@Param("courseId") Long courseId,
+                                                     @Param("userId") Long userId);
 }

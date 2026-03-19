@@ -7,13 +7,18 @@ import com.exe.skillverse_backend.course_service.dto.coursedto.CourseDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseSummaryDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.entity.CourseRevision;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.mapper.CourseMapper;
+import com.exe.skillverse_backend.course_service.policy.CourseRevisionFeatureProperties;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.service.CourseService;
+import com.exe.skillverse_backend.course_service.policy.CourseDeletionPolicy;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
@@ -24,6 +29,7 @@ import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.exception.MediaOperationException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -42,7 +48,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 @Slf4j
 @Service
@@ -59,6 +67,9 @@ public class CourseServiceImpl implements CourseService {
     private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final Clock clock;
+    private final CourseDeletionPolicy courseDeletionPolicy;
+    private final CourseRevisionRepository courseRevisionRepository;
+    private final CourseRevisionFeatureProperties courseRevisionFeatureProperties;
     // TODO: inject ApplicationEventPublisher for events
 
     @Override
@@ -148,14 +159,24 @@ public class CourseServiceImpl implements CourseService {
         long enrollmentCount = enrollmentRepository.countByCourseId(courseId);
         long purchaseCount = purchaseRepository.countSuccessfulPurchasesByCourseId(courseId);
 
-        if (enrollmentCount > 0 || purchaseCount > 0) {
-            log.warn("Course {} has {} enrollments and {} purchases, marking as ARCHIVED",
-                    courseId, enrollmentCount, purchaseCount);
-            course.setStatus(CourseStatus.ARCHIVED);
-            course.setUpdatedAt(now());
-            courseRepository.save(course);
-        } else {
+        boolean canHardDelete = courseDeletionPolicy.canHardDelete(
+                course.getStatus(),
+                enrollmentCount,
+                purchaseCount
+        );
+
+        if (canHardDelete) {
+            log.warn("Hard delete enabled - deleting course {} (status={}, enrollments={}, purchases={})",
+                    courseId, course.getStatus(), enrollmentCount, purchaseCount);
             courseRepository.delete(course);
+        } else {
+            if (course.getStatus() != CourseStatus.ARCHIVED) {
+                course.setStatus(CourseStatus.ARCHIVED);
+                course.setUpdatedAt(now());
+                courseRepository.save(course);
+            }
+            log.info("Course {} archived (status={}, enrollments={}, purchases={})",
+                    courseId, course.getStatus(), enrollmentCount, purchaseCount);
         }
 
         log.info("Course {} deleted/archived by actor {}", courseId, actorId);
@@ -180,7 +201,9 @@ public class CourseServiceImpl implements CourseService {
             ensureAuthorOrAdmin(actorId, course.getAuthor().getId());
         }
 
-        return courseMapper.toDetailDto(course);
+        CourseDetailDTO detail = courseMapper.toDetailDto(course);
+        applyRevisionToDetail(detail, loadActiveRevisionForReadPath(course));
+        return detail;
     }
 
     @Override
@@ -206,8 +229,18 @@ public class CourseServiceImpl implements CourseService {
             }
         }
 
+        Map<Long, CourseRevision> activeRevisionMap = loadActiveRevisionsForReadPath(page.getContent());
+
+        List<CourseSummaryDTO> summaries = page.getContent().stream()
+                .map(course -> {
+                    CourseSummaryDTO summary = courseMapper.toSummaryDto(course);
+                    applyRevisionToSummary(summary, activeRevisionMap.get(course.getActiveRevisionId()));
+                    return summary;
+                })
+                .toList();
+
         return PageResponse.<CourseSummaryDTO>builder()
-                .items(page.map(courseMapper::toSummaryDto).getContent())
+                .items(summaries)
                 .page(page.getNumber())
                 .size(page.getSize())
                 .total(page.getTotalElements())
@@ -224,10 +257,12 @@ public class CourseServiceImpl implements CourseService {
 
         // Batch fetch module counts to avoid N+1 query
         Map<Long, Integer> moduleCountMap = getModuleCountMap(page.getContent());
+        Map<Long, CourseRevision> activeRevisionMap = loadActiveRevisionsForReadPath(page.getContent());
 
         List<CourseSummaryDTO> courseSummaries = page.getContent().stream()
                 .map(course -> {
                     CourseSummaryDTO summary = courseMapper.toSummaryDto(course);
+                    applyRevisionToSummary(summary, activeRevisionMap.get(course.getActiveRevisionId()));
                     summary.setModuleCount(moduleCountMap.getOrDefault(course.getId(), 0));
                     return summary;
                 })
@@ -305,7 +340,7 @@ public class CourseServiceImpl implements CourseService {
         // If course has enrolled students (e.g. re-approved after appeal), notify them
         long enrolledCount = enrollmentRepository.countByCourseId(courseId);
         if (enrolledCount > 0) {
-            enrollmentRepository.findByCourseId(courseId, org.springframework.data.domain.Pageable.unpaged())
+            enrollmentRepository.findByCourseId(courseId, Pageable.unpaged())
                     .forEach(enrollment -> notificationService.createNotification(
                             enrollment.getUser().getId(),
                             "Khóa học đã mở lại",
@@ -361,10 +396,12 @@ public class CourseServiceImpl implements CourseService {
 
         // Batch fetch module counts to avoid N+1 query
         Map<Long, Integer> moduleCountMap = getModuleCountMap(page.getContent());
+        Map<Long, CourseRevision> activeRevisionMap = loadActiveRevisionsForReadPath(page.getContent());
 
         List<CourseSummaryDTO> courseSummaries = page.getContent().stream()
                 .map(course -> {
                     CourseSummaryDTO summary = courseMapper.toSummaryDto(course);
+                    applyRevisionToSummary(summary, activeRevisionMap.get(course.getActiveRevisionId()));
                     summary.setModuleCount(moduleCountMap.getOrDefault(course.getId(), 0));
                     return summary;
                 })
@@ -410,7 +447,7 @@ public class CourseServiceImpl implements CourseService {
         );
 
         // Notify all enrolled students
-        enrollmentRepository.findByCourseId(courseId, org.springframework.data.domain.Pageable.unpaged())
+        enrollmentRepository.findByCourseId(courseId, Pageable.unpaged())
                 .forEach(enrollment -> notificationService.createNotification(
                         enrollment.getUser().getId(),
                         "Khóa học bị tạm khóa",
@@ -453,7 +490,7 @@ public class CourseServiceImpl implements CourseService {
         );
 
         // Notify all enrolled students that the course is available again
-        enrollmentRepository.findByCourseId(courseId, org.springframework.data.domain.Pageable.unpaged())
+        enrollmentRepository.findByCourseId(courseId, Pageable.unpaged())
                 .forEach(enrollment -> notificationService.createNotification(
                         enrollment.getUser().getId(),
                         "Khóa học đã mở lại",
@@ -463,6 +500,23 @@ public class CourseServiceImpl implements CourseService {
                 ));
 
         return courseMapper.toDetailDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public CourseDetailDTO updateUpgradePolicy(Long courseId, CourseUpgradePolicy policy, Long actorId) {
+        log.info("Updating course {} upgrade policy to {} by actor {}", courseId, policy, actorId);
+
+        Course course = getCourseOrThrow(courseId);
+        ensureAuthorOrAdmin(actorId, course.getAuthor().getId());
+
+        course.setUpgradePolicy(policy);
+        course.setUpdatedAt(now());
+
+        Course saved = courseRepository.save(course);
+        CourseDetailDTO detailDTO = courseMapper.toDetailDto(saved);
+        detailDTO.setUpgradePolicyStatusMessage(buildUpgradePolicyStatusMessage(policy));
+        return detailDTO;
     }
 
     @Override
@@ -478,6 +532,90 @@ public class CourseServiceImpl implements CourseService {
     }
 
     // ===== Helper Methods =====
+
+    private Map<Long, CourseRevision> loadActiveRevisionsForReadPath(List<Course> courses) {
+        if (!courseRevisionFeatureProperties.isReadEnabled() || courses == null || courses.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        Set<Long> revisionIds = courses.stream()
+                .filter(this::canUseRevisionReadPath)
+                .map(Course::getActiveRevisionId)
+                .collect(Collectors.toSet());
+
+        if (revisionIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        return courseRevisionRepository.findAllById(revisionIds).stream()
+                .collect(Collectors.toMap(CourseRevision::getId, revision -> revision));
+    }
+
+    private CourseRevision loadActiveRevisionForReadPath(Course course) {
+        if (!canUseRevisionReadPath(course)) {
+            return null;
+        }
+
+        return courseRevisionRepository.findById(course.getActiveRevisionId()).orElse(null);
+    }
+
+    private boolean canUseRevisionReadPath(Course course) {
+        return course != null
+                && courseRevisionFeatureProperties.isReadEnabled()
+                && Boolean.TRUE.equals(course.getRevisioningEnabled())
+                && course.getActiveRevisionId() != null;
+    }
+
+    private String buildUpgradePolicyStatusMessage(CourseUpgradePolicy policy) {
+        if (policy == CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY) {
+            return "AUTO_COMPATIBLE_ONLY: hệ thống sẽ tự nâng learner khi revision non-breaking; revision breaking sẽ bị skip.";
+        }
+        return "MANUAL: learner giữ revision hiện tại cho đến khi chủ động nâng cấp.";
+    }
+
+    private void applyRevisionToDetail(CourseDetailDTO detail, CourseRevision revision) {
+        if (detail == null || revision == null) {
+            return;
+        }
+
+        detail.setTitle(revision.getTitle());
+        detail.setDescription(revision.getDescription());
+        detail.setShortDescription(revision.getShortDescription());
+        detail.setLevel(revision.getLevel());
+        detail.setCategory(revision.getCategory());
+        detail.setEstimatedDurationHours(revision.getEstimatedDurationHours());
+        detail.setLanguage(revision.getLanguage());
+        detail.setPrice(revision.getPrice());
+        detail.setCurrency(revision.getCurrency());
+        detail.setLearningObjectives(toStringList(revision.getLearningObjectivesJson()));
+        detail.setRequirements(toStringList(revision.getRequirementsJson()));
+    }
+
+    private void applyRevisionToSummary(CourseSummaryDTO summary, CourseRevision revision) {
+        if (summary == null || revision == null) {
+            return;
+        }
+
+        summary.setTitle(revision.getTitle());
+        summary.setShortDescription(revision.getShortDescription());
+        summary.setLevel(revision.getLevel());
+        summary.setCategory(revision.getCategory());
+        summary.setEstimatedDurationHours(revision.getEstimatedDurationHours());
+        summary.setLanguage(revision.getLanguage());
+        summary.setPrice(revision.getPrice());
+        summary.setCurrency(revision.getCurrency());
+    }
+
+    private List<String> toStringList(JsonNode jsonNode) {
+        if (jsonNode == null || !jsonNode.isArray()) {
+            return Collections.emptyList();
+        }
+
+        return StreamSupport.stream(jsonNode.spliterator(), false)
+                .map(node -> node == null || node.isNull() ? null : node.asText())
+                .filter(value -> value != null && !value.isBlank())
+                .toList();
+    }
 
     /**
      * Batch fetch module counts for a list of courses.

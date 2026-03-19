@@ -8,6 +8,7 @@ import com.nimbusds.jwt.SignedJWT;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtException;
@@ -62,7 +63,7 @@ public class CustomJwtDecoder implements JwtDecoder {
             // Verify signature - MUST use getBytes() to match signing
             MACVerifier verifier = new MACVerifier(jwtSecret.getBytes());
             if (!signedJWT.verify(verifier)) {
-                throw new JwtException("Invalid JWT signature");
+                throw new BadJwtException("Invalid JWT signature");
             }
 
             // Check expiration with small leeway
@@ -70,7 +71,7 @@ public class CustomJwtDecoder implements JwtDecoder {
             if (expirationTime != null) {
                 Instant exp = expirationTime.toInstant();
                 if (exp.isBefore(Instant.now().minus(CLOCK_SKEW))) {
-                    throw new JwtException("JWT token expired");
+                    throw new BadJwtException("JWT token expired");
                 }
             }
 
@@ -79,7 +80,7 @@ public class CustomJwtDecoder implements JwtDecoder {
             if (notBefore != null) {
                 Instant nbf = notBefore.toInstant();
                 if (nbf.isAfter(Instant.now().plus(CLOCK_SKEW))) {
-                    throw new JwtException("JWT token not active yet");
+                    throw new BadJwtException("JWT token not active yet");
                 }
             }
 
@@ -87,14 +88,14 @@ public class CustomJwtDecoder implements JwtDecoder {
             String issuer = signedJWT.getJWTClaimsSet().getIssuer();
             if (expectedIssuer != null && !expectedIssuer.isEmpty()) {
                 if (issuer == null || !expectedIssuer.equals(issuer)) {
-                    throw new JwtException("Invalid token issuer");
+                    throw new BadJwtException("Invalid token issuer");
                 }
             }
 
             // Check if token is invalidated
             String jti = signedJWT.getJWTClaimsSet().getJWTID();
             if (jti != null && invalidatedTokenRepository.existsByJti(jti)) {
-                throw new JwtException("JWT token has been invalidated");
+                throw new BadJwtException("JWT token has been invalidated");
             }
 
             // ✅ SECURITY: Validate account status + password change state.
@@ -108,12 +109,12 @@ public class CustomJwtDecoder implements JwtDecoder {
                     Optional<UserRepository.UserSecurityInfo> securityInfoOpt =
                             userRepository.findSecurityInfoById(userIdLong);
                     if (securityInfoOpt.isEmpty()) {
-                        throw new JwtException("User account not found");
+                        throw new BadJwtException("User account not found");
                     }
 
                     UserRepository.UserSecurityInfo securityInfo = securityInfoOpt.get();
                     if (securityInfo.getStatus() != UserStatus.ACTIVE) {
-                        throw new JwtException("User account is inactive");
+                        throw new BadJwtException("User account is inactive");
                     }
 
                     LocalDateTime passwordChangedAt = securityInfo.getPasswordChangedAt();
@@ -128,7 +129,7 @@ public class CustomJwtDecoder implements JwtDecoder {
                             log.warn(
                                     "Token rejected due to password change for user {}. Token iat (UTC): {}, passwordChangedAt (UTC): {}",
                                     userId, iatDateTime, passwordChangedAt);
-                            throw new JwtException("Token invalidated due to password change. Please login again.");
+                            throw new BadJwtException("Token invalidated due to password change. Please login again.");
                         }
                     }
                 } catch (NumberFormatException e) {
@@ -146,7 +147,7 @@ public class CustomJwtDecoder implements JwtDecoder {
         } catch (Exception e) {
             // ✅ SECURITY: Log full error server-side, return generic message to client
             log.error("Error decoding JWT token", e);
-            throw new JwtException("Invalid or malformed token");
+            throw new BadJwtException("Invalid or malformed token");
         }
     }
 

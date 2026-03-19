@@ -45,9 +45,6 @@ public class SecurityConfig {
                         // Business service registration
                         "/api/business/register",
                         "/api/certificates/verify/**",
-                        "/api/courses",
-                        "/api/courses/**",
-                        "/api/courses/by-author/**",
                         "/api/v1/payments/callback/payos",
                         // Meowl Chat Service (AI assistant - public access)
                         "/api/v1/meowl/chat",
@@ -105,6 +102,11 @@ public class SecurityConfig {
                                 .requestMatchers(HttpMethod.GET, "/api/premium/plans", "/api/premium/plans/**")
                                 .permitAll()
                                 .requestMatchers("/ws/**").permitAll()
+
+                                // Courses: public read only, write endpoints must be authenticated
+                                .requestMatchers(HttpMethod.GET, "/api/courses", "/api/courses/*",
+                                                "/api/courses/by-author/**")
+                                .permitAll()
 
                                 // Community posts: allow public GET only
                                 .requestMatchers(HttpMethod.GET, "/api/posts", "/api/posts/**").permitAll()

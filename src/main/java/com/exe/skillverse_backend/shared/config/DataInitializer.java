@@ -408,6 +408,8 @@ public class DataInitializer implements CommandLineRunner {
                         User mentor = userRepository.findByEmail("exementor@gmail.com")
                                         .orElseThrow(() -> new RuntimeException("Mentor user not found"));
 
+                        cleanupDeprecatedMockCourses();
+
                         // Course 1: Java Programming Fundamentals
                         createCourseIfNotExists(
                                         "Lập trình Java cơ bản",
@@ -470,54 +472,28 @@ public class DataInitializer implements CommandLineRunner {
                                                                         "Lazy loading, memoization và code splitting" }
                                         });
 
-                        // Course 4: Database Design và SQL
-                        createCourseIfNotExists(
-                                        "Thiết kế Database và SQL",
-                                        "Học cách thiết kế database hiệu quả, viết SQL queries phức tạp, và tối ưu hóa performance. Thực hành với PostgreSQL và MySQL.",
-                                        "BEGINNER",
-                                        CourseStatus.PENDING,
-                                        new BigDecimal("399000"),
-                                        "VND",
-                                        mentor,
-                                        new String[][] {
-                                                        { "Database Fundamentals",
-                                                                        "Giới thiệu về RDBMS, ER Diagrams và normalization" },
-                                                        { "SQL Basics", "SELECT, INSERT, UPDATE, DELETE và basic queries" },
-                                                        { "Advanced SQL",
-                                                                        "JOINs, subqueries, window functions và CTEs" },
-                                                        { "Database Design",
-                                                                        "Normalization, indexing và constraint design" },
-                                                        { "Performance Tuning",
-                                                                        "Query optimization, indexing strategies và monitoring" }
-                                        });
-
-                        // Course 5: DevOps và CI/CD
-                        createCourseIfNotExists(
-                                        "DevOps và CI/CD Pipeline",
-                                        "Học cách triển khai ứng dụng hiện đại với Docker, Kubernetes, Jenkins và GitLab CI. Xây dựng pipeline tự động từ development đến production.",
-                                        "ADVANCED",
-                                        CourseStatus.PENDING,
-                                        new BigDecimal("799000"),
-                                        "VND",
-                                        mentor,
-                                        new String[][] {
-                                                        { "DevOps Introduction",
-                                                                        "DevOps culture, practices và tools overview" },
-                                                        { "Containerization với Docker",
-                                                                        "Docker basics, images, containers và Docker Compose" },
-                                                        { "CI/CD với Jenkins",
-                                                                        "Thiết lập Jenkins pipeline và automation" },
-                                                        { "Kubernetes Orchestration",
-                                                                        "Deploy và manage containers với Kubernetes" },
-                                                        { "Monitoring và Logging", "Prometheus, Grafana và ELK stack" }
-                                        });
-
                         log.info("🎉 All sample courses initialized successfully");
 
                 } catch (Exception e) {
                         log.error("❌ Error initializing courses: {}", e.getMessage(), e);
                         throw new RuntimeException("Failed to initialize courses", e);
                 }
+        }
+
+        private void cleanupDeprecatedMockCourses() {
+                deleteCourseByTitleIfExists("Thiết kế Database và SQL");
+                deleteCourseByTitleIfExists("DevOps và CI/CD Pipeline");
+        }
+
+        private void deleteCourseByTitleIfExists(String title) {
+                courseRepository.findByTitle(title).ifPresent(course -> {
+                        try {
+                                courseRepository.delete(course);
+                                log.info("🧹 Removed deprecated mock course: {}", title);
+                        } catch (Exception ex) {
+                                log.warn("⚠️ Cannot remove deprecated mock course '{}': {}", title, ex.getMessage());
+                        }
+                });
         }
 
         private void createCourseIfNotExists(String title, String description, String level,

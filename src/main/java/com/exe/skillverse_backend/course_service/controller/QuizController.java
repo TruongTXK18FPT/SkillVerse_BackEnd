@@ -178,11 +178,38 @@ public class QuizController {
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get learner-safe quiz details for attempts")
     public ResponseEntity<QuizDetailDTO> getQuizForAttempt(
-            @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId) {
+            @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long userId = extractUserId(jwt);
         log.info("Getting learner-safe quiz details for {}", quizId);
-        QuizDetailDTO quiz = quizService.getQuizForAttempt(quizId);
+        QuizDetailDTO quiz = quizService.getQuizForAttempt(quizId, userId);
         return ResponseEntity.ok(quiz);
+    }
+
+    @PostMapping("/{quizId}/attempt-session/start")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Start (or resume) quiz attempt session for in-progress guard")
+    public ResponseEntity<QuizAttemptSessionDTO> startAttemptSession(
+            @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long userId = extractUserId(jwt);
+        QuizAttemptSessionDTO session = quizService.startAttemptSession(quizId, userId);
+        return ResponseEntity.ok(session);
+    }
+
+    @PostMapping("/{quizId}/attempt-session/heartbeat")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Refresh active quiz attempt session")
+    public ResponseEntity<QuizAttemptSessionDTO> heartbeatAttemptSession(
+            @Parameter(description = "Quiz ID") @PathVariable @NotNull Long quizId,
+            @Valid @RequestBody QuizAttemptSessionHeartbeatDTO heartbeat,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long userId = extractUserId(jwt);
+        QuizAttemptSessionDTO session = quizService.heartbeatAttemptSession(quizId, userId, heartbeat.getSessionToken());
+        return ResponseEntity.ok(session);
     }
 
     @GetMapping("/modules/{moduleId}/quizzes")

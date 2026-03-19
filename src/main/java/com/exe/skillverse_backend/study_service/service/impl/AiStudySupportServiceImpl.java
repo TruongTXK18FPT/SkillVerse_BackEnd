@@ -5,30 +5,43 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
 import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
+import com.exe.skillverse_backend.study_service.dto.request.CheckScheduleHealthRequest;
 import com.exe.skillverse_backend.study_service.dto.request.GenerateScheduleRequest;
+import com.exe.skillverse_backend.study_service.dto.request.RefineScheduleRequest;
+import com.exe.skillverse_backend.study_service.dto.response.ScheduleHealthReport;
+import com.exe.skillverse_backend.study_service.dto.response.SessionScore;
 import com.exe.skillverse_backend.study_service.dto.response.StudySessionResponse;
 import com.exe.skillverse_backend.study_service.entity.StudySession;
 import com.exe.skillverse_backend.study_service.entity.StudySessionStatus;
 import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
-import com.exe.skillverse_backend.study_service.dto.request.RefineScheduleRequest;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.web.client.RestClient;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -73,28 +86,28 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
     }
 
     // Inner DTOs for Mistral API
-    @lombok.Data
-    @lombok.Builder
+    @Data
+    @Builder
     private static class MistralRequest {
         private String model;
         private List<Message> messages;
         private double temperature;
-        @lombok.Data
-        @lombok.Builder
+        @Data
+        @Builder
         public static class Message {
             private String role;
             private String content;
         }
     }
 
-    @lombok.Data
-    @lombok.NoArgsConstructor
-    @lombok.AllArgsConstructor
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
     private static class MistralResponse {
         private List<Choice> choices;
-        @lombok.Data
-        @lombok.NoArgsConstructor
-        @lombok.AllArgsConstructor
+        @Data
+        @NoArgsConstructor
+        @AllArgsConstructor
         public static class Choice {
             private MistralRequest.Message message;
         }
@@ -128,13 +141,13 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             try {
                 // Configure extremely lenient mapper
                 ObjectMapper lenientMapper = new ObjectMapper();
-                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_BACKSLASH_ESCAPING_ANY_CHARACTER.mappedFeature(), true);
-                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_UNQUOTED_FIELD_NAMES.mappedFeature(), true);
-                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_SINGLE_QUOTES.mappedFeature(), true);
-                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_LEADING_ZEROS_FOR_NUMBERS.mappedFeature(), true);
-                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_NON_NUMERIC_NUMBERS.mappedFeature(), true);
-                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_JAVA_COMMENTS.mappedFeature(), true);
-                lenientMapper.configure(com.fasterxml.jackson.core.json.JsonReadFeature.ALLOW_TRAILING_COMMA.mappedFeature(), true);
+                lenientMapper.configure(JsonReadFeature.ALLOW_BACKSLASH_ESCAPING_ANY_CHARACTER.mappedFeature(), true);
+                lenientMapper.configure(JsonReadFeature.ALLOW_UNQUOTED_FIELD_NAMES.mappedFeature(), true);
+                lenientMapper.configure(JsonReadFeature.ALLOW_SINGLE_QUOTES.mappedFeature(), true);
+                lenientMapper.configure(JsonReadFeature.ALLOW_LEADING_ZEROS_FOR_NUMBERS.mappedFeature(), true);
+                lenientMapper.configure(JsonReadFeature.ALLOW_NON_NUMERIC_NUMBERS.mappedFeature(), true);
+                lenientMapper.configure(JsonReadFeature.ALLOW_JAVA_COMMENTS.mappedFeature(), true);
+                lenientMapper.configure(JsonReadFeature.ALLOW_TRAILING_COMMA.mappedFeature(), true);
                 lenientMapper.findAndRegisterModules();
                 
                 return lenientMapper.readValue(cleaned, new TypeReference<List<StudySessionResponse>>() {});
@@ -424,7 +437,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
     private int inferDurationMinutes(List<StudySessionResponse> sessions) {
         for (StudySessionResponse s : sessions) {
             if (s.getStartTime() != null && s.getEndTime() != null) {
-                return (int) java.time.Duration.between(s.getStartTime(), s.getEndTime()).toMinutes();
+                return (int) Duration.between(s.getStartTime(), s.getEndTime()).toMinutes();
             }
         }
         return 60;
@@ -454,7 +467,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 start = start.withHour(earliestHour).withMinute(0).withSecond(0);
                 end = start.plusMinutes(durationMinutes);
             }
-            if (end.getHour() >= latestHour || (end.toLocalTime().isAfter(java.time.LocalTime.of(latestHour, 0)))) {
+            if (end.getHour() >= latestHour || (end.toLocalTime().isAfter(LocalTime.of(latestHour, 0)))) {
                 // shift to next day at earliest
                 start = start.plusDays(1).withHour(earliestHour).withMinute(0).withSecond(0);
                 end = start.plusMinutes(durationMinutes);
@@ -491,20 +504,20 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
     }
 
     @Override
-    public com.exe.skillverse_backend.study_service.dto.response.ScheduleHealthReport checkScheduleHealth(com.exe.skillverse_backend.study_service.dto.request.CheckScheduleHealthRequest request) {
-        java.util.List<String> warnings = new java.util.ArrayList<>();
-        java.util.List<String> errors = new java.util.ArrayList<>();
-        java.time.ZoneId zone = java.time.ZoneId.of(request.getTimezone() != null && !request.getTimezone().isBlank() ? request.getTimezone() : "Asia/Ho_Chi_Minh");
-        java.time.LocalTime earliest = request.getEarliestStartLocalTime() != null ? java.time.LocalTime.parse(request.getEarliestStartLocalTime()) : java.time.LocalTime.of(6,0);
-        java.time.LocalTime latest = request.getLatestEndLocalTime() != null ? java.time.LocalTime.parse(request.getLatestEndLocalTime()) : java.time.LocalTime.of(22,0);
-        java.util.Map<java.time.LocalDate, Integer> dailyMinutes = new java.util.HashMap<>();
+    public ScheduleHealthReport checkScheduleHealth(CheckScheduleHealthRequest request) {
+        List<String> warnings = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+        ZoneId zone = ZoneId.of(request.getTimezone() != null && !request.getTimezone().isBlank() ? request.getTimezone() : "Asia/Ho_Chi_Minh");
+        LocalTime earliest = request.getEarliestStartLocalTime() != null ? LocalTime.parse(request.getEarliestStartLocalTime()) : LocalTime.of(6,0);
+        LocalTime latest = request.getLatestEndLocalTime() != null ? LocalTime.parse(request.getLatestEndLocalTime()) : LocalTime.of(22,0);
+        Map<LocalDate, Integer> dailyMinutes = new HashMap<>();
         Integer maxDaily = request.getMaxDailyStudyMinutes() != null ? request.getMaxDailyStudyMinutes() : 240;
         Integer minBreak = request.getBreakMinutesBetweenSessions() != null ? request.getBreakMinutesBetweenSessions() : 10;
 
-        java.util.List<StudySessionResponse> sessions = request.getSessions() != null ? request.getSessions() : java.util.List.of();
-        sessions.sort(java.util.Comparator.comparing(StudySessionResponse::getStartTime, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())));
-        java.util.List<java.time.LocalTime[]> focusWindows = parseFocusWindows(request.getIdealFocusWindows());
-        java.util.List<com.exe.skillverse_backend.study_service.dto.response.SessionScore> scores = new java.util.ArrayList<>();
+        List<StudySessionResponse> sessions = request.getSessions() != null ? request.getSessions() : List.of();
+        sessions.sort(Comparator.comparing(StudySessionResponse::getStartTime, Comparator.nullsLast(Comparator.naturalOrder())));
+        List<LocalTime[]> focusWindows = parseFocusWindows(request.getIdealFocusWindows());
+        List<SessionScore> scores = new ArrayList<>();
 
         for (int i = 0; i < sessions.size(); i++) {
             StudySessionResponse s = sessions.get(i);
@@ -512,16 +525,16 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 warnings.add("Phiên thiếu thời gian bắt đầu/kết thúc: " + (s.getTitle() != null ? s.getTitle() : ("#" + (i+1))));
                 continue;
             }
-            java.time.LocalTime st = s.getStartTime().toLocalTime();
-            java.time.LocalTime et = s.getEndTime().toLocalTime();
+            LocalTime st = s.getStartTime().toLocalTime();
+            LocalTime et = s.getEndTime().toLocalTime();
             if (st.isBefore(earliest)) {
                 errors.add("Phiên bắt đầu trước giờ cho phép ("+earliest+"): " + s.getTitle());
             }
             if (et.isAfter(latest) || et.equals(latest)) {
                 errors.add("Phiên kết thúc sau giờ cho phép ("+latest+"): " + s.getTitle());
             }
-            int durMin = (int) java.time.Duration.between(s.getStartTime(), s.getEndTime()).toMinutes();
-            java.time.LocalDate day = s.getStartTime().toLocalDate();
+            int durMin = (int) Duration.between(s.getStartTime(), s.getEndTime()).toMinutes();
+            LocalDate day = s.getStartTime().toLocalDate();
             dailyMinutes.put(day, dailyMinutes.getOrDefault(day, 0) + durMin);
             if (dailyMinutes.get(day) > maxDaily) {
                 warnings.add("Tổng thời lượng ngày "+day+" vượt quá "+maxDaily+" phút");
@@ -529,24 +542,24 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             if (i > 0) {
                 StudySessionResponse prev = sessions.get(i-1);
                 if (prev.getEndTime() != null) {
-                    int breakMin = (int) java.time.Duration.between(prev.getEndTime(), s.getStartTime()).toMinutes();
+                    int breakMin = (int) Duration.between(prev.getEndTime(), s.getStartTime()).toMinutes();
                     if (breakMin < minBreak) {
                         warnings.add("Khoảng nghỉ giữa phiên quá ngắn ("+breakMin+" phút) trước: " + s.getTitle());
                     }
                 }
             }
             String pref = request.getStudyPreference();
-            if ("morning".equalsIgnoreCase(pref) && st.isAfter(java.time.LocalTime.of(12,0))) {
+            if ("morning".equalsIgnoreCase(pref) && st.isAfter(LocalTime.of(12,0))) {
                 warnings.add("Thói quen học buổi sáng nhưng phiên sau 12:00: " + s.getTitle());
             }
-            if ("evening".equalsIgnoreCase(pref) && (st.isBefore(java.time.LocalTime.of(17,0)) || et.isAfter(latest))) {
+            if ("evening".equalsIgnoreCase(pref) && (st.isBefore(LocalTime.of(17,0)) || et.isAfter(latest))) {
                 warnings.add("Thói quen học buổi tối nhưng phiên không ở khung 17:00-22:00: " + s.getTitle());
             }
             if ("night".equalsIgnoreCase(pref)) {
                 warnings.add("Học khuya ảnh hưởng sức khỏe: " + s.getTitle());
             }
             int score = computeFocusScore(s, focusWindows);
-            scores.add(com.exe.skillverse_backend.study_service.dto.response.SessionScore.builder()
+            scores.add(SessionScore.builder()
                     .id(s.getId())
                     .title(s.getTitle())
                     .score(score)
@@ -554,7 +567,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         }
 
         boolean healthy = errors.isEmpty();
-        return com.exe.skillverse_backend.study_service.dto.response.ScheduleHealthReport.builder()
+        return ScheduleHealthReport.builder()
                 .healthy(healthy)
                 .warnings(warnings)
                 .errors(errors)
@@ -563,29 +576,29 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
     }
 
     @Override
-    public com.exe.skillverse_backend.study_service.dto.response.ScheduleHealthReport suggestHealthyAdjustments(com.exe.skillverse_backend.study_service.dto.request.CheckScheduleHealthRequest request) {
-        java.util.List<String> suggestions = new java.util.ArrayList<>();
-        java.util.List<String> warnings = new java.util.ArrayList<>();
-        java.util.List<String> errors = new java.util.ArrayList<>();
-        java.time.ZoneId zone = java.time.ZoneId.of(request.getTimezone() != null && !request.getTimezone().isBlank() ? request.getTimezone() : "Asia/Ho_Chi_Minh");
-        java.time.LocalTime earliest = request.getEarliestStartLocalTime() != null ? java.time.LocalTime.parse(request.getEarliestStartLocalTime()) : java.time.LocalTime.of(6,0);
-        java.time.LocalTime latest = request.getLatestEndLocalTime() != null ? java.time.LocalTime.parse(request.getLatestEndLocalTime()) : java.time.LocalTime.of(22,0);
+    public ScheduleHealthReport suggestHealthyAdjustments(CheckScheduleHealthRequest request) {
+        List<String> suggestions = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+        ZoneId zone = ZoneId.of(request.getTimezone() != null && !request.getTimezone().isBlank() ? request.getTimezone() : "Asia/Ho_Chi_Minh");
+        LocalTime earliest = request.getEarliestStartLocalTime() != null ? LocalTime.parse(request.getEarliestStartLocalTime()) : LocalTime.of(6,0);
+        LocalTime latest = request.getLatestEndLocalTime() != null ? LocalTime.parse(request.getLatestEndLocalTime()) : LocalTime.of(22,0);
         Integer maxDaily = request.getMaxDailyStudyMinutes() != null ? request.getMaxDailyStudyMinutes() : 240;
         Integer minBreak = request.getBreakMinutesBetweenSessions() != null ? request.getBreakMinutesBetweenSessions() : 10;
         String pref = request.getStudyPreference();
 
-        java.util.List<StudySessionResponse> sessions = request.getSessions() != null ? request.getSessions() : java.util.List.of();
-        java.util.Map<java.time.LocalDate, Integer> dailyMinutes = new java.util.HashMap<>();
-        java.util.List<StudySessionResponse> adjusted = new java.util.ArrayList<>();
-        java.util.List<java.time.LocalTime[]> focusWindows = parseFocusWindows(request.getIdealFocusWindows());
-        java.util.List<com.exe.skillverse_backend.study_service.dto.response.SessionScore> scores = new java.util.ArrayList<>();
+        List<StudySessionResponse> sessions = request.getSessions() != null ? request.getSessions() : List.of();
+        Map<LocalDate, Integer> dailyMinutes = new HashMap<>();
+        List<StudySessionResponse> adjusted = new ArrayList<>();
+        List<LocalTime[]> focusWindows = parseFocusWindows(request.getIdealFocusWindows());
+        List<SessionScore> scores = new ArrayList<>();
 
         for (int i = 0; i < sessions.size(); i++) {
             StudySessionResponse s = sessions.get(i);
             if (s.getStartTime() == null || s.getEndTime() == null) {
                 suggestions.add("Thiếu thời gian, đề xuất đặt phiên #" + (i+1) + " vào " + earliest + " với " + minBreak + " phút nghỉ trước.");
-                java.time.LocalDateTime start = java.time.LocalDateTime.now(zone).withHour(earliest.getHour()).withMinute(earliest.getMinute()).withSecond(0);
-                java.time.LocalDateTime end = start.plusMinutes(60);
+                LocalDateTime start = LocalDateTime.now(zone).withHour(earliest.getHour()).withMinute(earliest.getMinute()).withSecond(0);
+                LocalDateTime end = start.plusMinutes(60);
                 adjusted.add(StudySessionResponse.builder()
                         .id(s.getId())
                         .title(s.getTitle())
@@ -595,44 +608,44 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                         .status(s.getStatus())
                         .build());
                 int score = computeFocusScore(adjusted.get(adjusted.size()-1), focusWindows);
-                scores.add(com.exe.skillverse_backend.study_service.dto.response.SessionScore.builder()
+                scores.add(SessionScore.builder()
                         .id(s.getId())
                         .title(s.getTitle())
                         .score(score)
                         .build());
                 continue;
             }
-            java.time.LocalDateTime start = s.getStartTime();
-            java.time.LocalDateTime end = s.getEndTime();
-            java.time.LocalTime st = start.toLocalTime();
-            java.time.LocalTime et = end.toLocalTime();
+            LocalDateTime start = s.getStartTime();
+            LocalDateTime end = s.getEndTime();
+            LocalTime st = start.toLocalTime();
+            LocalTime et = end.toLocalTime();
             boolean moved = false;
             if (st.isBefore(earliest)) {
                 suggestions.add("Dời phiên \"" + s.getTitle() + "\" lên " + earliest + " do quá sớm.");
                 start = start.withHour(earliest.getHour()).withMinute(earliest.getMinute()).withSecond(0);
-                end = start.plusMinutes((int) java.time.Duration.between(s.getStartTime(), s.getEndTime()).toMinutes());
+                end = start.plusMinutes((int) Duration.between(s.getStartTime(), s.getEndTime()).toMinutes());
                 moved = true;
             }
             if (et.isAfter(latest) || et.equals(latest)) {
                 suggestions.add("Dời phiên \"" + s.getTitle() + "\" sang ngày kế tiếp lúc " + earliest + " do quá muộn.");
                 start = start.plusDays(1).withHour(earliest.getHour()).withMinute(earliest.getMinute()).withSecond(0);
-                end = start.plusMinutes((int) java.time.Duration.between(s.getStartTime(), s.getEndTime()).toMinutes());
+                end = start.plusMinutes((int) Duration.between(s.getStartTime(), s.getEndTime()).toMinutes());
                 moved = true;
             }
-            if ("morning".equalsIgnoreCase(pref) && start.toLocalTime().isAfter(java.time.LocalTime.of(12,0))) {
+            if ("morning".equalsIgnoreCase(pref) && start.toLocalTime().isAfter(LocalTime.of(12,0))) {
                 suggestions.add("Ưu tiên buổi sáng, dời \"" + s.getTitle() + "\" vào khoảng 07:00-10:00.");
                 start = start.withHour(7).withMinute(0).withSecond(0);
-                end = start.plusMinutes((int) java.time.Duration.between(s.getStartTime(), s.getEndTime()).toMinutes());
+                end = start.plusMinutes((int) Duration.between(s.getStartTime(), s.getEndTime()).toMinutes());
                 moved = true;
             }
-            if ("evening".equalsIgnoreCase(pref) && (start.toLocalTime().isBefore(java.time.LocalTime.of(17,0)) || end.toLocalTime().isAfter(java.time.LocalTime.of(22,0)))) {
+            if ("evening".equalsIgnoreCase(pref) && (start.toLocalTime().isBefore(LocalTime.of(17,0)) || end.toLocalTime().isAfter(LocalTime.of(22,0)))) {
                 suggestions.add("Ưu tiên buổi tối, dời \"" + s.getTitle() + "\" vào khoảng 19:00-21:00.");
                 start = start.withHour(19).withMinute(0).withSecond(0);
-                end = start.plusMinutes((int) java.time.Duration.between(s.getStartTime(), s.getEndTime()).toMinutes());
+                end = start.plusMinutes((int) Duration.between(s.getStartTime(), s.getEndTime()).toMinutes());
                 moved = true;
             }
-            java.time.LocalDate day = start.toLocalDate();
-            int durMin = (int) java.time.Duration.between(start, end).toMinutes();
+            LocalDate day = start.toLocalDate();
+            int durMin = (int) Duration.between(start, end).toMinutes();
             int total = dailyMinutes.getOrDefault(day, 0) + durMin;
             if (total > maxDaily) {
                 suggestions.add("Tổng thời lượng ngày " + day + " vượt " + maxDaily + " phút, chia phiên \"" + s.getTitle() + "\" sang ngày kế tiếp.");
@@ -644,7 +657,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             dailyMinutes.put(day, dailyMinutes.getOrDefault(day, 0) + durMin);
             if (!adjusted.isEmpty()) {
                 StudySessionResponse prev = adjusted.get(adjusted.size() - 1);
-                int breakMin = (int) java.time.Duration.between(prev.getEndTime(), start).toMinutes();
+                int breakMin = (int) Duration.between(prev.getEndTime(), start).toMinutes();
                 if (breakMin < minBreak) {
                     suggestions.add("Tăng nghỉ giữa phiên trước \"" + s.getTitle() + "\" lên tối thiểu " + minBreak + " phút.");
                     start = prev.getEndTime().plusMinutes(minBreak);
@@ -664,15 +677,15 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 warnings.add("Học khuya ảnh hưởng sức khỏe: " + s.getTitle());
             }
             int score = computeFocusScore(adjusted.get(adjusted.size()-1), focusWindows);
-            scores.add(com.exe.skillverse_backend.study_service.dto.response.SessionScore.builder()
+            scores.add(SessionScore.builder()
                     .id(s.getId())
                     .title(s.getTitle())
                     .score(score)
                     .build());
         }
 
-        adjusted.sort(java.util.Comparator.comparingInt((StudySessionResponse s) -> {
-            for (com.exe.skillverse_backend.study_service.dto.response.SessionScore sc : scores) {
+        adjusted.sort(Comparator.comparingInt((StudySessionResponse s) -> {
+            for (SessionScore sc : scores) {
                 if (sc.getTitle() != null && sc.getTitle().equals(s.getTitle())) {
                     return -sc.getScore();
                 }
@@ -681,7 +694,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         }));
 
         boolean healthy = errors.isEmpty();
-        return com.exe.skillverse_backend.study_service.dto.response.ScheduleHealthReport.builder()
+        return ScheduleHealthReport.builder()
                 .healthy(healthy)
                 .warnings(warnings)
                 .errors(errors)
@@ -691,34 +704,34 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 .build();
     }
 
-    private java.util.List<java.time.LocalTime[]> parseFocusWindows(java.util.List<String> windows) {
-        java.util.List<java.time.LocalTime[]> result = new java.util.ArrayList<>();
+    private List<LocalTime[]> parseFocusWindows(List<String> windows) {
+        List<LocalTime[]> result = new ArrayList<>();
         if (windows == null) return result;
         for (String w : windows) {
             if (w == null || !w.contains("-")) continue;
             String[] parts = w.split("-");
             try {
-                java.time.LocalTime s = java.time.LocalTime.parse(parts[0].trim());
-                java.time.LocalTime e = java.time.LocalTime.parse(parts[1].trim());
-                result.add(new java.time.LocalTime[]{s, e});
+                LocalTime s = LocalTime.parse(parts[0].trim());
+                LocalTime e = LocalTime.parse(parts[1].trim());
+                result.add(new LocalTime[]{s, e});
             } catch (Exception ignored) {}
         }
         return result;
     }
 
-    private int computeFocusScore(StudySessionResponse session, java.util.List<java.time.LocalTime[]> windows) {
+    private int computeFocusScore(StudySessionResponse session, List<LocalTime[]> windows) {
         if (session.getStartTime() == null || session.getEndTime() == null || windows == null || windows.isEmpty()) return 0;
-        java.time.LocalTime st = session.getStartTime().toLocalTime();
-        java.time.LocalTime et = session.getEndTime().toLocalTime();
-        int total = (int) java.time.Duration.between(st, et).toMinutes();
+        LocalTime st = session.getStartTime().toLocalTime();
+        LocalTime et = session.getEndTime().toLocalTime();
+        int total = (int) Duration.between(st, et).toMinutes();
         int inFocus = 0;
-        for (java.time.LocalTime[] win : windows) {
-            java.time.LocalTime ws = win[0];
-            java.time.LocalTime we = win[1];
-            java.time.LocalTime overlapStart = st.isAfter(ws) ? st : ws;
-            java.time.LocalTime overlapEnd = et.isBefore(we) ? et : we;
+        for (LocalTime[] win : windows) {
+            LocalTime ws = win[0];
+            LocalTime we = win[1];
+            LocalTime overlapStart = st.isAfter(ws) ? st : ws;
+            LocalTime overlapEnd = et.isBefore(we) ? et : we;
             if (overlapEnd.isAfter(overlapStart)) {
-                inFocus += (int) java.time.Duration.between(overlapStart, overlapEnd).toMinutes();
+                inFocus += (int) Duration.between(overlapStart, overlapEnd).toMinutes();
             }
         }
         if (total <= 0) return 0;

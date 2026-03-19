@@ -10,6 +10,9 @@ import com.exe.skillverse_backend.ai_service.repository.ChatMessageRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
 import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
+import com.exe.skillverse_backend.ai_service.enums.ChatMode;
+import com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository;
+import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import lombok.extern.slf4j.Slf4j;
@@ -42,8 +45,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   private final InputValidationServiceImpl inputValidationService;
   private final UsageLimitService usageLimitService;
   private final ExpertPromptServiceImpl expertPromptService;
-  private final com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository expertPromptConfigRepository;
-  private final com.exe.skillverse_backend.premium_service.service.PremiumService premiumService;
+  private final ExpertPromptConfigRepository expertPromptConfigRepository;
+  private final PremiumService premiumService;
   
   @Value("${spring.ai.openai.api-key}")
   private String geminiApiKey;
@@ -63,8 +66,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       InputValidationServiceImpl inputValidationService,
       UsageLimitService usageLimitService,
       ExpertPromptServiceImpl expertPromptService,
-      com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository expertPromptConfigRepository,
-      com.exe.skillverse_backend.premium_service.service.PremiumService premiumService) {
+      ExpertPromptConfigRepository expertPromptConfigRepository,
+      PremiumService premiumService) {
     this.mistralChatModel = mistralChatModel;
     this.chatMessageRepository = chatMessageRepository;
     this.inputValidationService = inputValidationService;
@@ -358,7 +361,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
         .chatMode(request.getChatMode());
 
     // Add expert context if in EXPERT_MODE
-    if (request.getChatMode() == com.exe.skillverse_backend.ai_service.enums.ChatMode.EXPERT_MODE) {
+    if (request.getChatMode() == ChatMode.EXPERT_MODE) {
       // Try to get mediaUrl from database
       String mediaUrl = getExpertMediaUrl(request.getDomain(), request.getIndustry(), request.getJobRole());
 
@@ -379,11 +382,11 @@ public class AiChatbotServiceImpl implements AiChatbotService {
    */
   private void validateChatRequest(ChatRequest request) {
     if (request.getChatMode() == null) {
-      request.setChatMode(com.exe.skillverse_backend.ai_service.enums.ChatMode.GENERAL_CAREER_ADVISOR);
+      request.setChatMode(ChatMode.GENERAL_CAREER_ADVISOR);
     }
 
     // Validate EXPERT_MODE requirements
-    if (request.getChatMode() == com.exe.skillverse_backend.ai_service.enums.ChatMode.EXPERT_MODE) {
+    if (request.getChatMode() == ChatMode.EXPERT_MODE) {
       if (request.getJobRole() == null || request.getJobRole().trim().isEmpty()) {
         throw new ApiException(ErrorCode.BAD_REQUEST,
             "Job role is required for EXPERT_MODE");
@@ -506,7 +509,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       // DETERMINE SYSTEM PROMPT based on chat mode
       String systemPrompt;
 
-      if (request.getChatMode() == com.exe.skillverse_backend.ai_service.enums.ChatMode.EXPERT_MODE) {
+      if (request.getChatMode() == ChatMode.EXPERT_MODE) {
         // EXPERT_MODE: Try to get specialized prompt
         systemPrompt = expertPromptService.getSystemPrompt(
             request.getDomain(),
@@ -564,7 +567,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     contextBuilder.append("User: ").append(userMessage);
     String conversationHistory = contextBuilder.toString();
     String systemPrompt;
-    if (request.getChatMode() == com.exe.skillverse_backend.ai_service.enums.ChatMode.EXPERT_MODE) {
+    if (request.getChatMode() == ChatMode.EXPERT_MODE) {
       systemPrompt = expertPromptService.getSystemPrompt(
           request.getDomain(),
           request.getIndustry(),

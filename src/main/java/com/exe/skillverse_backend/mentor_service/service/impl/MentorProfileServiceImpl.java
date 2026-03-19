@@ -34,15 +34,22 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.awt.BasicStroke;
+import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 
 @Slf4j
@@ -286,9 +293,9 @@ public class MentorProfileServiceImpl implements MentorProfileService {
         try {
             graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             graphics.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-            graphics.setColor(java.awt.Color.WHITE);
+            graphics.setColor(Color.WHITE);
             graphics.fillRect(0, 0, canvasWidth, canvasHeight);
-            graphics.setColor(java.awt.Color.BLACK);
+            graphics.setColor(Color.BLACK);
 
             for (MentorSignatureDrawRequest.Stroke stroke : strokes) {
                 if (stroke == null || stroke.getPoints() == null || stroke.getPoints().size() < 2) {
@@ -500,7 +507,7 @@ public class MentorProfileServiceImpl implements MentorProfileService {
                             if (!rawTrimmed.equals(lookupUrl)) {
                                 return mediaRepository.findFirstByUrl(rawTrimmed);
                             }
-                            return java.util.Optional.empty();
+                        return Optional.empty();
                         })
                         .ifPresent(media -> {
                             try {
@@ -543,7 +550,7 @@ public class MentorProfileServiceImpl implements MentorProfileService {
     @Transactional(readOnly = true)
     public SkillTabResponse getSkillTab(Long mentorId) {
         MentorProfileResponse profile = getMentorProfile(mentorId);
-        var badgesEarned = new java.util.HashSet<String>();
+        Set<String> badgesEarned = new HashSet<>();
         if (profile.getBadges() != null) {
             for (String b : profile.getBadges())
                 if (b != null)
@@ -563,10 +570,10 @@ public class MentorProfileServiceImpl implements MentorProfileService {
                 .count();
         
         long sales = coursePurchaseRepository.countSuccessfulPurchasesByMentorId(mentorId);
-        java.math.BigDecimal revenue = coursePurchaseRepository.sumCapturedByMentor(mentorId)
-                .orElse(java.math.BigDecimal.ZERO);
+        BigDecimal revenue = coursePurchaseRepository.sumCapturedByMentor(mentorId)
+                .orElse(BigDecimal.ZERO);
 
-        java.util.List<BadgeInfo> catalog = java.util.List.of(
+        List<BadgeInfo> catalog = List.of(
                 new BadgeInfo("FIRST_SESSION", "Buổi đầu tiên", "Hoàn thành buổi mentoring đầu tiên",
                         (int) sessionsCompleted,
                         1, badgesEarned.contains("FIRST_SESSION")),
@@ -634,14 +641,14 @@ public class MentorProfileServiceImpl implements MentorProfileService {
                 .flatMap(profile -> {
                     try {
                         if (profile.getSkills() != null) {
-                            return java.util.Arrays.stream(objectMapper.readValue(profile.getSkills(), String[].class));
+                            return Arrays.stream(objectMapper.readValue(profile.getSkills(), String[].class));
                         } else if (profile.getMainExpertiseAreas() != null) {
-                            return java.util.Arrays.stream(profile.getMainExpertiseAreas().split(","));
+                            return Arrays.stream(profile.getMainExpertiseAreas().split(","));
                         }
-                        return java.util.stream.Stream.empty();
+                        return Stream.empty();
                     } catch (JsonProcessingException e) {
                         log.error("Error parsing skills for user {}", profile.getUserId(), e);
-                        return java.util.stream.Stream.empty();
+                        return Stream.empty();
                     }
                 })
                 .map(String::trim)

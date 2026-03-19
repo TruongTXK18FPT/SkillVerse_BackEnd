@@ -50,7 +50,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
         log.info("Enrolling user {} in course {}", userId, dto.getCourseId());
 
         // Validate course exists
-        Course course = courseRepository.findById(dto.getCourseId())
+        Course course = courseRepository.findByIdForEnrollmentSnapshot(dto.getCourseId())
                 .orElseThrow(() -> new NotFoundException(COURSE_NOT_FOUND));
 
         // Validate user exists
@@ -74,6 +74,8 @@ public class EnrollmentServiceImpl implements EnrollmentService {
         boolean isFree = course.getPrice() == null || BigDecimal.ZERO.compareTo(course.getPrice()) == 0;
         // System does not define FREE in EntitlementSource; treat free grant as ADMIN
         enrollment.setEntitlementSource(isFree ? EntitlementSource.ADMIN : EntitlementSource.PURCHASE);
+        enrollment.setLearningRevisionId(resolveInitialLearningRevisionId(course));
+        enrollment.setUpgradePolicySnapshot(course.getUpgradePolicy() != null ? course.getUpgradePolicy().name() : null);
 
         CourseEnrollment saved = enrollmentRepository.save(enrollment);
 
@@ -243,9 +245,24 @@ public class EnrollmentServiceImpl implements EnrollmentService {
                 .progressPercent(enrollment.getProgressPercent())
                 .entitlementSource(enrollment.getEntitlementSource().name())
                 .entitlementRef(enrollment.getEntitlementRef())
+                .learningRevisionId(enrollment.getLearningRevisionId())
+                .upgradePolicySnapshot(enrollment.getUpgradePolicySnapshot())
                 .enrolledAt(enrolledAt)
+                .lastUpgradedAt(enrollment.getLastUpgradedAt() == null
+                        ? null
+                        : LocalDateTime.ofInstant(enrollment.getLastUpgradedAt(), ZoneId.systemDefault()))
                 .completedAt(completedAt)
                 .completed(enrollment.getStatus() == EnrollmentStatus.COMPLETED)
                 .build();
+    }
+
+    private Long resolveInitialLearningRevisionId(Course course) {
+        if (course == null) {
+            return null;
+        }
+        if (course.getActiveRevisionId() != null) {
+            return course.getActiveRevisionId();
+        }
+        return course.getLatestRevisionId();
     }
 }

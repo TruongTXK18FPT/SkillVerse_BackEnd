@@ -2,11 +2,15 @@ package com.exe.skillverse_backend.course_service.controller;
 
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseSummaryDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseUpdateDTO;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
+import com.exe.skillverse_backend.course_service.service.CourseRevisionService;
 import com.exe.skillverse_backend.course_service.service.CourseService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
+import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -38,6 +42,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.List;
+import org.springframework.data.domain.Sort;
 
 @RestController
 @RequestMapping("/api/courses")
@@ -48,6 +53,7 @@ import java.util.List;
 public class CourseController {
 
     private final CourseService courseService;
+    private final CourseRevisionService courseRevisionService;
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
@@ -126,7 +132,7 @@ public class CourseController {
 
     @DeleteMapping("/{courseId}")
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
-    @Operation(summary = "Delete a course")
+    @Operation(summary = "Archive a course (hard delete only when policy allows)")
     public ResponseEntity<Void> deleteCourse(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
             @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
@@ -195,6 +201,35 @@ public class CourseController {
         log.info("Submitting course {} for approval by user {}", courseId, actorId);
         CourseDetailDTO submitted = courseService.submitCourseForApproval(courseId, actorId);
         return ResponseEntity.ok(submitted);
+    }
+
+    @PostMapping("/{courseId}/revisions")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @Operation(summary = "Create a new draft revision for a PUBLIC course")
+    public ResponseEntity<CourseRevisionDTO> createRevision(
+            @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long actorId = JwtUtils.extractUserId(jwt);
+        log.info("Creating revision for course {} by user {}", courseId, actorId);
+        CourseRevisionDTO revision = courseRevisionService.createRevision(courseId, actorId);
+        return ResponseEntity.ok(revision);
+    }
+
+    @GetMapping("/{courseId}/revisions")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @Operation(summary = "List revisions of a course (mentor/admin)")
+    public ResponseEntity<PageResponse<CourseRevisionDTO>> listCourseRevisions(
+            @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
+            @Parameter(description = "Optional revision status filter")
+            @RequestParam(required = false) CourseRevisionStatus status,
+            @AuthenticationPrincipal Jwt jwt,
+            @PageableDefault(size = 20, sort = "revisionNumber", direction = Sort.Direction.DESC) Pageable pageable) {
+
+        Long actorId = JwtUtils.extractUserId(jwt);
+        PageResponse<CourseRevisionDTO> revisions =
+                courseRevisionService.listCourseRevisions(courseId, actorId, status, pageable);
+        return ResponseEntity.ok(revisions);
     }
 
     // ========== Helpers ==========

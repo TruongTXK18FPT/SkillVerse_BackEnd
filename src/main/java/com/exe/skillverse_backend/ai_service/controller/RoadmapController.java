@@ -24,11 +24,20 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 
 /**
  * REST Controller for AI-powered roadmap generation and management
@@ -114,8 +123,8 @@ public class RoadmapController {
                         @ApiResponse(responseCode = "200", description = "Thành công"),
                         @ApiResponse(responseCode = "401", description = "Chưa xác thực")
         })
-        public ResponseEntity<java.util.Map<String, Long>> getGlobalModeCounts() {
-                java.util.Map<String, Long> counts = aiRoadmapService.getModeCountsGlobal();
+        public ResponseEntity<Map<String, Long>> getGlobalModeCounts() {
+                Map<String, Long> counts = aiRoadmapService.getModeCountsGlobal();
                 return ResponseEntity.ok(counts);
         }
 
@@ -125,10 +134,10 @@ public class RoadmapController {
                         @ApiResponse(responseCode = "200", description = "Thành công"),
                         @ApiResponse(responseCode = "401", description = "Chưa xác thực")
         })
-        public ResponseEntity<java.util.Map<String, Long>> getMyModeCounts(Authentication authentication) {
+        public ResponseEntity<Map<String, Long>> getMyModeCounts(Authentication authentication) {
                 Jwt jwt = (Jwt) authentication.getPrincipal();
                 Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
-                java.util.Map<String, Long> counts = aiRoadmapService.getModeCountsForUser(userId);
+                Map<String, Long> counts = aiRoadmapService.getModeCountsForUser(userId);
                 return ResponseEntity.ok(counts);
         }
 
@@ -138,12 +147,12 @@ public class RoadmapController {
                         @ApiResponse(responseCode = "200", description = "Thành công"),
                         @ApiResponse(responseCode = "401", description = "Chưa xác thực")
         })
-        public ResponseEntity<java.util.Map<String, Long>> getModeCountsInRange(
-                        @org.springframework.web.bind.annotation.RequestParam String from,
-                        @org.springframework.web.bind.annotation.RequestParam String to) {
-                java.time.Instant fromInst = parseInstantStart(from);
-                java.time.Instant toInst = parseInstantEnd(to);
-                java.util.Map<String, Long> counts = aiRoadmapService.getModeCountsGlobalRange(fromInst, toInst);
+        public ResponseEntity<Map<String, Long>> getModeCountsInRange(
+                        @RequestParam String from,
+                        @RequestParam String to) {
+                Instant fromInst = parseInstantStart(from);
+                Instant toInst = parseInstantEnd(to);
+                Map<String, Long> counts = aiRoadmapService.getModeCountsGlobalRange(fromInst, toInst);
                 return ResponseEntity.ok(counts);
         }
 
@@ -153,113 +162,113 @@ public class RoadmapController {
                         @ApiResponse(responseCode = "200", description = "Thành công"),
                         @ApiResponse(responseCode = "401", description = "Chưa xác thực")
         })
-        public ResponseEntity<java.util.Map<String, Long>> getMyModeCountsInRange(
-                        @org.springframework.web.bind.annotation.RequestParam String from,
-                        @org.springframework.web.bind.annotation.RequestParam String to,
+        public ResponseEntity<Map<String, Long>> getMyModeCountsInRange(
+                        @RequestParam String from,
+                        @RequestParam String to,
                         Authentication authentication) {
                 Jwt jwt = (Jwt) authentication.getPrincipal();
                 Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
-                java.time.Instant fromInst = parseInstantStart(from);
-                java.time.Instant toInst = parseInstantEnd(to);
-                java.util.Map<String, Long> counts = aiRoadmapService.getModeCountsForUserRange(userId, fromInst,
+                Instant fromInst = parseInstantStart(from);
+                Instant toInst = parseInstantEnd(to);
+                Map<String, Long> counts = aiRoadmapService.getModeCountsForUserRange(userId, fromInst,
                                 toInst);
                 return ResponseEntity.ok(counts);
         }
 
         @GetMapping("/analytics/mode-counts/daily")
         @Operation(summary = "Analytics: Daily Mode Counts", description = "Nhóm theo ngày trong khoảng thời gian [from, to]")
-        public ResponseEntity<java.util.Map<String, java.util.Map<String, Long>>> getDailyModeCounts(
-                        @org.springframework.web.bind.annotation.RequestParam String from,
-                        @org.springframework.web.bind.annotation.RequestParam String to) {
-                java.time.Instant fromInst = parseInstantStart(from);
-                java.time.Instant toInst = parseInstantEnd(to);
+        public ResponseEntity<Map<String, Map<String, Long>>> getDailyModeCounts(
+                        @RequestParam String from,
+                        @RequestParam String to) {
+                Instant fromInst = parseInstantStart(from);
+                Instant toInst = parseInstantEnd(to);
                 return ResponseEntity.ok(aiRoadmapService.getModeCountsDaily(fromInst, toInst));
         }
 
         @GetMapping("/analytics/mode-counts/weekly")
         @Operation(summary = "Analytics: Weekly Mode Counts", description = "Nhóm theo tuần trong khoảng thời gian [from, to]")
-        public ResponseEntity<java.util.Map<String, java.util.Map<String, Long>>> getWeeklyModeCounts(
-                        @org.springframework.web.bind.annotation.RequestParam String from,
-                        @org.springframework.web.bind.annotation.RequestParam String to) {
-                java.time.Instant fromInst = parseInstantStart(from);
-                java.time.Instant toInst = parseInstantEnd(to);
+        public ResponseEntity<Map<String, Map<String, Long>>> getWeeklyModeCounts(
+                        @RequestParam String from,
+                        @RequestParam String to) {
+                Instant fromInst = parseInstantStart(from);
+                Instant toInst = parseInstantEnd(to);
                 return ResponseEntity.ok(aiRoadmapService.getModeCountsWeekly(fromInst, toInst));
         }
 
         @GetMapping("/analytics/mode-counts/monthly")
         @Operation(summary = "Analytics: Monthly Mode Counts", description = "Nhóm theo tháng trong khoảng thời gian [from, to]")
-        public ResponseEntity<java.util.Map<String, java.util.Map<String, Long>>> getMonthlyModeCounts(
-                        @org.springframework.web.bind.annotation.RequestParam String from,
-                        @org.springframework.web.bind.annotation.RequestParam String to) {
-                java.time.Instant fromInst = parseInstantStart(from);
-                java.time.Instant toInst = parseInstantEnd(to);
+        public ResponseEntity<Map<String, Map<String, Long>>> getMonthlyModeCounts(
+                        @RequestParam String from,
+                        @RequestParam String to) {
+                Instant fromInst = parseInstantStart(from);
+                Instant toInst = parseInstantEnd(to);
                 return ResponseEntity.ok(aiRoadmapService.getModeCountsMonthly(fromInst, toInst));
         }
 
         @GetMapping("/analytics/mode-counts/me/daily")
         @Operation(summary = "Analytics: My Daily Mode Counts", description = "Nhóm theo ngày cho người dùng hiện tại")
-        public ResponseEntity<java.util.Map<String, java.util.Map<String, Long>>> getMyDailyModeCounts(
-                        @org.springframework.web.bind.annotation.RequestParam String from,
-                        @org.springframework.web.bind.annotation.RequestParam String to,
+        public ResponseEntity<Map<String, Map<String, Long>>> getMyDailyModeCounts(
+                        @RequestParam String from,
+                        @RequestParam String to,
                         Authentication authentication) {
                 Jwt jwt = (Jwt) authentication.getPrincipal();
                 Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
-                java.time.Instant fromInst = parseInstantStart(from);
-                java.time.Instant toInst = parseInstantEnd(to);
+                Instant fromInst = parseInstantStart(from);
+                Instant toInst = parseInstantEnd(to);
                 return ResponseEntity.ok(aiRoadmapService.getModeCountsDailyForUser(userId, fromInst, toInst));
         }
 
         @GetMapping("/analytics/mode-counts/me/weekly")
         @Operation(summary = "Analytics: My Weekly Mode Counts", description = "Nhóm theo tuần cho người dùng hiện tại")
-        public ResponseEntity<java.util.Map<String, java.util.Map<String, Long>>> getMyWeeklyModeCounts(
-                        @org.springframework.web.bind.annotation.RequestParam String from,
-                        @org.springframework.web.bind.annotation.RequestParam String to,
+        public ResponseEntity<Map<String, Map<String, Long>>> getMyWeeklyModeCounts(
+                        @RequestParam String from,
+                        @RequestParam String to,
                         Authentication authentication) {
                 Jwt jwt = (Jwt) authentication.getPrincipal();
                 Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
-                java.time.Instant fromInst = parseInstantStart(from);
-                java.time.Instant toInst = parseInstantEnd(to);
+                Instant fromInst = parseInstantStart(from);
+                Instant toInst = parseInstantEnd(to);
                 return ResponseEntity.ok(aiRoadmapService.getModeCountsWeeklyForUser(userId, fromInst, toInst));
         }
 
         @GetMapping("/analytics/mode-counts/me/monthly")
         @Operation(summary = "Analytics: My Monthly Mode Counts", description = "Nhóm theo tháng cho người dùng hiện tại")
-        public ResponseEntity<java.util.Map<String, java.util.Map<String, Long>>> getMyMonthlyModeCounts(
-                        @org.springframework.web.bind.annotation.RequestParam String from,
-                        @org.springframework.web.bind.annotation.RequestParam String to,
+        public ResponseEntity<Map<String, Map<String, Long>>> getMyMonthlyModeCounts(
+                        @RequestParam String from,
+                        @RequestParam String to,
                         Authentication authentication) {
                 Jwt jwt = (Jwt) authentication.getPrincipal();
                 Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
-                java.time.Instant fromInst = parseInstantStart(from);
-                java.time.Instant toInst = parseInstantEnd(to);
+                Instant fromInst = parseInstantStart(from);
+                Instant toInst = parseInstantEnd(to);
                 return ResponseEntity.ok(aiRoadmapService.getModeCountsMonthlyForUser(userId, fromInst, toInst));
         }
 
-        private java.time.Instant parseInstantStart(String s) {
+        private Instant parseInstantStart(String s) {
                 try {
-                        return java.time.Instant.parse(s);
+                        return Instant.parse(s);
                 } catch (Exception ignored) {
                 }
                 try {
-                        java.time.LocalDate d = java.time.LocalDate.parse(s);
-                        return d.atStartOfDay(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).toInstant();
+                        LocalDate d = LocalDate.parse(s);
+                        return d.atStartOfDay(ZoneId.of("Asia/Ho_Chi_Minh")).toInstant();
                 } catch (Exception ignored) {
                 }
-                return java.time.Instant.now().minus(java.time.Duration.ofDays(30));
+                return Instant.now().minus(Duration.ofDays(30));
         }
 
-        private java.time.Instant parseInstantEnd(String s) {
+        private Instant parseInstantEnd(String s) {
                 try {
-                        return java.time.Instant.parse(s);
+                        return Instant.parse(s);
                 } catch (Exception ignored) {
                 }
                 try {
-                        java.time.LocalDate d = java.time.LocalDate.parse(s);
-                        return d.plusDays(1).atStartOfDay(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).toInstant()
+                        LocalDate d = LocalDate.parse(s);
+                        return d.plusDays(1).atStartOfDay(ZoneId.of("Asia/Ho_Chi_Minh")).toInstant()
                                         .minusSeconds(1);
                 } catch (Exception ignored) {
                 }
-                return java.time.Instant.now();
+                return Instant.now();
         }
 
         @PostMapping("/clarify")

@@ -7,6 +7,7 @@ import java.util.List;
 import com.exe.skillverse_backend.auth_service.dto.response.UserDto;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleSummaryDTO;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.shared.dto.MediaDTO;
 
 import lombok.AllArgsConstructor;
@@ -47,4 +48,6 @@ public class CourseDetailDTO {
     // Suspension info (status == SUSPENDED)
     private String suspensionReason;
     private LocalDateTime suspendedAt;
+    private CourseUpgradePolicy upgradePolicy;
+    private String upgradePolicyStatusMessage;
 }

@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.admin_service.dto.response.CourseStatsResponse
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseSummaryDTO;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.course_service.service.CourseService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
@@ -146,6 +147,19 @@ public class AdminCourseController {
         log.info("Admin {} restoring suspended course {}", adminId, courseId);
         CourseDetailDTO restored = courseService.restoreCourse(courseId, adminId);
         return ResponseEntity.ok(restored);
+    }
+
+    @PostMapping("/{courseId}/upgrade-policy")
+    @Operation(summary = "Update course upgrade policy (MANUAL/AUTO_COMPATIBLE_ONLY)")
+    public ResponseEntity<CourseDetailDTO> updateUpgradePolicy(
+            @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
+            @Parameter(description = "Upgrade policy") @RequestParam @NotNull CourseUpgradePolicy policy,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long adminId = extractUserId(jwt);
+        log.info("Admin {} updating course {} upgrade policy to {}", adminId, courseId, policy);
+        CourseDetailDTO updated = courseService.updateUpgradePolicy(courseId, policy, adminId);
+        return ResponseEntity.ok(updated);
     }
 
     // ========== Helpers ==========

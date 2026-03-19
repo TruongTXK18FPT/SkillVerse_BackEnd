@@ -17,6 +17,7 @@ import com.exe.skillverse_backend.community_service.repository.CommentRepository
 import com.exe.skillverse_backend.community_service.repository.PostLikeRepository;
 import com.exe.skillverse_backend.community_service.repository.PostDislikeRepository;
 import com.exe.skillverse_backend.community_service.repository.PostRepository;
+import com.exe.skillverse_backend.community_service.entity.PostDislike;
 import com.exe.skillverse_backend.community_service.repository.SavedPostRepository;
 import com.exe.skillverse_backend.community_service.service.PostService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
@@ -35,9 +36,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.util.HtmlUtils;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -121,14 +128,14 @@ public class PostServiceImpl implements PostService {
         return saved.map(sp -> toResponse(sp.getPost()));
     }
 
-    public java.util.Map<String, Object> getStats() {
+    public Map<String, Object> getStats() {
         Long totalPosts = postRepository.count();
         Long totalUsers = userRepository.count();
         Long totalLikes = Optional.ofNullable(postRepository.sumLikes()).orElse(0L);
         Long totalComments = Optional.ofNullable(postRepository.sumComments()).orElse(0L);
         Long signal = totalLikes + totalComments;
 
-        java.util.Map<String, Object> stats = new java.util.HashMap<>();
+        Map<String, Object> stats = new HashMap<>();
         stats.put("totalPosts", totalPosts);
         stats.put("totalUsers", totalUsers);
         stats.put("totalLikes", totalLikes);
@@ -137,11 +144,11 @@ public class PostServiceImpl implements PostService {
         return stats;
     }
 
-    public java.util.Map<String, Object> getTrends() {
-        java.util.Map<String, Integer> tagCounts = new java.util.HashMap<>();
+    public Map<String, Object> getTrends() {
+        Map<String, Integer> tagCounts = new HashMap<>();
 
         // 1. Tags from 'tags' column
-        java.util.List<String> allTags = postRepository.findAllTags();
+        List<String> allTags = postRepository.findAllTags();
         for (String t : allTags) {
             if (t == null || t.isEmpty())
                 continue;
@@ -154,29 +161,29 @@ public class PostServiceImpl implements PostService {
         }
 
         // 2. Tags from content (legacy support)
-        java.util.List<String> contents = postRepository.findAllContents();
-        java.util.regex.Pattern p = java.util.regex.Pattern.compile("#([A-Za-z0-9_]+)");
+        List<String> contents = postRepository.findAllContents();
+        Pattern p = Pattern.compile("#([A-Za-z0-9_]+)");
         for (String c : contents) {
             if (c == null)
                 continue;
-            java.util.regex.Matcher m = p.matcher(c);
+            Matcher m = p.matcher(c);
             while (m.find()) {
                 String tag = m.group(1).toLowerCase();
                 tagCounts.put(tag, tagCounts.getOrDefault(tag, 0) + 1);
             }
         }
 
-        java.util.List<java.util.Map<String, Object>> top = tagCounts.entrySet().stream()
+        List<Map<String, Object>> top = tagCounts.entrySet().stream()
                 .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
                 .limit(10)
                 .map(e -> {
-                    java.util.Map<String, Object> m = new java.util.HashMap<>();
+                    Map<String, Object> m = new HashMap<>();
                     m.put("topic", e.getKey());
                     m.put("count", e.getValue());
                     return m;
                 })
                 .toList();
-        java.util.Map<String, Object> res = new java.util.HashMap<>();
+        Map<String, Object> res = new HashMap<>();
         res.put("trends", top);
         return res;
     }
@@ -226,7 +233,7 @@ public class PostServiceImpl implements PostService {
             postLikeRepository.delete(existing.get());
             post.setLikeCount(Math.max(0, post.getLikeCount() - 1));
         } else {
-            Optional<com.exe.skillverse_backend.community_service.entity.PostDislike> exDis = postDislikeRepository
+            Optional<PostDislike> exDis = postDislikeRepository
                     .findByPost_IdAndUser_Id(id, userId);
             if (exDis.isPresent()) {
                 postDislikeRepository.delete(exDis.get());
@@ -256,8 +263,8 @@ public class PostServiceImpl implements PostService {
     public PostResponse dislikePost(Long id, Long userId) {
         Post post = postRepository.findById(id).orElseThrow();
         User user = userRepository.findById(userId).orElseThrow();
-        Optional<com.exe.skillverse_backend.community_service.entity.PostDislike> existing = postDislikeRepository
-                .findByPost_IdAndUser_Id(id, userId);
+            Optional<PostDislike> existing = postDislikeRepository
+                    .findByPost_IdAndUser_Id(id, userId);
         if (existing.isPresent()) {
             postDislikeRepository.delete(existing.get());
             post.setDislikeCount(Math.max(0, post.getDislikeCount() - 1));
@@ -267,7 +274,7 @@ public class PostServiceImpl implements PostService {
                 postLikeRepository.delete(exLike.get());
                 post.setLikeCount(Math.max(0, post.getLikeCount() - 1));
             }
-            com.exe.skillverse_backend.community_service.entity.PostDislike dislike = com.exe.skillverse_backend.community_service.entity.PostDislike
+            PostDislike dislike = PostDislike
                     .builder()
                     .post(post)
                     .user(user)
@@ -420,9 +427,9 @@ public class PostServiceImpl implements PostService {
     }
 
     private PostResponse toResponse(Post p) {
-        java.util.List<String> tags = p.getTags() != null && !p.getTags().isEmpty()
-                ? java.util.Arrays.asList(p.getTags().split(","))
-                : new java.util.ArrayList<>();
+        List<String> tags = p.getTags() != null && !p.getTags().isEmpty()
+                ? Arrays.asList(p.getTags().split(","))
+                : new ArrayList<>();
 
         return PostResponse.builder()
                 .id(p.getId())

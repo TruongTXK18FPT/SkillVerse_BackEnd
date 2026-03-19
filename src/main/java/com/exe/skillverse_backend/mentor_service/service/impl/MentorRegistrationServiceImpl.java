@@ -19,8 +19,19 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.apache.pdfbox.io.MemoryUsageSetting;
+import org.apache.pdfbox.multipdf.PDFMergerUtility;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
+import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -205,7 +216,7 @@ public class MentorRegistrationServiceImpl
                                         byte[] combined = combineCertificatesToPdf(certificatesFiles);
                                         String mergedId = basePublicId + "_MERGED";
                                         // Wrap bytes as MultipartFile with application/pdf
-                                        MultipartFile pdfFile = new org.springframework.web.multipart.MultipartFile() {
+                                        MultipartFile pdfFile = new MultipartFile() {
                                                 @Override
                                                 public String getName() {
                                                         return "combined";
@@ -237,7 +248,7 @@ public class MentorRegistrationServiceImpl
                                                 }
 
                                                 @Override
-                                                public java.io.InputStream getInputStream() {
+                                                public InputStream getInputStream() {
                                                         return new ByteArrayInputStream(combined);
                                                 }
 
@@ -416,16 +427,15 @@ public class MentorRegistrationServiceImpl
 
                 byte[] imagesPdfBytes = null;
                 if (!images.isEmpty()) {
-                        org.apache.pdfbox.pdmodel.PDDocument doc = new org.apache.pdfbox.pdmodel.PDDocument();
+                        PDDocument doc = new PDDocument();
                         for (MultipartFile img : images) {
-                                java.awt.image.BufferedImage bi = javax.imageio.ImageIO.read(img.getInputStream());
+                                BufferedImage bi = ImageIO.read(img.getInputStream());
                                 if (bi == null)
                                         continue;
-                                org.apache.pdfbox.pdmodel.common.PDRectangle pageSize = org.apache.pdfbox.pdmodel.common.PDRectangle.A4;
-                                org.apache.pdfbox.pdmodel.PDPage page = new org.apache.pdfbox.pdmodel.PDPage(pageSize);
+                                PDRectangle pageSize = PDRectangle.A4;
+                                PDPage page = new PDPage(pageSize);
                                 doc.addPage(page);
-                                org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject pdImage = org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory
-                                                .createFromImage(doc, bi);
+                                PDImageXObject pdImage = LosslessFactory.createFromImage(doc, bi);
                                 float margin = 36f;
                                 float maxW = pageSize.getWidth() - 2 * margin;
                                 float maxH = pageSize.getHeight() - 2 * margin;
@@ -436,12 +446,11 @@ public class MentorRegistrationServiceImpl
                                 float drawH = imgH * scale;
                                 float x = (pageSize.getWidth() - drawW) / 2f;
                                 float y = (pageSize.getHeight() - drawH) / 2f;
-                                try (org.apache.pdfbox.pdmodel.PDPageContentStream cs = new org.apache.pdfbox.pdmodel.PDPageContentStream(
-                                                doc, page)) {
+                                try (PDPageContentStream cs = new PDPageContentStream(doc, page)) {
                                         cs.drawImage(pdImage, x, y, drawW, drawH);
                                 }
                         }
-                        try (java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream()) {
+                        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
                                 doc.save(baos);
                                 imagesPdfBytes = baos.toByteArray();
                         } finally {
@@ -453,16 +462,16 @@ public class MentorRegistrationServiceImpl
                         return imagesPdfBytes != null ? imagesPdfBytes : new byte[0];
                 }
 
-                org.apache.pdfbox.multipdf.PDFMergerUtility merger = new org.apache.pdfbox.multipdf.PDFMergerUtility();
-                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+                PDFMergerUtility merger = new PDFMergerUtility();
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
                 merger.setDestinationStream(out);
                 if (imagesPdfBytes != null && imagesPdfBytes.length > 0) {
-                        merger.addSource(new java.io.ByteArrayInputStream(imagesPdfBytes));
+                        merger.addSource(new ByteArrayInputStream(imagesPdfBytes));
                 }
                 for (MultipartFile pdf : pdfs) {
                         merger.addSource(pdf.getInputStream());
                 }
-                merger.mergeDocuments(org.apache.pdfbox.io.MemoryUsageSetting.setupMainMemoryOnly());
+                merger.mergeDocuments(MemoryUsageSetting.setupMainMemoryOnly());
                 return out.toByteArray();
         }
 }

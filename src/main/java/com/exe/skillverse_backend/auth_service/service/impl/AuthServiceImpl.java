@@ -1,7 +1,16 @@
 package com.exe.skillverse_backend.auth_service.service.impl;
 
-import com.exe.skillverse_backend.auth_service.entity.*;
-import com.exe.skillverse_backend.auth_service.repository.*;
+import com.exe.skillverse_backend.auth_service.entity.AuthProvider;
+import com.exe.skillverse_backend.auth_service.entity.InvalidatedToken;
+import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
+import com.exe.skillverse_backend.auth_service.entity.RefreshToken;
+import com.exe.skillverse_backend.auth_service.entity.Role;
+import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.entity.UserStatus;
+import com.exe.skillverse_backend.auth_service.repository.InvalidatedTokenRepository;
+import com.exe.skillverse_backend.auth_service.repository.RefreshTokenRepository;
+import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.auth_service.service.AuthService;
 import com.exe.skillverse_backend.auth_service.service.EmailVerificationService;
 import com.exe.skillverse_backend.auth_service.service.GoogleTokenVerificationService;
@@ -17,7 +26,9 @@ import com.exe.skillverse_backend.shared.exception.AccountPendingApprovalExcepti
 import com.exe.skillverse_backend.shared.exception.AuthenticationException;
 import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
-import com.nimbusds.jose.*;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.nimbusds.jwt.JWTClaimsSet;
@@ -31,7 +42,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
@@ -664,7 +680,7 @@ public class AuthServiceImpl implements AuthService {
                                         // - Set googleLinked = true to allow Google login
                                         // - Keep password intact (for LOCAL users)
                                         user.setGoogleLinked(true);
-                                        user.setUpdatedAt(java.time.LocalDateTime.now());
+                                        user.setUpdatedAt(LocalDateTime.now());
                                         userRepository.save(user);
                                         log.info("Google account linked successfully. User can now login with both methods.");
                                 }

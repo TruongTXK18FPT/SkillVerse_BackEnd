@@ -250,6 +250,7 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
     private CoursePurchase completePurchaseAndEnroll(User user, Course course) {
         Long userId = user.getId();
         Long courseId = course.getId();
+        Course enrollmentCourse = courseRepository.findByIdForEnrollmentSnapshot(courseId).orElse(course);
 
         // Pay mentor share
         BigDecimal mentorShare = course.getPrice().multiply(MENTOR_SHARE_RATIO);
@@ -270,11 +271,15 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         if (!courseEnrollmentRepository.existsByCourseIdAndUserId(courseId, userId)) {
             CourseEnrollment enrollment = CourseEnrollment.builder()
                     .user(user)
-                    .course(course)
+                    .course(enrollmentCourse)
                     .status(EnrollmentStatus.ENROLLED)
                     .progressPercent(0)
                     .entitlementSource(EntitlementSource.PURCHASE)
                     .entitlementRef("PURCHASE_" + purchase.getId())
+                    .learningRevisionId(resolveInitialLearningRevisionId(enrollmentCourse))
+                    .upgradePolicySnapshot(enrollmentCourse.getUpgradePolicy() != null
+                            ? enrollmentCourse.getUpgradePolicy().name()
+                            : null)
                     .enrollDate(Instant.now())
                     .build();
             enrollment.setId(new CourseEnrollment.CourseEnrollmentId(userId, courseId));
@@ -302,6 +307,16 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         String ln = user.getLastName();
         String built = ((fn != null ? fn : "") + (ln != null ? " " + ln : "")).trim();
         return built.isEmpty() ? ("User #" + user.getId()) : built;
+    }
+
+    private Long resolveInitialLearningRevisionId(Course course) {
+        if (course == null) {
+            return null;
+        }
+        if (course.getActiveRevisionId() != null) {
+            return course.getActiveRevisionId();
+        }
+        return course.getLatestRevisionId();
     }
 
     private CoursePurchaseDTO mapToDTO(CoursePurchase purchase) {

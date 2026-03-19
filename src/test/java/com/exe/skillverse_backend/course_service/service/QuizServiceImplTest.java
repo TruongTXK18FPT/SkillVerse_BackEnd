@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptDTO;
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizOptionDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizQuestionDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptSessionDTO;
 import com.exe.skillverse_backend.course_service.dto.quizdto.SubmitQuizDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.Module;
@@ -11,14 +12,17 @@ import com.exe.skillverse_backend.course_service.entity.Quiz;
 import com.exe.skillverse_backend.course_service.entity.QuizAttempt;
 import com.exe.skillverse_backend.course_service.entity.QuizOption;
 import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
+import com.exe.skillverse_backend.course_service.entity.enums.QuizAttemptSessionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.QuestionType;
 import com.exe.skillverse_backend.course_service.mapper.QuizAttemptMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizOptionMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizQuestionMapper;
+import com.exe.skillverse_backend.course_service.policy.CourseQuizAttemptSessionProperties;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizAttemptAnswerSnapshotRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizAttemptRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizAttemptSessionRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizOptionRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizQuestionRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizRepository;
@@ -37,9 +41,12 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class QuizServiceImplTest {
@@ -75,7 +82,13 @@ class QuizServiceImplTest {
     private QuizAttemptAnswerSnapshotRepository attemptAnswerSnapshotRepository;
 
     @Mock
+    private QuizAttemptSessionRepository attemptSessionRepository;
+
+    @Mock
     private ObjectMapper objectMapper;
+
+    @Mock
+    private CourseQuizAttemptSessionProperties attemptSessionProperties;
 
     @Mock
     private Clock clock;
@@ -120,11 +133,12 @@ class QuizServiceImplTest {
         when(quizRepository.findById(9L)).thenReturn(Optional.of(quiz));
         when(quizMapper.toDetailDto(quiz)).thenReturn(detail);
 
-        QuizDetailDTO learnerView = quizService.getQuizForAttempt(9L);
+        QuizDetailDTO learnerView = quizService.getQuizForAttempt(9L, 88L);
 
         assertFalse(learnerView.getQuestions().get(0).getOptions().get(0).isCorrect());
         assertEquals(null, learnerView.getQuestions().get(0).getOptions().get(0).getFeedback());
         assertEquals(1, learnerView.getQuestions().get(0).getCorrectOptionCount());
+        verifyNoInteractions(attemptSessionRepository);
     }
 
     @Test
@@ -151,6 +165,7 @@ class QuizServiceImplTest {
                 .build();
 
         when(clock.instant()).thenReturn(Instant.parse("2026-03-01T09:00:00Z"));
+        when(attemptSessionProperties.isEnabled()).thenReturn(true);
         when(quizRepository.findById(12L)).thenReturn(Optional.of(quiz));
         when(questionRepository.findByQuizIdWithOptions(12L)).thenReturn(List.of(question));
         when(attemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(12L, 7L)).thenReturn(List.of());
@@ -173,5 +188,39 @@ class QuizServiceImplTest {
         assertEquals(100, result.getScore());
         assertTrue(result.getPassed());
         assertEquals(1, result.getCorrectAnswers());
+        verify(attemptSessionRepository).markActiveSessionsSubmitted(
+                12L,
+                7L,
+                QuizAttemptSessionStatus.IN_PROGRESS,
+                QuizAttemptSessionStatus.SUBMITTED,
+                Instant.parse("2026-03-01T09:00:00Z")
+        );
+    }
+
+    @Test
+    void startAttemptSession_createsSessionWhenNoActiveSession() {
+        Course course = Course.builder().id(77L).build();
+        Module module = Module.builder().id(55L).course(course).build();
+        Quiz quiz = Quiz.builder()
+                .id(33L)
+                .module(module)
+                .build();
+
+        when(clock.instant()).thenReturn(Instant.parse("2026-03-01T08:00:00Z"));
+        when(attemptSessionProperties.isEnabled()).thenReturn(true);
+        when(attemptSessionProperties.getTtlMinutes()).thenReturn(30);
+        when(quizRepository.findById(33L)).thenReturn(Optional.of(quiz));
+        when(attemptSessionRepository.findLatestActiveSession(33L, 99L, QuizAttemptSessionStatus.IN_PROGRESS, Instant.parse("2026-03-01T08:00:00Z")))
+                .thenReturn(Optional.empty());
+        when(attemptSessionRepository.save(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        QuizAttemptSessionDTO session = quizService.startAttemptSession(33L, 99L);
+
+        assertNotNull(session);
+        assertEquals(33L, session.getQuizId());
+        assertEquals(99L, session.getUserId());
+        assertEquals("IN_PROGRESS", session.getStatus());
+        assertNotNull(session.getSessionToken());
     }
 }

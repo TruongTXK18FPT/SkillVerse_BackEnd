@@ -4,13 +4,24 @@ import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService;
-import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.*;
+import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.UserAssessmentInfo;
+import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.QuestionInfo;
+import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.TestSubmissionInfo;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.journey_service.dto.request.StartJourneyRequest;
 import com.exe.skillverse_backend.journey_service.dto.request.SubmitTestRequest;
-import com.exe.skillverse_backend.journey_service.dto.response.*;
-import com.exe.skillverse_backend.journey_service.entity.*;
-import com.exe.skillverse_backend.journey_service.repository.*;
+import com.exe.skillverse_backend.journey_service.dto.response.AssessmentTestResponse;
+import com.exe.skillverse_backend.journey_service.dto.response.GenerateTestResponse;
+import com.exe.skillverse_backend.journey_service.dto.response.JourneySummaryResponse;
+import com.exe.skillverse_backend.journey_service.dto.response.TestResultResponse;
+import com.exe.skillverse_backend.journey_service.entity.AssessmentTest;
+import com.exe.skillverse_backend.journey_service.entity.Journey;
+import com.exe.skillverse_backend.journey_service.entity.JourneyProgress;
+import com.exe.skillverse_backend.journey_service.entity.TestResult;
+import com.exe.skillverse_backend.journey_service.repository.AssessmentTestRepository;
+import com.exe.skillverse_backend.journey_service.repository.JourneyProgressRepository;
+import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
+import com.exe.skillverse_backend.journey_service.repository.TestResultRepository;
 import com.exe.skillverse_backend.journey_service.service.JourneyService;
 import com.exe.skillverse_backend.study_service.dto.request.CreateTaskRequest;
 import com.exe.skillverse_backend.study_service.dto.request.GenerateScheduleRequest;
@@ -36,7 +47,21 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -2746,7 +2771,7 @@ public class JourneyServiceImpl implements JourneyService {
         if (text == null) {
             return null;
         }
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d+)").matcher(text);
+        Matcher matcher = Pattern.compile("(\\d+)").matcher(text);
         if (!matcher.find()) {
             return null;
         }

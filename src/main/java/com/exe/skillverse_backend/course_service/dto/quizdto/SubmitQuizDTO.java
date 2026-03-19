@@ -16,6 +16,9 @@ public class SubmitQuizDTO {
     @NotNull(message = "Answers are required")
     private List<Answer> answers;
 
+    // Optional token for in-progress attempt session tracking
+    private String sessionToken;
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

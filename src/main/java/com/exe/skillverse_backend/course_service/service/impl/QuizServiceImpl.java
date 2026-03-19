@@ -8,22 +8,27 @@ import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
 import com.exe.skillverse_backend.course_service.entity.QuizOption;
 import com.exe.skillverse_backend.course_service.entity.QuizAttempt;
 import com.exe.skillverse_backend.course_service.entity.QuizAttemptAnswerSnapshot;
+import com.exe.skillverse_backend.course_service.entity.QuizAttemptSession;
 import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
+import com.exe.skillverse_backend.course_service.entity.enums.QuizAttemptSessionStatus;
 import com.exe.skillverse_backend.course_service.mapper.QuizMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizQuestionMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizOptionMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizAttemptMapper;
+import com.exe.skillverse_backend.course_service.policy.CourseQuizAttemptSessionProperties;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizQuestionRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizOptionRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizAttemptRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizAttemptAnswerSnapshotRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizAttemptSessionRepository;
 import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.course_service.service.QuizService;
 import com.exe.skillverse_backend.shared.config.JacksonConfig;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
+import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -47,12 +52,16 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class QuizServiceImpl implements QuizService {
+
+    private static final int DEFAULT_ASSESSMENT_COOLDOWN_HOURS = 8;
+    private static final int LEGACY_ASSESSMENT_COOLDOWN_HOURS = 24;
 
     private final QuizRepository quizRepository;
     private final QuizQuestionRepository questionRepository;
@@ -66,7 +75,9 @@ public class QuizServiceImpl implements QuizService {
     private final Clock clock;
     private final CourseLearningProgressService courseLearningProgressService;
     private final QuizAttemptAnswerSnapshotRepository attemptAnswerSnapshotRepository;
+    private final QuizAttemptSessionRepository attemptSessionRepository;
     private final ObjectMapper objectMapper;
+    private final CourseQuizAttemptSessionProperties attemptSessionProperties;
 
     @Override
     @Transactional
@@ -377,6 +388,111 @@ public class QuizServiceImpl implements QuizService {
         return Instant.now(clock);
     }
 
+    private QuizAttemptSession openOrRefreshAttemptSession(Quiz quiz, Long userId) {
+        if (!isAttemptSessionEnabled() || quiz == null || userId == null) {
+            return null;
+        }
+
+        Instant current = now();
+        expireStaleAttemptSessions(quiz.getId(), userId, current);
+
+        Optional<QuizAttemptSession> activeSession = attemptSessionRepository.findLatestActiveSession(
+                quiz.getId(),
+                userId,
+                QuizAttemptSessionStatus.IN_PROGRESS,
+                current
+        );
+
+        Instant expiresAt = calculateAttemptSessionExpiry(current);
+        if (activeSession.isPresent()) {
+            attemptSessionRepository.touchSession(activeSession.get().getId(), current, expiresAt);
+            QuizAttemptSession existing = activeSession.get();
+            existing.setLastSeenAt(current);
+            existing.setExpiresAt(expiresAt);
+            return existing;
+        }
+
+        QuizAttemptSession newSession = QuizAttemptSession.builder()
+                .quiz(quiz)
+                .userId(userId)
+                .sessionToken(UUID.randomUUID().toString().replace("-", ""))
+                .status(QuizAttemptSessionStatus.IN_PROGRESS)
+                .startedAt(current)
+                .lastSeenAt(current)
+                .expiresAt(expiresAt)
+                .build();
+        return attemptSessionRepository.save(newSession);
+    }
+
+    private void closeAttemptSessionAfterSubmit(Long quizId, Long userId, String sessionToken) {
+        if (!isAttemptSessionEnabled() || quizId == null || userId == null) {
+            return;
+        }
+
+        Instant submittedAt = now();
+        int updatedByToken = 0;
+        if (sessionToken != null && !sessionToken.isBlank()) {
+            updatedByToken = attemptSessionRepository.markSessionSubmitted(
+                    quizId,
+                    userId,
+                    sessionToken.trim(),
+                    QuizAttemptSessionStatus.IN_PROGRESS,
+                    QuizAttemptSessionStatus.SUBMITTED,
+                    submittedAt
+            );
+        }
+
+        if (updatedByToken == 0) {
+            attemptSessionRepository.markActiveSessionsSubmitted(
+                    quizId,
+                    userId,
+                    QuizAttemptSessionStatus.IN_PROGRESS,
+                    QuizAttemptSessionStatus.SUBMITTED,
+                    submittedAt
+            );
+        }
+    }
+
+    private void expireStaleAttemptSessions(Long quizId, Long userId, Instant current) {
+        if (!isAttemptSessionEnabled() || quizId == null || userId == null || current == null) {
+            return;
+        }
+        attemptSessionRepository.expireStaleSessions(
+                quizId,
+                userId,
+                QuizAttemptSessionStatus.IN_PROGRESS,
+                QuizAttemptSessionStatus.EXPIRED,
+                current
+        );
+    }
+
+    private Instant calculateAttemptSessionExpiry(Instant current) {
+        int ttlMinutes = attemptSessionProperties != null ? attemptSessionProperties.getTtlMinutes() : 30;
+        if (ttlMinutes <= 0) {
+            ttlMinutes = 30;
+        }
+        return current.plus(Duration.ofMinutes(ttlMinutes));
+    }
+
+    private boolean isAttemptSessionEnabled() {
+        return attemptSessionProperties == null || attemptSessionProperties.isEnabled();
+    }
+
+    private QuizAttemptSessionDTO toAttemptSessionDto(QuizAttemptSession session) {
+        if (session == null) {
+            return null;
+        }
+        return QuizAttemptSessionDTO.builder()
+                .quizId(session.getQuiz() != null ? session.getQuiz().getId() : null)
+                .userId(session.getUserId())
+                .sessionToken(session.getSessionToken())
+                .status(session.getStatus() != null ? session.getStatus().name() : null)
+                .startedAt(session.getStartedAt())
+                .lastSeenAt(session.getLastSeenAt())
+                .expiresAt(session.getExpiresAt())
+                .build();
+    }
+
     // ========== Quiz Query Operations ==========
 
     @Override
@@ -390,12 +506,61 @@ public class QuizServiceImpl implements QuizService {
 
     @Override
     @Transactional(readOnly = true)
-    public QuizDetailDTO getQuizForAttempt(Long quizId) {
-        log.debug("Getting learner-safe quiz details for {}", quizId);
+    public QuizDetailDTO getQuizForAttempt(Long quizId, Long userId) {
+        log.debug("Getting learner-safe quiz details for {} by user {}", quizId, userId);
 
-        QuizDetailDTO quiz = getQuiz(quizId);
+        Quiz quizEntity = getQuizOrThrow(quizId);
+        QuizDetailDTO quiz = quizMapper.toDetailDto(quizEntity);
         sanitizeQuizForLearner(quiz);
         return quiz;
+    }
+
+    @Override
+    @Transactional
+    public QuizAttemptSessionDTO startAttemptSession(Long quizId, Long userId) {
+        Quiz quiz = getQuizOrThrow(quizId);
+        if (!isAttemptSessionEnabled()) {
+            return QuizAttemptSessionDTO.builder()
+                    .quizId(quizId)
+                    .userId(userId)
+                    .status("DISABLED")
+                    .build();
+        }
+
+        QuizAttemptSession session = openOrRefreshAttemptSession(quiz, userId);
+        return toAttemptSessionDto(session);
+    }
+
+    @Override
+    @Transactional
+    public QuizAttemptSessionDTO heartbeatAttemptSession(Long quizId, Long userId, String sessionToken) {
+        if (!isAttemptSessionEnabled()) {
+            return QuizAttemptSessionDTO.builder()
+                    .quizId(quizId)
+                    .userId(userId)
+                    .status("DISABLED")
+                    .build();
+        }
+        if (sessionToken == null || sessionToken.isBlank()) {
+            throw new BadRequestException("QUIZ_ATTEMPT_SESSION_TOKEN_REQUIRED");
+        }
+
+        Instant current = now();
+        expireStaleAttemptSessions(quizId, userId, current);
+        QuizAttemptSession session = attemptSessionRepository.findActiveSessionByToken(
+                        quizId,
+                        userId,
+                        sessionToken.trim(),
+                        QuizAttemptSessionStatus.IN_PROGRESS,
+                        current
+                )
+                .orElseThrow(() -> new ConflictException("QUIZ_ATTEMPT_SESSION_NOT_ACTIVE"));
+
+        Instant expiresAt = calculateAttemptSessionExpiry(current);
+        attemptSessionRepository.touchSession(session.getId(), current, expiresAt);
+        session.setLastSeenAt(current);
+        session.setExpiresAt(expiresAt);
+        return toAttemptSessionDto(session);
     }
 
     @Override
@@ -421,6 +586,7 @@ public class QuizServiceImpl implements QuizService {
 
         Quiz quiz = getQuizOrThrow(quizId);
         applyQuizDefaults(quiz);
+        expireStaleAttemptSessions(quizId, userId, now());
 
         List<QuizQuestion> quizQuestions = questionRepository.findByQuizIdWithOptions(quizId);
         Map<Long, QuizQuestion> questionMap = quizQuestions.stream()
@@ -520,6 +686,7 @@ public class QuizServiceImpl implements QuizService {
                 quiz.getModule().getCourse().getId(),
                 userId
         );
+        closeAttemptSessionAfterSubmit(quizId, userId, submitData != null ? submitData.getSessionToken() : null);
 
         return attemptMapper.toDto(saved);
     }
@@ -654,8 +821,10 @@ public class QuizServiceImpl implements QuizService {
             quiz.setIsAssessment(false);
         }
         if (Boolean.TRUE.equals(quiz.getIsAssessment())) {
-            if (quiz.getCooldownHours() == null || quiz.getCooldownHours() <= 0) {
-                quiz.setCooldownHours(24);
+            if (quiz.getCooldownHours() == null
+                    || quiz.getCooldownHours() <= 0
+                    || Objects.equals(quiz.getCooldownHours(), LEGACY_ASSESSMENT_COOLDOWN_HOURS)) {
+                quiz.setCooldownHours(DEFAULT_ASSESSMENT_COOLDOWN_HOURS);
             }
         } else {
             quiz.setCooldownHours(null);

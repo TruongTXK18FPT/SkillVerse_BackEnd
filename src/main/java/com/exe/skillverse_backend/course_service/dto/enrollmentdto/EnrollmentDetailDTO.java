@@ -21,7 +21,10 @@ public class EnrollmentDetailDTO {
     private Integer progressPercent;
     private String entitlementSource;
     private String entitlementRef;
+    private Long learningRevisionId;
+    private String upgradePolicySnapshot;
     private LocalDateTime enrolledAt;
+    private LocalDateTime lastUpgradedAt;
     private LocalDateTime completedAt;
     private boolean completed;
 }

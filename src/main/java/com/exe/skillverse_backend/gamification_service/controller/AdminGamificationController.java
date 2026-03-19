@@ -1,8 +1,17 @@
 package com.exe.skillverse_backend.gamification_service.controller;
 
-import com.exe.skillverse_backend.gamification_service.dto.request.*;
-import com.exe.skillverse_backend.gamification_service.dto.response.*;
-import com.exe.skillverse_backend.gamification_service.service.*;
+import com.exe.skillverse_backend.gamification_service.dto.request.BadgeDefinitionRequest;
+import com.exe.skillverse_backend.gamification_service.dto.request.MiniGameDefinitionRequest;
+import com.exe.skillverse_backend.gamification_service.dto.response.AdminGamificationStatsResponse;
+import com.exe.skillverse_backend.gamification_service.dto.response.BadgeDefinitionResponse;
+import com.exe.skillverse_backend.gamification_service.dto.response.LeaderboardResponse;
+import com.exe.skillverse_backend.gamification_service.dto.response.MiniGameDefinitionResponse;
+import com.exe.skillverse_backend.gamification_service.dto.response.UserActivityTrackingResponse;
+import com.exe.skillverse_backend.gamification_service.dto.response.UserBadgeResponse;
+import com.exe.skillverse_backend.gamification_service.service.GamificationAdminDashboardService;
+import com.exe.skillverse_backend.gamification_service.service.GamificationBadgeService;
+import com.exe.skillverse_backend.gamification_service.service.GamificationLeaderboardService;
+import com.exe.skillverse_backend.gamification_service.service.GamificationMiniGameService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -14,10 +23,20 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin/gamification")
@@ -145,12 +164,12 @@ public class AdminGamificationController {
 
     @GetMapping("/leaderboard/full")
     @Operation(summary = "Get full leaderboard data for admin dashboard")
-    public ResponseEntity<java.util.Map<String, Object>> getFullLeaderboard(
+    public ResponseEntity<Map<String, Object>> getFullLeaderboard(
             @RequestParam(defaultValue = "week") String period) {
         LeaderboardResponse coinLeaderboard = leaderboardService.getLeaderboard(period, "coins", null, Pageable.ofSize(100));
         LeaderboardResponse xpLeaderboard = leaderboardService.getLeaderboard(period, "xp", null, Pageable.ofSize(100));
         
-        java.util.Map<String, Object> response = new java.util.HashMap<>();
+        Map<String, Object> response = new HashMap<>();
         response.put("topCoinEarners", coinLeaderboard.getTopEntries());
         response.put("topXpEarners", xpLeaderboard.getTopEntries());
         response.put("totalParticipants", coinLeaderboard.getTotalParticipants());

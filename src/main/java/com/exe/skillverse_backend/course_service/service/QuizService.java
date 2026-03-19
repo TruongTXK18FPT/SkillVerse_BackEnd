@@ -28,7 +28,11 @@ public interface QuizService {
 
     QuizDetailDTO getQuiz(Long quizId);
 
-    QuizDetailDTO getQuizForAttempt(Long quizId);
+    QuizDetailDTO getQuizForAttempt(Long quizId, Long userId);
+
+    QuizAttemptSessionDTO startAttemptSession(Long quizId, Long userId);
+
+    QuizAttemptSessionDTO heartbeatAttemptSession(Long quizId, Long userId, String sessionToken);
 
     List<QuizSummaryDTO> listQuizzesByModule(Long moduleId);
 
