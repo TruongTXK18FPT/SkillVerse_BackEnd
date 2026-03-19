@@ -2,14 +2,13 @@ package com.exe.skillverse_backend.premium_service.dto.response;
 
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * Response DTO for premium plan information

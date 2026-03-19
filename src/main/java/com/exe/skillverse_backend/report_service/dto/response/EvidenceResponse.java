@@ -1,12 +1,11 @@
 package com.exe.skillverse_backend.report_service.dto.response;
 
 import com.exe.skillverse_backend.report_service.entity.ReportEvidence;
+import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 
 /**
  * Response DTO for report evidence details

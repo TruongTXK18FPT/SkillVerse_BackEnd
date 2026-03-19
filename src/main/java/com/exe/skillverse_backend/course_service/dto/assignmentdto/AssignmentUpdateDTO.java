@@ -1,12 +1,10 @@
 package com.exe.skillverse_backend.course_service.dto.assignmentdto;
 
+import com.exe.skillverse_backend.course_service.entity.enums.SubmissionType;
+import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-
-import com.exe.skillverse_backend.course_service.entity.enums.SubmissionType;
-
-import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;

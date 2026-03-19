@@ -1,12 +1,11 @@
 package com.exe.skillverse_backend.course_service.repository;
 
 import com.exe.skillverse_backend.course_service.entity.Module;
+import java.util.Collection;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-
-import java.util.Collection;
-import java.util.List;
 
 public interface ModuleRepository extends JpaRepository<Module, Long> {
   List<Module> findByCourseIdOrderByOrderIndexAsc(Long courseId);

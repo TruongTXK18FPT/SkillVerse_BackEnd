@@ -2,12 +2,11 @@ package com.exe.skillverse_backend.course_service.dto.coursedto;
 
 import com.exe.skillverse_backend.auth_service.dto.response.UserDto;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
-
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 @Data
 @NoArgsConstructor

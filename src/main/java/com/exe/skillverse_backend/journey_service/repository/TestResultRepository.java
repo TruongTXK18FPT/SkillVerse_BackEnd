@@ -1,13 +1,12 @@
 package com.exe.skillverse_backend.journey_service.repository;
 
-import com.exe.skillverse_backend.journey_service.entity.TestResult;
-import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.journey_service.entity.AssessmentTest;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
-
+import com.exe.skillverse_backend.journey_service.entity.Journey;
+import com.exe.skillverse_backend.journey_service.entity.TestResult;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
 @Repository
 public interface TestResultRepository extends JpaRepository<TestResult, Long> {

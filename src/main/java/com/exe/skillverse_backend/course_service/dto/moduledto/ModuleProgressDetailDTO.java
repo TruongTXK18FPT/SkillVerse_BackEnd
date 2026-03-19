@@ -1,9 +1,7 @@
 package com.exe.skillverse_backend.course_service.dto.moduledto;
 
-import java.time.Instant;
-
 import com.exe.skillverse_backend.course_service.entity.enums.ProgressStatus;
-
+import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;

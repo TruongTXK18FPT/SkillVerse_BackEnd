@@ -1,11 +1,11 @@
 package com.exe.skillverse_backend.premium_service.dto.response;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 
 @Data
 @Builder
@@ -19,7 +19,7 @@ public class UserCycleStatsDTO {
     private Integer totalHoursStudied;
     private Integer currentStreak;
     private Integer longestStreak;
-    private java.util.List<Boolean> weeklyActivity;
+    private List<Boolean> weeklyActivity;
     private LocalDateTime cycleStartDate;
     private LocalDateTime cycleEndDate;
 }

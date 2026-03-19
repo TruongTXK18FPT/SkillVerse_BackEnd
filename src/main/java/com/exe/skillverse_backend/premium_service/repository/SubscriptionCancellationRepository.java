@@ -2,12 +2,11 @@ package com.exe.skillverse_backend.premium_service.repository;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.premium_service.entity.SubscriptionCancellation;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.util.List;
 
 /**
  * Repository for SubscriptionCancellation entity

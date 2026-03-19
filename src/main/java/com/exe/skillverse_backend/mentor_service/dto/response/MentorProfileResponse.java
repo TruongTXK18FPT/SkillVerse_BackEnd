@@ -1,12 +1,11 @@
 package com.exe.skillverse_backend.mentor_service.dto.response;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 
 @Data
 @Builder
@@ -59,7 +58,6 @@ public class MentorProfileResponse {
 
     @Schema(description = "Hourly Rate")
     private Double hourlyRate;
-
 
     @Schema(description = "Is pre-chat/booking enabled")
     private Boolean preChatEnabled;

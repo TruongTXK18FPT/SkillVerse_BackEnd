@@ -1,8 +1,7 @@
 package com.exe.skillverse_backend.mentor_service.dto.request;
 
-import lombok.Data;
-
 import java.util.List;
+import lombok.Data;
 
 @Data
 public class MentorSignatureDrawRequest {

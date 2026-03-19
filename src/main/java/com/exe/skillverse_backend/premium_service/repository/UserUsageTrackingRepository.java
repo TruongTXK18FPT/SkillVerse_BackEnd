@@ -3,15 +3,14 @@ package com.exe.skillverse_backend.premium_service.repository;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
 import com.exe.skillverse_backend.premium_service.entity.UserUsageTracking;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
 
 /**
  * Repository for managing user usage tracking

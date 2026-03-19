@@ -2,14 +2,14 @@ package com.exe.skillverse_backend.business_service.repository;
 
 import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.time.LocalDate;
-import java.util.List;
-import java.util.Optional;
 
 @Repository
 public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
@@ -73,5 +73,5 @@ public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
      * Find PENDING_APPROVAL jobs that have been waiting for more than specified days (for auto-cancel scheduler)
      */
     @Query("SELECT j FROM JobPosting j WHERE j.status = :status AND j.createdAt < :cutoffDate")
-    List<JobPosting> findByStatusAndCreatedAtBefore(@Param("status") JobStatus status, @Param("cutoffDate") java.time.LocalDateTime cutoffDate);
+    List<JobPosting> findByStatusAndCreatedAtBefore(@Param("status") JobStatus status, @Param("cutoffDate") LocalDateTime cutoffDate);
 }

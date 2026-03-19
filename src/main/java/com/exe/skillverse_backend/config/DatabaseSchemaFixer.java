@@ -5,6 +5,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -26,8 +29,11 @@ import java.util.function.BooleanSupplier;
 public class DatabaseSchemaFixer {
 
     private static final long SCHEMA_FIXER_LOCK_KEY = 2026031501L;
+    private static final int SCHEMA_FIXER_LOCK_MAX_ATTEMPTS = 60;
+    private static final long SCHEMA_FIXER_LOCK_RETRY_DELAY_MS = 1000L;
 
     private final JdbcTemplate jdbcTemplate;
+    private final PlatformTransactionManager transactionManager;
 
     @PostConstruct
     public void fixDatabaseConstraints() {
@@ -40,95 +46,97 @@ public class DatabaseSchemaFixer {
             return;
         }
 
-        boolean lockAcquired = false;
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        transactionTemplate.setName("database-schema-fixer");
+
         try {
             log.info("Applying PostgreSQL schema patches with guardrails...");
-
-            ensurePatchHistoryTable();
-            lockAcquired = acquireAdvisoryLock();
-
-            applyPatch("PATCH-001-course-rejection-columns",
-                    "Add courses.rejection_reason and courses.rejected_at",
-                    this::patchCourseRejectionColumns,
-                    this::verifyCourseRejectionColumns);
-            applyPatch("PATCH-002-course-suspension-columns",
-                    "Add courses.suspension_reason/suspended_at/suspended_by",
-                    this::patchCourseSuspensionColumns,
-                    this::verifyCourseSuspensionColumns);
-            applyPatch("PATCH-003-notification-type-constraint",
-                    "Ensure notification type check includes course moderation events",
-                    this::patchNotificationTypeConstraint,
-                    this::verifyNotificationTypeConstraint);
-            applyPatch("PATCH-004-assignment-criteria-passing-points",
-                    "Backfill NULL passing_points and enforce NOT NULL DEFAULT 0",
-                    this::patchAssignmentCriteriaPassingPoints,
-                    this::verifyAssignmentCriteriaPassingPoints);
-            applyPatch("PATCH-005-assignment-submissions-is-passed",
-                    "Add assignment_submissions.is_passed",
-                    this::patchAssignmentSubmissionsIsPassed,
-                    this::verifyAssignmentSubmissionsIsPassed);
-            applyPatch("PATCH-006-courses-status-check",
-                    "Ensure courses.status CHECK includes REJECTED and SUSPENDED",
-                    this::patchCoursesStatusCheckConstraint,
-                    this::verifyCoursesStatusCheckConstraint);
-            applyPatch("PATCH-007-certificates-active-unique-index",
-                    "Ensure unique active certificate index or detect duplicates",
-                    this::patchActiveCertificateUniqueIndex,
-                    this::verifyActiveCertificateUniqueIndex);
-            applyPatch("PATCH-008-certificate-snapshot-columns",
-                    "Ensure certificate snapshot columns exist",
-                    this::patchCertificateSnapshotColumns,
-                    this::verifyCertificateSnapshotColumns);
-            applyPatch("PATCH-009-quiz-answer-snapshot-table",
-                    "Ensure quiz_attempt_answer_snapshots table and indexes exist",
-                    this::patchQuizAttemptAnswerSnapshotsTable,
-                    this::verifyQuizAttemptAnswerSnapshotsTable);
-            applyPatch("PATCH-017-quiz-attempt-sessions-table",
-                    "Ensure quiz_attempt_sessions table and indexes exist",
-                    this::patchQuizAttemptSessionsTable,
-                    this::verifyQuizAttemptSessionsTable);
-                applyPatch("PATCH-018-quiz-assessment-cooldown-hours-8",
-                    "Normalize assessment quiz cooldown_hours to 8 hours",
-                    this::patchQuizAssessmentCooldownHours,
-                    this::verifyQuizAssessmentCooldownHours);
-            applyPatch("PATCH-010-course-revisions-schema",
-                    "Create course_revisions schema and pointer columns on courses",
-                    this::patchCourseRevisionsSchema,
-                    this::verifyCourseRevisionsSchema);
-            applyPatch("PATCH-015-course-revisions-unique-index",
-                    "Ensure unique (course_id, revision_number) index exists for course_revisions",
-                    this::patchCourseRevisionsUniqueIndex,
-                    this::verifyCourseRevisionsUniqueIndex);
-            applyPatch("PATCH-011-course-revisions-backfill-v1",
-                    "Backfill revision #1 for existing courses and set active/latest pointers",
-                    this::patchBackfillCourseRevisionsV1,
-                    this::verifyBackfillCourseRevisionsV1);
-            applyPatch("PATCH-016-course-revisions-baseline-and-hash-foundation",
-                    "Add source baseline/hash columns for phased revision diff enforcement",
-                    this::patchCourseRevisionBaselineAndHashFoundation,
-                    this::verifyCourseRevisionBaselineAndHashFoundation);
-            applyPatch("PATCH-012-course-revisions-open-unique-index",
-                    "Ensure only one open revision (DRAFT/PENDING) per course",
-                    this::patchOpenRevisionUniqueIndex,
-                    this::verifyOpenRevisionUniqueIndex);
-            applyPatch("PATCH-013-enrollment-revision-pin-foundation",
-                    "Add enrollment pinned revision and course upgrade policy foundation",
-                    this::patchEnrollmentRevisionPinFoundation,
-                    this::verifyEnrollmentRevisionPinFoundation);
-            applyPatch("PATCH-014-enrollment-upgrade-policy-snapshot-manual-backfill",
-                    "Backfill legacy enrollment upgrade_policy_snapshot NULL to MANUAL",
-                    this::patchEnrollmentUpgradePolicySnapshotManualBackfill,
-                    this::verifyEnrollmentUpgradePolicySnapshotManualBackfill);
-
-            log.info("All PostgreSQL schema patches applied and verified successfully.");
+            transactionTemplate.executeWithoutResult(status -> applySchemaPatchesWithLock());
         } catch (Exception ex) {
             log.error("Schema patching failed (fail-fast): {}", ex.getMessage(), ex);
             throw new IllegalStateException("Database schema patching failed", ex);
-        } finally {
-            if (lockAcquired) {
-                releaseAdvisoryLock();
-            }
         }
+    }
+
+    private void applySchemaPatchesWithLock() {
+        ensurePatchHistoryTable();
+        acquireAdvisoryLock();
+
+        applyPatch("PATCH-001-course-rejection-columns",
+                "Add courses.rejection_reason and courses.rejected_at",
+                this::patchCourseRejectionColumns,
+                this::verifyCourseRejectionColumns);
+        applyPatch("PATCH-002-course-suspension-columns",
+                "Add courses.suspension_reason/suspended_at/suspended_by",
+                this::patchCourseSuspensionColumns,
+                this::verifyCourseSuspensionColumns);
+        applyPatch("PATCH-003-notification-type-constraint",
+                "Ensure notification type check includes course moderation events",
+                this::patchNotificationTypeConstraint,
+                this::verifyNotificationTypeConstraint);
+        applyPatch("PATCH-004-assignment-criteria-passing-points",
+                "Backfill NULL passing_points and enforce NOT NULL DEFAULT 0",
+                this::patchAssignmentCriteriaPassingPoints,
+                this::verifyAssignmentCriteriaPassingPoints);
+        applyPatch("PATCH-005-assignment-submissions-is-passed",
+                "Add assignment_submissions.is_passed",
+                this::patchAssignmentSubmissionsIsPassed,
+                this::verifyAssignmentSubmissionsIsPassed);
+        applyPatch("PATCH-006-courses-status-check",
+                "Ensure courses.status CHECK includes REJECTED and SUSPENDED",
+                this::patchCoursesStatusCheckConstraint,
+                this::verifyCoursesStatusCheckConstraint);
+        applyPatch("PATCH-007-certificates-active-unique-index",
+                "Ensure unique active certificate index or detect duplicates",
+                this::patchActiveCertificateUniqueIndex,
+                this::verifyActiveCertificateUniqueIndex);
+        applyPatch("PATCH-008-certificate-snapshot-columns",
+                "Ensure certificate snapshot columns exist",
+                this::patchCertificateSnapshotColumns,
+                this::verifyCertificateSnapshotColumns);
+        applyPatch("PATCH-009-quiz-answer-snapshot-table",
+                "Ensure quiz_attempt_answer_snapshots table and indexes exist",
+                this::patchQuizAttemptAnswerSnapshotsTable,
+                this::verifyQuizAttemptAnswerSnapshotsTable);
+        applyPatch("PATCH-017-quiz-attempt-sessions-table",
+                "Ensure quiz_attempt_sessions table and indexes exist",
+                this::patchQuizAttemptSessionsTable,
+                this::verifyQuizAttemptSessionsTable);
+        applyPatch("PATCH-018-quiz-assessment-cooldown-hours-8",
+                "Normalize assessment quiz cooldown_hours to 8 hours",
+                this::patchQuizAssessmentCooldownHours,
+                this::verifyQuizAssessmentCooldownHours);
+        applyPatch("PATCH-010-course-revisions-schema",
+                "Create course_revisions schema and pointer columns on courses",
+                this::patchCourseRevisionsSchema,
+                this::verifyCourseRevisionsSchema);
+        applyPatch("PATCH-015-course-revisions-unique-index",
+                "Ensure unique (course_id, revision_number) index exists for course_revisions",
+                this::patchCourseRevisionsUniqueIndex,
+                this::verifyCourseRevisionsUniqueIndex);
+        applyPatch("PATCH-011-course-revisions-backfill-v1",
+                "Backfill revision #1 for existing courses and set active/latest pointers",
+                this::patchBackfillCourseRevisionsV1,
+                this::verifyBackfillCourseRevisionsV1);
+        applyPatch("PATCH-016-course-revisions-baseline-and-hash-foundation",
+                "Add source baseline/hash columns for phased revision diff enforcement",
+                this::patchCourseRevisionBaselineAndHashFoundation,
+                this::verifyCourseRevisionBaselineAndHashFoundation);
+        applyPatch("PATCH-012-course-revisions-open-unique-index",
+                "Ensure only one open revision (DRAFT/PENDING) per course",
+                this::patchOpenRevisionUniqueIndex,
+                this::verifyOpenRevisionUniqueIndex);
+        applyPatch("PATCH-013-enrollment-revision-pin-foundation",
+                "Add enrollment pinned revision and course upgrade policy foundation",
+                this::patchEnrollmentRevisionPinFoundation,
+                this::verifyEnrollmentRevisionPinFoundation);
+        applyPatch("PATCH-014-enrollment-upgrade-policy-snapshot-manual-backfill",
+                "Backfill legacy enrollment upgrade_policy_snapshot NULL to MANUAL",
+                this::patchEnrollmentUpgradePolicySnapshotManualBackfill,
+                this::verifyEnrollmentUpgradePolicySnapshotManualBackfill);
+
+        log.info("All PostgreSQL schema patches applied and verified successfully.");
     }
 
     private void applyPatch(
@@ -184,32 +192,74 @@ public class DatabaseSchemaFixer {
         """, patchKey, description, sha256(patchKey + "|" + description));
     }
 
-    private boolean acquireAdvisoryLock() {
-        Boolean locked = jdbcTemplate.queryForObject(
-                "SELECT pg_try_advisory_lock(?)",
-                Boolean.class,
-                SCHEMA_FIXER_LOCK_KEY
-        );
+    private void acquireAdvisoryLock() {
+        releaseCurrentSessionLockIfPresent();
 
-        if (!Boolean.TRUE.equals(locked)) {
-            throw new IllegalStateException(
-                    "Could not acquire schema patch advisory lock: " + SCHEMA_FIXER_LOCK_KEY
+        for (int attempt = 1; attempt <= SCHEMA_FIXER_LOCK_MAX_ATTEMPTS; attempt++) {
+            Boolean locked = jdbcTemplate.queryForObject(
+                    "SELECT pg_try_advisory_xact_lock(?)",
+                    Boolean.class,
+                    SCHEMA_FIXER_LOCK_KEY
             );
+            if (Boolean.TRUE.equals(locked)) {
+                log.info(
+                        "Acquired transaction advisory lock {} (attempt {}/{})",
+                        SCHEMA_FIXER_LOCK_KEY,
+                        attempt,
+                        SCHEMA_FIXER_LOCK_MAX_ATTEMPTS
+                );
+                return;
+            }
+
+            if (attempt < SCHEMA_FIXER_LOCK_MAX_ATTEMPTS) {
+                log.warn(
+                        "Schema advisory lock {} is busy (attempt {}/{}). Retrying in {} ms.",
+                        SCHEMA_FIXER_LOCK_KEY,
+                        attempt,
+                        SCHEMA_FIXER_LOCK_MAX_ATTEMPTS,
+                        SCHEMA_FIXER_LOCK_RETRY_DELAY_MS
+                );
+                sleepBeforeNextLockAttempt();
+            }
         }
-        log.info("Acquired schema advisory lock {}", SCHEMA_FIXER_LOCK_KEY);
-        return true;
+
+        throw new IllegalStateException(
+                "Could not acquire schema patch advisory lock: " + SCHEMA_FIXER_LOCK_KEY
+                        + " after " + SCHEMA_FIXER_LOCK_MAX_ATTEMPTS + " attempts"
+        );
     }
 
-    private void releaseAdvisoryLock() {
+    private void releaseCurrentSessionLockIfPresent() {
         try {
-            jdbcTemplate.queryForObject(
+            Boolean unlocked = jdbcTemplate.queryForObject(
                     "SELECT pg_advisory_unlock(?)",
                     Boolean.class,
                     SCHEMA_FIXER_LOCK_KEY
             );
-            log.info("Released schema advisory lock {}", SCHEMA_FIXER_LOCK_KEY);
+            if (Boolean.TRUE.equals(unlocked)) {
+                log.warn(
+                        "Released leftover session advisory lock {} in current database session before patching.",
+                        SCHEMA_FIXER_LOCK_KEY
+                );
+            }
         } catch (Exception ex) {
-            log.warn("Failed to release advisory lock {}: {}", SCHEMA_FIXER_LOCK_KEY, ex.getMessage());
+            log.debug(
+                    "Ignored advisory unlock pre-check for key {}: {}",
+                    SCHEMA_FIXER_LOCK_KEY,
+                    ex.getMessage()
+            );
+        }
+    }
+
+    private void sleepBeforeNextLockAttempt() {
+        try {
+            Thread.sleep(SCHEMA_FIXER_LOCK_RETRY_DELAY_MS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Interrupted while waiting for schema advisory lock " + SCHEMA_FIXER_LOCK_KEY,
+                    ex
+            );
         }
     }
 

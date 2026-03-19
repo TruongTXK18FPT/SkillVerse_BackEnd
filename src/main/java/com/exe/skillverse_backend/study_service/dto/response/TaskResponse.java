@@ -1,11 +1,11 @@
 package com.exe.skillverse_backend.study_service.dto.response;
 
 import com.exe.skillverse_backend.study_service.entity.TaskPriority;
-import lombok.Builder;
-import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import lombok.Builder;
+import lombok.Data;
 
 @Data
 @Builder

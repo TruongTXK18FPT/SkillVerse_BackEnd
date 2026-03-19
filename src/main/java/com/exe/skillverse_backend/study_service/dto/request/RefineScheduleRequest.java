@@ -1,8 +1,8 @@
 package com.exe.skillverse_backend.study_service.dto.request;
 
 import com.exe.skillverse_backend.study_service.dto.response.StudySessionResponse;
-import lombok.Data;
 import java.util.List;
+import lombok.Data;
 
 @Data
 public class RefineScheduleRequest {

@@ -1,8 +1,7 @@
 package com.exe.skillverse_backend.course_service.dto.quizdto;
 
-import java.util.List;
-
 import com.exe.skillverse_backend.course_service.entity.enums.QuestionType;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;

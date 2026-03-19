@@ -1,9 +1,9 @@
 package com.exe.skillverse_backend.ai_service.repository;
 
 import com.exe.skillverse_backend.ai_service.entity.TaxonomyEntry;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
-import java.util.List;
 
 public interface TaxonomyEntryRepository extends JpaRepository<TaxonomyEntry, Long> {
     List<TaxonomyEntry> findByActiveTrue();

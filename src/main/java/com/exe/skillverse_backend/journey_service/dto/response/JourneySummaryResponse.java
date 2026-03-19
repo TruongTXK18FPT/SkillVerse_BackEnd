@@ -1,13 +1,12 @@
 package com.exe.skillverse_backend.journey_service.dto.response;
 
 import com.exe.skillverse_backend.journey_service.entity.Journey;
+import java.time.Instant;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.Instant;
-import java.util.List;
 
 /**
  * Response DTO for journey summary.

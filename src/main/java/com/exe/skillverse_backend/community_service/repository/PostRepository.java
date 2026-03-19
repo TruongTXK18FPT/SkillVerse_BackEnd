@@ -1,6 +1,8 @@
 package com.exe.skillverse_backend.community_service.repository;
 
 import com.exe.skillverse_backend.community_service.entity.Post;
+import java.time.LocalDateTime;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -23,19 +25,19 @@ public interface PostRepository extends JpaRepository<Post, Long>, JpaSpecificat
     Long sumComments();
 
     @Query("SELECT p.title FROM Post p")
-    java.util.List<String> findAllTitles();
+    List<String> findAllTitles();
 
     @Query("SELECT p.content FROM Post p")
-    java.util.List<String> findAllContents();
+    List<String> findAllContents();
 
     @Query("SELECT p.tags FROM Post p")
-    java.util.List<String> findAllTags();
+    List<String> findAllTags();
 
     long countByUser_Id(Long userId);
 
     @Query("SELECT p.user.id, COUNT(p) FROM Post p GROUP BY p.user.id")
-    java.util.List<Object[]> countPostsGroupedByUserId();
+    List<Object[]> countPostsGroupedByUserId();
 
     @Query("SELECT p.user.id, COUNT(p) FROM Post p WHERE p.createdAt >= :since GROUP BY p.user.id")
-    java.util.List<Object[]> countPostsSinceGroupedByUserId(@Param("since") java.time.LocalDateTime since);
+    List<Object[]> countPostsSinceGroupedByUserId(@Param("since") LocalDateTime since);
 }

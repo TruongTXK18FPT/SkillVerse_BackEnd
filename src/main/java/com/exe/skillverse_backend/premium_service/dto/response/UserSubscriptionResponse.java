@@ -2,12 +2,11 @@ package com.exe.skillverse_backend.premium_service.dto.response;
 
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 
 /**
  * Response DTO for user subscription information

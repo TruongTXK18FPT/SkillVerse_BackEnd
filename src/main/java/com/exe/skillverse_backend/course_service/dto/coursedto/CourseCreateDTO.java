@@ -1,11 +1,11 @@
 package com.exe.skillverse_backend.course_service.dto.coursedto;
 
 import jakarta.validation.constraints.NotBlank;
+import java.math.BigDecimal;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import java.math.BigDecimal;
-import java.util.List;
 
 @Data
 @NoArgsConstructor

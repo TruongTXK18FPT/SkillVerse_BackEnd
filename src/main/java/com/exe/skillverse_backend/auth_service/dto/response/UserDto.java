@@ -1,10 +1,9 @@
 package com.exe.skillverse_backend.auth_service.dto.response;
 
+import java.util.Set;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.util.Set;
 
 @Data
 @NoArgsConstructor

@@ -2,13 +2,14 @@ package com.exe.skillverse_backend.wallet_service.repository;
 
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import jakarta.persistence.LockModeType;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.util.Optional;
 
 /**
  * Repository for Wallet entity
@@ -44,13 +45,13 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
      * Find wallets with balance greater than amount
      */
     @Query("SELECT w FROM Wallet w WHERE w.cashBalance >= :minBalance")
-    Iterable<Wallet> findWalletsWithMinCashBalance(@Param("minBalance") java.math.BigDecimal minBalance);
+    Iterable<Wallet> findWalletsWithMinCashBalance(@Param("minBalance") BigDecimal minBalance);
     
     /**
      * Get total cash balance across all wallets
      */
     @Query("SELECT COALESCE(SUM(w.cashBalance), 0) FROM Wallet w WHERE w.status = 'ACTIVE'")
-    java.math.BigDecimal getTotalCashBalance();
+    BigDecimal getTotalCashBalance();
     
     /**
      * Get total coin balance across all wallets
@@ -62,7 +63,7 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
      * Find top wallets by coin balance
      */
     @Query("SELECT w FROM Wallet w ORDER BY w.coinBalance DESC")
-    java.util.List<Wallet> findTopByCoinBalanceDesc(org.springframework.data.domain.Pageable pageable);
+    List<Wallet> findTopByCoinBalanceDesc(org.springframework.data.domain.Pageable pageable);
     
     /**
      * Count total active wallets
@@ -75,5 +76,5 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
      * Returns list of [userId, coinBalance] pairs
      */
     @Query("SELECT w.user.id, w.coinBalance FROM Wallet w WHERE w.user IS NOT NULL")
-    java.util.List<Object[]> findUserIdAndCoinBalanceAll();
+    List<Object[]> findUserIdAndCoinBalanceAll();
 }

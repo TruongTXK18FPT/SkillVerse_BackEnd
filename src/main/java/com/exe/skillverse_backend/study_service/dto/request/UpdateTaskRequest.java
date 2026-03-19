@@ -1,9 +1,10 @@
 package com.exe.skillverse_backend.study_service.dto.request;
 
 import com.exe.skillverse_backend.study_service.entity.TaskPriority;
-import lombok.Data;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
+import lombok.Data;
 
 @Data
 public class UpdateTaskRequest {
@@ -18,5 +19,5 @@ public class UpdateTaskRequest {
     private Integer userProgress;
     private String satisfactionLevel;
     private String userNotes;
-    private java.util.List<UUID> linkedSessionIds;
+    private List<UUID> linkedSessionIds;
 }

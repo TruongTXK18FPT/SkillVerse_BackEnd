@@ -1,14 +1,14 @@
 package com.exe.skillverse_backend.course_service.repository;
 
 import com.exe.skillverse_backend.course_service.entity.Assignment;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.Optional;
 
 @Repository
 public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
@@ -46,14 +46,14 @@ public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
      */
     @Transactional(readOnly = true)
     @Query("SELECT a FROM Assignment a WHERE a.dueAt < :now")
-    List<Assignment> findOverdueAssignments(@Param("now") java.time.Instant now);
+    List<Assignment> findOverdueAssignments(@Param("now") Instant now);
 
     /**
      * Find upcoming assignments (due within specified days)
      */
     @Transactional(readOnly = true)
     @Query("SELECT a FROM Assignment a WHERE a.dueAt BETWEEN :now AND :deadline")
-    List<Assignment> findUpcomingAssignments(@Param("now") java.time.Instant now, @Param("deadline") java.time.Instant deadline);
+    List<Assignment> findUpcomingAssignments(@Param("now") Instant now, @Param("deadline") Instant deadline);
 
     /**
      * Count assignments in a course

@@ -2,13 +2,12 @@ package com.exe.skillverse_backend.user_service.repository;
 
 import com.exe.skillverse_backend.user_service.entity.UserSkill;
 import com.exe.skillverse_backend.user_service.entity.UserSkillId;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.util.List;
-import java.util.Optional;
 
 @Repository
 public interface UserSkillRepository extends JpaRepository<UserSkill, UserSkillId> {

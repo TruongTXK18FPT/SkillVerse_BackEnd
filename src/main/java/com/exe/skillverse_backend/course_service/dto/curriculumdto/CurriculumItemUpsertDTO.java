@@ -3,15 +3,14 @@ package com.exe.skillverse_backend.course_service.dto.curriculumdto;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentCriteriaDTO;
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizQuestionCreateDTO;
 import com.exe.skillverse_backend.course_service.entity.enums.LessonType;
-import com.exe.skillverse_backend.course_service.entity.enums.SubmissionType;
 import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
+import com.exe.skillverse_backend.course_service.entity.enums.SubmissionType;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @NoArgsConstructor

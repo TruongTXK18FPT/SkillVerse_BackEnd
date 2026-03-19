@@ -1,13 +1,12 @@
 package com.exe.skillverse_backend.course_service.dto.coursedto;
 
 import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
+import java.math.BigDecimal;
+import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.math.BigDecimal;
-import java.time.Instant;
 
 @Data
 @NoArgsConstructor

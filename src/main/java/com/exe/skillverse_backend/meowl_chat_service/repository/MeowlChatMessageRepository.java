@@ -1,11 +1,10 @@
 package com.exe.skillverse_backend.meowl_chat_service.repository;
 
 import com.exe.skillverse_backend.meowl_chat_service.entity.MeowlChatMessage;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.stereotype.Repository;
-
 import java.util.List;
 import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
 @Repository
 public interface MeowlChatMessageRepository extends JpaRepository<MeowlChatMessage, UUID> {

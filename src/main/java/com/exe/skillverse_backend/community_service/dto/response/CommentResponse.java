@@ -1,8 +1,8 @@
 package com.exe.skillverse_backend.community_service.dto.response;
 
+import java.time.LocalDateTime;
 import lombok.Builder;
 import lombok.Data;
-import java.time.LocalDateTime;
 
 @Data
 @Builder

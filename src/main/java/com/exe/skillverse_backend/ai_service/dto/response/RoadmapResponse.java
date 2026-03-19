@@ -1,13 +1,12 @@
 package com.exe.skillverse_backend.ai_service.dto.response;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Response DTO for AI-generated roadmap (Schema V2)

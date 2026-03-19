@@ -1,8 +1,11 @@
 package com.exe.skillverse_backend.course_service.dto.quizdto;
 
-import lombok.*;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @Builder

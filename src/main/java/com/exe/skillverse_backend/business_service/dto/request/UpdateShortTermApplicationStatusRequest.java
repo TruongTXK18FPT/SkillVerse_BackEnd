@@ -1,7 +1,8 @@
 package com.exe.skillverse_backend.business_service.dto.request;
 
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus;
-import jakarta.validation.constraints.*;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

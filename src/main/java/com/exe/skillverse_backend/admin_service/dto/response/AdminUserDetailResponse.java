@@ -3,13 +3,12 @@ package com.exe.skillverse_backend.admin_service.dto.response;
 import com.exe.skillverse_backend.auth_service.entity.AuthProvider;
 import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.auth_service.entity.UserStatus;
+import java.time.LocalDateTime;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * Detailed DTO for admin user detail modal/page

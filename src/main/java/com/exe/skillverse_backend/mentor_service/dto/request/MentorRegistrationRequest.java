@@ -3,11 +3,14 @@ package com.exe.skillverse_backend.mentor_service.dto.request;
 import com.exe.skillverse_backend.shared.dto.request.BaseRegistrationRequest;
 import com.exe.skillverse_backend.shared.validation.PasswordMatches;
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.*;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import java.util.List;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-
-import java.util.List;
 
 @Data
 @EqualsAndHashCode(callSuper = true)

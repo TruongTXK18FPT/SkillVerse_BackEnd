@@ -1,12 +1,11 @@
 package com.exe.skillverse_backend.ai_service.dto.response;
 
 import com.exe.skillverse_backend.ai_service.enums.ChatMode;
+import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 
 /**
  * Response DTO for chatbot messages

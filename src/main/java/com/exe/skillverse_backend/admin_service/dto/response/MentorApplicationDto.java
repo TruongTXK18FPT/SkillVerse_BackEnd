@@ -2,12 +2,12 @@ package com.exe.skillverse_backend.admin_service.dto.response;
 
 import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.time.LocalDateTime;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 
 @Data
 @Builder
@@ -43,7 +43,7 @@ public class MentorApplicationDto {
     private String certificatesUrl;
 
     @Schema(description = "List of certificate URLs when uploaded separately")
-    private java.util.List<String> certificateUrls;
+    private List<String> certificateUrls;
 
     @Schema(description = "Application status", example = "PENDING")
     private ApplicationStatus applicationStatus;

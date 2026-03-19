@@ -1,7 +1,10 @@
 package com.exe.skillverse_backend.course_service.dto.attachmentdto;
 
 import com.exe.skillverse_backend.course_service.entity.enums.AttachmentType;
-import lombok.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 /**
  * DTO for LessonAttachment entity

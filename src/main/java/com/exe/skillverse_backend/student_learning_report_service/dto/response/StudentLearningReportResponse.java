@@ -1,13 +1,12 @@
 package com.exe.skillverse_backend.student_learning_report_service.dto.response;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * DTO Response cho báo cáo học tập cá nhân của học viên.

@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.course_service.dto.quizdto;
 
 import com.exe.skillverse_backend.course_service.entity.enums.QuestionType;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -16,7 +17,7 @@ public class QuizAttemptAnswerReviewDTO {
     private String questionText;
     private QuestionType questionType;
     private QuizAttemptSubmittedAnswerReviewDTO submittedAnswer;
-    private java.util.List<QuizAttemptAnswerOptionReviewDTO> optionsSnapshot;
+    private List<QuizAttemptAnswerOptionReviewDTO> optionsSnapshot;
     private String submittedAnswerText;
     private String correctAnswerText;
     private Boolean answered;

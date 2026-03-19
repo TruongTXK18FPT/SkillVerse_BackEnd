@@ -2,12 +2,12 @@ package com.exe.skillverse_backend.course_service.repository;
 
 import com.exe.skillverse_backend.course_service.entity.LessonProgress;
 import com.exe.skillverse_backend.course_service.entity.LessonProgressId;
+import java.time.Instant;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.util.List;
 
 @Repository
 public interface LessonProgressRepository extends JpaRepository<LessonProgress, LessonProgressId> {
@@ -19,11 +19,11 @@ public interface LessonProgressRepository extends JpaRepository<LessonProgress, 
     long countCompletedInModule(@Param("userId") Long userId, @Param("moduleId") Long moduleId);
 
     @Query("SELECT lp.completedAt FROM LessonProgress lp WHERE lp.user.id = :userId AND lp.completed = true ORDER BY lp.completedAt DESC")
-    List<java.time.Instant> findCompletionInstantsByUserId(@Param("userId") Long userId);
+    List<Instant> findCompletionInstantsByUserId(@Param("userId") Long userId);
 
     @Query("SELECT lp.completedAt FROM LessonProgress lp WHERE lp.user.id = :userId AND lp.completed = true AND lp.completedAt >= :startOfWeek")
-    List<java.time.Instant> findCompletionInstantsSince(@Param("userId") Long userId,
-            @Param("startOfWeek") java.time.Instant startOfWeek);
+    List<Instant> findCompletionInstantsSince(@Param("userId") Long userId,
+            @Param("startOfWeek") Instant startOfWeek);
 
     /**
      * Đếm số lessons đã hoàn thành trong một course cho một user.

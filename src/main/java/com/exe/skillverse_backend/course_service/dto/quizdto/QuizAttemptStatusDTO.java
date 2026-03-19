@@ -1,12 +1,11 @@
 package com.exe.skillverse_backend.course_service.dto.quizdto;
 
+import java.time.Instant;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.Instant;
-import java.util.List;
 
 /**
  * DTO chứa thông tin trạng thái attempt của user cho một quiz.

@@ -2,13 +2,13 @@ package com.exe.skillverse_backend.prechat_service.repository;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.prechat_service.entity.PreChatMessage;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import java.util.List;
 
 public interface PreChatMessageRepository extends JpaRepository<PreChatMessage, Long> {
     Page<PreChatMessage> findByMentorAndLearnerOrderByCreatedAtAsc(User mentor, User learner, Pageable pageable);

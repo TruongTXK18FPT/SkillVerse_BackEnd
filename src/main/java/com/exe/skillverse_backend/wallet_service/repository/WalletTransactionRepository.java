@@ -2,16 +2,16 @@ package com.exe.skillverse_backend.wallet_service.repository;
 
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
 
 /**
  * Repository for WalletTransaction entity
@@ -94,7 +94,7 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
            "WHERE t.wallet.walletId = :walletId " +
            "AND t.transactionType = 'DEPOSIT_CASH' " +
            "AND t.status = 'COMPLETED'")
-    java.math.BigDecimal calculateTotalDeposited(@Param("walletId") Long walletId);
+    BigDecimal calculateTotalDeposited(@Param("walletId") Long walletId);
     
     /**
      * Calculate total cash withdrawn for a wallet
@@ -103,7 +103,7 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
            "WHERE t.wallet.walletId = :walletId " +
            "AND t.transactionType = 'WITHDRAWAL_CASH' " +
            "AND t.status = 'COMPLETED'")
-    java.math.BigDecimal calculateTotalWithdrawn(@Param("walletId") Long walletId);
+    BigDecimal calculateTotalWithdrawn(@Param("walletId") Long walletId);
     
     /**
      * Calculate total coins earned for a wallet
@@ -130,7 +130,7 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
     @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
            "WHERE t.transactionType IN ('PURCHASE_PREMIUM', 'PURCHASE_COURSE', 'PURCHASE_COINS') " +
            "AND t.status = 'COMPLETED'")
-    java.math.BigDecimal calculateTotalPurchaseRevenue();
+    BigDecimal calculateTotalPurchaseRevenue();
     
     /**
      * Calculate total revenue from purchases within a date range
@@ -139,7 +139,7 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
            "WHERE t.transactionType IN ('PURCHASE_PREMIUM', 'PURCHASE_COURSE', 'PURCHASE_COINS') " +
            "AND t.status = 'COMPLETED' " +
            "AND t.createdAt BETWEEN :startDate AND :endDate")
-    java.math.BigDecimal calculateTotalPurchaseRevenueInRange(
+    BigDecimal calculateTotalPurchaseRevenueInRange(
         @Param("startDate") LocalDateTime startDate, 
         @Param("endDate") LocalDateTime endDate
     );

@@ -1,6 +1,10 @@
 package com.exe.skillverse_backend.wallet_service.repository;
 
 import com.exe.skillverse_backend.wallet_service.entity.WithdrawalRequest;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -8,10 +12,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
 
 /**
  * Repository for WithdrawalRequest entity
@@ -87,7 +87,7 @@ public interface WithdrawalRequestRepository extends JpaRepository<WithdrawalReq
            "WHERE w.user.id = :userId " +
            "AND w.status = 'COMPLETED' " +
            "AND w.completedAt BETWEEN :startDate AND :endDate")
-    java.math.BigDecimal calculateTotalWithdrawnInRange(
+    BigDecimal calculateTotalWithdrawnInRange(
         @Param("userId") Long userId,
         @Param("startDate") LocalDateTime startDate,
         @Param("endDate") LocalDateTime endDate

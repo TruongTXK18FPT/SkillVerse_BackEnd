@@ -1,12 +1,11 @@
 package com.exe.skillverse_backend.journey_service.dto.response;
 
 import com.exe.skillverse_backend.journey_service.entity.AssessmentTest;
+import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
-import java.time.Instant;
 
 /**
  * Response DTO for assessment test.

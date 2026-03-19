@@ -2,12 +2,11 @@ package com.exe.skillverse_backend.wallet_service.dto.request;
 
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import java.math.BigDecimal;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-
-import java.math.BigDecimal;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @NoArgsConstructor

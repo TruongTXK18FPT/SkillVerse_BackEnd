@@ -1,9 +1,8 @@
 package com.exe.skillverse_backend.study_service.dto.response;
 
+import java.util.UUID;
 import lombok.Builder;
 import lombok.Data;
-
-import java.util.UUID;
 
 @Data
 @Builder

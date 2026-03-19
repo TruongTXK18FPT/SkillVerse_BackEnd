@@ -1,11 +1,10 @@
 package com.exe.skillverse_backend.portfolio_service.repository;
 
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioProject;
+import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
-
-import java.util.List;
 
 @Repository
 public interface PortfolioProjectRepository extends JpaRepository<PortfolioProject, Long> {

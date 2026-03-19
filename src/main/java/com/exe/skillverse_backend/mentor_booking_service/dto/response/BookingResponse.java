@@ -1,10 +1,12 @@
 package com.exe.skillverse_backend.mentor_booking_service.dto.response;
 
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
-import lombok.*;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @Builder

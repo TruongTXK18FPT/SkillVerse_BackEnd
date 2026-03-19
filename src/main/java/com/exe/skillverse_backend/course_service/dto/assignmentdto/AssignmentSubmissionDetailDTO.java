@@ -3,11 +3,10 @@ package com.exe.skillverse_backend.course_service.dto.assignmentdto;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-
-import lombok.Data;
-import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @NoArgsConstructor
