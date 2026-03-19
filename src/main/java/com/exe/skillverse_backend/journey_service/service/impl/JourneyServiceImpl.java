@@ -3,10 +3,10 @@ package com.exe.skillverse_backend.journey_service.service.impl;
 import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
-import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService;
-import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.UserAssessmentInfo;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.QuestionInfo;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.TestSubmissionInfo;
+import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.UserAssessmentInfo;
+import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.journey_service.dto.request.StartJourneyRequest;
 import com.exe.skillverse_backend.journey_service.dto.request.SubmitTestRequest;
@@ -32,16 +32,6 @@ import com.exe.skillverse_backend.study_service.entity.TaskPriority;
 import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -64,6 +54,15 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
 @Service

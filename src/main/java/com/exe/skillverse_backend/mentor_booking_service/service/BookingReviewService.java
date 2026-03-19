@@ -2,10 +2,9 @@ package com.exe.skillverse_backend.mentor_booking_service.service;
 
 import com.exe.skillverse_backend.mentor_booking_service.dto.BookingReviewDTO;
 import com.exe.skillverse_backend.mentor_booking_service.dto.BookingReviewStatsDTO;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-
-import java.util.List;
 
 public interface BookingReviewService {
     BookingReviewDTO createReview(Long userId, Long bookingId, Integer rating, String comment, boolean isAnonymous);

@@ -1,9 +1,8 @@
 package com.exe.skillverse_backend.portfolio_service.service;
 
 import com.exe.skillverse_backend.portfolio_service.dto.*;
-import org.springframework.web.multipart.MultipartFile;
-
 import java.util.List;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface PortfolioService {
         // User Profile (Extended)

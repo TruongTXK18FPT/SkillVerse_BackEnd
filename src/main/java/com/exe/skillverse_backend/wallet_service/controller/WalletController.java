@@ -1,5 +1,8 @@
 package com.exe.skillverse_backend.wallet_service.controller;
 
+import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
+import com.exe.skillverse_backend.payment_service.service.PaymentService;
+import com.exe.skillverse_backend.shared.util.JwtUtils;
 import com.exe.skillverse_backend.wallet_service.dto.request.DepositRequest;
 import com.exe.skillverse_backend.wallet_service.dto.request.PurchaseCoinsRequest;
 import com.exe.skillverse_backend.wallet_service.dto.request.WithdrawalRequest;
@@ -10,11 +13,12 @@ import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.service.CoinService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.wallet_service.service.WithdrawalService;
-import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
-import com.exe.skillverse_backend.payment_service.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -23,12 +27,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import com.exe.skillverse_backend.shared.util.JwtUtils;
 import org.springframework.web.bind.annotation.*;
-
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Map;
 
 /**
  * Wallet Controller - User-facing APIs

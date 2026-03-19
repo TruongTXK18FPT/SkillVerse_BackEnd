@@ -2,8 +2,12 @@ package com.exe.skillverse_backend.wallet_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
-import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
+import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
+import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
+import com.exe.skillverse_backend.payment_service.service.PaymentService;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.wallet_service.dto.response.WalletResponse;
 import com.exe.skillverse_backend.wallet_service.dto.response.WalletTransactionResponse;
@@ -12,13 +16,13 @@ import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
-
-import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.wallet_service.service.impl.WalletEmailServiceImpl;
-import com.exe.skillverse_backend.payment_service.service.PaymentService;
-import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
-import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
-
+import java.math.BigDecimal;
+import java.text.NumberFormat;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -27,13 +31,6 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.text.NumberFormat;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 
 /**
  * Service for Wallet management

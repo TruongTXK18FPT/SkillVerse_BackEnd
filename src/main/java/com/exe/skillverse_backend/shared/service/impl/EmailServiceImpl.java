@@ -1,27 +1,25 @@
 package com.exe.skillverse_backend.shared.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
-import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.shared.service.EmailService.EmailSendingResult;
-
+import com.exe.skillverse_backend.shared.service.EmailService;
 import jakarta.mail.internet.MimeMessage;
-import org.springframework.core.io.FileSystemResource;
-import org.springframework.core.io.ClassPathResource;
+import java.io.File;
+import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-
-import java.io.UnsupportedEncodingException;
-import java.io.File;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @Slf4j

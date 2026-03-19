@@ -2,11 +2,10 @@ package com.exe.skillverse_backend.gamification_service.service;
 
 import com.exe.skillverse_backend.gamification_service.dto.response.AdminGamificationStatsResponse;
 import com.exe.skillverse_backend.gamification_service.dto.response.UserActivityTrackingResponse;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-
 import java.time.LocalDate;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 /**
  * Service for admin gamification dashboard and activity tracking

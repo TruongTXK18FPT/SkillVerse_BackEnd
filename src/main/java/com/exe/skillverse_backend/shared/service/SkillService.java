@@ -1,10 +1,9 @@
 package com.exe.skillverse_backend.shared.service;
 
-import com.exe.skillverse_backend.shared.dto.SkillDto;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
-import org.springframework.data.domain.Pageable;
-
+import com.exe.skillverse_backend.shared.dto.SkillDto;
 import java.util.List;
+import org.springframework.data.domain.Pageable;
 
 public interface SkillService {
     

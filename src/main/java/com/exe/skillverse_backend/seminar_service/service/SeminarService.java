@@ -7,11 +7,10 @@ import com.exe.skillverse_backend.seminar_service.dto.response.SeminarResponse;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarRevenueReportDTO;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarTicketResponse;
 import com.exe.skillverse_backend.seminar_service.entity.SeminarStatus;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
-
-import java.util.List;
 
 public interface SeminarService {
     SeminarResponse createSeminar(SeminarCreateRequest request, MultipartFile image, String userId);

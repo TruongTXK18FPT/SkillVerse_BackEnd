@@ -3,7 +3,6 @@ package com.exe.skillverse_backend.course_service.service;
 import com.exe.skillverse_backend.course_service.dto.certificatedto.CertificateDTO;
 import com.exe.skillverse_backend.course_service.dto.certificatedto.CertificateVerificationDTO;
 import com.exe.skillverse_backend.course_service.dto.progressdto.CourseLearningStatusDTO;
-
 import java.util.Optional;
 
 public interface CertificateService {

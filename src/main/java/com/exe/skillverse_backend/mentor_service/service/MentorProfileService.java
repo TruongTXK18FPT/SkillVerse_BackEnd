@@ -4,7 +4,6 @@ import com.exe.skillverse_backend.mentor_service.dto.request.MentorProfileUpdate
 import com.exe.skillverse_backend.mentor_service.dto.request.MentorSignatureDrawRequest;
 import com.exe.skillverse_backend.mentor_service.dto.response.MentorProfileResponse;
 import com.exe.skillverse_backend.mentor_service.dto.response.SkillTabResponse;
-
 import java.util.List;
 
 public interface MentorProfileService {

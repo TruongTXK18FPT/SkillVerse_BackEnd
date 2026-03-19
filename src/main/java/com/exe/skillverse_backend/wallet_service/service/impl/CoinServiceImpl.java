@@ -1,25 +1,27 @@
 package com.exe.skillverse_backend.wallet_service.service.impl;
 
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
+import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
+import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
+import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
+import com.exe.skillverse_backend.payment_service.service.PaymentService;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.service.CoinService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
-import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
-import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
-import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
-import com.exe.skillverse_backend.payment_service.service.PaymentService;
-import com.exe.skillverse_backend.notification_service.entity.NotificationType;
-import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
-
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.util.*;
 
 /**
  * Service for SkillCoin management
@@ -290,7 +292,7 @@ public class CoinServiceImpl implements CoinService {
                         packageInfo.put("price", pkg.priceVnd);
                         packageInfo.put("pricePerCoin", pkg.priceVnd.divide(
                                         new BigDecimal(pkg.baseCoins + pkg.bonusCoins), 2,
-                                        java.math.RoundingMode.HALF_UP));
+                                        RoundingMode.HALF_UP));
 
                         packages.add(packageInfo);
                 });

@@ -1,10 +1,9 @@
 package com.exe.skillverse_backend.gamification_service.service;
 
 import com.exe.skillverse_backend.gamification_service.dto.request.LogActivityRequest;
-import org.springframework.data.domain.Pageable;
-
 import java.time.LocalDateTime;
 import java.util.Map;
+import org.springframework.data.domain.Pageable;
 
 /**
  * Service interface for tracking user activities

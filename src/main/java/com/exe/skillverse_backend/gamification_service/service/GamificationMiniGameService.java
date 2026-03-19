@@ -5,10 +5,9 @@ import com.exe.skillverse_backend.gamification_service.dto.request.MiniGameDefin
 import com.exe.skillverse_backend.gamification_service.dto.request.StartGameSessionRequest;
 import com.exe.skillverse_backend.gamification_service.dto.response.GameSessionResponse;
 import com.exe.skillverse_backend.gamification_service.dto.response.MiniGameDefinitionResponse;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-
-import java.util.List;
 
 /**
  * Service interface for managing mini-games and game sessions

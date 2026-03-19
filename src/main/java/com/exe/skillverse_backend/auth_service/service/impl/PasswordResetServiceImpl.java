@@ -12,10 +12,10 @@ import com.exe.skillverse_backend.auth_service.repository.RefreshTokenRepository
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.auth_service.service.EmailVerificationService;
 import com.exe.skillverse_backend.auth_service.service.PasswordResetService;
-
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import java.time.LocalDateTime;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -117,7 +117,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         // ✅ SECURITY: Set passwordChangedAt to invalidate all existing JWT tokens
         // Any token issued before this timestamp will be rejected by CustomJwtDecoder
         // Use UTC to ensure consistent comparison with JWT iat (which is always UTC)
-        user.setPasswordChangedAt(LocalDateTime.now(java.time.ZoneOffset.UTC));
+        user.setPasswordChangedAt(LocalDateTime.now(ZoneOffset.UTC));
 
         // Clear OTP data
         user.setVerificationOtp(null);
@@ -179,7 +179,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
 
         // ✅ SECURITY: Set passwordChangedAt - this is a new password, invalidate old tokens
         // Use UTC to ensure consistent comparison with JWT iat (which is always UTC)
-        user.setPasswordChangedAt(LocalDateTime.now(java.time.ZoneOffset.UTC));
+        user.setPasswordChangedAt(LocalDateTime.now(ZoneOffset.UTC));
 
         // Update auth provider to allow dual authentication
         // User can now login with both Google AND email+password
@@ -246,7 +246,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         // ✅ SECURITY: Set passwordChangedAt to invalidate all existing JWT tokens
         // This includes the current session - user will need to re-login
         // Use UTC to ensure consistent comparison with JWT iat (which is always UTC)
-        user.setPasswordChangedAt(LocalDateTime.now(java.time.ZoneOffset.UTC));
+        user.setPasswordChangedAt(LocalDateTime.now(ZoneOffset.UTC));
 
         userRepository.save(user);
 

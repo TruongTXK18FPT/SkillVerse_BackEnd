@@ -2,7 +2,6 @@ package com.exe.skillverse_backend.content_service.service;
 
 import com.exe.skillverse_backend.content_service.dto.SliderRequest;
 import com.exe.skillverse_backend.content_service.dto.SliderResponse;
-
 import java.io.IOException;
 import java.util.List;
 import java.util.UUID;

@@ -3,8 +3,8 @@ package com.exe.skillverse_backend.business_service.service;
 import com.exe.skillverse_backend.business_service.dto.request.BusinessRegistrationRequest;
 import com.exe.skillverse_backend.business_service.dto.response.BusinessRegistrationResponse;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
-import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface BusinessRegistrationService extends RegistrationService<BusinessRegistrationRequest, BusinessRegistrationResponse> {
 

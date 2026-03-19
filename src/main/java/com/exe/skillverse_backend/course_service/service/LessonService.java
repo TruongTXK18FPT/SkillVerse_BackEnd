@@ -1,10 +1,9 @@
 package com.exe.skillverse_backend.course_service.service;
 
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
-import com.exe.skillverse_backend.course_service.dto.lessondto.LessonDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.lessondto.LessonDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonUpdateDTO;
-
 import java.util.List;
 
 public interface LessonService {

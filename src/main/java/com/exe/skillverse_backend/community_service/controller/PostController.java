@@ -9,6 +9,7 @@ import com.exe.skillverse_backend.community_service.entity.PostStatus;
 import com.exe.skillverse_backend.community_service.service.PostService;
 import com.exe.skillverse_backend.community_service.service.RateLimiterService;
 import jakarta.validation.Valid;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -56,12 +57,12 @@ public class PostController {
     }
 
     @GetMapping("/stats")
-    public ResponseEntity<java.util.Map<String, Object>> stats() {
+    public ResponseEntity<Map<String, Object>> stats() {
         return ResponseEntity.ok(postService.getStats());
     }
 
     @GetMapping("/trends")
-    public ResponseEntity<java.util.Map<String, Object>> trends() {
+    public ResponseEntity<Map<String, Object>> trends() {
         return ResponseEntity.ok(postService.getTrends());
     }
 
@@ -134,7 +135,7 @@ public class PostController {
     public ResponseEntity<Void> hideComment(
             @PathVariable Long postId,
             @PathVariable Long commentId,
-            @RequestBody(required = false) java.util.Map<String, String> body,
+            @RequestBody(required = false) Map<String, String> body,
             Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
         String note = body != null ? body.getOrDefault("note", null) : null;
@@ -156,7 +157,7 @@ public class PostController {
     public ResponseEntity<Void> reportComment(
             @PathVariable Long postId,
             @PathVariable Long commentId,
-            @RequestBody java.util.Map<String, String> body,
+            @RequestBody Map<String, String> body,
             Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
         String reason = body != null ? body.getOrDefault("reason", "") : "";

@@ -4,7 +4,6 @@ import com.exe.skillverse_backend.chat_service.dto.GroupChatCreateRequest;
 import com.exe.skillverse_backend.chat_service.dto.GroupChatMessageDTO;
 import com.exe.skillverse_backend.chat_service.dto.GroupChatResponse;
 import com.exe.skillverse_backend.chat_service.dto.GroupMemberDTO;
-
 import java.util.List;
 
 public interface GroupChatService {

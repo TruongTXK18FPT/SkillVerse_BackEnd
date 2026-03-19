@@ -2,6 +2,10 @@ package com.exe.skillverse_backend.wallet_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
+import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.exe.skillverse_backend.wallet_service.dto.response.WithdrawalRequestResponse;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.entity.WithdrawalRequest;
@@ -10,22 +14,17 @@ import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRep
 import com.exe.skillverse_backend.wallet_service.repository.WithdrawalRequestRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.wallet_service.service.WithdrawalService;
-import com.exe.skillverse_backend.wallet_service.dto.response.WithdrawalRequestResponse;
-import com.exe.skillverse_backend.user_service.service.UserProfileService;
-import com.exe.skillverse_backend.notification_service.entity.NotificationType;
-import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
-
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.Arrays;
-import java.util.List;
 
 /**
  * Service for Withdrawal Request management
@@ -579,7 +578,7 @@ public class WithdrawalServiceImpl implements WithdrawalService {
             fee = MAX_FEE;
         }
 
-        return fee.setScale(0, java.math.RoundingMode.UP); // Round up to nearest VNĐ
+        return fee.setScale(0, RoundingMode.UP); // Round up to nearest VNĐ
     }
 
     private Integer calculatePriority(BigDecimal amount) {

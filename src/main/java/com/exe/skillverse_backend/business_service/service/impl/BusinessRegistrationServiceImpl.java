@@ -8,22 +8,20 @@ import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.business_service.service.BusinessRegistrationService;
 import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
-import com.exe.skillverse_backend.shared.service.RegistrationService;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
-
+import com.exe.skillverse_backend.shared.service.RegistrationService;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
-
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
@@ -115,7 +113,7 @@ public class BusinessRegistrationServiceImpl
                         String companySize,
                         String industry,
                         MultipartFile companyDocumentsFile,
-                        java.util.List<MultipartFile> companyDocumentsFiles) {
+                        List<MultipartFile> companyDocumentsFiles) {
 
                 try {
                         log.info("Starting business registration for email: {}", email);

@@ -4,12 +4,12 @@ import com.exe.skillverse_backend.course_service.dto.coursedto.CourseCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseSummaryDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseUpdateDTO;
-import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
+import java.util.Map;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
-import java.util.Map;
 
 public interface CourseService {
     

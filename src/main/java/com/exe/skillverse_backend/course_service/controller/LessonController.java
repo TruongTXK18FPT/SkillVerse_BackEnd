@@ -1,14 +1,17 @@
 package com.exe.skillverse_backend.course_service.controller;
 
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
-import com.exe.skillverse_backend.course_service.dto.lessondto.LessonDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.lessondto.LessonDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonUpdateDTO;
 import com.exe.skillverse_backend.course_service.service.LessonService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -18,10 +21,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotNull;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/lessons")

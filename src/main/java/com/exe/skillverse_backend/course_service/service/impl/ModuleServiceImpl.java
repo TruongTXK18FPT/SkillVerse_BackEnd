@@ -2,8 +2,8 @@ package com.exe.skillverse_backend.course_service.service.impl;
 
 import com.exe.skillverse_backend.course_service.dto.moduledto.*;
 import com.exe.skillverse_backend.course_service.entity.Course;
-import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.mapper.ModuleMapper;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonProgressRepository;
@@ -12,12 +12,11 @@ import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.service.ModuleService;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Slf4j
 @Service

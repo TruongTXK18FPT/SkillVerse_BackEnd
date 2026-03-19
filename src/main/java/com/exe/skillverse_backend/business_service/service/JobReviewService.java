@@ -3,10 +3,9 @@ package com.exe.skillverse_backend.business_service.service;
 import com.exe.skillverse_backend.business_service.dto.request.CreateJobReviewRequest;
 import com.exe.skillverse_backend.business_service.dto.response.JobReviewResponse;
 import com.exe.skillverse_backend.business_service.dto.response.UserRatingSummary;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-
-import java.util.List;
 
 public interface JobReviewService {
 

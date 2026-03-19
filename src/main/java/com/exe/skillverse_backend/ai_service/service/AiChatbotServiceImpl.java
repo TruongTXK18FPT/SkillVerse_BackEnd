@@ -6,18 +6,21 @@ import com.exe.skillverse_backend.ai_service.dto.gemini.GeminiDTO;
 import com.exe.skillverse_backend.ai_service.dto.request.ChatRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ChatResponse;
 import com.exe.skillverse_backend.ai_service.entity.ChatMessage;
+import com.exe.skillverse_backend.ai_service.enums.ChatMode;
 import com.exe.skillverse_backend.ai_service.repository.ChatMessageRepository;
+import com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
-import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
-import com.exe.skillverse_backend.ai_service.enums.ChatMode;
-import com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
+import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -25,10 +28,6 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Service for AI-powered career counseling chatbot using Spring AI

@@ -6,13 +6,12 @@ import com.exe.skillverse_backend.study_service.dto.response.ClearOverdueTasksRe
 import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
+import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/task-board")

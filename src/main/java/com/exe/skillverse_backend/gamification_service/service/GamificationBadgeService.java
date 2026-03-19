@@ -3,7 +3,6 @@ package com.exe.skillverse_backend.gamification_service.service;
 import com.exe.skillverse_backend.gamification_service.dto.request.BadgeDefinitionRequest;
 import com.exe.skillverse_backend.gamification_service.dto.response.BadgeDefinitionResponse;
 import com.exe.skillverse_backend.gamification_service.dto.response.UserBadgeResponse;
-
 import java.util.List;
 
 /**

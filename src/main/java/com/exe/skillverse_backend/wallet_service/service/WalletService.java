@@ -5,11 +5,10 @@ import com.exe.skillverse_backend.wallet_service.dto.response.WalletResponse;
 import com.exe.skillverse_backend.wallet_service.dto.response.WalletTransactionResponse;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-
 import java.math.BigDecimal;
 import java.util.Map;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface WalletService {
     Wallet createWallet(Long userId);

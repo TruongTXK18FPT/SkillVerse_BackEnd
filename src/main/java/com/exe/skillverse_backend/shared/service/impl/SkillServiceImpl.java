@@ -1,7 +1,7 @@
 package com.exe.skillverse_backend.shared.service.impl;
 
-import com.exe.skillverse_backend.shared.dto.SkillDto;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
+import com.exe.skillverse_backend.shared.dto.SkillDto;
 import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
@@ -9,16 +9,19 @@ import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.mapper.SkillMapper;
 import com.exe.skillverse_backend.shared.repository.SkillRepository;
 import com.exe.skillverse_backend.shared.service.SkillService;
+import java.time.Clock;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.Clock;
-import java.time.LocalDateTime;
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -163,7 +166,7 @@ public class SkillServiceImpl implements SkillService {
     @Transactional(readOnly = true)
     public List<Long> pathToRoot(Long id) {
         Skill cur = getOrThrow(id);
-        List<Long> path = new java.util.ArrayList<>();
+        List<Long> path = new ArrayList<>();
         while (cur != null) {
             path.add(cur.getId());
             Long pid = cur.getParentSkillId();
@@ -177,7 +180,7 @@ public class SkillServiceImpl implements SkillService {
     @Transactional(readOnly = true)
     public PageResponse<SkillDto> suggestByPrefix(String prefix, Pageable p) {
         if (prefix == null || prefix.isBlank()) return PageResponse.<SkillDto>builder()
-                .items(java.util.Collections.emptyList()).page(p.getPageNumber()).size(p.getPageSize()).total(0).build();
+                .items(Collections.emptyList()).page(p.getPageNumber()).size(p.getPageSize()).total(0).build();
         Page<Skill> page = skillRepository.findByNameStartingWithIgnoreCase(prefix.trim(), p);
         return toPage(page);
     }
@@ -188,8 +191,8 @@ public class SkillServiceImpl implements SkillService {
     }
 
     private boolean hasChangedNameOrCategory(Skill e, SkillDto dto) {
-        return !java.util.Objects.equals(normalize(e.getName()), normalize(dto.getName()))
-            || !java.util.Objects.equals(normalize(e.getCategory()), normalize(dto.getCategory()));
+        return !Objects.equals(normalize(e.getName()), normalize(dto.getName()))
+            || !Objects.equals(normalize(e.getCategory()), normalize(dto.getCategory()));
     }
 
     private void ensureNoCycle(Long nodeId, Long newParentId) {
@@ -213,7 +216,7 @@ public class SkillServiceImpl implements SkillService {
     }
     
     private String normalize(String s) { 
-        return s == null ? null : s.trim().toLowerCase(java.util.Locale.ROOT); 
+        return s == null ? null : s.trim().toLowerCase(Locale.ROOT); 
     }
 
     private PageResponse<SkillDto> toPage(Page<Skill> page) {

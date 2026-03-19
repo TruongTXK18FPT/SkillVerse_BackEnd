@@ -19,17 +19,16 @@ import com.exe.skillverse_backend.gamification_service.repository.GamificationMi
 import com.exe.skillverse_backend.gamification_service.repository.GamificationUserBadgeRepository;
 import com.exe.skillverse_backend.gamification_service.repository.GamificationUserWalletRepository;
 import com.exe.skillverse_backend.gamification_service.service.GamificationDashboardService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Implementation of GamificationDashboardService

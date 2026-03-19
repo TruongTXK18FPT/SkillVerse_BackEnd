@@ -1,5 +1,8 @@
 package com.exe.skillverse_backend.seminar_service.service.impl;
 
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
+import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.seminar_service.dto.request.SeminarCreateRequest;
 import com.exe.skillverse_backend.seminar_service.dto.request.SeminarUpdateRequest;
 import com.exe.skillverse_backend.seminar_service.dto.response.SeminarAnalyticsDTO;
@@ -14,11 +17,8 @@ import com.exe.skillverse_backend.seminar_service.repository.SeminarRepository;
 import com.exe.skillverse_backend.seminar_service.repository.SeminarTicketRepository;
 import com.exe.skillverse_backend.seminar_service.service.SeminarService;
 import com.exe.skillverse_backend.seminar_service.validation.SeminarValidator;
-import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
-import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
-import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
@@ -31,15 +31,6 @@ import com.lowagie.text.Paragraph;
 import com.lowagie.text.Phrase;
 import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
-
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -51,6 +42,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor

@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.ai_service.service;
 
+import com.exe.skillverse_backend.ai_service.dto.gemini.GeminiDTO;
 import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
 import com.exe.skillverse_backend.ai_service.dto.request.UpdateProgressRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion;
@@ -12,26 +13,20 @@ import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.premium_service.dto.response.FeatureLimitInfo;
+import com.exe.skillverse_backend.premium_service.dto.response.UserSubscriptionResponse;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
+import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
+import com.exe.skillverse_backend.premium_service.exception.UsageLimitExceededException;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
-import com.exe.skillverse_backend.premium_service.exception.UsageLimitExceededException;
-import com.exe.skillverse_backend.premium_service.dto.response.UserSubscriptionResponse;
-import com.exe.skillverse_backend.premium_service.dto.response.FeatureLimitInfo;
-import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
-import com.exe.skillverse_backend.ai_service.dto.gemini.GeminiDTO;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.web.client.RestClient;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -41,11 +36,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.sql.Timestamp;
-import java.time.Instant;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
 
 /**
  * Service for AI-powered roadmap generation using Spring AI with Gemini

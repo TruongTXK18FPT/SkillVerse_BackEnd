@@ -1,43 +1,38 @@
 package com.exe.skillverse_backend.mentor_service.service.impl;
 
+import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.course_service.repository.CertificateRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
+import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
+import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
+import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
+import com.exe.skillverse_backend.mentor_booking_service.repository.BookingReviewRepository;
 import com.exe.skillverse_backend.mentor_service.dto.request.MentorProfileUpdateRequest;
 import com.exe.skillverse_backend.mentor_service.dto.request.MentorSignatureDrawRequest;
+import com.exe.skillverse_backend.mentor_service.dto.response.BadgeInfo;
 import com.exe.skillverse_backend.mentor_service.dto.response.MentorProfileResponse;
 import com.exe.skillverse_backend.mentor_service.dto.response.SkillTabResponse;
-import com.exe.skillverse_backend.mentor_service.dto.response.BadgeInfo;
 import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.mentor_service.service.MentorProfileService;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
-import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
-import com.exe.skillverse_backend.mentor_booking_service.repository.BookingReviewRepository;
-import com.exe.skillverse_backend.course_service.repository.CertificateRepository;
-import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
-import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
-import com.exe.skillverse_backend.auth_service.repository.UserRepository;
-import com.exe.skillverse_backend.auth_service.entity.User;
-import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
-import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.shared.service.MediaService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -51,6 +46,10 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
 @Service

@@ -1,15 +1,14 @@
 package com.exe.skillverse_backend.journey_service.service;
 
+import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.journey_service.dto.request.StartJourneyRequest;
 import com.exe.skillverse_backend.journey_service.dto.request.SubmitTestRequest;
 import com.exe.skillverse_backend.journey_service.dto.response.*;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
-import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.study_service.dto.request.GenerateScheduleRequest;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-
-import java.util.List;
 
 /**
  * Service interface for Journey management.

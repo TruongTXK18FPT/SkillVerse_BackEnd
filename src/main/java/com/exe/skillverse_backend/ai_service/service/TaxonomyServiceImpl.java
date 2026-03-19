@@ -4,12 +4,18 @@ import com.exe.skillverse_backend.ai_service.repository.TaxonomyEntryRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.stereotype.Service;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.stereotype.Service;
 
 @Service
 public class TaxonomyServiceImpl implements TaxonomyService {
@@ -87,7 +93,7 @@ public class TaxonomyServiceImpl implements TaxonomyService {
 
     private boolean loadFromDb() {
         try {
-            java.util.List<com.exe.skillverse_backend.ai_service.entity.TaxonomyEntry> entries = taxonomyEntryRepository
+            List<com.exe.skillverse_backend.ai_service.entity.TaxonomyEntry> entries = taxonomyEntryRepository
                     .findByActiveTrue();
             if (entries == null || entries.isEmpty())
                 return false;

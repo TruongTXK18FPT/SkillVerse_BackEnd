@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.gamification_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.community_service.repository.PostRepository;
 import com.exe.skillverse_backend.gamification_service.dto.response.LeaderboardEntryResponse;
 import com.exe.skillverse_backend.gamification_service.dto.response.LeaderboardResponse;
 import com.exe.skillverse_backend.gamification_service.entity.GamificationLeaderboardSnapshot;
@@ -9,22 +10,14 @@ import com.exe.skillverse_backend.gamification_service.entity.GamificationUserWa
 import com.exe.skillverse_backend.gamification_service.repository.GamificationLeaderboardSnapshotRepository;
 import com.exe.skillverse_backend.gamification_service.repository.GamificationUserBadgeRepository;
 import com.exe.skillverse_backend.gamification_service.repository.GamificationUserWalletRepository;
-import com.exe.skillverse_backend.gamification_service.service.GamificationLeaderboardService;
 import com.exe.skillverse_backend.gamification_service.service.DailyCheckInService;
-import com.exe.skillverse_backend.skin_service.repository.UserSkinRepository;
+import com.exe.skillverse_backend.gamification_service.service.GamificationLeaderboardService;
 import com.exe.skillverse_backend.skin_service.entity.UserSkin;
+import com.exe.skillverse_backend.skin_service.repository.UserSkinRepository;
+import com.exe.skillverse_backend.user_service.entity.UserProfile;
+import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
-import com.exe.skillverse_backend.community_service.repository.PostRepository;
-import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
-import com.exe.skillverse_backend.user_service.entity.UserProfile;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -36,6 +29,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor

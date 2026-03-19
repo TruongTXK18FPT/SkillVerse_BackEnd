@@ -1,13 +1,11 @@
 package com.exe.skillverse_backend.business_service.service;
 
 import com.exe.skillverse_backend.business_service.dto.request.CreateJobRequest;
+import com.exe.skillverse_backend.business_service.dto.request.ReopenJobRequest;
 import com.exe.skillverse_backend.business_service.dto.request.UpdateJobRequest;
 import com.exe.skillverse_backend.business_service.dto.response.JobPostingResponse;
 import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
-
 import java.util.List;
-
-import com.exe.skillverse_backend.business_service.dto.request.ReopenJobRequest;
 
 public interface JobPostingService {
 

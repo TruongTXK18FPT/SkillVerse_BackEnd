@@ -1,5 +1,9 @@
 package com.exe.skillverse_backend.auth_service.service.impl;
 
+import com.exe.skillverse_backend.auth_service.dto.request.LoginRequest;
+import com.exe.skillverse_backend.auth_service.dto.response.AuthResponse;
+import com.exe.skillverse_backend.auth_service.dto.response.RegistrationResponse;
+import com.exe.skillverse_backend.auth_service.dto.response.UserDto;
 import com.exe.skillverse_backend.auth_service.entity.AuthProvider;
 import com.exe.skillverse_backend.auth_service.entity.InvalidatedToken;
 import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
@@ -14,10 +18,6 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.auth_service.service.AuthService;
 import com.exe.skillverse_backend.auth_service.service.EmailVerificationService;
 import com.exe.skillverse_backend.auth_service.service.GoogleTokenVerificationService;
-import com.exe.skillverse_backend.auth_service.dto.request.LoginRequest;
-import com.exe.skillverse_backend.auth_service.dto.response.AuthResponse;
-import com.exe.skillverse_backend.auth_service.dto.response.RegistrationResponse;
-import com.exe.skillverse_backend.auth_service.dto.response.UserDto;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
@@ -26,21 +26,15 @@ import com.exe.skillverse_backend.shared.exception.AccountPendingApprovalExcepti
 import com.exe.skillverse_backend.shared.exception.AuthenticationException;
 import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.JWSSigner;
 import com.nimbusds.jose.crypto.MACSigner;
-import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.HashMap;
@@ -49,8 +43,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import java.security.MessageDigest;
-import java.nio.charset.StandardCharsets;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor

@@ -6,11 +6,6 @@ import com.exe.skillverse_backend.gamification_service.entity.DailyCheckIn;
 import com.exe.skillverse_backend.gamification_service.repository.DailyCheckInRepository;
 import com.exe.skillverse_backend.gamification_service.service.DailyCheckInService;
 import com.exe.skillverse_backend.gamification_service.service.GamificationWalletService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -20,6 +15,10 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Implementation of DailyCheckInService for streak tracking

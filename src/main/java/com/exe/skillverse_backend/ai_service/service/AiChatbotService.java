@@ -5,7 +5,6 @@ import com.exe.skillverse_backend.ai_service.dto.ChatSessionSummary;
 import com.exe.skillverse_backend.ai_service.dto.request.ChatRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ChatResponse;
 import com.exe.skillverse_backend.auth_service.entity.User;
-
 import java.util.List;
 
 public interface AiChatbotService {

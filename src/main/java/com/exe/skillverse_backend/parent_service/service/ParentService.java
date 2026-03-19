@@ -1,14 +1,13 @@
 package com.exe.skillverse_backend.parent_service.service;
 
+import com.exe.skillverse_backend.ai_service.dto.ChatMessageResponse;
+import com.exe.skillverse_backend.ai_service.dto.ChatSessionSummary;
+import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
 import com.exe.skillverse_backend.parent_service.dto.request.LinkStudentRequest;
 import com.exe.skillverse_backend.parent_service.dto.request.UpdateLinkStatusRequest;
+import com.exe.skillverse_backend.parent_service.dto.response.LearningReportResponse;
 import com.exe.skillverse_backend.parent_service.dto.response.ParentDashboardResponse;
 import com.exe.skillverse_backend.parent_service.dto.response.ParentStudentLinkResponse;
-import com.exe.skillverse_backend.parent_service.dto.response.LearningReportResponse;
-
-import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
-import com.exe.skillverse_backend.ai_service.dto.ChatSessionSummary;
-import com.exe.skillverse_backend.ai_service.dto.ChatMessageResponse;
 import java.util.List;
 
 public interface ParentService {

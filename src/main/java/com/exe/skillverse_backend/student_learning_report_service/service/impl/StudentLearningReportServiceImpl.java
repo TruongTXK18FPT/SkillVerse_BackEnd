@@ -21,6 +21,12 @@ import com.exe.skillverse_backend.study_service.entity.StudySession;
 import com.exe.skillverse_backend.study_service.entity.Task;
 import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
@@ -30,13 +36,6 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Implementation của StudentLearningReportService.

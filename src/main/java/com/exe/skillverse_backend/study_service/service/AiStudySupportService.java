@@ -1,11 +1,10 @@
 package com.exe.skillverse_backend.study_service.service;
 
+import com.exe.skillverse_backend.study_service.dto.request.CheckScheduleHealthRequest;
 import com.exe.skillverse_backend.study_service.dto.request.GenerateScheduleRequest;
 import com.exe.skillverse_backend.study_service.dto.request.RefineScheduleRequest;
-import com.exe.skillverse_backend.study_service.dto.response.StudySessionResponse;
-import com.exe.skillverse_backend.study_service.dto.request.CheckScheduleHealthRequest;
 import com.exe.skillverse_backend.study_service.dto.response.ScheduleHealthReport;
-
+import com.exe.skillverse_backend.study_service.dto.response.StudySessionResponse;
 import java.util.List;
 
 public interface AiStudySupportService {

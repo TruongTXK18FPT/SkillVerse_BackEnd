@@ -6,15 +6,14 @@ import com.exe.skillverse_backend.study_service.dto.response.StudySessionRespons
 import com.exe.skillverse_backend.study_service.entity.StudySessionStatus;
 import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.study_service.service.StudyPlannerService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/study-planner")

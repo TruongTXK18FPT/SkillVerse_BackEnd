@@ -1,19 +1,20 @@
 package com.exe.skillverse_backend.shared.service.impl;
 
 import com.cloudinary.Cloudinary;
-import com.cloudinary.utils.ObjectUtils;
 import com.cloudinary.Transformation;
+import com.cloudinary.utils.ObjectUtils;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
 
 /**
  * Implementation of CloudinaryService for media upload operations
@@ -140,7 +141,7 @@ public class CloudinaryServiceImpl implements CloudinaryService {
             throw new IllegalArgumentException("File too large. Max 20MB");
         }
 
-        java.util.Set<String> allowedTypes = new java.util.HashSet<>();
+        Set<String> allowedTypes = new HashSet<>();
         allowedTypes.add("application/pdf");
         allowedTypes.add("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
         allowedTypes.add("application/vnd.openxmlformats-officedocument.presentationml.presentation");

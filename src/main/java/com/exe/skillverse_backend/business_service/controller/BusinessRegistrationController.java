@@ -8,13 +8,14 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
@@ -55,7 +56,7 @@ public class BusinessRegistrationController {
             @RequestParam("companySize") String companySize,
             @RequestParam("industry") String industry,
             @RequestParam(value = "companyDocumentsFile", required = false) MultipartFile companyDocumentsFile,
-            @RequestParam(value = "companyDocumentsFiles", required = false) java.util.List<MultipartFile> companyDocumentsFiles) {
+            @RequestParam(value = "companyDocumentsFiles", required = false) List<MultipartFile> companyDocumentsFiles) {
         try {
             log.info("Processing business registration for email: {}", email);
 

@@ -7,17 +7,16 @@ import com.exe.skillverse_backend.content_service.entity.Slider;
 import com.exe.skillverse_backend.content_service.repository.SliderRepository;
 import com.exe.skillverse_backend.content_service.service.SliderService;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor

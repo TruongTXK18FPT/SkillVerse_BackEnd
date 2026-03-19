@@ -2,14 +2,18 @@ package com.exe.skillverse_backend.meowl_chat_service.service.impl;
 
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatResponse;
 import com.exe.skillverse_backend.meowl_chat_service.service.MeowlReminderService;
-
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-
-import java.time.LocalDateTime;
-import java.util.*;
 
 /**
  * Service for managing learning reminders and notifications

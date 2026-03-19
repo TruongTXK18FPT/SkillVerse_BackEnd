@@ -3,15 +3,14 @@ package com.exe.skillverse_backend.chat_service.service;
 import com.exe.skillverse_backend.chat_service.dto.ChatMessage;
 import com.exe.skillverse_backend.chat_service.entity.UserChatMessageEntity;
 import com.exe.skillverse_backend.chat_service.repository.UserChatMessageRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-
-import java.time.ZoneId;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor

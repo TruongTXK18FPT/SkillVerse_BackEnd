@@ -13,14 +13,15 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 /**
  * REST Controller for AI-powered career counseling chatbot
@@ -184,13 +185,13 @@ public class ChatbotController {
      */
     @GetMapping("/admin/stats")
     @Operation(summary = "Get Chat Statistics (Admin)", description = "Get total chat sessions and messages count for admin dashboard")
-    public ResponseEntity<java.util.Map<String, Long>> getChatStats() {
+    public ResponseEntity<Map<String, Long>> getChatStats() {
         log.info("Admin fetching chat statistics");
 
         Long totalSessions = aiChatbotService.getTotalSessionCount();
         Long totalMessages = aiChatbotService.getTotalMessageCount();
 
-        java.util.Map<String, Long> stats = new java.util.HashMap<>();
+        Map<String, Long> stats = new HashMap<>();
         stats.put("totalSessions", totalSessions);
         stats.put("totalMessages", totalMessages);
 

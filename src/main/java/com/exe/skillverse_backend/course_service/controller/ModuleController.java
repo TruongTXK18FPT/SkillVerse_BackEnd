@@ -1,27 +1,26 @@
 package com.exe.skillverse_backend.course_service.controller;
 
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleProgressDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleSummaryDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleUpdateDTO;
-import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
-import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSummaryDTO;
-import com.exe.skillverse_backend.course_service.service.ModuleService;
-import com.exe.skillverse_backend.course_service.service.LessonService;
 import com.exe.skillverse_backend.course_service.service.AssignmentService;
+import com.exe.skillverse_backend.course_service.service.LessonService;
+import com.exe.skillverse_backend.course_service.service.ModuleService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.security.access.prepost.PreAuthorize;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api")

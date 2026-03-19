@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.business_service.dto.response.JobReviewRespons
 import com.exe.skillverse_backend.business_service.dto.response.UserRatingSummary;
 import com.exe.skillverse_backend.business_service.service.JobReviewService;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -15,8 +16,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/job-reviews")

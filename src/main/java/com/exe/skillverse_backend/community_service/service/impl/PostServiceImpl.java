@@ -1,8 +1,8 @@
 package com.exe.skillverse_backend.community_service.service.impl;
 
+import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
-import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.community_service.dto.request.CommentCreateRequest;
 import com.exe.skillverse_backend.community_service.dto.request.PostCreateRequest;
 import com.exe.skillverse_backend.community_service.dto.request.PostUpdateRequest;
@@ -10,31 +10,22 @@ import com.exe.skillverse_backend.community_service.dto.response.CommentResponse
 import com.exe.skillverse_backend.community_service.dto.response.PostResponse;
 import com.exe.skillverse_backend.community_service.entity.Comment;
 import com.exe.skillverse_backend.community_service.entity.Post;
+import com.exe.skillverse_backend.community_service.entity.PostDislike;
 import com.exe.skillverse_backend.community_service.entity.PostLike;
 import com.exe.skillverse_backend.community_service.entity.PostStatus;
 import com.exe.skillverse_backend.community_service.entity.SavedPost;
 import com.exe.skillverse_backend.community_service.repository.CommentRepository;
-import com.exe.skillverse_backend.community_service.repository.PostLikeRepository;
 import com.exe.skillverse_backend.community_service.repository.PostDislikeRepository;
+import com.exe.skillverse_backend.community_service.repository.PostLikeRepository;
 import com.exe.skillverse_backend.community_service.repository.PostRepository;
-import com.exe.skillverse_backend.community_service.entity.PostDislike;
 import com.exe.skillverse_backend.community_service.repository.SavedPostRepository;
 import com.exe.skillverse_backend.community_service.service.PostService;
+import com.exe.skillverse_backend.gamification_service.dto.request.LogActivityRequest;
+import com.exe.skillverse_backend.gamification_service.service.GamificationActivityService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
-import com.exe.skillverse_backend.gamification_service.service.GamificationActivityService;
-import com.exe.skillverse_backend.gamification_service.dto.request.LogActivityRequest;
 import jakarta.transaction.Transactional;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import org.springframework.stereotype.Service;
-import org.springframework.web.util.HtmlUtils;
-
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -45,6 +36,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.web.util.HtmlUtils;
 
 @Service
 @RequiredArgsConstructor

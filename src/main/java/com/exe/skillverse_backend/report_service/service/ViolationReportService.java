@@ -4,10 +4,9 @@ import com.exe.skillverse_backend.report_service.dto.request.CreateViolationRepo
 import com.exe.skillverse_backend.report_service.dto.request.UpdateViolationReportRequest;
 import com.exe.skillverse_backend.report_service.dto.response.ViolationReportResponse;
 import com.exe.skillverse_backend.report_service.dto.response.ViolationReportStatsResponse;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-
-import java.util.List;
 
 /**
  * Service interface for violation report operations

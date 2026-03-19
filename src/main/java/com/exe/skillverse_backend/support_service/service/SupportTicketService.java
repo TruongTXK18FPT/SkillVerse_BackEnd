@@ -4,10 +4,9 @@ import com.exe.skillverse_backend.support_service.dto.CreateTicketRequest;
 import com.exe.skillverse_backend.support_service.dto.TicketResponse;
 import com.exe.skillverse_backend.support_service.dto.TicketStatsResponse;
 import com.exe.skillverse_backend.support_service.dto.UpdateTicketRequest;
+import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-
-import java.util.List;
 
 /**
  * Service interface for support ticket operations

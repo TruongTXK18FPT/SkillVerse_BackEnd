@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.admin_service.service.impl;
 
+import com.exe.skillverse_backend.admin_service.dto.request.AddRoleRequest;
 import com.exe.skillverse_backend.admin_service.dto.request.ResetPasswordRequest;
 import com.exe.skillverse_backend.admin_service.dto.request.UpdateUserProfileRequest;
 import com.exe.skillverse_backend.admin_service.dto.request.UpdateUserRoleRequest;
@@ -9,31 +10,28 @@ import com.exe.skillverse_backend.admin_service.dto.response.AdminUserListRespon
 import com.exe.skillverse_backend.admin_service.dto.response.AdminUserResponse;
 import com.exe.skillverse_backend.admin_service.service.AdminUserService;
 import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
+import com.exe.skillverse_backend.auth_service.entity.Role;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.entity.UserStatus;
+import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.entity.Certificate;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import jakarta.persistence.EntityManager;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.stream.Collectors;
-
-import com.exe.skillverse_backend.admin_service.dto.request.AddRoleRequest;
-import com.exe.skillverse_backend.auth_service.entity.Role;
-import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
-import java.util.HashSet;
-import java.util.Set;
 
 /**
  * Implementation of AdminUserService for managing users

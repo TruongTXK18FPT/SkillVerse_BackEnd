@@ -6,8 +6,8 @@ import com.exe.skillverse_backend.course_service.dto.curriculumdto.CurriculumIte
 import com.exe.skillverse_backend.course_service.dto.curriculumdto.CurriculumUpsertRequestDTO;
 import com.exe.skillverse_backend.course_service.dto.curriculumdto.CurriculumUpsertResponseDTO;
 import com.exe.skillverse_backend.course_service.dto.curriculumdto.ModuleUpsertDTO;
-import com.exe.skillverse_backend.course_service.dto.quizdto.QuizQuestionCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizOptionCreateDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizQuestionCreateDTO;
 import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.AssignmentCriteria;
 import com.exe.skillverse_backend.course_service.entity.Course;
@@ -23,16 +23,20 @@ import com.exe.skillverse_backend.course_service.repository.*;
 import com.exe.skillverse_backend.course_service.service.CurriculumService;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.time.Clock;
-import java.time.Instant;
-import java.util.*;
-import java.util.stream.Collectors;
 
 @Slf4j
 @Service

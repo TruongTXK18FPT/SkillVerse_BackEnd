@@ -1,8 +1,8 @@
 package com.exe.skillverse_backend.payment_service.service;
 
+import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
-import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
 
 public interface InvoiceService {
     byte[] generatePaymentInvoice(PaymentTransaction payment);

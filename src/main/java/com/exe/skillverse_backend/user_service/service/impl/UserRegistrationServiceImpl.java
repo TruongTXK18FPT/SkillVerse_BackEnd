@@ -2,21 +2,19 @@ package com.exe.skillverse_backend.user_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.service.UserCreationService;
+import com.exe.skillverse_backend.parent_service.dto.request.LinkStudentRequest;
+import com.exe.skillverse_backend.parent_service.service.ParentService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
 import com.exe.skillverse_backend.user_service.dto.request.UserRegistrationRequest;
 import com.exe.skillverse_backend.user_service.dto.response.UserRegistrationResponse;
 import com.exe.skillverse_backend.user_service.entity.UserProfile;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.user_service.service.UserRegistrationService;
-import com.exe.skillverse_backend.parent_service.service.ParentService;
-import com.exe.skillverse_backend.parent_service.dto.request.LinkStudentRequest;
-
+import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor

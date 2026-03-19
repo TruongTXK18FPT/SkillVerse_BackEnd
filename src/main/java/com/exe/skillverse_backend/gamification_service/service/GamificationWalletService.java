@@ -3,10 +3,9 @@ package com.exe.skillverse_backend.gamification_service.service;
 import com.exe.skillverse_backend.gamification_service.dto.request.AdminCoinAdjustmentRequest;
 import com.exe.skillverse_backend.gamification_service.dto.response.CoinTransactionResponse;
 import com.exe.skillverse_backend.gamification_service.dto.response.UserWalletResponse;
+import java.time.LocalDateTime;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-
-import java.time.LocalDateTime;
 
 /**
  * Service interface for managing user coin wallets and transactions

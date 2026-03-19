@@ -2,11 +2,11 @@ package com.exe.skillverse_backend.ai_service.controller;
 
 import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
 import com.exe.skillverse_backend.ai_service.dto.request.UpdateProgressRequest;
+import com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion;
 import com.exe.skillverse_backend.ai_service.dto.response.ProgressResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
 import com.exe.skillverse_backend.ai_service.dto.response.ValidationResult;
-import com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion;
 import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
@@ -18,6 +18,12 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -31,13 +37,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.util.List;
-import java.util.Map;
 
 /**
  * REST Controller for AI-powered roadmap generation and management

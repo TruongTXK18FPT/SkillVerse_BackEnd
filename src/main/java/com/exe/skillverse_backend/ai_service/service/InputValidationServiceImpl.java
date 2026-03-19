@@ -1,5 +1,8 @@
 package com.exe.skillverse_backend.ai_service.service;
 
+import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
+import com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion;
+import com.exe.skillverse_backend.ai_service.dto.response.ValidationResult;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -9,10 +12,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
-import com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion;
-import com.exe.skillverse_backend.ai_service.dto.response.ValidationResult;
 import org.springframework.stereotype.Service;
 
 /**

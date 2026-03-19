@@ -1,7 +1,7 @@
 package com.exe.skillverse_backend.ai_service.service;
 
-import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor

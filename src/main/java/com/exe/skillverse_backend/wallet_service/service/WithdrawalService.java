@@ -2,9 +2,9 @@ package com.exe.skillverse_backend.wallet_service.service;
 
 import com.exe.skillverse_backend.wallet_service.dto.response.WithdrawalRequestResponse;
 import com.exe.skillverse_backend.wallet_service.entity.WithdrawalRequest;
+import java.math.BigDecimal;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import java.math.BigDecimal;
 
 public interface WithdrawalService {
     

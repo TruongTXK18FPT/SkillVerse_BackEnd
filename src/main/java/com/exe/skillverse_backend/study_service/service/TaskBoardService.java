@@ -4,7 +4,6 @@ import com.exe.skillverse_backend.study_service.dto.request.CreateTaskRequest;
 import com.exe.skillverse_backend.study_service.dto.request.UpdateTaskRequest;
 import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
-
 import java.util.List;
 import java.util.UUID;
 

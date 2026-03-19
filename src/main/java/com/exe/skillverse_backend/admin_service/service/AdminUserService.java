@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.admin_service.service;
 
+import com.exe.skillverse_backend.admin_service.dto.request.AddRoleRequest;
 import com.exe.skillverse_backend.admin_service.dto.request.ResetPasswordRequest;
 import com.exe.skillverse_backend.admin_service.dto.request.UpdateUserProfileRequest;
 import com.exe.skillverse_backend.admin_service.dto.request.UpdateUserRoleRequest;
@@ -9,8 +10,6 @@ import com.exe.skillverse_backend.admin_service.dto.response.AdminUserListRespon
 import com.exe.skillverse_backend.admin_service.dto.response.AdminUserResponse;
 import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.auth_service.entity.UserStatus;
-
-import com.exe.skillverse_backend.admin_service.dto.request.AddRoleRequest;
 
 /**
  * Service interface for admin user management operations

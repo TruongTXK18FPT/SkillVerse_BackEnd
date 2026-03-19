@@ -1,5 +1,8 @@
 package com.exe.skillverse_backend.premium_service.service.impl;
 
+import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
+import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.premium_service.dto.response.FeatureLimitInfo;
 import com.exe.skillverse_backend.premium_service.dto.response.RecruiterSubscriptionInfoResponse;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
@@ -7,20 +10,16 @@ import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
 import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
 import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
+import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionService;
 import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
-import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
-import com.exe.skillverse_backend.auth_service.entity.User;
-import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
-import com.exe.skillverse_backend.premium_service.service.PremiumService;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Service
 @Slf4j

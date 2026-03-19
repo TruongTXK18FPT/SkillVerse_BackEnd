@@ -16,14 +16,13 @@ import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.shared.service.EmailService;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -380,12 +379,12 @@ public class AdminApprovalServiceImpl implements AdminApprovalService {
                 Boolean isEmailVerified = user != null ? user.isEmailVerified() : false;
                 String userStatus = user != null ? user.getStatus().name() : "UNKNOWN";
 
-                java.util.List<String> certUrls = null;
+                List<String> certUrls = null;
                 if (mentor.getCertifications() != null && !mentor.getCertifications().isBlank()) {
                         try {
                                 certUrls = new com.fasterxml.jackson.databind.ObjectMapper()
                                                 .readValue(mentor.getCertifications(),
-                                                                new com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>>() {
+                                                                new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {
                                                                 });
                         } catch (Exception e) {
                                 log.warn("Failed to parse certifications JSON for mentor {}", mentor.getUserId(), e);

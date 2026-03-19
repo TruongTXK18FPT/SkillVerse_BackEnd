@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.chat_service.dto.GroupChatMessageDTO;
 import com.exe.skillverse_backend.chat_service.dto.GroupChatResponse;
 import com.exe.skillverse_backend.chat_service.dto.GroupMemberDTO;
 import com.exe.skillverse_backend.chat_service.service.GroupChatService;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -13,8 +14,6 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/group-chats")

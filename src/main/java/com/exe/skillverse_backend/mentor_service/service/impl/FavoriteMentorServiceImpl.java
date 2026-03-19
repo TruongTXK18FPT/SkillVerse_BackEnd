@@ -9,12 +9,11 @@ import com.exe.skillverse_backend.mentor_service.repository.FavoriteMentorReposi
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.mentor_service.service.FavoriteMentorService;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import java.util.List;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor

@@ -4,11 +4,10 @@ import com.exe.skillverse_backend.business_service.dto.request.*;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermApplicationResponse;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-
 import java.math.BigDecimal;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface ShortTermJobService {
 

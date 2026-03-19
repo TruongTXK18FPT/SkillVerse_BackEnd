@@ -9,7 +9,6 @@ import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
 import com.exe.skillverse_backend.ai_service.dto.response.ValidationResult;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import jakarta.validation.Valid;
-
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;

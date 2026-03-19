@@ -6,22 +6,21 @@ import com.exe.skillverse_backend.study_service.dto.request.CreateStudySessionRe
 import com.exe.skillverse_backend.study_service.dto.response.StudySessionResponse;
 import com.exe.skillverse_backend.study_service.entity.StudySession;
 import com.exe.skillverse_backend.study_service.entity.StudySessionStatus;
-import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
-import com.exe.skillverse_backend.study_service.service.StudyPlannerService;
 import com.exe.skillverse_backend.study_service.entity.Task;
 import com.exe.skillverse_backend.study_service.entity.TaskColumn;
+import com.exe.skillverse_backend.study_service.entity.TaskPriority;
+import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 import com.exe.skillverse_backend.study_service.repository.TaskColumnRepository;
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
-import com.exe.skillverse_backend.study_service.entity.TaskPriority;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
+import com.exe.skillverse_backend.study_service.service.StudyPlannerService;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor

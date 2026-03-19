@@ -9,14 +9,12 @@ import com.exe.skillverse_backend.support_service.entity.TicketMessage;
 import com.exe.skillverse_backend.support_service.repository.SupportTicketRepository;
 import com.exe.skillverse_backend.support_service.repository.TicketMessageRepository;
 import com.exe.skillverse_backend.support_service.service.TicketChatService;
-
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Slf4j
 @Service

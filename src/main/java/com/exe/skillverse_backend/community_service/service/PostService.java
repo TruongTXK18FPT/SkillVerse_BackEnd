@@ -6,10 +6,9 @@ import com.exe.skillverse_backend.community_service.dto.request.PostUpdateReques
 import com.exe.skillverse_backend.community_service.dto.response.CommentResponse;
 import com.exe.skillverse_backend.community_service.dto.response.PostResponse;
 import com.exe.skillverse_backend.community_service.entity.PostStatus;
+import java.util.Map;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-
-import java.util.Map;
 
 public interface PostService {
     PostResponse createPost(Long userId, PostCreateRequest req);

@@ -1,11 +1,10 @@
 package com.exe.skillverse_backend.course_service.service;
 
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.*;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-
 import java.math.BigDecimal;
 import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface AssignmentService {
     

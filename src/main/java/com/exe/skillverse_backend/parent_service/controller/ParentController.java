@@ -1,9 +1,13 @@
 package com.exe.skillverse_backend.parent_service.controller;
 
+import com.exe.skillverse_backend.ai_service.dto.ChatMessageResponse;
+import com.exe.skillverse_backend.ai_service.dto.ChatSessionSummary;
+import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.parent_service.dto.request.LinkStudentRequest;
 import com.exe.skillverse_backend.parent_service.dto.request.UpdateLinkStatusRequest;
+import com.exe.skillverse_backend.parent_service.dto.response.LearningReportResponse;
 import com.exe.skillverse_backend.parent_service.dto.response.ParentDashboardResponse;
 import com.exe.skillverse_backend.parent_service.dto.response.ParentStudentLinkResponse;
 import com.exe.skillverse_backend.parent_service.service.ParentService;
@@ -11,18 +15,12 @@ import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-
-import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
-import com.exe.skillverse_backend.ai_service.dto.ChatSessionSummary;
-import com.exe.skillverse_backend.ai_service.dto.ChatMessageResponse;
-import com.exe.skillverse_backend.parent_service.dto.response.LearningReportResponse;
 
 @RestController
 @RequestMapping("/api/parents")
@@ -129,7 +127,7 @@ public class ParentController {
 
     @GetMapping("/student/{studentId}/learning-reports")
     @Operation(summary = "Get learning report history for a linked student")
-    public ResponseEntity<java.util.List<LearningReportResponse>> getLearningReportHistory(@PathVariable Long studentId) {
+    public ResponseEntity<List<LearningReportResponse>> getLearningReportHistory(@PathVariable Long studentId) {
         User currentUser = getCurrentUser();
         return ResponseEntity.ok(parentService.getLearningReportHistory(currentUser.getId(), studentId));
     }

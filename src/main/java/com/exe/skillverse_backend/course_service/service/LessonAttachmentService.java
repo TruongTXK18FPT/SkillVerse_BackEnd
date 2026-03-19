@@ -2,7 +2,6 @@ package com.exe.skillverse_backend.course_service.service;
 
 import com.exe.skillverse_backend.course_service.dto.attachmentdto.AddAttachmentRequest;
 import com.exe.skillverse_backend.course_service.dto.attachmentdto.LessonAttachmentDTO;
-
 import java.util.List;
 
 /**

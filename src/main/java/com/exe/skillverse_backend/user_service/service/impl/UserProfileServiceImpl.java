@@ -2,6 +2,9 @@ package com.exe.skillverse_backend.user_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.shared.entity.Media;
+import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.exe.skillverse_backend.user_service.dto.request.AddSkillRequest;
 import com.exe.skillverse_backend.user_service.dto.request.CreateProfileRequest;
 import com.exe.skillverse_backend.user_service.dto.request.UpdateProfileRequest;
@@ -13,20 +16,16 @@ import com.exe.skillverse_backend.user_service.entity.UserSkill;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.user_service.repository.UserSkillRepository;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
-import com.exe.skillverse_backend.shared.service.CloudinaryService;
-import com.exe.skillverse_backend.shared.entity.Media;
-import com.exe.skillverse_backend.shared.repository.MediaRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
-
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor

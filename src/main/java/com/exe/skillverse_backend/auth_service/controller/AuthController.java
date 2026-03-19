@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.auth_service.controller;
 
 import com.exe.skillverse_backend.auth_service.dto.request.ChangePasswordRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.ForgotPasswordRequest;
+import com.exe.skillverse_backend.auth_service.dto.request.GoogleAuthRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.LoginRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.RefreshTokenRequest;
 import com.exe.skillverse_backend.auth_service.dto.request.ResendOtpRequest;
@@ -11,7 +12,6 @@ import com.exe.skillverse_backend.auth_service.dto.request.VerifyEmailRequest;
 import com.exe.skillverse_backend.auth_service.dto.response.AuthResponse;
 import com.exe.skillverse_backend.auth_service.dto.response.ForgotPasswordResponse;
 import com.exe.skillverse_backend.auth_service.dto.response.RegistrationResponse;
-import com.exe.skillverse_backend.auth_service.dto.request.GoogleAuthRequest;
 import com.exe.skillverse_backend.auth_service.service.AuthService;
 import com.exe.skillverse_backend.auth_service.service.EmailVerificationService;
 import com.exe.skillverse_backend.auth_service.service.PasswordResetService;
@@ -24,13 +24,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")

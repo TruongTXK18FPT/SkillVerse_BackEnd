@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.family_chat.controller;
 
 import com.exe.skillverse_backend.family_chat.dto.FamilyChatMessageDTO;
+import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
@@ -48,7 +49,7 @@ public class FamilyChatController {
         
         // Add server timestamp
         if (message.getTimestamp() == null) {
-            message.setTimestamp(java.time.Instant.now().toString());
+            message.setTimestamp(Instant.now().toString());
         }
         
         // Generate message ID if not present

@@ -8,13 +8,13 @@ import com.exe.skillverse_backend.report_service.dto.request.CreateViolationRepo
 import com.exe.skillverse_backend.report_service.dto.request.UpdateViolationReportRequest;
 import com.exe.skillverse_backend.report_service.dto.response.ViolationReportResponse;
 import com.exe.skillverse_backend.report_service.dto.response.ViolationReportStatsResponse;
+import com.exe.skillverse_backend.report_service.entity.ReportEvidence.EvidenceType;
 import com.exe.skillverse_backend.report_service.entity.ReportEvidence;
-import com.exe.skillverse_backend.report_service.entity.ViolationReport;
 import com.exe.skillverse_backend.report_service.entity.ViolationReport.ReportSeverity;
 import com.exe.skillverse_backend.report_service.entity.ViolationReport.ReportStatus;
 import com.exe.skillverse_backend.report_service.entity.ViolationReport.ReportType;
 import com.exe.skillverse_backend.report_service.entity.ViolationReport.ResolutionAction;
-import com.exe.skillverse_backend.report_service.entity.ReportEvidence.EvidenceType;
+import com.exe.skillverse_backend.report_service.entity.ViolationReport;
 import com.exe.skillverse_backend.report_service.repository.ReportEvidenceRepository;
 import com.exe.skillverse_backend.report_service.repository.ViolationReportRepository;
 import com.exe.skillverse_backend.report_service.service.ViolationReportService;
@@ -22,13 +22,6 @@ import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.EmailService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -38,6 +31,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Implementation of ViolationReportService

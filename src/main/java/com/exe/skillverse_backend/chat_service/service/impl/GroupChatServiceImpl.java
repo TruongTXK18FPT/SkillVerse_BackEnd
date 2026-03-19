@@ -1,5 +1,7 @@
 package com.exe.skillverse_backend.chat_service.service.impl;
 
+import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.chat_service.dto.GroupChatCreateRequest;
 import com.exe.skillverse_backend.chat_service.dto.GroupChatMessageDTO;
 import com.exe.skillverse_backend.chat_service.dto.GroupChatResponse;
@@ -11,20 +13,18 @@ import com.exe.skillverse_backend.chat_service.repository.GroupChatMemberReposit
 import com.exe.skillverse_backend.chat_service.repository.GroupChatMessageRepository;
 import com.exe.skillverse_backend.chat_service.repository.GroupChatRepository;
 import com.exe.skillverse_backend.chat_service.service.GroupChatService;
+import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
-import com.exe.skillverse_backend.course_service.entity.Course;
-import com.exe.skillverse_backend.auth_service.repository.UserRepository;
-import com.exe.skillverse_backend.auth_service.entity.User;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -239,7 +239,7 @@ public class GroupChatServiceImpl implements GroupChatService {
                     if (group == null) return null;
                     return mapToResponse(group, true);
                 })
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
     }
 
@@ -289,7 +289,7 @@ public class GroupChatServiceImpl implements GroupChatService {
                             .isOnline(false) // Can be implemented with presence tracking
                             .build();
                 })
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
     }
 

@@ -2,12 +2,11 @@ package com.exe.skillverse_backend.shared.service;
 
 import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
-import org.springframework.data.domain.Pageable;
-import org.springframework.web.multipart.MultipartFile;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
+import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * Service for managing media files (images, videos, documents, etc.)

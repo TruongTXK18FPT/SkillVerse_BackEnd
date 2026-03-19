@@ -1,17 +1,22 @@
 package com.exe.skillverse_backend.gamification_service.service.impl;
 
+import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.gamification_service.dto.response.AdminGamificationStatsResponse;
 import com.exe.skillverse_backend.gamification_service.dto.response.LeaderboardEntryResponse;
 import com.exe.skillverse_backend.gamification_service.dto.response.UserActivityTrackingResponse;
 import com.exe.skillverse_backend.gamification_service.entity.*;
 import com.exe.skillverse_backend.gamification_service.repository.*;
 import com.exe.skillverse_backend.gamification_service.service.GamificationAdminDashboardService;
-import com.exe.skillverse_backend.auth_service.entity.User;
-import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.user_service.entity.UserProfile;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
-import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
+import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -20,12 +25,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor

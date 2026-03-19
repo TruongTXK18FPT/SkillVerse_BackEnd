@@ -8,18 +8,17 @@ import com.exe.skillverse_backend.gamification_service.entity.GamificationUserWa
 import com.exe.skillverse_backend.gamification_service.repository.GamificationCoinTransactionRepository;
 import com.exe.skillverse_backend.gamification_service.repository.GamificationUserWalletRepository;
 import com.exe.skillverse_backend.gamification_service.service.GamificationWalletService;
+import com.exe.skillverse_backend.wallet_service.dto.response.WalletResponse;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
-import com.exe.skillverse_backend.wallet_service.dto.response.WalletResponse;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
 
 @Service
 @RequiredArgsConstructor

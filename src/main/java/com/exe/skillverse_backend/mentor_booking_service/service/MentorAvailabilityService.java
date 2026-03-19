@@ -2,7 +2,6 @@ package com.exe.skillverse_backend.mentor_booking_service.service;
 
 import com.exe.skillverse_backend.mentor_booking_service.dto.request.AvailabilityRequest;
 import com.exe.skillverse_backend.mentor_booking_service.entity.MentorAvailability;
-
 import java.time.LocalDateTime;
 import java.util.List;
 

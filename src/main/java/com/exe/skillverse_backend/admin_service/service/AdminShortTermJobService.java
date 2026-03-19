@@ -1,7 +1,6 @@
 package com.exe.skillverse_backend.admin_service.service;
 
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse;
-
 import java.util.List;
 
 public interface AdminShortTermJobService {

@@ -6,9 +6,8 @@ import com.exe.skillverse_backend.user_service.dto.request.UpdateProfileRequest;
 import com.exe.skillverse_backend.user_service.dto.request.UpdateSkillRequest;
 import com.exe.skillverse_backend.user_service.dto.response.UserProfileResponse;
 import com.exe.skillverse_backend.user_service.dto.response.UserSkillResponse;
-import org.springframework.web.multipart.MultipartFile;
-
 import java.util.List;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface UserProfileService {
     UserProfileResponse updateProfile(Long userId, UpdateProfileRequest request);

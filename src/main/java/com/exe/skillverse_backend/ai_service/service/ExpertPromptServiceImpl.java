@@ -1,8 +1,8 @@
 package com.exe.skillverse_backend.ai_service.service;
 
 import com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository;
-import org.springframework.stereotype.Service;
 import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
 
 /**
  * Service to manage specialized expert prompts for different fields and roles.

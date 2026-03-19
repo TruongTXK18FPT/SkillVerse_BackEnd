@@ -14,15 +14,15 @@ import com.exe.skillverse_backend.business_service.repository.ShortTermJobApplic
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
 import com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionService;
 import com.exe.skillverse_backend.shared.service.EmailService;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * Scheduler for automatic job posting management
@@ -104,7 +104,7 @@ public class JobSchedulerImpl {
         for (JobPosting job : pendingJobs) {
             Long recruiterUserId = job.getRecruiterProfile().getUser().getId();
             LocalDateTime createdAt = job.getCreatedAt();
-            long daysWaiting = java.time.Duration.between(createdAt, now).toDays();
+            long daysWaiting = Duration.between(createdAt, now).toDays();
 
             boolean hasPremium = recruiterSubscriptionService.hasActiveRecruiterSubscription(recruiterUserId);
 
@@ -253,7 +253,7 @@ public class JobSchedulerImpl {
         for (ShortTermJob job : pendingJobs) {
             Long recruiterUserId = job.getRecruiterProfile().getUserId();
             LocalDateTime createdAt = job.getCreatedAt();
-            long daysWaiting = java.time.Duration.between(createdAt, now).toDays();
+            long daysWaiting = Duration.between(createdAt, now).toDays();
 
             boolean hasPremium = recruiterSubscriptionService.hasActiveRecruiterSubscription(recruiterUserId);
 

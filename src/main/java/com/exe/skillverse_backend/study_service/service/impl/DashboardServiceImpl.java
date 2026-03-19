@@ -5,12 +5,11 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.study_service.entity.DashboardNote;
 import com.exe.skillverse_backend.study_service.repository.DashboardNoteRepository;
 import com.exe.skillverse_backend.study_service.service.DashboardService;
+import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor

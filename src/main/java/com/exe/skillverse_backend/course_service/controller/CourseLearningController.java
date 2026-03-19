@@ -1,7 +1,7 @@
 package com.exe.skillverse_backend.course_service.controller;
 
-import com.exe.skillverse_backend.course_service.dto.progressdto.CourseLearningStatusDTO;
 import com.exe.skillverse_backend.course_service.dto.progressdto.CourseLearningRevisionInfoDTO;
+import com.exe.skillverse_backend.course_service.dto.progressdto.CourseLearningStatusDTO;
 import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
