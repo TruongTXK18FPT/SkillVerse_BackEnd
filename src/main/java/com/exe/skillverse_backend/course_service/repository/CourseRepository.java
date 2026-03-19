@@ -60,6 +60,12 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
     long countByAuthorId(Long authorId);
 
     /**
+     * Count courses by author and status.
+     */
+    @Transactional(readOnly = true)
+    long countByAuthorIdAndStatus(Long authorId, CourseStatus status);
+
+    /**
      * Find courses by author with pagination
      */
     @Transactional(readOnly = true)

@@ -12,14 +12,18 @@ import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
 import com.exe.skillverse_backend.business_service.repository.JobApplicationRepository;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.service.JobApplicationService;
+import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.premium_service.dto.response.UsageCheckResult;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
 import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.EmailService;
+import com.exe.skillverse_backend.user_service.entity.UserProfile;
+import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +43,7 @@ public class JobApplicationServiceImpl implements JobApplicationService {
     private final EmailService emailService;
     private final UsageLimitService usageLimitService;
     private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+    private final UserProfileRepository userProfileRepository;
 
     /**
      * Apply to a job (duplicate prevention, increment applicant count)
@@ -236,26 +241,64 @@ public class JobApplicationServiceImpl implements JobApplicationService {
         return (firstName + " " + lastName).trim();
     }
 
+    private String getDisplayName(User user) {
+        String fullName = getUserFullName(user);
+        if (!fullName.isBlank()) {
+            return fullName;
+        }
+
+        if (user.getEmail() != null && !user.getEmail().isBlank()) {
+            String[] emailParts = user.getEmail().split("@", 2);
+            if (emailParts.length > 0 && !emailParts[0].isBlank()) {
+                return emailParts[0];
+            }
+        }
+
+        return "Ứng viên SkillVerse";
+    }
+
+    private String resolveUserAvatar(User user, PortfolioExtendedProfile portfolioProfile) {
+        if (portfolioProfile != null && portfolioProfile.getAvatarUrl() != null && !portfolioProfile.getAvatarUrl().isBlank()) {
+            return portfolioProfile.getAvatarUrl();
+        }
+
+        Optional<UserProfile> basicProfile = userProfileRepository.findByUserId(user.getId());
+        if (basicProfile.isPresent()
+                && basicProfile.get().getAvatarMedia() != null
+                && basicProfile.get().getAvatarMedia().getUrl() != null
+                && !basicProfile.get().getAvatarMedia().getUrl().isBlank()) {
+            return basicProfile.get().getAvatarMedia().getUrl();
+        }
+
+        if (user.getAvatarUrl() != null && !user.getAvatarUrl().isBlank()) {
+            return user.getAvatarUrl();
+        }
+
+        return null;
+    }
+
     private JobApplicationResponse mapToResponse(JobApplication application) {
         JobPosting job = application.getJobPosting();
+        User user = application.getUser();
 
         // Check premium status
-        UsageCheckResult usageCheck = usageLimitService.canUseFeature(application.getUser().getId(),
+        UsageCheckResult usageCheck = usageLimitService.canUseFeature(user.getId(),
                 FeatureType.PRIORITY_SUPPORT);
         boolean isHighlighted = Boolean.TRUE.equals(usageCheck.getAllowed());
 
-        // Get portfolio slug
-        String portfolioSlug = portfolioExtendedProfileRepository.findByUserId(application.getUser().getId())
-                .map(p -> p.getCustomUrlSlug())
-                .orElse(null);
+        Optional<PortfolioExtendedProfile> portfolioProfile = portfolioExtendedProfileRepository.findByUserId(user.getId());
+        String portfolioSlug = portfolioProfile.map(PortfolioExtendedProfile::getCustomUrlSlug).orElse(null);
+        String professionalTitle = portfolioProfile.map(PortfolioExtendedProfile::getProfessionalTitle).orElse(null);
 
         return JobApplicationResponse.builder()
                 .id(application.getId())
                 .jobId(job.getId())
                 .jobTitle(job.getTitle())
-                .userId(application.getUser().getId())
-                .userFullName(getUserFullName(application.getUser()))
-                .userEmail(application.getUser().getEmail())
+                .userId(user.getId())
+                .userFullName(getDisplayName(user))
+                .userEmail(user.getEmail())
+                .userAvatar(resolveUserAvatar(user, portfolioProfile.orElse(null)))
+                .userProfessionalTitle(professionalTitle)
                 .coverLetter(application.getCoverLetter())
                 .status(application.getStatus())
                 .appliedAt(application.getAppliedAt())

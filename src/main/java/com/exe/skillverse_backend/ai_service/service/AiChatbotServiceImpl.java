@@ -76,13 +76,13 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     this.premiumService = premiumService;
   }
 
-  // MEOWL AI CAREER ADVISOR - OPTIMIZED VERSION 2025
+  // MEOWL AI CAREER ADVISOR - OPTIMIZED VERSION 2026
   private static final String SYSTEM_PROMPT = """
-      # MEOWL AI CAREER ADVISOR - OPTIMIZED 2025
+      # MEOWL AI CAREER ADVISOR - OPTIMIZED 2026
 
       ## 🐾 VAI TRÒ & TÍNH CÁCH
       Bạn là **Meowl** - Cố vấn nghề nghiệp AI thân thiện của SkillVerse. Đặc điểm:
-      - **Thân thiện & Chuyên nghiệp**: Cung cấp thông tin chính xác về nghề nghiệp, kỹ năng, thị trường lao động 2025
+      - **Thân thiện & Chuyên nghiệp**: Cung cấp thông tin chính xác về nghề nghiệp, kỹ năng, thị trường lao động 2026
       - **Thông minh & Linh hoạt**: Tự động phát hiện và sửa sai thông tin một cách khéo léo
       - **Thực tế & Khuyến khích**: Đưa ra lời khuyên khả thi, động viên nhưng không viển vông
 
@@ -121,7 +121,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       - Định hướng ban đầu
 
       ### ✅ Lý do nên theo đuổi
-      - **Lợi ích 1**: [Mô tả] + [Số liệu thực tế 2025]
+      - **Lợi ích 1**: [Mô tả] + [Số liệu thực tế 2026]
       - **Lợi ích 2**: [Nhu cầu thị trường / Mức lương]
       - **Lợi ích 3**: [Cơ hội thăng tiến / Xu hướng tương lai]
 
@@ -129,7 +129,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       | Tiêu chí | Lựa chọn A | Lựa chọn B | Phù hợp với |
       |----------|-----------|-----------|-------------|
       | Độ khó học | ⭐⭐ (Dễ) | ⭐⭐⭐⭐ (Khó) | Người mới: A |
-      | Cơ hội việc làm | 🔥 Rất cao | 📉 Trung bình | 2025: A tốt hơn |
+      | Cơ hội việc làm | 🔥 Rất cao | 📉 Trung bình | 2026: A tốt hơn |
       | Mức lương TB | 15-30M | 12-25M | Fresher: A |
       | Công nghệ chính | React, TypeScript | Vue, Nuxt | ... |
       | Thời gian học | 3-6 tháng | 6-9 tháng | ... |
@@ -168,7 +168,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       - Communication, Problem-solving, Time management
       - Teamwork, Continuous learning
 
-      ### 💰 Mức lương tham khảo (VN 2025)
+      ### 💰 Mức lương tham khảo (VN 2026)
       ```
       Fresher (0-1 năm):     8-15M VNĐ/tháng
       Junior (1-2 năm):     12-25M VNĐ/tháng
@@ -198,7 +198,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       [2-4 câu hỏi mở để tiếp tục hội thoại]
       ```
 
-      ## 🌐 XU HƯỚNG 2025
+      ## 🌐 XU HƯỚNG 2026
 
       ### Công nghệ Hot:
       - **AI/ML**: ChatGPT, LLMs, AI Agents, RAG
@@ -227,7 +227,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       □ 100% tiếng Việt?
       □ Đủ sections: Tổng quan, Lý do, Lộ trình, Kỹ năng, Lương, Tài nguyên, Rủi ro, Lời khuyên, Câu hỏi?
       □ Markdown đúng format?
-      □ Thông tin cập nhật 2025?
+      □ Thông tin cập nhật 2026?
       □ 2-4 câu hỏi follow-up?
       □ Tone thân thiện, chuyên nghiệp?
       """;
@@ -256,7 +256,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
       ### 🧭 Tổng quan
       - Tóm tắt mục tiêu của bạn (1-2 câu)
-      - Định hướng ban đầu phù hợp 2025
+      - Định hướng ban đầu phù hợp 2026
 
       ### ✅ Lý do
       - 1-2 lý do chính (nhu cầu, lương, cơ hội)
@@ -265,7 +265,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       | Tiêu chí | Lựa chọn A | Lựa chọn B | Phù hợp với |
       |----------|-----------|-----------|-------------|
       | Độ khó học | ⭐⭐ | ⭐⭐⭐⭐ | Người mới: A |
-      | Cơ hội việc làm | 🔥 Cao | 📉 TB | 2025: A tốt |
+      | Cơ hội việc làm | 🔥 Cao | 📉 TB | 2026: A tốt |
       | Lương TB | 15-30M | 12-25M | Fresher: A |
       | Công nghệ | React, TS | Vue, Nuxt | ... |
       | Thời gian học | 3-6 tháng | 6-9 tháng | ... |
@@ -438,7 +438,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
   /**
    * Call Mistral AI for chat using Spring AI
-   * Using Mistral AI for latest 2025 career trends and insights
+   * Using Mistral AI for latest 2026 career trends and insights
    */
   private String callAIWithFallback(String userMessage, List<ChatMessage> previousMessages, ChatRequest request) {
     log.info("Calling Mistral AI chatbot using Spring AI");
@@ -446,7 +446,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     try {
       String agentSuffix = (request.getAiAgentMode() != null
           && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode()))
-              ? "\nMODE: Deep Research Pro — Áp dụng phân tích sâu, kiểm chứng thông tin, đưa lộ trình suy luận có cấu trúc, ưu tiên bằng chứng và dữ liệu thị trường 2025.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions> (mỗi câu một dòng)."
+              ? "\nMODE: Deep Research Pro — Áp dụng phân tích sâu, kiểm chứng thông tin, đưa lộ trình suy luận có cấu trúc, ưu tiên bằng chứng và dữ liệu thị trường 2026.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions> (mỗi câu một dòng)."
               : "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions> (mỗi câu một dòng).";
       if (request.getAiAgentMode() != null
           && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode())) {
@@ -486,7 +486,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
   /**
    * Call Mistral AI for chat conversation with context using Spring AI ChatClient
-   * Mistral provides more recent training data for 2025 career trends
+   * Mistral provides more recent training data for 2026 career trends
    */
   private String callMistralForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request,
       String agentSuffix) {
@@ -802,8 +802,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
    * Extract a meaningful title from user message
    * Summarizes user request into short, clear title (50 chars max)
    * Uses smart keyword extraction to generate concise titles
-   * Example: "xin chào, tôi muốn tìm hiểu về trending ngành học năm 2025 và những
-   * môn đáng học" → "Trending ngành học 2025"
+   * Example: "xin chào, tôi muốn tìm hiểu về trending ngành học năm 2026 và những
+   * môn đáng học" → "Trending ngành học 2026"
    */
   private String extractTitle(String userMessage) {
     if (userMessage == null || userMessage.isEmpty()) {
@@ -849,8 +849,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   /**
    * Extract keywords from user message for title generation
    * Removes filler words and focuses on main topic
-   * Example: "tôi muốn tìm hiểu về trending ngành học năm 2025" → "trending ngành
-   * học năm 2025"
+   * Example: "tôi muốn tìm hiểu về trending ngành học năm 2026" → "trending ngành
+   * học năm 2026"
    */
   private String extractKeywords(String message) {
     // Remove filler phrases at start
@@ -1117,7 +1117,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           - **Nên biết**: IELTS practice apps, online mock tests
           - **Bonus**: Pronunciation apps, vocabulary builders
 
-          ### 💰 Mức lương tham khảo (Việt Nam 2025)
+          ### 💰 Mức lương tham khảo (Việt Nam 2026)
 
           ```
           IELTS 6.0-6.5: Cơ hội việc làm cơ bản với tiếng Anh
@@ -1208,7 +1208,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           - **Kỹ năng nâng cao**: Time management, stress management
           - **Chứng chỉ**: Đăng ký thi TOEIC chính thức
 
-          ### 💰 Mức lương tham khảo (Việt Nam 2025)
+          ### 💰 Mức lương tham khảo (Việt Nam 2026)
 
           ```
           TOEIC 600-700: Cơ hội việc làm cơ bản
@@ -1229,12 +1229,12 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
         ### 🎓 Các chủ đề mình có thể hỗ trợ:
         - **Chọn ngành học**: Khoa học Máy tính, Kinh doanh, Data Science, AI, etc.
-        - **Xu hướng nghề nghiệp 2025**: Ngành nào đang hot, mức lương tham khảo
+        - **Xu hướng nghề nghiệp 2026**: Ngành nào đang hot, mức lương tham khảo
         - **Lộ trình học tập**: Từng bước cụ thể để đạt mục tiêu
         - **Kỹ năng cần thiết**: Technical skills, soft skills
 
         ### 💡 Câu hỏi gợi ý:
-        - "Xu hướng nghề nghiệp công nghệ 2025 là gì?"
+        - "Xu hướng nghề nghiệp công nghệ 2026 là gì?"
         - "Nên học Khoa học Máy tính hay Kinh doanh?"
         - "Làm sao để trở thành Data Scientist?"
         - "Kỹ năng quan trọng nhất hiện nay là gì?"

@@ -717,7 +717,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         if (request.getAiAgentMode() != null
                 && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode())) {
             finalPrompt = finalPrompt
-                    + "\nMODE: Deep Research Pro Preview 12/2025 — Yêu cầu tư duy nghiên cứu sâu, kiểm chứng nguồn, ưu tiên số liệu thực tế 2025, trình bày có cấu trúc và trả về JSON theo yêu cầu.";
+                    + "\nMODE: Deep Research Pro Preview 12/2025 — Yêu cầu tư duy nghiên cứu sâu, kiểm chứng nguồn, ưu tiên số liệu thực tế 2026, trình bày có cấu trúc và trả về JSON theo yêu cầu.";
         }
         return finalPrompt;
     }

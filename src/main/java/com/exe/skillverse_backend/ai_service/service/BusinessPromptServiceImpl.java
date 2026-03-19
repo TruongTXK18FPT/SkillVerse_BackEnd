@@ -295,7 +295,7 @@ public class BusinessPromptServiceImpl extends BaseExpertPromptService {
 
                         ### ⚠️ LƯU Ý:
                         - Cần sự sáng tạo và năng động cao.
-                        - Kỹ năng dựng video ngắn (Short-form video) là lợi thế cực lớn năm 2025.
+                        - Kỹ năng dựng video ngắn (Short-form video) là lợi thế cực lớn năm 2026.
                         """;
     }
 

@@ -25,6 +25,7 @@ public class ShortTermApplicationResponse {
     private String userFullName;
     private String userEmail;
     private String userAvatar;
+    private String userProfessionalTitle;
     private BigDecimal userRating;
     private Integer userCompletedJobs;
 
@@ -33,6 +34,7 @@ public class ShortTermApplicationResponse {
     private BigDecimal proposedPrice;
     private String proposedDuration;
     private List<String> portfolio;
+    private String portfolioSlug;
 
     // Status
     private ShortTermApplicationStatus status;

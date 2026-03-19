@@ -20,6 +20,17 @@ public class MeowlChatRequest {
     private String language; // "en" or "vi"
     
     private Long userId; // Optional: for personalized responses
+
+    /**
+     * Optional role mode from UI.
+     * Supported values: LEARNER, MENTOR, RECRUITER
+     */
+    private String activeRole;
+
+    /**
+     * Optional client session identifier (used for chat metadata/debugging).
+     */
+    private String sessionId;
     
     private List<ChatMessage> chatHistory; // Optional: conversation context
     

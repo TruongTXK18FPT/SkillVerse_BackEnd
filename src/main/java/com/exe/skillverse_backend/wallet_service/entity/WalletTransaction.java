@@ -29,7 +29,7 @@ import lombok.Setter;
 @Entity
 @Table(name = "wallet_transactions", indexes = {
         @Index(name = "idx_transaction_wallet_id", columnList = "wallet_id"),
-        @Index(name = "idx_transaction_type", columnList = "transaction_type"),
+        @Index(name = "idx_wallet_transaction_type", columnList = "transaction_type"),
         @Index(name = "idx_transaction_created_at", columnList = "created_at"),
         @Index(name = "idx_transaction_reference_id", columnList = "reference_type, reference_id")
 })

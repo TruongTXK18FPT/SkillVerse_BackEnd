@@ -30,11 +30,14 @@ import com.exe.skillverse_backend.business_service.repository.ShortTermJobMilest
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
 import com.exe.skillverse_backend.business_service.service.JobAuditService;
 import com.exe.skillverse_backend.business_service.service.ShortTermJobService;
+import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionService;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import com.exe.skillverse_backend.user_service.entity.UserProfile;
+import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,6 +45,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -65,6 +69,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     private final UserRepository userRepository;
     private final JobReviewRepository reviewRepository;
     private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+    private final UserProfileRepository userProfileRepository;
     private final JobAuditService auditService;
     private final ObjectMapper objectMapper;
     private final RecruiterSubscriptionService recruiterSubscriptionService;
@@ -243,8 +248,17 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         ShortTermJob job = getJobById(jobId);
         validateJobOwnership(job, userId);
 
-        if (job.getStatus() != ShortTermJobStatus.DRAFT) {
-            throw new BadRequestException("Only DRAFT jobs can be deleted");
+        // Allow deletion for inactive statuses: DRAFT, REJECTED, CANCELLED
+        // These are statuses where no active application/progress is happening
+        ShortTermJobStatus status = job.getStatus();
+        boolean canDelete = status == ShortTermJobStatus.DRAFT
+                || status == ShortTermJobStatus.REJECTED
+                || status == ShortTermJobStatus.CANCELLED;
+
+        if (!canDelete) {
+            throw new BadRequestException(
+                    "Không thể xóa công việc đang trong trạng thái '" + status + "'. " +
+                    "Chỉ có thể xóa công việc ở trạng thái nháp, bị từ chối hoặc đã hủy.");
         }
 
         shortTermJobRepository.delete(job);
@@ -401,6 +415,12 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         ShortTermJobApplication application = getApplicationById(applicationId);
         ShortTermJob job = application.getShortTermJob();
         validateJobOwnership(job, userId);
+
+        if (request.getStatus() == ShortTermApplicationStatus.ACCEPTED
+                && application.getStatus() == ShortTermApplicationStatus.PENDING) {
+            return selectCandidate(userId, job.getId(), applicationId);
+        }
+
         validateApplicationStatusTransition(application.getStatus(), request.getStatus());
 
         ShortTermApplicationStatus previousStatus = application.getStatus();
@@ -497,8 +517,9 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         validateApplicationOwnership(application, userId);
 
         if (application.getStatus() != ShortTermApplicationStatus.WORKING &&
-                application.getStatus() != ShortTermApplicationStatus.REVISION_REQUIRED) {
-            throw new BadRequestException("Can only submit deliverables when WORKING or REVISION_REQUIRED");
+                application.getStatus() != ShortTermApplicationStatus.REVISION_REQUIRED &&
+                application.getStatus() != ShortTermApplicationStatus.ACCEPTED) {
+            throw new BadRequestException("Can only submit deliverables when ACCEPTED, WORKING or REVISION_REQUIRED");
         }
 
         // Validate milestones if payment method is MILESTONE
@@ -534,6 +555,9 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
 
         application.setWorkNote(request.getWorkNote());
         application.setSubmittedAt(LocalDateTime.now());
+        if (application.getStartedAt() == null) {
+            application.setStartedAt(LocalDateTime.now());
+        }
 
         ShortTermApplicationStatus previousStatus = application.getStatus();
         application.setStatus(ShortTermApplicationStatus.SUBMITTED);
@@ -631,8 +655,17 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         ShortTermJob job = getJobById(jobId);
         validateJobOwnership(job, userId);
 
+        // Auto-advance job status if application is already APPROVED
+        if (job.getStatus() == ShortTermJobStatus.SUBMITTED) {
+            Optional<ShortTermJobApplication> approvedApp = applicationRepository.findWorkingApplicationByJobId(jobId);
+            if (approvedApp.isPresent() && approvedApp.get().getStatus() == ShortTermApplicationStatus.APPROVED) {
+                job.setStatus(ShortTermJobStatus.APPROVED);
+                log.info("Auto-advancing job {} to APPROVED before completion", jobId);
+            }
+        }
+
         if (job.getStatus() != ShortTermJobStatus.APPROVED) {
-            throw new BadRequestException("Can only complete APPROVED jobs");
+            throw new BadRequestException("Chỉ có thể hoàn tất khi bàn giao đã được duyệt. Vui lòng duyệt bàn giao trước.");
         }
 
         ShortTermJobStatus previousStatus = job.getStatus();
@@ -913,6 +946,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     private ShortTermApplicationResponse mapToApplicationResponse(ShortTermJobApplication app) {
         User user = app.getUser();
         ShortTermJob job = app.getShortTermJob();
+        Optional<PortfolioExtendedProfile> portfolioProfile = portfolioExtendedProfileRepository.findByUserId(user.getId());
 
         List<ShortTermApplicationResponse.DeliverableResponse> deliverables = app.getDeliverables() != null ?
                 app.getDeliverables().stream()
@@ -934,12 +968,15 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
                 .jobTitle(job.getTitle())
                 .jobBudget(job.getBudget())
                 .userId(user.getId())
-                .userFullName(user.getFullName())
+                .userFullName(getDisplayName(user))
                 .userEmail(user.getEmail())
+                .userAvatar(resolveUserAvatar(user, portfolioProfile.orElse(null)))
+                .userProfessionalTitle(portfolioProfile.map(PortfolioExtendedProfile::getProfessionalTitle).orElse(null))
                 .coverLetter(app.getCoverLetter())
                 .proposedPrice(app.getProposedPrice())
                 .proposedDuration(app.getProposedDuration())
                 .portfolio(fromJson(app.getPortfolio(), List.class))
+                .portfolioSlug(portfolioProfile.map(PortfolioExtendedProfile::getCustomUrlSlug).orElse(null))
                 .status(app.getStatus())
                 .appliedAt(app.getAppliedAt())
                 .acceptedAt(app.getAcceptedAt())
@@ -976,5 +1013,41 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
             log.error("Error parsing JSON", e);
             return null;
         }
+    }
+
+    private String getDisplayName(User user) {
+        String fullName = user.getFullName();
+        if (fullName != null && !fullName.isBlank()) {
+            return fullName;
+        }
+
+        if (user.getEmail() != null && !user.getEmail().isBlank()) {
+            String[] emailParts = user.getEmail().split("@", 2);
+            if (emailParts.length > 0 && !emailParts[0].isBlank()) {
+                return emailParts[0];
+            }
+        }
+
+        return "Ứng viên SkillVerse";
+    }
+
+    private String resolveUserAvatar(User user, PortfolioExtendedProfile portfolioProfile) {
+        if (portfolioProfile != null && portfolioProfile.getAvatarUrl() != null && !portfolioProfile.getAvatarUrl().isBlank()) {
+            return portfolioProfile.getAvatarUrl();
+        }
+
+        Optional<UserProfile> basicProfile = userProfileRepository.findByUserId(user.getId());
+        if (basicProfile.isPresent()
+                && basicProfile.get().getAvatarMedia() != null
+                && basicProfile.get().getAvatarMedia().getUrl() != null
+                && !basicProfile.get().getAvatarMedia().getUrl().isBlank()) {
+            return basicProfile.get().getAvatarMedia().getUrl();
+        }
+
+        if (user.getAvatarUrl() != null && !user.getAvatarUrl().isBlank()) {
+            return user.getAvatarUrl();
+        }
+
+        return null;
     }
 }

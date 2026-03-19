@@ -39,10 +39,35 @@ public class PremiumController {
     private final PremiumService premiumService;
     private final UserRepository userRepository;
 
+    private boolean isRecruiterPlan(PremiumPlanResponse plan) {
+        if (plan == null) {
+            return false;
+        }
+
+        if (plan.getPlanType() == PremiumPlan.PlanType.RECRUITER_PRO
+                || plan.getTargetRole() == PremiumPlan.TargetRole.RECRUITER) {
+            return true;
+        }
+
+        String planName = plan.getName();
+        return planName != null && planName.toLowerCase().startsWith("recruiter_");
+    }
+
     @GetMapping("/plans")
     @Operation(summary = "Get available premium plans (filtered by user role)")
-    public ResponseEntity<List<PremiumPlanResponse>> getAvailablePlans(Authentication authentication) {
-        log.info("Fetching available premium plans");
+    public ResponseEntity<List<PremiumPlanResponse>> getAvailablePlans(
+            @RequestParam(required = false) PremiumPlan.TargetRole targetRole,
+            @RequestParam(required = false, defaultValue = "false") boolean includeFreeTier,
+            Authentication authentication) {
+        log.info("Fetching available premium plans (targetRole: {}, includeFreeTier: {})",
+                targetRole, includeFreeTier);
+
+        if (targetRole != null) {
+            return ResponseEntity.ok(
+                    premiumService.getAvailablePlansByTargetRole(targetRole, includeFreeTier)
+            );
+        }
+
         List<PremiumPlanResponse> plans = premiumService.getAvailablePlans();
 
         // Filter plans based on user role
@@ -51,21 +76,21 @@ public class PremiumController {
             User user = userRepository.findById(userId).orElse(null);
 
             if (user != null && user.getPrimaryRole() == PrimaryRole.RECRUITER) {
-                // Recruiters only see FREE_TIER + RECRUITER_PRO
+                // Legacy recruiter plans may still have stale type/targetRole values.
                 plans = plans.stream()
                         .filter(p -> p.getPlanType() == PremiumPlan.PlanType.FREE_TIER
-                                || p.getPlanType() == PremiumPlan.PlanType.RECRUITER_PRO)
+                                || isRecruiterPlan(p))
                         .toList();
             } else {
-                // Non-recruiters: hide RECRUITER_PRO plans
+                // Non-recruiters should never see recruiter-only plans.
                 plans = plans.stream()
-                        .filter(p -> p.getPlanType() != PremiumPlan.PlanType.RECRUITER_PRO)
+                        .filter(p -> !isRecruiterPlan(p))
                         .toList();
             }
         } else {
             // Guest users: hide recruiter-only plans
             plans = plans.stream()
-                    .filter(p -> p.getPlanType() != PremiumPlan.PlanType.RECRUITER_PRO)
+                    .filter(p -> !isRecruiterPlan(p))
                     .toList();
         }
 

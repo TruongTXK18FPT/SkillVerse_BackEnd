@@ -150,7 +150,7 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
                 "## 🎓 LĨNH VỰC CHUYÊN MÔN: " + role.toUpperCase() + "\n" +
                 "Hãy đóng vai trò là chuyên gia hàng đầu trong lĩnh vực " + role + ".\n" +
                 "Sử dụng kiến thức sâu rộng nhất về " + role
-                + " để tư vấn lộ trình, kỹ năng và công cụ phù hợp nhất năm 2025.";
+                + " để tư vấn lộ trình, kỹ năng và công cụ phù hợp nhất năm 2026.";
     }
 
     // Wrapper methods for Initializer to use (delegating to new services)

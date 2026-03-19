@@ -1,7 +1,11 @@
 package com.exe.skillverse_backend.premium_service.service.impl;
 
+import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
 import com.exe.skillverse_backend.parent_service.entity.ParentStudentLink;
@@ -59,6 +63,7 @@ public class PremiumServiceImpl implements PremiumService {
         private final PremiumEmailService premiumEmailService;
         private final NotificationServiceImpl notificationService;
         private final ParentStudentLinkRepository parentStudentLinkRepository;
+        private final ObjectMapper objectMapper;
 
         private static final List<String> STUDENT_EMAIL_DOMAINS = List.of(
                         ".edu", ".edu.vn", ".ac.uk", "university.", "student.", ".edu.au");
@@ -69,6 +74,21 @@ public class PremiumServiceImpl implements PremiumService {
                 log.info("Fetching all available premium plans");
                 return premiumPlanRepository.findByIsActiveTrueOrderByPrice()
                                 .stream()
+                                .map(this::convertToPremiumPlanResponse)
+                                .collect(Collectors.toList());
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        public List<PremiumPlanResponse> getAvailablePlansByTargetRole(
+                        PremiumPlan.TargetRole targetRole,
+                        boolean includeFreeTier) {
+                log.info("Fetching premium plans for target role {} (includeFreeTier: {})",
+                                targetRole, includeFreeTier);
+
+                return premiumPlanRepository.findByIsActiveTrueOrderByPrice()
+                                .stream()
+                                .filter(plan -> matchesTargetRole(plan, targetRole, includeFreeTier))
                                 .map(this::convertToPremiumPlanResponse)
                                 .collect(Collectors.toList());
         }
@@ -117,6 +137,8 @@ public class PremiumServiceImpl implements PremiumService {
                                 .filter(p -> p.getIsActive())
                                 .orElseThrow(() -> new RuntimeException(
                                                 "Premium plan not found: " + request.getPlanId()));
+
+                validatePlanEligibility(user, plan);
 
                 Optional<UserSubscription> existingSubscription = userSubscriptionRepository
                                 .findCurrentActiveSubscription(user);
@@ -570,14 +592,14 @@ public class PremiumServiceImpl implements PremiumService {
                                 .price(plan.getPrice())
                                 .currency(plan.getCurrency())
                                 .planType(plan.getPlanType())
+                                .targetRole(plan.getTargetRole())
                                 .studentPrice(plan.getStudentPrice())
                                 .studentDiscountPercent(plan.getStudentDiscountPercent())
-                                .features(plan.getFeatures() != null ? List.of(plan.getFeatures().split(","))
-                                                : List.of())
+                                .features(parsePlanFeatures(plan.getFeatures()))
                                 .isActive(plan.getIsActive())
                                 .maxSubscribers(plan.getMaxSubscribers())
                                 .currentSubscribers(currentSubscribers)
-                                .availableForSubscription(plan.getMaxSubscribers() == null || 
+                                .availableForSubscription(plan.getMaxSubscribers() == null ||
                                                 currentSubscribers < plan.getMaxSubscribers())
                                 .build();
         }
@@ -653,6 +675,8 @@ public class PremiumServiceImpl implements PremiumService {
                 PremiumPlan plan = premiumPlanRepository.findById(planId)
                                 .filter(p -> p.getIsActive())
                                 .orElseThrow(() -> new RuntimeException("Premium plan not found: " + planId));
+
+                validatePlanEligibility(recipient, plan);
 
                 // 3. Check existing subscription for RECIPIENT
                 Optional<UserSubscription> existingSubscription = userSubscriptionRepository
@@ -1147,8 +1171,7 @@ public class PremiumServiceImpl implements PremiumService {
                         if (metadata == null || metadata.isEmpty()) continue;
 
                         try {
-                                ObjectMapper mapper = new ObjectMapper();
-                                JsonNode node = mapper.readTree(metadata);
+                                JsonNode node = objectMapper.readTree(metadata);
                                 JsonNode subIdNode = node.get("subscriptionId");
                                 if (subIdNode == null || subIdNode.isNull()) continue;
 
@@ -1178,5 +1201,76 @@ public class PremiumServiceImpl implements PremiumService {
 
                 log.info("No recoverable subscriptions found for user {}", userId);
                 return false;
+        }
+
+        private void validatePlanEligibility(User recipient, PremiumPlan plan) {
+                if (recipient == null || plan == null || plan.getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
+                        return;
+                }
+
+                boolean recruiterUser = recipient.getPrimaryRole() == PrimaryRole.RECRUITER;
+                boolean recruiterPlan = isRecruiterPlan(plan);
+
+                if (recruiterUser && !recruiterPlan) {
+                        throw new RuntimeException("Tài khoản Recruiter chỉ có thể đăng ký gói dành cho recruiter.");
+                }
+
+                if (!recruiterUser && recruiterPlan) {
+                        throw new RuntimeException("Gói này chỉ dành cho tài khoản Recruiter.");
+                }
+        }
+
+        private boolean isRecruiterPlan(PremiumPlan plan) {
+                if (plan.getPlanType() == PremiumPlan.PlanType.RECRUITER_PRO
+                                || plan.getTargetRole() == PremiumPlan.TargetRole.RECRUITER) {
+                        return true;
+                }
+
+                String planName = plan.getName();
+                return planName != null && planName.toLowerCase().startsWith("recruiter_");
+        }
+
+        private boolean matchesTargetRole(
+                        PremiumPlan plan,
+                        PremiumPlan.TargetRole targetRole,
+                        boolean includeFreeTier) {
+                if (plan == null || !Boolean.TRUE.equals(plan.getIsActive())) {
+                        return false;
+                }
+
+                if (targetRole == null) {
+                        return true;
+                }
+
+                if (includeFreeTier && plan.getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
+                        return true;
+                }
+
+                if (plan.getTargetRole() == targetRole) {
+                        return true;
+                }
+
+                return targetRole == PremiumPlan.TargetRole.RECRUITER && isRecruiterPlan(plan);
+        }
+
+        private List<String> parsePlanFeatures(String rawFeatures) {
+                if (rawFeatures == null || rawFeatures.isBlank()) {
+                        return List.of();
+                }
+
+                try {
+                        return objectMapper.readValue(rawFeatures, new TypeReference<List<String>>() {
+                        });
+                } catch (Exception e) {
+                        log.warn("Failed to parse premium plan features as JSON: {}", e.getMessage());
+                        return java.util.Arrays.stream(rawFeatures
+                                        .replace("[", "")
+                                        .replace("]", "")
+                                        .replace("\"", "")
+                                        .split(","))
+                                        .map(String::trim)
+                                        .filter(feature -> !feature.isBlank())
+                                        .toList();
+                }
         }
 }

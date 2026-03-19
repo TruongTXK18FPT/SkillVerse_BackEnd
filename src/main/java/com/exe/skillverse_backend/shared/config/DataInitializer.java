@@ -345,6 +345,9 @@ public class DataInitializer implements CommandLineRunner {
                         PremiumPlan.PlanType planType, BigDecimal studentDiscountPercent,
                         String features) {
                 var existingPlan = premiumPlanRepository.findByName(name);
+                PremiumPlan.TargetRole targetRole = planType == PremiumPlan.PlanType.RECRUITER_PRO
+                                ? PremiumPlan.TargetRole.RECRUITER
+                                : PremiumPlan.TargetRole.LEARNER;
 
                 if (!existingPlan.isPresent()) {
                         PremiumPlan plan = PremiumPlan.builder()
@@ -355,6 +358,7 @@ public class DataInitializer implements CommandLineRunner {
                                         .price(price)
                                         .currency("VND")
                                         .planType(planType)
+                                        .targetRole(targetRole)
                                         .studentDiscountPercent(studentDiscountPercent)
                                         .features(features)
                                         .isActive(true)
@@ -372,8 +376,13 @@ public class DataInitializer implements CommandLineRunner {
                         plan.setDescription(description);
                         plan.setDurationMonths(durationMonths);
                         plan.setPrice(price);
+                        plan.setCurrency("VND");
+                        plan.setPlanType(planType);
+                        plan.setTargetRole(targetRole);
                         plan.setStudentDiscountPercent(studentDiscountPercent);
                         plan.setFeatures(features);
+                        plan.setIsActive(true);
+                        plan.setMaxSubscribers(null);
                         plan.setUpdatedAt(LocalDateTime.now());
 
                         premiumPlanRepository.save(plan);

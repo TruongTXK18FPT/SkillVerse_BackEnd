@@ -24,7 +24,7 @@ import jakarta.persistence.Table;
 @Entity
 @Table(name = "gamification_coin_transactions", indexes = {
     @Index(name = "idx_user_transaction", columnList = "user_id, transaction_date"),
-    @Index(name = "idx_transaction_type", columnList = "transaction_type"),
+    @Index(name = "idx_gami_transaction_type", columnList = "transaction_type"),
     @Index(name = "idx_source_type", columnList = "source_type, source_id")
 })
 @Data

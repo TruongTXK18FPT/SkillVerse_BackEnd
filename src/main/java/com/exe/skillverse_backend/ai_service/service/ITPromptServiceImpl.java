@@ -629,7 +629,7 @@ public class ITPromptServiceImpl extends BaseExpertPromptService implements ITPr
                 - **Senior**: Tối ưu context window, Custom Agent, Fine-tune model riêng, AI Security.
 
                 ### ⚠️ LƯU Ý:
-                - Đây là role **HOT nhất 2025**.
+                - Đây là role **HOT nhất 2026**.
                 - Thay đổi cực nhanh, cần update kiến thức hàng tuần.
                 """;
     }

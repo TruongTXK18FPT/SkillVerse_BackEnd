@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.meowl_chat_service.controller;
 
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatRequest;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatResponse;
+import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlOnboardingContextResponse;
 import com.exe.skillverse_backend.meowl_chat_service.service.MeowlChatService;
 import com.exe.skillverse_backend.meowl_chat_service.service.MeowlReminderService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -10,6 +11,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -18,6 +20,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Locale;
 
 /**
  * REST Controller for Meowl Chat Service
@@ -38,10 +43,26 @@ public class MeowlChatController {
      */
     @PostMapping("/chat")
     @Operation(summary = "Chat with Meowl", description = "Send a message and get a cute, helpful response from Meowl")
-    public ResponseEntity<MeowlChatResponse> chat(@RequestBody MeowlChatRequest request) {
+    public ResponseEntity<MeowlChatResponse> chat(@RequestBody MeowlChatRequest request, Authentication authentication) {
         log.info("Received chat request from user: {}", request.getUserId());
 
         try {
+            Long authUserId = extractAuthenticatedUserId(authentication);
+            if (authUserId != null) {
+                if (request.getUserId() == null) {
+                    request.setUserId(authUserId);
+                } else if (!authUserId.equals(request.getUserId())) {
+                    return ResponseEntity.status(403).body(MeowlChatResponse.builder()
+                            .message("Access denied: user mismatch.")
+                            .success(false)
+                            .mood("apologetic")
+                            .build());
+                }
+            } else if (request.getUserId() != null) {
+                // Guest mode must not carry authenticated userId.
+                request.setUserId(null);
+            }
+
             MeowlChatResponse response = meowlChatService.chat(request);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
@@ -67,7 +88,12 @@ public class MeowlChatController {
      */
     @GetMapping("/history/{userId}")
     @Operation(summary = "Get chat history", description = "Get persistent chat history for a user")
-    public ResponseEntity<List<MeowlChatRequest.ChatMessage>> getChatHistory(@PathVariable Long userId) {
+    public ResponseEntity<List<MeowlChatRequest.ChatMessage>> getChatHistory(
+            @PathVariable Long userId,
+            Authentication authentication) {
+        if (!canAccessUser(authentication, userId)) {
+            return ResponseEntity.status(403).build();
+        }
         log.info("Getting chat history for user: {}", userId);
         try {
             List<MeowlChatRequest.ChatMessage> history = meowlChatService.getChatHistory(userId);
@@ -83,7 +109,10 @@ public class MeowlChatController {
      */
     @DeleteMapping("/history/{userId}")
     @Operation(summary = "Clear chat history", description = "Clear chat history for a user (e.g. on logout)")
-    public ResponseEntity<Void> clearChatHistory(@PathVariable Long userId) {
+    public ResponseEntity<Void> clearChatHistory(@PathVariable Long userId, Authentication authentication) {
+        if (!canAccessUser(authentication, userId)) {
+            return ResponseEntity.status(403).build();
+        }
         log.info("Clearing chat history for user: {}", userId);
         try {
             meowlChatService.clearChatHistory(userId);
@@ -101,7 +130,11 @@ public class MeowlChatController {
     @Operation(summary = "Get learning reminders", description = "Get personalized learning reminders for a user")
     public ResponseEntity<List<MeowlChatResponse.MeowlReminder>> getReminders(
             @PathVariable Long userId,
-            @RequestParam(defaultValue = "en") String language) {
+            @RequestParam(defaultValue = "en") String language,
+            Authentication authentication) {
+        if (!canAccessUser(authentication, userId)) {
+            return ResponseEntity.status(403).body(List.of());
+        }
 
         log.info("Getting reminders for user: {}", userId);
 
@@ -121,7 +154,11 @@ public class MeowlChatController {
     @Operation(summary = "Get notifications", description = "Get learning tips and motivational messages")
     public ResponseEntity<List<MeowlChatResponse.MeowlNotification>> getNotifications(
             @PathVariable Long userId,
-            @RequestParam(defaultValue = "en") String language) {
+            @RequestParam(defaultValue = "en") String language,
+            Authentication authentication) {
+        if (!canAccessUser(authentication, userId)) {
+            return ResponseEntity.status(403).body(List.of());
+        }
 
         log.info("Getting notifications for user: {}", userId);
 
@@ -136,11 +173,81 @@ public class MeowlChatController {
     }
 
     /**
+     * Get role-aware onboarding context for Meowl chat UI.
+     */
+    @GetMapping("/onboarding/{userId}")
+    @Operation(summary = "Get Meowl onboarding context", description = "Returns role-aware welcome, quick actions, and suggested prompts")
+    public ResponseEntity<MeowlOnboardingContextResponse> getOnboardingContext(
+            @PathVariable Long userId,
+            @RequestParam(defaultValue = "en") String language,
+            @RequestParam(required = false) String activeRole,
+            Authentication authentication) {
+        if (!canAccessUser(authentication, userId)) {
+            return ResponseEntity.status(403).build();
+        }
+
+        try {
+            MeowlOnboardingContextResponse response = meowlChatService.getOnboardingContext(userId, language, activeRole);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error getting onboarding context for user {}", userId, e);
+            return ResponseEntity.status(500).build();
+        }
+    }
+
+    /**
+     * Mark onboarding guidance as seen for a user.
+     */
+    @PostMapping("/onboarding/{userId}/seen")
+    @Operation(summary = "Mark onboarding seen", description = "Stores onboarding viewed state and current preferred role mode")
+    public ResponseEntity<Void> markOnboardingSeen(
+            @PathVariable Long userId,
+            @RequestParam(required = false) String activeRole,
+            Authentication authentication) {
+        if (!canAccessUser(authentication, userId)) {
+            return ResponseEntity.status(403).build();
+        }
+
+        try {
+            meowlChatService.markOnboardingSeen(userId, activeRole);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            log.error("Error marking onboarding as seen for user {}", userId, e);
+            return ResponseEntity.status(500).build();
+        }
+    }
+
+    /**
      * Health check endpoint
      */
     @GetMapping("/health")
     @Operation(summary = "Health check", description = "Check if Meowl service is running")
     public ResponseEntity<String> health() {
-        return ResponseEntity.ok("Meowl is awake and ready to help! 🐱✨");
+        return ResponseEntity.ok("Meowl is awake and ready to help! đŸ±âœ¨");
+    }
+
+    private boolean canAccessUser(Authentication authentication, Long targetUserId) {
+        Long authUserId = extractAuthenticatedUserId(authentication);
+        if (authUserId == null) {
+            return false;
+        }
+        if (authUserId.equals(targetUserId)) {
+            return true;
+        }
+
+        return authentication.getAuthorities().stream()
+                .map(authority -> authority.getAuthority().toUpperCase(Locale.ROOT))
+                .anyMatch(authority -> authority.contains("ADMIN"));
+    }
+
+    private Long extractAuthenticatedUserId(Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(authentication.getName());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 }

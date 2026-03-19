@@ -20,6 +20,8 @@ public class JobApplicationResponse {
     private Long userId;
     private String userFullName;
     private String userEmail;
+    private String userAvatar;
+    private String userProfessionalTitle;
     private String coverLetter;
     private LocalDateTime appliedAt;
     private JobApplicationStatus status;

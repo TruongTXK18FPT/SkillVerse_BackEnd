@@ -36,6 +36,16 @@ public class MeowlChatMessage {
     @Column(columnDefinition = "TEXT", nullable = false)
     private String content;
 
+    @Column(name = "active_role", length = 20)
+    private String activeRole;
+
+    @Column(name = "session_id", length = 100)
+    private String sessionId;
+
+    @Builder.Default
+    @Column(name = "message_type", length = 30, nullable = false)
+    private String messageType = "CHAT";
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 

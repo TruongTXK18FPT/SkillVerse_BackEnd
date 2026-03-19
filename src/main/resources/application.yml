@@ -216,6 +216,19 @@ skillverse:
       max-tokens: ${AI_GENERATE_TEST_MAX_TOKENS:30000}
       temperature: ${AI_GENERATE_TEST_TEMPERATURE:0.7}
 
+    # AI Candidate Search Configuration (separate Mistral API key for recruiter search)
+    search:
+      api-key: ${AI_SEARCH_KEY:}
+      model: ${AI_SEARCH_MODEL:mistral-large-latest}
+      enabled: ${AI_SEARCH_ENABLED:true}
+      max-tokens: ${AI_SEARCH_MAX_TOKENS:30000}
+      temperature: ${AI_SEARCH_TEMPERATURE:0.7}
+      timeout: ${AI_SEARCH_TIMEOUT:30000}
+      max-requests-per-minute: ${AI_SEARCH_MAX_REQUESTS_PER_MINUTE:10}
+      max-tokens-per-day: ${AI_SEARCH_MAX_TOKENS_PER_DAY:100000}
+      cache-enabled: ${AI_SEARCH_CACHE_ENABLED:true}
+      cache-ttl-minutes: ${AI_SEARCH_CACHE_TTL_MINUTES:60}
+
 springdoc:
   api-docs:
     enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}

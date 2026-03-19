@@ -28,6 +28,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+
+import com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionService;
+import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import java.math.BigDecimal;
+
+import com.exe.skillverse_backend.business_service.dto.request.ReopenJobRequest;
+import com.exe.skillverse_backend.business_service.repository.JobBoostRepository;
+
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -36,6 +51,7 @@ public class JobPostingServiceImpl implements JobPostingService {
     private final JobPostingRepository jobPostingRepository;
     private final RecruiterProfileRepository recruiterProfileRepository;
     private final JobApplicationRepository jobApplicationRepository;
+    private final JobBoostRepository jobBoostRepository;
     private final ObjectMapper objectMapper;
     private final RecruiterSubscriptionService recruiterSubscriptionService;
     private final WalletService walletService;
@@ -258,12 +274,13 @@ public class JobPostingServiceImpl implements JobPostingService {
      * Get all public jobs (status = OPEN)
      * OPTIMIZED: Uses JOIN FETCH to prevent N+1 queries (201 queries → 1 query for
      * 100 jobs)
+     * Boosted jobs appear first in the list for premium exposure
      */
     @Transactional(readOnly = true)
     public List<JobPostingResponse> getPublicJobs() {
-        log.info("Fetching public jobs (status = OPEN)");
+        log.info("Fetching public jobs (status = OPEN) with boost ranking");
 
-        List<JobPosting> jobs = jobPostingRepository.findByStatusWithRecruiterOrderByCreatedAtDesc(JobStatus.OPEN);
+        List<JobPosting> jobs = jobPostingRepository.findOpenJobsWithBoostInfo();
         return jobs.stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());

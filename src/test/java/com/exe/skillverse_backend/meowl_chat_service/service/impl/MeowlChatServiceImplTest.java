@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.meowl_chat_service.config.MeowlConfig;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatRequest;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatResponse;
 import com.exe.skillverse_backend.meowl_chat_service.entity.MeowlChatMessage;
+import com.exe.skillverse_backend.meowl_chat_service.model.MeowlRoleMode;
 import com.exe.skillverse_backend.meowl_chat_service.repository.MeowlChatMessageRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,6 +50,9 @@ public class MeowlChatServiceImplTest {
     @Mock
     private MeowlChatMessageRepository chatMessageRepository;
 
+    @Mock
+    private MeowlRoleGuidanceService roleGuidanceService;
+
     @InjectMocks
     private MeowlChatServiceImpl meowlChatService;
 
@@ -62,6 +66,17 @@ public class MeowlChatServiceImplTest {
                 .userId(1L)
                 .includeReminders(true)
                 .build();
+
+        lenient().when(roleGuidanceService.resolveContext(any(), anyString(), any()))
+                .thenReturn(MeowlRoleGuidanceService.RoleGuidanceContext.builder()
+                        .loggedIn(true)
+                        .language("en")
+                        .userId(1L)
+                        .activeRole(MeowlRoleMode.LEARNER)
+                        .availableRoles(List.of(MeowlRoleMode.LEARNER))
+                        .nextBestAction("Start entry test")
+                        .promptSection("ROLE CONTEXT")
+                        .build());
     }
 
     @Test

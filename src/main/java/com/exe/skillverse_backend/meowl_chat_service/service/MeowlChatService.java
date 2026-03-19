@@ -2,6 +2,8 @@ package com.exe.skillverse_backend.meowl_chat_service.service;
 
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatRequest;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatResponse;
+import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlOnboardingContextResponse;
+
 import java.util.List;
 
 /**
@@ -32,4 +34,14 @@ public interface MeowlChatService {
      * @param userId The ID of the user
      */
     void clearChatHistory(Long userId);
+
+    /**
+     * Build role-aware onboarding context for the chat UI.
+     */
+    MeowlOnboardingContextResponse getOnboardingContext(Long userId, String language, String activeRole);
+
+    /**
+     * Mark onboarding guidance as seen and optionally store role preference.
+     */
+    void markOnboardingSeen(Long userId, String activeRole);
 }

@@ -1,5 +1,5 @@
--- Fix premium_plans plan_type check constraint to include FREE_TIER
--- This script adds FREE_TIER to the allowed values for plan_type
+-- Fix premium_plans plan_type check constraint to include all current plan types
+-- This script keeps FREE_TIER and RECRUITER_PRO available for recruiter subscriptions
 
 DO $$ 
 BEGIN
@@ -14,12 +14,12 @@ BEGIN
         RAISE NOTICE 'Dropped existing premium_plans_plan_type_check constraint';
     END IF;
     
-    -- Add the corrected constraint with all plan types including FREE_TIER
+    -- Add the corrected constraint with all current plan types
     ALTER TABLE premium_plans 
     ADD CONSTRAINT premium_plans_plan_type_check 
-    CHECK (plan_type IN ('FREE_TIER', 'PREMIUM_BASIC', 'PREMIUM_PLUS', 'STUDENT_PACK'));
+    CHECK (plan_type IN ('FREE_TIER', 'PREMIUM_BASIC', 'PREMIUM_PLUS', 'STUDENT_PACK', 'RECRUITER_PRO'));
     
-    RAISE NOTICE 'Added premium_plans_plan_type_check constraint with FREE_TIER support';
+    RAISE NOTICE 'Added premium_plans_plan_type_check constraint with recruiter support';
     
 EXCEPTION
     WHEN OTHERS THEN

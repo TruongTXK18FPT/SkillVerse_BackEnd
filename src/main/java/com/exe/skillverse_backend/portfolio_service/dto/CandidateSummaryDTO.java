@@ -22,4 +22,15 @@ public class CandidateSummaryDTO {
     private Double hourlyRate;
     private String preferredCurrency;
     private Integer totalProjects;
+
+    // Matching/scoring fields (for recruiter search)
+    private Double matchScore;
+    private String matchQuality; // EXCELLENT, GOOD, FAIR, POOR
+    private Integer skillMatchPercent;
+    private String aiFitSummary; // AI-generated match explanation
+
+    // Shortlist fields
+    private Long shortlistId;
+    private String shortlistStatus;
+    private String shortlistNotes;
 }

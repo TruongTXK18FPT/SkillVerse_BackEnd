@@ -47,6 +47,9 @@ env:
   # AI Generate Test Key Configuration
   AI_GENERATE_TEST_KEY: ${{ secrets.AI_GENERATE_TEST_KEY }}
 
+  # AI Search Configuration
+  AI_SEARCH_KEY: ${{ secrets.AI_SEARCH_KEY }}
+
   # Payment Gateway Configuration (PayOS)
   PAYOS_CLIENT_ID: ${{ secrets.PAYOS_CLIENT_ID }}
   PAYOS_API_KEY: ${{ secrets.PAYOS_API_KEY }}
@@ -427,6 +430,7 @@ jobs:
             -e CLOUDINARY_API_SECRET="${CLOUDINARY_API_SECRET}" \
             -e CLOUDINARY_URL="${CLOUDINARY_URL}" \
             -e REMOVE_BG_API_KEY="${REMOVE_BG_API_KEY}" \
+            -e AI_SEARCH_KEY="${AI_SEARCH_KEY}" \
             skillverse-backend:${{ github.sha }}
             
           echo "⏳ Waiting for application to start..."
@@ -546,6 +550,7 @@ jobs:
           echo "CLOUDINARY_API_SECRET='${{ secrets.CLOUDINARY_API_SECRET }}'" >> .env
           echo "CLOUDINARY_URL='${{ secrets.CLOUDINARY_URL }}'" >> .env
           echo "REMOVE_BG_API_KEY='${{ secrets.REMOVE_BG_API_KEY }}'" >> .env
+          echo "AI_SEARCH_KEY='${{ secrets.AI_SEARCH_KEY }}'" >> .env
 
           # Debug: Verify critical secrets are set (without exposing values)
           echo "🔍 Verifying critical environment variables..."
@@ -657,6 +662,7 @@ jobs:
               -e CLOUDINARY_API_SECRET="$CLOUDINARY_API_SECRET" \
               -e CLOUDINARY_URL="$CLOUDINARY_URL" \
               -e REMOVE_BG_API_KEY="$REMOVE_BG_API_KEY" \
+              -e AI_SEARCH_KEY="$AI_SEARCH_KEY" \
               -e PAYOS_CLIENT_ID="$PAYOS_CLIENT_ID" \
               -e PAYOS_API_KEY="$PAYOS_API_KEY" \
               -e PAYOS_CHECKSUM_KEY="$PAYOS_CHECKSUM_KEY" \

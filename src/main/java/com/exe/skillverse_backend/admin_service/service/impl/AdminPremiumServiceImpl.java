@@ -93,6 +93,7 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                 .price(request.getPrice())
                 .currency("VND")
                 .planType(request.getPlanType())
+                .targetRole(request.getTargetRole() != null ? request.getTargetRole() : PremiumPlan.TargetRole.LEARNER)
                 .studentDiscountPercent(request.getStudentDiscountPercent())
                 .features(request.getFeatures())
                 .isActive(request.getIsActive())
@@ -143,6 +144,11 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
         plan.setStudentDiscountPercent(request.getStudentDiscountPercent());
         plan.setFeatures(request.getFeatures());
         plan.setMaxSubscribers(request.getMaxSubscribers());
+
+        // Update targetRole if provided
+        if (request.getTargetRole() != null) {
+            plan.setTargetRole(request.getTargetRole());
+        }
 
         if (request.getIsActive() != null) {
             plan.setIsActive(request.getIsActive());
@@ -253,6 +259,7 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                 .price(plan.getPrice())
                 .currency(plan.getCurrency())
                 .planType(plan.getPlanType())
+                .targetRole(plan.getTargetRole())
                 .studentDiscountPercent(plan.getStudentDiscountPercent())
                 .studentPrice(plan.getStudentPrice())
                 .features(featuresList)

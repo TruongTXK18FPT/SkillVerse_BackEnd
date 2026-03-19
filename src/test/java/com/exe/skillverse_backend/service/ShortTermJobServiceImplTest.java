@@ -14,6 +14,7 @@ import com.exe.skillverse_backend.business_service.service.JobAuditService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
+import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -81,6 +82,9 @@ class ShortTermJobServiceImplTest {
     @Mock
     private JobAuditService auditService;
 
+    @Mock
+    private UserProfileRepository userProfileRepository;
+
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
 
@@ -145,6 +149,9 @@ class ShortTermJobServiceImplTest {
 
         // Default mock for portfolio - assume user has portfolio
         when(portfolioExtendedProfileRepository.existsByUserId(anyLong())).thenReturn(true);
+
+        // Stub userProfileRepository to avoid NPE in mapToResponse
+        when(userProfileRepository.findByUserId(anyLong())).thenReturn(Optional.empty());
     }
 
     // ==================== JOB CREATION VALIDATION TESTS ====================
@@ -253,7 +260,7 @@ class ShortTermJobServiceImplTest {
 
             assertThatThrownBy(() -> shortTermJobService.deleteJob(mockRecruiter.getId(), mockJob.getId()))
                     .isInstanceOf(BadRequestException.class)
-                    .hasMessageContaining("Only DRAFT jobs can be deleted");
+                    .hasMessageContaining("'PUBLISHED'");
         }
 
         @Test
@@ -323,6 +330,7 @@ class ShortTermJobServiceImplTest {
                 return app;
             });
             when(shortTermJobRepository.save(any())).thenReturn(mockJob);
+            when(portfolioExtendedProfileRepository.findByUserId(anyLong())).thenReturn(Optional.empty());
 
             ShortTermApplicationResponse response = shortTermJobService.applyToJob(
                     mockApplicant.getId(), mockJob.getId(), request);
@@ -410,9 +418,13 @@ class ShortTermJobServiceImplTest {
 
             when(applicationRepository.findById(mockApplication.getId()))
                     .thenReturn(Optional.of(mockApplication));
+            when(shortTermJobRepository.findById(mockJob.getId()))
+                    .thenReturn(Optional.of(mockJob));
             when(recruiterProfileRepository.findByUserId(mockRecruiter.getId()))
                     .thenReturn(Optional.of(mockRecruiterProfile));
             when(applicationRepository.save(any())).thenReturn(mockApplication);
+            when(shortTermJobRepository.save(any())).thenReturn(mockJob);
+            doNothing().when(auditService).logApplicationStatusChange(anyLong(), any(), any(), anyLong(), any(), anyString());
 
             UpdateShortTermApplicationStatusRequest request = new UpdateShortTermApplicationStatusRequest();
             request.setStatus(ShortTermApplicationStatus.ACCEPTED);

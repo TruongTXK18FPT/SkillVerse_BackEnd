@@ -31,6 +31,20 @@ public class RecruiterSubscriptionController {
     private final RecruiterSubscriptionService recruiterSubscriptionService;
     private final PremiumService premiumService;
 
+    private boolean isRecruiterPlan(PremiumPlanResponse plan) {
+        if (plan == null) {
+            return false;
+        }
+
+        if (plan.getPlanType() == PremiumPlan.PlanType.RECRUITER_PRO
+                || plan.getTargetRole() == PremiumPlan.TargetRole.RECRUITER) {
+            return true;
+        }
+
+        String planName = plan.getName();
+        return planName != null && planName.toLowerCase().startsWith("recruiter_");
+    }
+
     // ────────────────────────────── Info ──────────────────────────────
 
     @GetMapping("/info")
@@ -61,8 +75,11 @@ public class RecruiterSubscriptionController {
     @Operation(summary = "Get available Recruiter Pro plans (monthly / yearly)")
     public ResponseEntity<List<PremiumPlanResponse>> getRecruiterPlans() {
         log.info("Fetching available Recruiter Pro plans");
-        List<PremiumPlanResponse> plans = premiumService.getAvailablePlans().stream()
-                .filter(p -> p.getPlanType() == PremiumPlan.PlanType.RECRUITER_PRO)
+        List<PremiumPlanResponse> plans = premiumService.getAvailablePlansByTargetRole(
+                PremiumPlan.TargetRole.RECRUITER,
+                false
+        ).stream()
+                .filter(this::isRecruiterPlan)
                 .toList();
         return ResponseEntity.ok(plans);
     }

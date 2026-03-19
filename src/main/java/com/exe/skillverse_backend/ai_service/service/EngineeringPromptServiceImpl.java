@@ -457,7 +457,7 @@ public class EngineeringPromptServiceImpl extends BaseExpertPromptService {
                 - **Process Engineer**: Tối ưu hóa và cải tiến quy trình sản xuất.
 
                 ### ⚠️ LƯU Ý:
-                - Đây là ngành HOT 2025 với nhu cầu nhân sự cực lớn.
+                - Đây là ngành HOT 2026 với nhu cầu nhân sự cực lớn.
                 - Yêu cầu làm việc theo ca, trong môi trường phòng sạch.
                 - Cơ hội làm việc cho các tập đoàn lớn (Intel, Samsung, TSMC).
                 """;

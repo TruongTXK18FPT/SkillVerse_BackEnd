@@ -59,6 +59,10 @@ public class CreatePremiumPlanRequest {
     @Schema(description = "Plan type (cannot be FREE_TIER)", example = "PREMIUM_BASIC")
     private PremiumPlan.PlanType planType;
 
+    @Schema(description = "Target role for this plan (LEARNER, RECRUITER, PARENT). If not set, defaults to LEARNER", example = "RECRUITER")
+    @Builder.Default
+    private PremiumPlan.TargetRole targetRole = PremiumPlan.TargetRole.LEARNER;
+
     @NotNull(message = "Student discount is required")
     @DecimalMin(value = "0.0", message = "Student discount must be at least 0")
     @DecimalMax(value = "100.0", message = "Student discount must not exceed 100")

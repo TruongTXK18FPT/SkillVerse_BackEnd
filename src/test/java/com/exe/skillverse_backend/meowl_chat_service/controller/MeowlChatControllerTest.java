@@ -11,6 +11,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Collections;
@@ -65,14 +66,16 @@ public class MeowlChatControllerTest {
         MeowlChatRequest.ChatMessage msg = new MeowlChatRequest.ChatMessage("user", "Hi");
         when(meowlChatService.getChatHistory(anyLong())).thenReturn(Collections.singletonList(msg));
 
-        mockMvc.perform(get("/api/v1/meowl/history/1"))
+        mockMvc.perform(get("/api/v1/meowl/history/1")
+                .principal(new TestingAuthenticationToken("1", null, "ROLE_USER")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].content").value("Hi"));
     }
 
     @Test
     void clearChatHistory_Success() throws Exception {
-        mockMvc.perform(delete("/api/v1/meowl/history/1"))
+        mockMvc.perform(delete("/api/v1/meowl/history/1")
+                .principal(new TestingAuthenticationToken("1", null, "ROLE_USER")))
                 .andExpect(status().isOk());
     }
 }

@@ -29,6 +29,16 @@ public class MeowlChatResponse {
     private List<MeowlNotification> notifications; // Platform notifications
     
     private String mood; // Meowl's mood: "happy", "excited", "encouraging", "playful"
+
+    /**
+     * Resolved role mode used for this response.
+     */
+    private String activeRole;
+
+    /**
+     * Optional short next best action for role-aware guidance.
+     */
+    private String nextBestAction;
     
     // Routing and Actions
     private String actionType; // "NAVIGATE", "LINK", "NONE"

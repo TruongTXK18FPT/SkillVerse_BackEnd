@@ -15,6 +15,11 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
+
+import java.math.BigDecimal;
+import java.util.List;
+
 /**
  * Request DTO for updating an existing premium plan (Admin only)
  * Note: Cannot update FREE_TIER plan
@@ -62,6 +67,9 @@ public class UpdatePremiumPlanRequest {
 
     @Schema(description = "Whether plan is active", example = "true")
     private Boolean isActive;
+
+    @Schema(description = "Target role for this plan (LEARNER, RECRUITER, PARENT)", example = "RECRUITER")
+    private PremiumPlan.TargetRole targetRole;
 
     @Valid
     @Schema(description = "Feature limits configuration for this plan (optional - only update if provided)")

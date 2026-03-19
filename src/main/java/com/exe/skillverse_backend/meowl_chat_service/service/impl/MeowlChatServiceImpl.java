@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.meowl_chat_service.service.impl;
 import com.exe.skillverse_backend.meowl_chat_service.config.MeowlConfig;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatRequest;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatResponse;
+import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlOnboardingContextResponse;
 import com.exe.skillverse_backend.meowl_chat_service.entity.MeowlChatMessage;
 import com.exe.skillverse_backend.meowl_chat_service.repository.MeowlChatMessageRepository;
 import com.exe.skillverse_backend.meowl_chat_service.service.MeowlChatService;
@@ -48,6 +49,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
     private final ObjectMapper objectMapper;
     private final MistralAiChatModel mistralAiChatModel;
     private final MeowlChatMessageRepository chatMessageRepository;
+    private final MeowlRoleGuidanceService roleGuidanceService;
 
     // System prompts with developer guard
     private static final Map<String, String> SYSTEM_PROMPTS = new HashMap<>();
@@ -290,14 +292,18 @@ public class MeowlChatServiceImpl implements MeowlChatService {
         try {
             String language = request.getLanguage() != null ? request.getLanguage() : "en";
             Long userId = request.getUserId();
+            MeowlRoleGuidanceService.RoleGuidanceContext guidanceContext =
+                    roleGuidanceService.resolveContext(userId, language, request.getActiveRole());
+            String activeRole = guidanceContext.getActiveRole().name();
 
             // Save user message to DB for persistence
             if (userId != null) {
-                saveMessage(userId, "user", request.getMessage());
+                saveMessage(userId, "user", request.getMessage(), activeRole, request.getSessionId(), "CHAT");
+                roleGuidanceService.saveRolePreference(userId, activeRole);
             }
 
             // Build the prompt with system context
-            String fullPrompt = buildPrompt(request, language);
+            String fullPrompt = buildPrompt(request, language, guidanceContext.getPromptSection());
 
             // Try Gemini API first
             String aiResponse;
@@ -328,7 +334,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
             
             // Save assistant response to DB
             if (userId != null) {
-                saveMessage(userId, "assistant", cuteResponse);
+                saveMessage(userId, "assistant", cuteResponse, activeRole, request.getSessionId(), "CHAT");
             }
 
             // Get reminders if requested
@@ -351,7 +357,9 @@ public class MeowlChatServiceImpl implements MeowlChatService {
                     .timestamp(LocalDateTime.now())
                     .reminders(reminders)
                     .notifications(notifications)
-                    .mood(determineMood(cuteResponse));
+                    .mood(determineMood(cuteResponse))
+                    .activeRole(activeRole)
+                    .nextBestAction(guidanceContext.getNextBestAction());
 
             determineAction(cuteResponse, language, responseBuilder);
 
@@ -375,7 +383,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
     /**
      * Build the full prompt with system instructions and chat history
      */
-    private String buildPrompt(MeowlChatRequest request, String language) {
+    private String buildPrompt(MeowlChatRequest request, String language, String rolePromptSection) {
         StringBuilder prompt = new StringBuilder();
 
         // Add system prompt
@@ -383,6 +391,11 @@ public class MeowlChatServiceImpl implements MeowlChatService {
 
         // Add developer guard
         prompt.append(DEV_GUARDS.get(language)).append("\n\n");
+
+        // Add role-aware guidance section
+        if (rolePromptSection != null && !rolePromptSection.isBlank()) {
+            prompt.append(rolePromptSection).append("\n\n");
+        }
 
         // Add chat history
         List<MeowlChatRequest.ChatMessage> history;
@@ -415,12 +428,21 @@ public class MeowlChatServiceImpl implements MeowlChatService {
     /**
      * Save a chat message to the database
      */
-    private void saveMessage(Long userId, String role, String content) {
+    private void saveMessage(
+            Long userId,
+            String role,
+            String content,
+            String activeRole,
+            String sessionId,
+            String messageType) {
         try {
             MeowlChatMessage message = MeowlChatMessage.builder()
                     .userId(userId)
                     .role(role)
                     .content(content)
+                    .activeRole(activeRole)
+                    .sessionId(sessionId)
+                    .messageType(messageType != null ? messageType : "CHAT")
                     .createdAt(LocalDateTime.now())
                     .build();
             chatMessageRepository.save(message);
@@ -455,6 +477,18 @@ public class MeowlChatServiceImpl implements MeowlChatService {
     public void clearChatHistory(Long userId) {
         chatMessageRepository.deleteByUserId(userId);
         log.info("Cleared chat history for user {}", userId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public MeowlOnboardingContextResponse getOnboardingContext(Long userId, String language, String activeRole) {
+        return roleGuidanceService.buildOnboardingResponse(userId, language, activeRole);
+    }
+
+    @Override
+    @Transactional
+    public void markOnboardingSeen(Long userId, String activeRole) {
+        roleGuidanceService.markOnboardingSeen(userId, activeRole);
     }
 
     /**
@@ -685,7 +719,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
 
             builder.actionType("NAVIGATE");
             builder.actionUrl("/jobs");
-            builder.actionLabel(isVi ? "Tìm Việc làm �" : "Find Jobs 💼");
+            builder.actionLabel(isVi ? "Tìm việc làm" : "Find Jobs");
             return;
         }
 
@@ -732,7 +766,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
 
             builder.actionType("NAVIGATE");
             builder.actionUrl("/wallet");
-            builder.actionLabel(isVi ? "Ví của bạn �" : "Your Wallet 💰");
+            builder.actionLabel(isVi ? "Ví của bạn" : "Your Wallet");
             return;
         }
 

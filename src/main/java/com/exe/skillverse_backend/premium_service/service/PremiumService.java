@@ -22,6 +22,14 @@ public interface PremiumService {
     List<PremiumPlanResponse> getAvailablePlans();
 
     /**
+     * Get available premium plans filtered by target role.
+     */
+    List<PremiumPlanResponse> getAvailablePlansByTargetRole(
+            PremiumPlan.TargetRole targetRole,
+            boolean includeFreeTier
+    );
+
+    /**
      * Get a specific plan by ID
      */
     Optional<PremiumPlanResponse> getPlanById(Long planId);

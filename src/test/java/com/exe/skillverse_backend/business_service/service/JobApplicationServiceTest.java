@@ -18,6 +18,7 @@ import com.exe.skillverse_backend.premium_service.dto.response.UsageCheckResult;
 import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.EmailService;
+import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -64,6 +65,9 @@ class JobApplicationServiceTest {
 
     @Mock
     private PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+
+    @Mock
+    private UserProfileRepository userProfileRepository;
 
     @InjectMocks
     private JobApplicationServiceImpl jobApplicationService;

@@ -73,5 +73,37 @@ public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
      * Find PENDING_APPROVAL jobs that have been waiting for more than specified days (for auto-cancel scheduler)
      */
     @Query("SELECT j FROM JobPosting j WHERE j.status = :status AND j.createdAt < :cutoffDate")
-    List<JobPosting> findByStatusAndCreatedAtBefore(@Param("status") JobStatus status, @Param("cutoffDate") LocalDateTime cutoffDate);
+    List<JobPosting> findByStatusAndCreatedAtBefore(@Param("status") JobStatus status, @Param("cutoffDate") java.time.LocalDateTime cutoffDate);
+
+    /**
+     * Find all OPEN jobs with recruiter eagerly loaded, ordered by boosted jobs first
+     * Uses native query for better performance with ranking
+     */
+    @Query(value = """
+        SELECT j.* FROM job_postings j
+        LEFT JOIN job_boosts jb ON j.id = jb.job_posting_id
+        AND jb.boost_status = 'ACTIVE'
+        AND jb.expires_at > CURRENT_TIMESTAMP
+        AND (jb.scheduled_start_at IS NULL OR jb.scheduled_start_at <= CURRENT_TIMESTAMP)
+        WHERE j.status = 'OPEN'
+        ORDER BY
+            CASE WHEN jb.id IS NOT NULL THEN 0 ELSE 1 END,
+            j.created_at DESC
+        """, nativeQuery = true)
+    List<JobPosting> findOpenJobsWithBoostRanking();
+
+    /**
+     * Find OPEN jobs with boost info for advanced ranking
+     * Returns jobs with boost data for hybrid scoring
+     */
+    @Query("SELECT j FROM JobPosting j " +
+            "JOIN FETCH j.recruiterProfile rp " +
+            "JOIN FETCH rp.user u " +
+            "LEFT JOIN JobBoost jb ON j.id = jb.jobPosting.id " +
+            "AND jb.boostStatus = 'ACTIVE' " +
+            "AND jb.expiresAt > CURRENT_TIMESTAMP " +
+            "AND (jb.scheduledStartAt IS NULL OR jb.scheduledStartAt <= CURRENT_TIMESTAMP) " +
+            "WHERE j.status = 'OPEN' " +
+            "ORDER BY CASE WHEN jb.id IS NOT NULL THEN 0 ELSE 1 END, j.createdAt DESC")
+    List<JobPosting> findOpenJobsWithBoostInfo();
 }

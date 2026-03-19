@@ -70,6 +70,17 @@ public class PremiumPlan {
     private PlanType planType;
 
     /**
+     * Target role for this plan - used for filtering in UI
+     * LEARNER: For regular users/students
+     * RECRUITER: For recruiter users
+     * PARENT: For parent accounts
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "target_role", length = 20)
+    @Builder.Default
+    private TargetRole targetRole = TargetRole.LEARNER;
+
+    /**
      * Discount percentage for students (0-100)
      */
     @Column(name = "student_discount_percent", precision = 5, scale = 2)
@@ -124,6 +135,15 @@ public class PremiumPlan {
         PREMIUM_PLUS,
         STUDENT_PACK,
         RECRUITER_PRO
+    }
+
+    /**
+     * Target roles for filtering plans in UI
+     */
+    public enum TargetRole {
+        LEARNER,    // Regular learners/students
+        RECRUITER,  // Recruiter users
+        PARENT      // Parent accounts
     }
 
     /**
