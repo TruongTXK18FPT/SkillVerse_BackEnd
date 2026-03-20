@@ -39,6 +39,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -752,7 +754,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
 
     private ArrayNode canonicalizeStringArray(JsonNode rawArray) {
         JsonNode source = defaultJsonArray(rawArray);
-        ArrayNode canonical = objectMapper.createArrayNode();
+        ArrayNode canonical = JsonNodeFactory.instance.arrayNode();
         for (JsonNode item : source) {
             if (item == null || item.isNull()) {
                 canonical.addNull();
@@ -774,11 +776,11 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
 
     private JsonNode canonicalizeJsonNode(JsonNode source) {
         if (source == null || source.isNull()) {
-            return objectMapper.nullNode();
+            return NullNode.getInstance();
         }
 
         if (source.isObject()) {
-            ObjectNode canonical = objectMapper.createObjectNode();
+            ObjectNode canonical = JsonNodeFactory.instance.objectNode();
             List<String> fieldNames = new ArrayList<>();
             source.fieldNames().forEachRemaining(fieldNames::add);
             Collections.sort(fieldNames);
@@ -789,7 +791,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         }
 
         if (source.isArray()) {
-            ArrayNode canonical = objectMapper.createArrayNode();
+            ArrayNode canonical = JsonNodeFactory.instance.arrayNode();
             for (JsonNode child : source) {
                 canonical.add(canonicalizeJsonNode(child));
             }
@@ -2093,10 +2095,11 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
 
     private JsonNode parseJsonSafely(String json) {
         try {
-            return objectMapper.readTree(json);
+            JsonNode parsed = objectMapper.readTree(json);
+            return parsed != null ? parsed : JsonNodeFactory.instance.objectNode();
         } catch (JsonProcessingException ex) {
             log.warn("Failed to parse JSON '{}': {}", json, ex.getMessage());
-            return objectMapper.createObjectNode();
+            return JsonNodeFactory.instance.objectNode();
         }
     }
 
