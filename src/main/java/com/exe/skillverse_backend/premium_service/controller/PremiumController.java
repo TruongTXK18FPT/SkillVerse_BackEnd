@@ -1,12 +1,8 @@
 package com.exe.skillverse_backend.premium_service.controller;
 
-import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
-import com.exe.skillverse_backend.auth_service.entity.User;
-import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.premium_service.dto.request.CreateSubscriptionRequest;
 import com.exe.skillverse_backend.premium_service.dto.response.PremiumPlanResponse;
 import com.exe.skillverse_backend.premium_service.dto.response.UserSubscriptionResponse;
-import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -15,6 +11,7 @@ import jakarta.validation.Valid;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -37,72 +34,38 @@ import org.springframework.web.bind.annotation.RestController;
 public class PremiumController {
 
     private final PremiumService premiumService;
-    private final UserRepository userRepository;
-
-    private boolean isRecruiterPlan(PremiumPlanResponse plan) {
-        if (plan == null) {
-            return false;
-        }
-
-        if (plan.getPlanType() == PremiumPlan.PlanType.RECRUITER_PRO
-                || plan.getTargetRole() == PremiumPlan.TargetRole.RECRUITER) {
-            return true;
-        }
-
-        String planName = plan.getName();
-        return planName != null && planName.toLowerCase().startsWith("recruiter_");
-    }
 
     @GetMapping("/plans")
-    @Operation(summary = "Get available premium plans (filtered by user role)")
+    @Operation(summary = "Get available premium plans (auto-filter by current user role)")
     public ResponseEntity<List<PremiumPlanResponse>> getAvailablePlans(
-            @RequestParam(required = false) PremiumPlan.TargetRole targetRole,
             @RequestParam(required = false, defaultValue = "false") boolean includeFreeTier,
             Authentication authentication) {
-        log.info("Fetching available premium plans (targetRole: {}, includeFreeTier: {})",
-                targetRole, includeFreeTier);
+        log.info("Fetching available premium plans (includeFreeTier: {})", includeFreeTier);
 
-        if (targetRole != null) {
-            return ResponseEntity.ok(
-                    premiumService.getAvailablePlansByTargetRole(targetRole, includeFreeTier)
-            );
-        }
-
-        List<PremiumPlanResponse> plans = premiumService.getAvailablePlans();
-
-        // Filter plans based on user role
         if (authentication != null && authentication.getPrincipal() instanceof Jwt jwt) {
             Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
-            User user = userRepository.findById(userId).orElse(null);
-
-            if (user != null && user.getPrimaryRole() == PrimaryRole.RECRUITER) {
-                // Legacy recruiter plans may still have stale type/targetRole values.
-                plans = plans.stream()
-                        .filter(p -> p.getPlanType() == PremiumPlan.PlanType.FREE_TIER
-                                || isRecruiterPlan(p))
-                        .toList();
-            } else {
-                // Non-recruiters should never see recruiter-only plans.
-                plans = plans.stream()
-                        .filter(p -> !isRecruiterPlan(p))
-                        .toList();
-            }
-        } else {
-            // Guest users: hide recruiter-only plans
-            plans = plans.stream()
-                    .filter(p -> !isRecruiterPlan(p))
-                    .toList();
+            return ResponseEntity.ok(premiumService.getAvailablePlansForUser(userId, includeFreeTier));
         }
 
-        return ResponseEntity.ok(plans);
+        return ResponseEntity.ok(premiumService.getAvailablePlansForGuest(includeFreeTier));
     }
 
     @GetMapping("/plans/{planId}")
-    @Operation(summary = "Get premium plan by ID")
+    @Operation(summary = "Get premium plan by ID (role-aware visibility)")
     public ResponseEntity<PremiumPlanResponse> getPlanById(
-            @Parameter(description = "Premium plan ID") @PathVariable Long planId) {
+            @Parameter(description = "Premium plan ID") @PathVariable Long planId,
+            Authentication authentication) {
         log.info("Fetching premium plan with ID: {}", planId);
-        return premiumService.getPlanById(planId)
+
+        Optional<PremiumPlanResponse> plan;
+        if (authentication != null && authentication.getPrincipal() instanceof Jwt jwt) {
+            Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+            plan = premiumService.getPlanByIdForUser(userId, planId);
+        } else {
+            plan = premiumService.getPlanByIdForGuest(planId);
+        }
+
+        return plan
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }

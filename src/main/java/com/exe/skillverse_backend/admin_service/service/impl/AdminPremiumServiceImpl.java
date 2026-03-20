@@ -84,6 +84,12 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                     + " premium plans allowed (excluding FREE_TIER). Please delete an existing plan first.");
         }
 
+        PremiumPlan.TargetRole targetRole = normalizeLegacyTargetRole(
+                request.getTargetRole() != null
+                        ? request.getTargetRole()
+                        : PremiumPlan.TargetRole.LEARNER);
+        validatePlanTypeTargetRoleConsistency(request.getPlanType(), targetRole);
+
         // Create new plan
         PremiumPlan plan = PremiumPlan.builder()
                 .name(request.getName())
@@ -93,7 +99,7 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                 .price(request.getPrice())
                 .currency("VND")
                 .planType(request.getPlanType())
-                .targetRole(request.getTargetRole() != null ? request.getTargetRole() : PremiumPlan.TargetRole.LEARNER)
+                .targetRole(targetRole)
                 .studentDiscountPercent(request.getStudentDiscountPercent())
                 .features(request.getFeatures())
                 .isActive(request.getIsActive())
@@ -136,6 +142,12 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                             "Only feature limits can be adjusted for FREE_TIER plan.");
         }
 
+        PremiumPlan.TargetRole targetRole = normalizeLegacyTargetRole(
+                request.getTargetRole() != null
+                        ? request.getTargetRole()
+                        : plan.getTargetRole());
+        validatePlanTypeTargetRoleConsistency(plan.getPlanType(), targetRole);
+
         // Update fields for non-FREE_TIER plans
         plan.setDisplayName(request.getDisplayName());
         plan.setDescription(request.getDescription());
@@ -147,7 +159,7 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
 
         // Update targetRole if provided
         if (request.getTargetRole() != null) {
-            plan.setTargetRole(request.getTargetRole());
+            plan.setTargetRole(normalizeLegacyTargetRole(request.getTargetRole()));
         }
 
         if (request.getIsActive() != null) {
@@ -166,6 +178,24 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
         }
 
         return mapToAdminResponse(updatedPlan);
+    }
+
+    private void validatePlanTypeTargetRoleConsistency(
+            PremiumPlan.PlanType planType,
+            PremiumPlan.TargetRole targetRole) {
+        if (planType == null || targetRole == null) {
+            throw new RuntimeException("Plan type và target role không được để trống.");
+        }
+
+        if (planType == PremiumPlan.PlanType.RECRUITER_PRO
+                && targetRole != PremiumPlan.TargetRole.RECRUITER) {
+            throw new RuntimeException("Gói RECRUITER_PRO phải có target role là RECRUITER.");
+        }
+
+        if (targetRole == PremiumPlan.TargetRole.RECRUITER
+                && planType != PremiumPlan.PlanType.RECRUITER_PRO) {
+            throw new RuntimeException("Target role RECRUITER chỉ được dùng với plan type RECRUITER_PRO.");
+        }
     }
 
     @Override
@@ -259,7 +289,7 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                 .price(plan.getPrice())
                 .currency(plan.getCurrency())
                 .planType(plan.getPlanType())
-                .targetRole(plan.getTargetRole())
+                .targetRole(normalizeLegacyTargetRole(plan.getTargetRole()))
                 .studentDiscountPercent(plan.getStudentDiscountPercent())
                 .studentPrice(plan.getStudentPrice())
                 .features(featuresList)
@@ -273,6 +303,13 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                 .updatedAt(plan.getUpdatedAt())
                 .featureLimits(featureLimits)
                 .build();
+    }
+
+    private PremiumPlan.TargetRole normalizeLegacyTargetRole(PremiumPlan.TargetRole targetRole) {
+        if (targetRole == null || targetRole == PremiumPlan.TargetRole.PARENT) {
+            return PremiumPlan.TargetRole.LEARNER;
+        }
+        return targetRole;
     }
 
     /**

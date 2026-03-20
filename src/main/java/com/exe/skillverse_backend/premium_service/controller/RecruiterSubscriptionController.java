@@ -13,6 +13,7 @@ import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/recruiter/subscription")
 @RequiredArgsConstructor
 @Slf4j
+@PreAuthorize("hasRole('RECRUITER')")
 @Tag(name = "Recruiter Subscription", description = "Recruiter Pro subscription management — quota, highlight, AI candidate suggestion")
 public class RecruiterSubscriptionController {
 
@@ -36,13 +38,8 @@ public class RecruiterSubscriptionController {
             return false;
         }
 
-        if (plan.getPlanType() == PremiumPlan.PlanType.RECRUITER_PRO
-                || plan.getTargetRole() == PremiumPlan.TargetRole.RECRUITER) {
-            return true;
-        }
-
-        String planName = plan.getName();
-        return planName != null && planName.toLowerCase().startsWith("recruiter_");
+        return plan.getPlanType() == PremiumPlan.PlanType.RECRUITER_PRO
+                || plan.getTargetRole() == PremiumPlan.TargetRole.RECRUITER;
     }
 
     // ────────────────────────────── Info ──────────────────────────────

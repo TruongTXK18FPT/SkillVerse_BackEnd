@@ -30,9 +30,29 @@ public interface PremiumService {
     );
 
     /**
+     * Get available plans for authenticated user (auto-resolved from user's primary role).
+     */
+    List<PremiumPlanResponse> getAvailablePlansForUser(Long userId, boolean includeFreeTier);
+
+    /**
+     * Get available plans for guests (default learner-facing plans).
+     */
+    List<PremiumPlanResponse> getAvailablePlansForGuest(boolean includeFreeTier);
+
+    /**
      * Get a specific plan by ID
      */
     Optional<PremiumPlanResponse> getPlanById(Long planId);
+
+    /**
+     * Get plan detail by ID with role-based visibility for authenticated user.
+     */
+    Optional<PremiumPlanResponse> getPlanByIdForUser(Long userId, Long planId);
+
+    /**
+     * Get plan detail by ID with role-based visibility for guests.
+     */
+    Optional<PremiumPlanResponse> getPlanByIdForGuest(Long planId);
 
     /**
      * Get a specific plan by type

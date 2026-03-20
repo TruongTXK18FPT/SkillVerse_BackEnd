@@ -95,10 +95,46 @@ public class PremiumServiceImpl implements PremiumService {
 
         @Override
         @Transactional(readOnly = true)
+        public List<PremiumPlanResponse> getAvailablePlansForUser(Long userId, boolean includeFreeTier) {
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
+                PremiumPlan.TargetRole targetRole = resolveTargetRoleByPrimaryRole(user.getPrimaryRole());
+                return getAvailablePlansByTargetRole(targetRole, includeFreeTier);
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        public List<PremiumPlanResponse> getAvailablePlansForGuest(boolean includeFreeTier) {
+                return getAvailablePlansByTargetRole(PremiumPlan.TargetRole.LEARNER, includeFreeTier);
+        }
+
+        @Override
+        @Transactional(readOnly = true)
         public Optional<PremiumPlanResponse> getPlanById(Long planId) {
                 log.info("Fetching premium plan with ID: {}", planId);
                 return premiumPlanRepository.findById(planId)
                                 .filter(plan -> plan.getIsActive())
+                                .map(this::convertToPremiumPlanResponse);
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        public Optional<PremiumPlanResponse> getPlanByIdForUser(Long userId, Long planId) {
+                User user = userRepository.findById(userId)
+                                .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
+                PremiumPlan.TargetRole targetRole = resolveTargetRoleByPrimaryRole(user.getPrimaryRole());
+                return premiumPlanRepository.findById(planId)
+                                .filter(plan -> Boolean.TRUE.equals(plan.getIsActive()))
+                                .filter(plan -> isPlanVisibleForRole(plan, targetRole, true))
+                                .map(this::convertToPremiumPlanResponse);
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        public Optional<PremiumPlanResponse> getPlanByIdForGuest(Long planId) {
+                return premiumPlanRepository.findById(planId)
+                                .filter(plan -> Boolean.TRUE.equals(plan.getIsActive()))
+                                .filter(plan -> isPlanVisibleForRole(plan, PremiumPlan.TargetRole.LEARNER, true))
                                 .map(this::convertToPremiumPlanResponse);
         }
 
@@ -1204,30 +1240,22 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         private void validatePlanEligibility(User recipient, PremiumPlan plan) {
-                if (recipient == null || plan == null || plan.getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
-                        return;
+                if (recipient == null) {
+                        throw new RuntimeException("Người nhận không hợp lệ.");
                 }
-
-                boolean recruiterUser = recipient.getPrimaryRole() == PrimaryRole.RECRUITER;
-                boolean recruiterPlan = isRecruiterPlan(plan);
-
-                if (recruiterUser && !recruiterPlan) {
-                        throw new RuntimeException("Tài khoản Recruiter chỉ có thể đăng ký gói dành cho recruiter.");
+                if (plan == null) {
+                        throw new RuntimeException("Gói Premium không tồn tại.");
                 }
-
-                if (!recruiterUser && recruiterPlan) {
-                        throw new RuntimeException("Gói này chỉ dành cho tài khoản Recruiter.");
+                if (!Boolean.TRUE.equals(plan.getIsActive())) {
+                        throw new RuntimeException("Gói Premium hiện không khả dụng.");
                 }
-        }
-
-        private boolean isRecruiterPlan(PremiumPlan plan) {
-                if (plan.getPlanType() == PremiumPlan.PlanType.RECRUITER_PRO
-                                || plan.getTargetRole() == PremiumPlan.TargetRole.RECRUITER) {
-                        return true;
+                if (!plan.isAvailableForSubscription()) {
+                        throw new RuntimeException("Gói Premium đã đạt giới hạn số lượng đăng ký.");
                 }
-
-                String planName = plan.getName();
-                return planName != null && planName.toLowerCase().startsWith("recruiter_");
+                PremiumPlan.TargetRole recipientRole = resolveTargetRoleByPrimaryRole(recipient.getPrimaryRole());
+                if (!isPlanPurchasableForRole(plan, recipientRole)) {
+                        throw new RuntimeException("Gói này không dành cho loại tài khoản của người nhận.");
+                }
         }
 
         private boolean matchesTargetRole(
@@ -1242,15 +1270,58 @@ public class PremiumServiceImpl implements PremiumService {
                         return true;
                 }
 
-                if (includeFreeTier && plan.getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
-                        return true;
+                return isPlanVisibleForRole(plan, targetRole, includeFreeTier);
+        }
+
+        private boolean isPlanVisibleForRole(
+                        PremiumPlan plan,
+                        PremiumPlan.TargetRole viewerRole,
+                        boolean includeFreeTier) {
+                if (plan == null || viewerRole == null) {
+                        return false;
                 }
 
-                if (plan.getTargetRole() == targetRole) {
-                        return true;
+                if (plan.getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
+                        return includeFreeTier;
                 }
 
-                return targetRole == PremiumPlan.TargetRole.RECRUITER && isRecruiterPlan(plan);
+                return resolvePlanTargetRole(plan) == viewerRole;
+        }
+
+        private PremiumPlan.TargetRole resolveTargetRoleByPrimaryRole(PrimaryRole primaryRole) {
+                if (primaryRole == PrimaryRole.RECRUITER) {
+                        return PremiumPlan.TargetRole.RECRUITER;
+                }
+                return PremiumPlan.TargetRole.LEARNER;
+        }
+
+        private PremiumPlan.TargetRole resolvePlanTargetRole(PremiumPlan plan) {
+                if (plan == null) {
+                        return PremiumPlan.TargetRole.LEARNER;
+                }
+                if (plan.getPlanType() == PremiumPlan.PlanType.RECRUITER_PRO) {
+                        return PremiumPlan.TargetRole.RECRUITER;
+                }
+                return normalizeLegacyTargetRole(plan.getTargetRole());
+        }
+
+        private boolean isPlanPurchasableForRole(
+                        PremiumPlan plan,
+                        PremiumPlan.TargetRole recipientRole) {
+                if (plan == null || recipientRole == null) {
+                        return false;
+                }
+                if (plan.getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
+                        return true;
+                }
+                return resolvePlanTargetRole(plan) == recipientRole;
+        }
+
+        private PremiumPlan.TargetRole normalizeLegacyTargetRole(PremiumPlan.TargetRole targetRole) {
+                if (targetRole == null || targetRole == PremiumPlan.TargetRole.PARENT) {
+                        return PremiumPlan.TargetRole.LEARNER;
+                }
+                return targetRole;
         }
 
         private List<String> parsePlanFeatures(String rawFeatures) {
