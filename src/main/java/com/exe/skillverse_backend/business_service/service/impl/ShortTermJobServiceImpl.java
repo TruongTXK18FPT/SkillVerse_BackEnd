@@ -657,9 +657,10 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
 
         // Auto-advance job status if application is already APPROVED
         if (job.getStatus() == ShortTermJobStatus.SUBMITTED) {
-            Optional<ShortTermJobApplication> approvedApp = applicationRepository.findWorkingApplicationByJobId(jobId);
-            if (approvedApp.isPresent() && approvedApp.get().getStatus() == ShortTermApplicationStatus.APPROVED) {
+            Optional<ShortTermJobApplication> approvedApp = applicationRepository.findByJobIdAndStatus(jobId, ShortTermApplicationStatus.APPROVED);
+            if (approvedApp.isPresent()) {
                 job.setStatus(ShortTermJobStatus.APPROVED);
+                shortTermJobRepository.save(job);
                 log.info("Auto-advancing job {} to APPROVED before completion", jobId);
             }
         }

@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.business_service.dto.request.SendRecruitmentMe
 import com.exe.skillverse_backend.business_service.dto.request.UpdateRecruitmentStatusRequest;
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentMessageResponse;
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentSessionResponse;
+import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
 import com.exe.skillverse_backend.business_service.service.RecruitmentChatService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -259,6 +260,7 @@ public class RecruitmentChatController {
     public ResponseEntity<RecruitmentSessionResponse> getOrCreateSession(
             @RequestParam Long candidateId,
             @RequestParam(required = false) Long jobId,
+            @RequestParam(defaultValue = "JOB_POSTING") RecruitmentJobContextType jobContextType,
             @RequestParam(defaultValue = "MANUAL") String sourceType,
             Authentication authentication) {
 
@@ -269,7 +271,12 @@ public class RecruitmentChatController {
         com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource source =
                 com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource.valueOf(sourceType);
 
-        RecruitmentSessionResponse response = recruitmentChatService.getOrCreateSession(recruiterId, candidateId, jobId, source);
+        RecruitmentSessionResponse response = recruitmentChatService.getOrCreateSession(
+                recruiterId,
+                candidateId,
+                jobId,
+                source,
+                jobContextType);
         return ResponseEntity.ok(response);
     }
 }

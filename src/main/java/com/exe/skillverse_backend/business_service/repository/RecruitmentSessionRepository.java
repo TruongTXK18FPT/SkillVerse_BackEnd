@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.business_service.repository;
 
 import com.exe.skillverse_backend.business_service.entity.RecruitmentSession;
+import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionStatus;
 import org.springframework.data.domain.Page;
@@ -21,6 +22,12 @@ public interface RecruitmentSessionRepository extends JpaRepository<RecruitmentS
      */
     Optional<RecruitmentSession> findByRecruiterIdAndCandidateIdAndJobPostingId(
             Long recruiterId, Long candidateId, Long jobPostingId);
+
+    Optional<RecruitmentSession> findByRecruiterIdAndCandidateIdAndJobContextTypeAndJobContextId(
+            Long recruiterId,
+            Long candidateId,
+            RecruitmentJobContextType jobContextType,
+            Long jobContextId);
 
     /**
      * Tìm session dựa trên recruiter và candidate (không cần job)

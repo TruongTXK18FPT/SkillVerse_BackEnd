@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.business_service.dto.request;
 
+import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
@@ -23,6 +24,8 @@ public class CreateRecruitmentSessionRequest {
      * Job posting ID (optional - có thể chat không có job cụ thể)
      */
     private Long jobId;
+
+    private RecruitmentJobContextType jobContextType;
 
     /**
      * Nguồn tạo session

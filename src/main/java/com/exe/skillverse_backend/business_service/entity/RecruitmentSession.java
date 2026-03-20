@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.business_service.entity;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionStatus;
 import jakarta.persistence.*;
@@ -48,6 +49,13 @@ public class RecruitmentSession {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "job_posting_id")
     private JobPosting jobPosting; // Nullable - có thể chat không có job cụ thể
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "job_context_type", length = 30)
+    private RecruitmentJobContextType jobContextType;
+
+    @Column(name = "job_context_id")
+    private Long jobContextId;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

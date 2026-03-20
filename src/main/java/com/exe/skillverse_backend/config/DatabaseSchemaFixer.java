@@ -107,6 +107,10 @@ public class DatabaseSchemaFixer {
                 "Normalize assessment quiz cooldown_hours to 8 hours",
                 this::patchQuizAssessmentCooldownHours,
                 this::verifyQuizAssessmentCooldownHours);
+        applyPatch("PATCH-019-recruitment-chat-context-and-notification-type",
+                "Add recruitment job context columns and allow recruitment notifications",
+                this::patchRecruitmentChatContextAndNotificationType,
+                this::verifyRecruitmentChatContextAndNotificationType);
         applyPatch("PATCH-010-course-revisions-schema",
                 "Create course_revisions schema and pointer columns on courses",
                 this::patchCourseRevisionsSchema,
@@ -679,6 +683,80 @@ public class DatabaseSchemaFixer {
         """, Integer.class);
 
         return invalidCount == null || invalidCount == 0;
+    }
+
+    private void patchRecruitmentChatContextAndNotificationType() {
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'recruitment_sessions'
+                      AND column_name = 'job_context_type'
+                ) THEN
+                    ALTER TABLE recruitment_sessions ADD COLUMN job_context_type VARCHAR(30);
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'recruitment_sessions'
+                      AND column_name = 'job_context_id'
+                ) THEN
+                    ALTER TABLE recruitment_sessions ADD COLUMN job_context_id BIGINT;
+                END IF;
+            END $$;
+        """);
+
+        jdbcTemplate.execute("""
+            UPDATE recruitment_sessions
+            SET job_context_type = 'JOB_POSTING',
+                job_context_id = COALESCE(job_context_id, job_posting_id)
+            WHERE job_posting_id IS NOT NULL
+              AND (job_context_type IS NULL OR job_context_id IS NULL)
+        """);
+
+        jdbcTemplate.execute("""
+            CREATE INDEX IF NOT EXISTS idx_recruitment_session_context
+            ON recruitment_sessions(job_context_type, job_context_id)
+        """);
+
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'notifications'
+                      AND constraint_name = 'notifications_type_check'
+                ) THEN
+                    ALTER TABLE notifications DROP CONSTRAINT notifications_type_check;
+                END IF;
+
+                ALTER TABLE notifications ADD CONSTRAINT notifications_type_check
+                CHECK (type IN (
+                    'LIKE','COMMENT','PREMIUM_PURCHASE','WALLET_DEPOSIT','COIN_PURCHASE',
+                    'WELCOME','PREMIUM_EXPIRATION','PREMIUM_CANCEL','SYSTEM','WARNING',
+                    'VIOLATION_REPORT','BOOKING_CREATED','BOOKING_CONFIRMED','BOOKING_REJECTED',
+                    'BOOKING_REMINDER','BOOKING_COMPLETED','BOOKING_CANCELLED','BOOKING_REFUND',
+                    'PRECHAT_MESSAGE','RECRUITMENT_MESSAGE','MENTOR_REVIEW_RECEIVED',
+                    'WITHDRAWAL_APPROVED','WITHDRAWAL_REJECTED','MENTOR_LEVEL_UP',
+                    'MENTOR_BADGE_AWARDED','TASK_DEADLINE','TASK_OVERDUE','TASK_REVIEW',
+                    'ASSIGNMENT_SUBMITTED','ASSIGNMENT_GRADED','ASSIGNMENT_LATE',
+                    'COURSE_REJECTED','COURSE_SUSPENDED','COURSE_RESTORED'
+                ));
+            END $$;
+        """);
+    }
+
+    private boolean verifyRecruitmentChatContextAndNotificationType() {
+        String definition = getConstraintDefinition("notifications_type_check");
+        return hasColumn("recruitment_sessions", "job_context_type")
+                && hasColumn("recruitment_sessions", "job_context_id")
+                && hasIndex("idx_recruitment_session_context")
+                && definition != null
+                && definition.contains("RECRUITMENT_MESSAGE");
     }
 
     private void patchCourseRevisionsSchema() {

@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.business_service.entity.CandidateMatchScore;
 import com.exe.skillverse_backend.business_service.entity.CandidateSearchSession;
 import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.RecruiterShortlist;
+import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
 import com.exe.skillverse_backend.business_service.repository.CandidateMatchScoreRepository;
 import com.exe.skillverse_backend.business_service.repository.CandidateSearchSessionRepository;
@@ -245,7 +246,7 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
 
         // Create or get existing recruitment session
         RecruitmentSessionResponse session = recruitmentChatService.getOrCreateSession(
-                recruiterId, candidateId, jobId, RecruitmentSessionSource.AI_SEARCH);
+                recruiterId, candidateId, jobId, RecruitmentSessionSource.AI_SEARCH, RecruitmentJobContextType.JOB_POSTING);
 
         // Update session status to INVITED if job is provided
         if (jobId != null) {
@@ -266,7 +267,7 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
 
         // Create or get existing recruitment session
         return recruitmentChatService.getOrCreateSession(
-                recruiterId, candidateId, jobId, RecruitmentSessionSource.MANUAL);
+                recruiterId, candidateId, jobId, RecruitmentSessionSource.MANUAL, RecruitmentJobContextType.JOB_POSTING);
     }
 
     // ==================== Private Helper Methods ====================

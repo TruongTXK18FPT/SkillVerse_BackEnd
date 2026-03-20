@@ -8,20 +8,32 @@ import com.exe.skillverse_backend.business_service.dto.request.UpdateRecruitment
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentMessageResponse;
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentSessionResponse;
 import com.exe.skillverse_backend.business_service.entity.JobPosting;
+import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.entity.RecruitmentMessage;
 import com.exe.skillverse_backend.business_service.entity.RecruitmentSession;
+import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
+import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
 import com.exe.skillverse_backend.business_service.entity.enums.MessageType;
+import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
-import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionStatus;
+import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
+import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruitmentMessageRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruitmentSessionRepository;
+import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
 import com.exe.skillverse_backend.business_service.service.RecruitmentChatService;
-import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
-import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
+import com.exe.skillverse_backend.shared.exception.BadRequestException;
+import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -29,10 +41,6 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -43,69 +51,65 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
     private final RecruitmentMessageRepository messageRepository;
     private final UserRepository userRepository;
     private final JobPostingRepository jobPostingRepository;
+    private final ShortTermJobRepository shortTermJobRepository;
     private final RecruiterProfileRepository recruiterProfileRepository;
     private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+    private final NotificationService notificationService;
 
     @Override
     @Transactional
     public RecruitmentSessionResponse createSession(Long recruiterId, CreateRecruitmentSessionRequest request) {
-        log.info("Creating recruitment session: recruiter={}, candidate={}, job={}",
-                recruiterId, request.getCandidateId(), request.getJobId());
+        log.info("Creating recruitment session: recruiter={}, candidate={}, job={}, context={}",
+                recruiterId, request.getCandidateId(), request.getJobId(), request.getJobContextType());
 
-        // Find recruiter and candidate
         User recruiter = userRepository.findById(recruiterId)
                 .orElseThrow(() -> new NotFoundException("Recruiter not found"));
         User candidate = userRepository.findById(request.getCandidateId())
                 .orElseThrow(() -> new NotFoundException("Candidate not found"));
 
-        // Check if session already exists (for same recruiter-candidate-job)
-        RecruitmentSession existingSession = null;
-        if (request.getJobId() != null) {
-            existingSession = sessionRepository.findByRecruiterIdAndCandidateIdAndJobPostingId(
-                    recruiterId, request.getCandidateId(), request.getJobId()).orElse(null);
-        } else {
-            existingSession = sessionRepository.findByRecruiterIdAndCandidateId(
-                    recruiterId, request.getCandidateId()).orElse(null);
-        }
+        RecruitmentJobContextType jobContextType = normalizeJobContextType(
+                request.getJobContextType(),
+                request.getJobId());
 
+        RecruitmentSession existingSession = findExistingSession(
+                recruiterId,
+                request.getCandidateId(),
+                request.getJobId(),
+                jobContextType);
         if (existingSession != null) {
+            validateChatAvailable(existingSession);
             log.info("Session already exists: {}", existingSession.getId());
             return mapToSessionResponse(existingSession, recruiterId);
         }
 
-        // Get job if provided
-        JobPosting job = null;
-        if (request.getJobId() != null) {
-            job = jobPostingRepository.findById(request.getJobId()).orElse(null);
-        }
+        JobContextSnapshot jobContext = resolveJobContext(recruiterId, request.getJobId(), jobContextType);
 
-        // Get recruiter company
         String recruiterCompany = null;
         RecruiterProfile recruiterProfile = recruiterProfileRepository.findByUserId(recruiterId).orElse(null);
         if (recruiterProfile != null) {
             recruiterCompany = recruiterProfile.getCompanyName();
         }
 
-        // Get candidate's professional title from portfolio
         String candidateProfessionalTitle = null;
         PortfolioExtendedProfile profile = portfolioExtendedProfileRepository.findByUserId(request.getCandidateId()).orElse(null);
         if (profile != null) {
             candidateProfessionalTitle = profile.getProfessionalTitle();
         }
 
-        // Build session
         RecruitmentSession session = RecruitmentSession.builder()
                 .recruiter(recruiter)
                 .candidate(candidate)
-                .jobPosting(job)
-                .status(RecruitmentSessionStatus.CONTACTED)
+                .jobPosting(jobContext.jobPosting)
+                .jobContextType(jobContext.contextType)
+                .jobContextId(jobContext.jobId)
+                .status(com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionStatus.CONTACTED)
                 .sourceType(request.getSourceType() != null ? request.getSourceType() : RecruitmentSessionSource.MANUAL)
                 .matchScore(request.getMatchScore())
                 .skillMatchPercent(request.getSkillMatchPercent())
                 .candidateTitle(candidateProfessionalTitle)
                 .candidateAvatar(candidate.getAvatarUrl())
                 .recruiterCompany(recruiterCompany)
-                .jobTitle(job != null ? job.getTitle() : null)
+                .jobTitle(jobContext.jobTitle)
                 .unreadCountRecruiter(0)
                 .unreadCountCandidate(0)
                 .isArchivedByRecruiter(false)
@@ -114,7 +118,6 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
 
         RecruitmentSession savedSession = sessionRepository.save(session);
 
-        // Send initial message if provided
         if (request.getInitialMessage() != null && !request.getInitialMessage().isBlank()) {
             RecruitmentMessage message = RecruitmentMessage.builder()
                     .session(savedSession)
@@ -129,6 +132,20 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
             savedSession.setLastMessageAt(LocalDateTime.now());
             savedSession.setUnreadCountCandidate(savedSession.getUnreadCountCandidate() + 1);
             savedSession = sessionRepository.save(savedSession);
+
+            notifySessionParticipant(
+                    savedSession,
+                    recruiterId,
+                    recruiter.getFullName(),
+                    buildNotificationTitle(savedSession, true),
+                    request.getInitialMessage());
+        } else {
+            notifySessionParticipant(
+                    savedSession,
+                    recruiterId,
+                    recruiter.getFullName(),
+                    buildSessionOpenedTitle(savedSession),
+                    buildSessionOpenedMessage(savedSession, recruiter.getFullName()));
         }
 
         log.info("Created recruitment session: {}", savedSession.getId());
@@ -140,11 +157,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
         RecruitmentSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new NotFoundException("Session not found"));
 
-        // Verify user is part of session
-        if (!session.getRecruiter().getId().equals(userId) && !session.getCandidate().getId().equals(userId)) {
-            throw new IllegalStateException("User not authorized to view this session");
-        }
-
+        assertSessionParticipant(session, userId);
         return mapToSessionResponse(session, userId);
     }
 
@@ -152,7 +165,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
     public Page<RecruitmentSessionResponse> getRecruiterSessions(Long recruiterId, Pageable pageable) {
         Page<RecruitmentSession> sessions = sessionRepository.findByRecruiterId(recruiterId, pageable);
         List<RecruitmentSessionResponse> responses = sessions.getContent().stream()
-                .map(s -> mapToSessionResponse(s, recruiterId))
+                .map(session -> mapToSessionResponse(session, recruiterId))
                 .collect(Collectors.toList());
         return new PageImpl<>(responses, pageable, sessions.getTotalElements());
     }
@@ -161,7 +174,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
     public Page<RecruitmentSessionResponse> getCandidateSessions(Long candidateId, Pageable pageable) {
         Page<RecruitmentSession> sessions = sessionRepository.findByCandidateId(candidateId, pageable);
         List<RecruitmentSessionResponse> responses = sessions.getContent().stream()
-                .map(s -> mapToSessionResponse(s, candidateId))
+                .map(session -> mapToSessionResponse(session, candidateId))
                 .collect(Collectors.toList());
         return new PageImpl<>(responses, pageable, sessions.getTotalElements());
     }
@@ -170,7 +183,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
     public Page<RecruitmentSessionResponse> searchRecruiterSessions(Long recruiterId, String query, Pageable pageable) {
         Page<RecruitmentSession> sessions = sessionRepository.searchByRecruiterId(recruiterId, query, pageable);
         List<RecruitmentSessionResponse> responses = sessions.getContent().stream()
-                .map(s -> mapToSessionResponse(s, recruiterId))
+                .map(session -> mapToSessionResponse(session, recruiterId))
                 .collect(Collectors.toList());
         return new PageImpl<>(responses, pageable, sessions.getTotalElements());
     }
@@ -179,7 +192,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
     public List<RecruitmentSessionResponse> getSessionsByJob(Long recruiterId, Long jobId) {
         List<RecruitmentSession> sessions = sessionRepository.findByRecruiterIdAndJobPostingId(recruiterId, jobId);
         return sessions.stream()
-                .map(s -> mapToSessionResponse(s, recruiterId))
+                .map(session -> mapToSessionResponse(session, recruiterId))
                 .collect(Collectors.toList());
     }
 
@@ -191,17 +204,17 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
         RecruitmentSession session = sessionRepository.findById(request.getSessionId())
                 .orElseThrow(() -> new NotFoundException("Session not found"));
 
-        // Verify user is part of session
         boolean isRecruiter = session.getRecruiter().getId().equals(userId);
         boolean isCandidate = session.getCandidate().getId().equals(userId);
         if (!isRecruiter && !isCandidate) {
-            throw new IllegalStateException("User not authorized to send message in this session");
+            throw new ForbiddenException("User not authorized to send message in this session");
         }
+
+        validateChatAvailable(session);
 
         User sender = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
-        // Build message
         RecruitmentMessage message = RecruitmentMessage.builder()
                 .session(session)
                 .sender(sender)
@@ -215,7 +228,6 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
 
         RecruitmentMessage savedMessage = messageRepository.save(message);
 
-        // Update session
         session.setLastMessageAt(LocalDateTime.now());
         if (isRecruiter) {
             session.setUnreadCountCandidate(session.getUnreadCountCandidate() + 1);
@@ -223,6 +235,13 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
             session.setUnreadCountRecruiter(session.getUnreadCountRecruiter() + 1);
         }
         sessionRepository.save(session);
+
+        notifySessionParticipant(
+                session,
+                userId,
+                sender.getFullName(),
+                buildNotificationTitle(session, isRecruiter),
+                request.getContent());
 
         return mapToMessageResponse(savedMessage);
     }
@@ -232,12 +251,8 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
         RecruitmentSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new NotFoundException("Session not found"));
 
-        // Verify user is part of session
-        if (!session.getRecruiter().getId().equals(userId) && !session.getCandidate().getId().equals(userId)) {
-            throw new IllegalStateException("User not authorized to view this session");
-        }
+        assertSessionParticipant(session, userId);
 
-        // Get messages (newest first for display)
         Page<RecruitmentMessage> messages = messageRepository.findBySessionIdOrderByCreatedAtDesc(sessionId, pageable);
         List<RecruitmentMessageResponse> responses = messages.getContent().stream()
                 .map(this::mapToMessageResponse)
@@ -252,15 +267,10 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
         RecruitmentSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new NotFoundException("Session not found"));
 
-        // Verify user is part of session
-        if (!session.getRecruiter().getId().equals(userId) && !session.getCandidate().getId().equals(userId)) {
-            throw new IllegalStateException("User not authorized");
-        }
+        assertSessionParticipant(session, userId);
 
-        // Mark messages as read
         messageRepository.markAllAsReadBySessionIdAndUserId(sessionId, userId);
 
-        // Reset unread count
         if (session.getRecruiter().getId().equals(userId)) {
             session.setUnreadCountRecruiter(0);
         } else {
@@ -275,14 +285,12 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
         RecruitmentSession session = sessionRepository.findById(sessionId)
                 .orElseThrow(() -> new NotFoundException("Session not found"));
 
-        // Only recruiter can update status
         if (!session.getRecruiter().getId().equals(userId)) {
-            throw new IllegalStateException("Only recruiter can update session status");
+            throw new ForbiddenException("Only recruiter can update session status");
         }
 
         session.setStatus(request.getStatus());
         RecruitmentSession saved = sessionRepository.save(session);
-
         return mapToSessionResponse(saved, userId);
     }
 
@@ -297,7 +305,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
         } else if (session.getCandidate().getId().equals(userId)) {
             session.setIsArchivedByCandidate(true);
         } else {
-            throw new IllegalStateException("User not authorized");
+            throw new ForbiddenException("User not authorized");
         }
         sessionRepository.save(session);
     }
@@ -305,13 +313,11 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
     @Override
     @Transactional
     public void deleteSession(Long userId, Long sessionId) {
-        // Same as archive for now
         archiveSession(userId, sessionId);
     }
 
     @Override
     public long getUnreadCount(Long userId) {
-        // Check if user is recruiter or candidate
         long asRecruiter = sessionRepository.countUnreadByRecruiterId(userId);
         long asCandidate = sessionRepository.countUnreadByCandidateId(userId);
         return asRecruiter + asCandidate;
@@ -319,41 +325,144 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
 
     @Override
     @Transactional
-    public RecruitmentSessionResponse getOrCreateSession(Long recruiterId, Long candidateId, Long jobId, RecruitmentSessionSource source) {
-        // Try to find existing session
-        RecruitmentSession existingSession = null;
-        if (jobId != null) {
-            existingSession = sessionRepository.findByRecruiterIdAndCandidateIdAndJobPostingId(
-                    recruiterId, candidateId, jobId).orElse(null);
-        }
-        if (existingSession == null) {
-            existingSession = sessionRepository.findByRecruiterIdAndCandidateId(recruiterId, candidateId).orElse(null);
-        }
+    public RecruitmentSessionResponse getOrCreateSession(Long recruiterId, Long candidateId, Long jobId,
+                                                         RecruitmentSessionSource source,
+                                                         RecruitmentJobContextType jobContextType) {
+        RecruitmentJobContextType normalizedContextType = normalizeJobContextType(jobContextType, jobId);
+        RecruitmentSession existingSession = findExistingSession(recruiterId, candidateId, jobId, normalizedContextType);
 
         if (existingSession != null) {
+            validateChatAvailable(existingSession);
             return mapToSessionResponse(existingSession, recruiterId);
         }
 
-        // Create new session
         CreateRecruitmentSessionRequest request = CreateRecruitmentSessionRequest.builder()
                 .candidateId(candidateId)
                 .jobId(jobId)
+                .jobContextType(normalizedContextType)
                 .sourceType(source)
                 .build();
 
         return createSession(recruiterId, request);
     }
 
-    // Mapping methods
+    private void assertSessionParticipant(RecruitmentSession session, Long userId) {
+        if (!session.getRecruiter().getId().equals(userId) && !session.getCandidate().getId().equals(userId)) {
+            throw new ForbiddenException("User not authorized to access this session");
+        }
+    }
+
+    private RecruitmentSession findExistingSession(Long recruiterId, Long candidateId, Long jobId,
+                                                   RecruitmentJobContextType jobContextType) {
+        if (jobId == null || jobContextType == null) {
+            return sessionRepository.findByRecruiterIdAndCandidateId(recruiterId, candidateId).orElse(null);
+        }
+
+        Optional<RecruitmentSession> byContext = sessionRepository
+                .findByRecruiterIdAndCandidateIdAndJobContextTypeAndJobContextId(
+                        recruiterId,
+                        candidateId,
+                        jobContextType,
+                        jobId);
+        if (byContext.isPresent()) {
+            return byContext.get();
+        }
+
+        if (jobContextType == RecruitmentJobContextType.JOB_POSTING) {
+            return sessionRepository.findByRecruiterIdAndCandidateIdAndJobPostingId(
+                    recruiterId,
+                    candidateId,
+                    jobId).orElse(null);
+        }
+
+        return null;
+    }
+
+    private RecruitmentJobContextType normalizeJobContextType(RecruitmentJobContextType jobContextType, Long jobId) {
+        if (jobId == null) {
+            return null;
+        }
+        return jobContextType != null ? jobContextType : RecruitmentJobContextType.JOB_POSTING;
+    }
+
+    private JobContextSnapshot resolveJobContext(Long recruiterId, Long jobId,
+                                                 RecruitmentJobContextType jobContextType) {
+        if (jobId == null || jobContextType == null) {
+            return JobContextSnapshot.empty();
+        }
+
+        if (jobContextType == RecruitmentJobContextType.SHORT_TERM_JOB) {
+            ShortTermJob shortTermJob = shortTermJobRepository.findById(jobId)
+                    .orElseThrow(() -> new NotFoundException("Short-term job not found"));
+
+            if (!shortTermJob.getRecruiterProfile().getUserId().equals(recruiterId)) {
+                throw new ForbiddenException("Recruiter does not own this short-term job");
+            }
+
+            validateShortTermJobIsChatActive(shortTermJob);
+            return JobContextSnapshot.forShortTermJob(shortTermJob);
+        }
+
+        JobPosting jobPosting = jobPostingRepository.findByIdAndRecruiterProfileUserId(jobId, recruiterId)
+                .orElseThrow(() -> new NotFoundException("Job posting not found"));
+
+        validateJobPostingIsChatActive(jobPosting);
+        return JobContextSnapshot.forJobPosting(jobPosting);
+    }
+
+    private void validateChatAvailable(RecruitmentSession session) {
+        ChatAvailability availability = resolveChatAvailability(session);
+        if (!availability.available) {
+            throw new BadRequestException(availability.reason);
+        }
+    }
+
+    private ChatAvailability resolveChatAvailability(RecruitmentSession session) {
+        RecruitmentJobContextType contextType = resolveContextType(session);
+        Long contextJobId = resolveContextJobId(session);
+
+        if (contextType == null || contextJobId == null) {
+            return ChatAvailability.available();
+        }
+
+        if (contextType == RecruitmentJobContextType.SHORT_TERM_JOB) {
+            Optional<ShortTermJob> shortTermJob = shortTermJobRepository.findById(contextJobId);
+            if (shortTermJob.isEmpty()) {
+                return ChatAvailability.unavailable("Short-term job no longer exists.", null);
+            }
+
+            String currentStatus = shortTermJob.get().getStatus().name();
+            if (!isShortTermChatActive(shortTermJob.get().getStatus())) {
+                return ChatAvailability.unavailable(
+                        "Job đã đóng hoặc không còn hoạt động. Không thể tiếp tục nhắn tin.",
+                        currentStatus);
+            }
+
+            return ChatAvailability.available(currentStatus);
+        }
+
+        Optional<JobPosting> jobPosting = jobPostingRepository.findById(contextJobId);
+        if (jobPosting.isEmpty()) {
+            return ChatAvailability.unavailable("Job posting no longer exists.", null);
+        }
+
+        String currentStatus = jobPosting.get().getStatus().name();
+        if (jobPosting.get().getStatus() == JobStatus.CLOSED) {
+            return ChatAvailability.unavailable(
+                    "Job đã đóng. Không thể tiếp tục nhắn tin trong cuộc trò chuyện này.",
+                    currentStatus);
+        }
+
+        return ChatAvailability.available(currentStatus);
+    }
+
     private RecruitmentSessionResponse mapToSessionResponse(RecruitmentSession session, Long currentUserId) {
         boolean isRecruiter = session.getRecruiter().getId().equals(currentUserId);
         int unreadCount = isRecruiter ? session.getUnreadCountRecruiter() : session.getUnreadCountCandidate();
 
-        // Get last message preview
         RecruitmentMessage lastMessage = messageRepository.findTopBySessionIdOrderByCreatedAtDesc(session.getId());
         String lastMessagePreview = lastMessage != null ? lastMessage.getContent() : null;
 
-        // Check if candidate has portfolio and get slug
         boolean hasPortfolio = portfolioExtendedProfileRepository.existsByUserId(session.getCandidate().getId());
         String candidateSlug = null;
         PortfolioExtendedProfile candidateProfile = portfolioExtendedProfileRepository.findByUserId(session.getCandidate().getId()).orElse(null);
@@ -361,10 +470,15 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
             candidateSlug = candidateProfile.getCustomUrlSlug();
         }
 
+        RecruitmentJobContextType contextType = resolveContextType(session);
+        Long contextJobId = resolveContextJobId(session);
+        ChatAvailability availability = resolveChatAvailability(session);
+
         return RecruitmentSessionResponse.builder()
                 .id(session.getId())
                 .recruiterId(session.getRecruiter().getId())
                 .recruiterName(session.getRecruiter().getFullName())
+                .recruiterAvatar(session.getRecruiter().getAvatarUrl())
                 .recruiterCompany(session.getRecruiterCompany())
                 .candidateId(session.getCandidate().getId())
                 .candidateFullName(session.getCandidate().getFullName())
@@ -372,10 +486,14 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
                 .candidateAvatar(session.getCandidateAvatar())
                 .candidateHasPortfolio(hasPortfolio)
                 .candidateSlug(candidateSlug)
-                .jobId(session.getJobPosting() != null ? session.getJobPosting().getId() : null)
+                .jobId(contextJobId)
                 .jobTitle(session.getJobTitle())
+                .jobContextType(contextType)
+                .jobStatus(availability.jobStatus)
                 .isRemote(session.getJobPosting() != null ? session.getJobPosting().getIsRemote() : null)
                 .jobLocation(session.getJobPosting() != null ? session.getJobPosting().getLocation() : null)
+                .isChatAvailable(availability.available)
+                .chatDisabledReason(availability.reason)
                 .status(session.getStatus())
                 .sourceType(session.getSourceType())
                 .matchScore(session.getMatchScore())
@@ -404,5 +522,156 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
                 .readAt(message.getReadAt())
                 .createdAt(message.getCreatedAt())
                 .build();
+    }
+
+    private RecruitmentJobContextType resolveContextType(RecruitmentSession session) {
+        if (session.getJobContextType() != null) {
+            return session.getJobContextType();
+        }
+        return session.getJobPosting() != null ? RecruitmentJobContextType.JOB_POSTING : null;
+    }
+
+    private Long resolveContextJobId(RecruitmentSession session) {
+        if (session.getJobContextId() != null) {
+            return session.getJobContextId();
+        }
+        return session.getJobPosting() != null ? session.getJobPosting().getId() : null;
+    }
+
+    private void validateJobPostingIsChatActive(JobPosting jobPosting) {
+        if (jobPosting.getStatus() == JobStatus.CLOSED) {
+            throw new BadRequestException("Job đã đóng. Không thể mở hoặc tiếp tục cuộc trò chuyện.");
+        }
+    }
+
+    private void validateShortTermJobIsChatActive(ShortTermJob shortTermJob) {
+        if (!isShortTermChatActive(shortTermJob.getStatus())) {
+            throw new BadRequestException("Job đã đóng hoặc không còn hoạt động. Không thể mở hoặc tiếp tục cuộc trò chuyện.");
+        }
+    }
+
+    private boolean isShortTermChatActive(ShortTermJobStatus status) {
+        return status == ShortTermJobStatus.PUBLISHED
+                || status == ShortTermJobStatus.APPLIED
+                || status == ShortTermJobStatus.IN_PROGRESS
+                || status == ShortTermJobStatus.SUBMITTED
+                || status == ShortTermJobStatus.UNDER_REVIEW
+                || status == ShortTermJobStatus.APPROVED;
+    }
+
+    private void notifySessionParticipant(RecruitmentSession session,
+                                          Long senderId,
+                                          String senderName,
+                                          String title,
+                                          String rawMessage) {
+        Long recipientId = session.getRecruiter().getId().equals(senderId)
+                ? session.getCandidate().getId()
+                : session.getRecruiter().getId();
+
+        String message = abbreviate(rawMessage);
+        notificationService.createNotification(
+                recipientId,
+                title,
+                senderName == null || senderName.isBlank() ? message : senderName + ": " + message,
+                NotificationType.RECRUITMENT_MESSAGE,
+                String.valueOf(session.getId()),
+                senderId);
+    }
+
+    private String buildNotificationTitle(RecruitmentSession session, boolean sentByRecruiter) {
+        if (sentByRecruiter) {
+            return session.getJobTitle() != null
+                    ? "Tin nhắn tuyển dụng mới: " + session.getJobTitle()
+                    : "Tin nhắn tuyển dụng mới";
+        }
+        return session.getJobTitle() != null
+                ? "Ứng viên đã phản hồi: " + session.getJobTitle()
+                : "Ứng viên đã phản hồi";
+    }
+
+    private String buildSessionOpenedTitle(RecruitmentSession session) {
+        return session.getJobTitle() != null
+                ? "Nhà tuyển dụng đã mở chat: " + session.getJobTitle()
+                : "Nhà tuyển dụng đã mở cuộc trò chuyện";
+    }
+
+    private String buildSessionOpenedMessage(RecruitmentSession session, String recruiterName) {
+        String safeRecruiterName = recruiterName == null || recruiterName.isBlank() ? "Nhà tuyển dụng" : recruiterName;
+        if (session.getJobTitle() != null) {
+            return safeRecruiterName + " đã bắt đầu trao đổi với bạn về job " + session.getJobTitle();
+        }
+        return safeRecruiterName + " đã bắt đầu một cuộc trò chuyện tuyển dụng với bạn";
+    }
+
+    private String abbreviate(String rawMessage) {
+        if (rawMessage == null || rawMessage.isBlank()) {
+            return "Bạn có tin nhắn tuyển dụng mới.";
+        }
+        String trimmed = rawMessage.trim().replaceAll("\\s+", " ");
+        if (trimmed.length() <= 180) {
+            return trimmed;
+        }
+        return trimmed.substring(0, 177) + "...";
+    }
+
+    private static final class JobContextSnapshot {
+        private final RecruitmentJobContextType contextType;
+        private final Long jobId;
+        private final JobPosting jobPosting;
+        private final String jobTitle;
+
+        private JobContextSnapshot(RecruitmentJobContextType contextType,
+                                   Long jobId,
+                                   JobPosting jobPosting,
+                                   String jobTitle) {
+            this.contextType = contextType;
+            this.jobId = jobId;
+            this.jobPosting = jobPosting;
+            this.jobTitle = jobTitle;
+        }
+
+        private static JobContextSnapshot empty() {
+            return new JobContextSnapshot(null, null, null, null);
+        }
+
+        private static JobContextSnapshot forJobPosting(JobPosting jobPosting) {
+            return new JobContextSnapshot(
+                    RecruitmentJobContextType.JOB_POSTING,
+                    jobPosting.getId(),
+                    jobPosting,
+                    jobPosting.getTitle());
+        }
+
+        private static JobContextSnapshot forShortTermJob(ShortTermJob shortTermJob) {
+            return new JobContextSnapshot(
+                    RecruitmentJobContextType.SHORT_TERM_JOB,
+                    shortTermJob.getId(),
+                    null,
+                    shortTermJob.getTitle());
+        }
+    }
+
+    private static final class ChatAvailability {
+        private final boolean available;
+        private final String reason;
+        private final String jobStatus;
+
+        private ChatAvailability(boolean available, String reason, String jobStatus) {
+            this.available = available;
+            this.reason = reason;
+            this.jobStatus = jobStatus;
+        }
+
+        private static ChatAvailability available() {
+            return new ChatAvailability(true, null, null);
+        }
+
+        private static ChatAvailability available(String jobStatus) {
+            return new ChatAvailability(true, null, jobStatus);
+        }
+
+        private static ChatAvailability unavailable(String reason, String jobStatus) {
+            return new ChatAvailability(false, reason, jobStatus);
+        }
     }
 }

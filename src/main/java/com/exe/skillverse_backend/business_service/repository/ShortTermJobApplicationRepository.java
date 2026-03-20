@@ -42,6 +42,10 @@ public interface ShortTermJobApplicationRepository extends JpaRepository<ShortTe
     @Query("SELECT a FROM ShortTermJobApplication a WHERE a.shortTermJob.id = :jobId AND a.status = 'WORKING'")
     Optional<ShortTermJobApplication> findWorkingApplicationByJobId(@Param("jobId") Long jobId);
 
+    // Find application by job ID and status (for auto-advance logic)
+    @Query("SELECT a FROM ShortTermJobApplication a WHERE a.shortTermJob.id = :jobId AND a.status = :status")
+    Optional<ShortTermJobApplication> findByJobIdAndStatus(@Param("jobId") Long jobId, @Param("status") ShortTermApplicationStatus status);
+
     // Count by job
     long countByShortTermJobId(Long jobId);
 
