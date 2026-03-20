@@ -21,7 +21,7 @@ public interface AssignmentService {
     
     AssignmentDetailDTO updateAssignment(Long assignmentId, AssignmentUpdateDTO dto, Long actorId);
     
-    AssignmentDetailDTO getAssignmentById(Long assignmentId);
+    AssignmentDetailDTO getAssignmentById(Long assignmentId, Long actorId);
     
     void deleteAssignment(Long assignmentId, Long actorId);
 
@@ -31,7 +31,7 @@ public interface AssignmentService {
     
     List<AssignmentSubmissionDetailDTO> listSubmissions(Long assignmentId, Pageable p);
     
-    List<AssignmentSummaryDTO> listAssignmentsByModule(Long moduleId);
+    List<AssignmentSummaryDTO> listAssignmentsByModule(Long moduleId, Long actorId);
     
     /**
      * Get all submissions for a specific user on an assignment (all versions).

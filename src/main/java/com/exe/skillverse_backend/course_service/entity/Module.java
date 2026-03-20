@@ -70,14 +70,17 @@ public class Module {
 
   @Builder.Default
   @OneToMany(mappedBy = "module", cascade = CascadeType.ALL, orphanRemoval = true)
+  @OrderBy("orderIndex ASC")
   @ToString.Exclude @EqualsAndHashCode.Exclude
   private List<Lesson> lessons = new ArrayList<>();
   @Builder.Default
   @OneToMany(mappedBy = "module", cascade = CascadeType.ALL, orphanRemoval = true)
+  @OrderBy("orderIndex ASC")
   @ToString.Exclude @EqualsAndHashCode.Exclude
   private List<Quiz> quizzes = new ArrayList<>();
   @Builder.Default
   @OneToMany(mappedBy = "module", cascade = CascadeType.ALL, orphanRemoval = true)
+  @OrderBy("orderIndex ASC")
   @ToString.Exclude @EqualsAndHashCode.Exclude
   private List<Assignment> assignments = new ArrayList<>();
   @Builder.Default

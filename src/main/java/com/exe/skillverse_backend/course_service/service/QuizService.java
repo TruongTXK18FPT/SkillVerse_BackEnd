@@ -47,7 +47,7 @@ public interface QuizService {
 
     QuizAttemptSessionDTO heartbeatAttemptSession(Long quizId, Long userId, String sessionToken);
 
-    List<QuizSummaryDTO> listQuizzesByModule(Long moduleId);
+    List<QuizSummaryDTO> listQuizzesByModule(Long moduleId, Long actorId);
 
     // ========== Quiz Attempt & Submission ==========
 
@@ -55,7 +55,7 @@ public interface QuizService {
 
     List<QuizAttemptDTO> getUserAttempts(Long quizId, Long userId);
 
-    List<QuizAttemptDTO> getUserAttemptsBatch(List<Long> quizIds, Long userId);
+    List<QuizAttemptDTO> getUserAttemptsBatch(List<Long> quizIds, Long actorId);
 
     QuizAttemptReviewDTO getMyLatestReview(Long quizId, Long userId);
     

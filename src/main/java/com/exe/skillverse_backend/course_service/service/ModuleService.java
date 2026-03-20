@@ -14,13 +14,13 @@ public interface ModuleService {
 
   void deleteModule(Long moduleId, Long actorId);
 
-  List<ModuleSummaryDTO> listModules(Long courseId);
+  List<ModuleSummaryDTO> listModules(Long courseId, Long actorId);
 
-  List<ModuleDetailDTO> listModulesWithContent(Long courseId);
+  List<ModuleDetailDTO> listModulesWithContent(Long courseId, Long actorId);
 
-  ModuleDetailDTO getModuleDetail(Long moduleId);
+  ModuleDetailDTO getModuleDetail(Long moduleId, Long actorId);
 
   void assignLesson(Long moduleId, Long lessonId, Long actorId);
 
-  ModuleProgressDTO getProgress(Long moduleId, Long userId);
+  ModuleProgressDTO getProgress(Long moduleId, Long actorId);
 }

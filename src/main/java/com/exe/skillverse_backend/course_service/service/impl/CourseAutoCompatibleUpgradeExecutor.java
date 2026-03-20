@@ -52,7 +52,7 @@ public class CourseAutoCompatibleUpgradeExecutor {
         String policyTag = resolvePolicyTag(course);
 
         try {
-            if (course == null || approvedRevision == null || previousActiveRevisionId == null) {
+            if (course == null || approvedRevision == null) {
                 recordExecution("skipped_invalid_input", course, previousActiveRevisionId, targetRevisionId);
                 log.warn(
                         "Skip auto-upgrade: invalid input (courseId={}, sourceRevisionId={}, targetRevisionId={})",
@@ -85,6 +85,16 @@ public class CourseAutoCompatibleUpgradeExecutor {
                         policyTag
                 );
                 return AutoUpgradeExecutionResult.skipped("POLICY_NOT_AUTO_COMPATIBLE_ONLY", policyTag);
+            }
+
+            if (previousActiveRevisionId == null) {
+                recordExecution("skipped_invalid_input", course, previousActiveRevisionId, targetRevisionId);
+                log.warn(
+                        "Skip auto-upgrade: missing source revision (courseId={}, targetRevisionId={})",
+                        courseId,
+                        targetRevisionId
+                );
+                return AutoUpgradeExecutionResult.skipped("INVALID_INPUT", "source_or_target_revision_missing");
             }
 
             if (approvedRevision.getId() == null || approvedRevision.getId().equals(previousActiveRevisionId)) {

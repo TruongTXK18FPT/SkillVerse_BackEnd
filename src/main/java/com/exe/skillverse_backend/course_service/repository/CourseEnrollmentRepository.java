@@ -242,4 +242,17 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
                         @Param("sourceRevisionId") Long sourceRevisionId,
                         @Param("policySnapshot") String policySnapshot,
                         @Param("requiredStatus") EnrollmentStatus requiredStatus);
+
+        @Modifying(clearAutomatically = true, flushAutomatically = true)
+        @Query("""
+                        UPDATE CourseEnrollment ce
+                        SET ce.upgradePolicySnapshot = :policySnapshot
+                        WHERE ce.course.id = :courseId
+                          AND ce.status = :requiredStatus
+                          AND (ce.upgradePolicySnapshot IS NULL OR ce.upgradePolicySnapshot <> :policySnapshot)
+                        """)
+        int syncUpgradePolicySnapshotByStatus(
+                        @Param("courseId") Long courseId,
+                        @Param("policySnapshot") String policySnapshot,
+                        @Param("requiredStatus") EnrollmentStatus requiredStatus);
 }

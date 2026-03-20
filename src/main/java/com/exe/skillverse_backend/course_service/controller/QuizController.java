@@ -238,10 +238,12 @@ public class QuizController {
     @GetMapping("/modules/{moduleId}/quizzes")
     @Operation(summary = "List quizzes by module")
     public ResponseEntity<List<QuizSummaryDTO>> listQuizzesByModule(
-            @Parameter(description = "Module ID") @PathVariable @NotNull Long moduleId) {
+            @Parameter(description = "Module ID") @PathVariable @NotNull Long moduleId,
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Listing quizzes for module {}", moduleId);
-        List<QuizSummaryDTO> quizzes = quizService.listQuizzesByModule(moduleId);
+        List<QuizSummaryDTO> quizzes = quizService.listQuizzesByModule(moduleId, actorId);
         return ResponseEntity.ok(quizzes);
     }
 
@@ -297,11 +299,17 @@ public class QuizController {
     }
 
     @PostMapping("/attempts/batch")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Batch get quiz attempts for a user")
     public ResponseEntity<List<QuizAttemptDTO>> getUserAttemptsBatch(
-            @Valid @RequestBody QuizAttemptBatchRequestDTO request) {
+            @Valid @RequestBody QuizAttemptBatchRequestDTO request,
+            @AuthenticationPrincipal Jwt jwt) {
 
-        List<QuizAttemptDTO> attempts = quizService.getUserAttemptsBatch(request.getQuizIds(), request.getUserId());
+        Long actorId = extractUserId(jwt);
+        if (request.getUserId() != null && !request.getUserId().equals(actorId)) {
+            log.warn("Ignoring mismatched batch userId {} for actor {}", request.getUserId(), actorId);
+        }
+        List<QuizAttemptDTO> attempts = quizService.getUserAttemptsBatch(request.getQuizIds(), actorId);
         return ResponseEntity.ok(attempts);
     }
 

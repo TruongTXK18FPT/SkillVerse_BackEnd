@@ -35,6 +35,14 @@ public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
     List<Assignment> findByModuleId(@Param("moduleId") Long moduleId);
 
     /**
+     * Find assignments by module ID ordered by orderIndex ascending.
+     * Fallback by id to keep deterministic ordering when orderIndex collides.
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT a FROM Assignment a WHERE a.module.id = :moduleId ORDER BY a.orderIndex ASC, a.id ASC")
+    List<Assignment> findByModuleIdOrderByOrderIndexAsc(@Param("moduleId") Long moduleId);
+
+    /**
      * Find assignments by course ID
      */
     @Transactional(readOnly = true)

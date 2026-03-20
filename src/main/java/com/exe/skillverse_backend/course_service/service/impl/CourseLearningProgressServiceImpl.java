@@ -30,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -182,6 +183,22 @@ public class CourseLearningProgressServiceImpl implements CourseLearningProgress
             throw new ConflictException("COURSE_ACTIVE_REVISION_NOT_SET");
         }
 
+        if (sourceRevisionId == null) {
+            enrollment.setLearningRevisionId(targetRevisionId);
+            enrollment.setUpgradePolicySnapshot(course.getUpgradePolicy() != null ? course.getUpgradePolicy().name() : null);
+            enrollment.setLastUpgradedAt(Instant.now());
+            enrollmentRepository.save(enrollment);
+            recordLearningUpgradeEvent(
+                    "UPGRADED",
+                    "INITIAL_PIN_ASSIGNED",
+                    course,
+                    userId,
+                    null,
+                    targetRevisionId
+            );
+            return buildRevisionInfo(course, enrollment);
+        }
+
         if (!targetRevisionId.equals(sourceRevisionId)) {
             if (certificateService.findActiveUserCourseCertificate(courseId, userId).isPresent()) {
                 recordLearningUpgradeEvent(
@@ -307,9 +324,15 @@ public class CourseLearningProgressServiceImpl implements CourseLearningProgress
             recordProgressScopeEvent("fallback", "unsupported_snapshot_version", courseId, userId, learningRevisionId);
             return ProgressComputationScope.fallback("unsupported_snapshot_version");
         }
-        if (!snapshot.hasAnyTrackedItems() && !snapshot.hasStructuredContent()) {
-            recordProgressScopeEvent("fallback", "revision_snapshot_empty", courseId, userId, learningRevisionId);
-            return ProgressComputationScope.fallback("revision_snapshot_empty");
+        if (!snapshot.hasAnyTrackedItems()) {
+            recordProgressScopeEvent(
+                    "fallback",
+                    "revision_snapshot_missing_tracked_item_ids",
+                    courseId,
+                    userId,
+                    learningRevisionId
+            );
+            return ProgressComputationScope.fallback("revision_snapshot_missing_tracked_item_ids");
         }
 
         recordProgressScopeEvent("revision", revisionScopeReasonCode, courseId, userId, learningRevisionId);
@@ -350,14 +373,26 @@ public class CourseLearningProgressServiceImpl implements CourseLearningProgress
         Set<Long> assignmentIds = new LinkedHashSet<>();
         Set<Long> requiredAssignmentIds = new LinkedHashSet<>();
 
-        collectContentItems(snapshot.path("lessons"), lessonIds, null);
+        collectLessonLikeContentItems(
+                snapshot.path("lessons"),
+                lessonIds,
+                quizIds,
+                assignmentIds,
+                requiredAssignmentIds
+        );
         collectContentItems(snapshot.path("quizzes"), quizIds, null);
         collectContentItems(snapshot.path("assignments"), assignmentIds, requiredAssignmentIds);
 
         JsonNode modules = snapshot.path("modules");
         if (modules.isArray()) {
             for (JsonNode moduleNode : modules) {
-                collectContentItems(moduleNode.path("lessons"), lessonIds, null);
+                collectLessonLikeContentItems(
+                        moduleNode.path("lessons"),
+                        lessonIds,
+                        quizIds,
+                        assignmentIds,
+                        requiredAssignmentIds
+                );
                 collectContentItems(moduleNode.path("quizzes"), quizIds, null);
                 collectContentItems(moduleNode.path("assignments"), assignmentIds, requiredAssignmentIds);
             }
@@ -413,6 +448,71 @@ public class CourseLearningProgressServiceImpl implements CourseLearningProgress
                 requiredAssignmentIds.add(itemId);
             }
         }
+    }
+
+    /**
+     * Backward-compatible parser for legacy snapshots where quizzes/assignments were stored
+     * under the "lessons" array with a "type" discriminator.
+     */
+    private void collectLessonLikeContentItems(
+            JsonNode itemArrayNode,
+            Set<Long> lessonIds,
+            Set<Long> quizIds,
+            Set<Long> assignmentIds,
+            Set<Long> requiredAssignmentIds
+    ) {
+        if (itemArrayNode == null || !itemArrayNode.isArray()) {
+            return;
+        }
+
+        for (JsonNode itemNode : itemArrayNode) {
+            Long itemId = parseId(itemNode.path("id"));
+            if (itemId == null) {
+                continue;
+            }
+
+            String normalizedType = resolveLessonLikeType(itemNode);
+            if (Objects.equals(normalizedType, "quiz")) {
+                quizIds.add(itemId);
+                continue;
+            }
+            if (Objects.equals(normalizedType, "assignment")) {
+                assignmentIds.add(itemId);
+                if (requiredAssignmentIds != null && isRequiredAssignmentNode(itemNode)) {
+                    requiredAssignmentIds.add(itemId);
+                }
+                continue;
+            }
+            lessonIds.add(itemId);
+        }
+    }
+
+    private String resolveLessonLikeType(JsonNode itemNode) {
+        if (itemNode == null || itemNode.isNull()) {
+            return "lesson";
+        }
+        JsonNode typeNode = itemNode.path("type");
+        if (typeNode.isMissingNode() || typeNode.isNull()) {
+            typeNode = itemNode.path("lessonType");
+        }
+        if (typeNode.isMissingNode() || typeNode.isNull()) {
+            typeNode = itemNode.path("itemType");
+        }
+        if (!typeNode.isTextual()) {
+            return "lesson";
+        }
+        String normalized = typeNode.asText("").trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return "lesson";
+        }
+        if (Objects.equals(normalized, "quiz")
+                || Objects.equals(normalized, "assignment")
+                || Objects.equals(normalized, "lesson")
+                || Objects.equals(normalized, "reading")
+                || Objects.equals(normalized, "video")) {
+            return normalized;
+        }
+        return "lesson";
     }
 
     private Long parseId(JsonNode idNode) {
@@ -504,14 +604,11 @@ public class CourseLearningProgressServiceImpl implements CourseLearningProgress
         if (course == null) {
             return null;
         }
-        if (course.getActiveRevisionId() != null) {
-            return course.getActiveRevisionId();
-        }
-        return course.getLatestRevisionId();
+        return course.getActiveRevisionId();
     }
 
     private CourseLearningRevisionInfoDTO buildRevisionInfo(Course course, CourseEnrollment enrollment) {
-        Long learningRevisionId = enrollment.getLearningRevisionId();
+        Long learningRevisionId = resolveEffectiveLearningRevisionId(course, enrollment);
         Long activeRevisionId = course.getActiveRevisionId();
         return CourseLearningRevisionInfoDTO.builder()
                 .courseId(course.getId())
@@ -520,10 +617,17 @@ public class CourseLearningProgressServiceImpl implements CourseLearningProgress
                 .activeRevisionId(activeRevisionId)
                 .latestRevisionId(course.getLatestRevisionId())
                 .upgradePolicy(course.getUpgradePolicy() != null ? course.getUpgradePolicy().name() : null)
-                .hasNewerRevision(learningRevisionId != null
-                        && activeRevisionId != null
+                .hasNewerRevision(activeRevisionId != null
+                        && learningRevisionId != null
                         && !learningRevisionId.equals(activeRevisionId))
                 .build();
+    }
+
+    private Long resolveEffectiveLearningRevisionId(Course course, CourseEnrollment enrollment) {
+        if (enrollment != null && enrollment.getLearningRevisionId() != null) {
+            return enrollment.getLearningRevisionId();
+        }
+        return resolveTargetRevisionId(course);
     }
 
     private void recordLearningUpgradeEvent(

@@ -312,10 +312,7 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         if (course == null) {
             return null;
         }
-        if (course.getActiveRevisionId() != null) {
-            return course.getActiveRevisionId();
-        }
-        return course.getLatestRevisionId();
+        return course.getActiveRevisionId();
     }
 
     private CoursePurchaseDTO mapToDTO(CoursePurchase purchase) {

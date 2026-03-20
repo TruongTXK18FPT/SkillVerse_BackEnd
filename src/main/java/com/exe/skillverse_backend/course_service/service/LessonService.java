@@ -14,17 +14,17 @@ public interface LessonService {
 
     void deleteLesson(Long lessonId, Long actorId);
 
-    List<LessonBriefDTO> listLessonsByModule(Long moduleId);
+    List<LessonBriefDTO> listLessonsByModule(Long moduleId, Long actorId);
 
-    LessonDetailDTO getLesson(Long lessonId);
+    LessonDetailDTO getLesson(Long lessonId, Long actorId);
 
     // Navigation
-    LessonBriefDTO getNextLesson(Long moduleId, Long currentLessonId);
+    LessonBriefDTO getNextLesson(Long moduleId, Long currentLessonId, Long actorId);
 
-    LessonBriefDTO getPreviousLesson(Long moduleId, Long currentLessonId);
+    LessonBriefDTO getPreviousLesson(Long moduleId, Long currentLessonId, Long actorId);
 
     // Progress
     void markLessonCompleted(Long moduleId, Long lessonId, Long userId);
 
-    List<Long> listCompletedLessonIds(Long courseId, Long userId);
+    List<Long> listCompletedLessonIds(Long courseId, Long actorId);
 }

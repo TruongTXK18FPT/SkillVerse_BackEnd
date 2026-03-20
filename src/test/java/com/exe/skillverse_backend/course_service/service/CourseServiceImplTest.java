@@ -5,8 +5,10 @@ import com.exe.skillverse_backend.course_service.dto.coursedto.CourseDetailDTO;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
+import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.mapper.CourseMapper;
 import com.exe.skillverse_backend.course_service.policy.CourseDeletionPolicy;
 import com.exe.skillverse_backend.course_service.policy.CourseRevisionFeatureProperties;
@@ -19,11 +21,13 @@ import com.exe.skillverse_backend.course_service.service.impl.CourseServiceImpl;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
@@ -33,6 +37,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -78,6 +83,9 @@ class CourseServiceImplTest {
 
     @Mock
     private CourseRevisionFeatureProperties courseRevisionFeatureProperties;
+
+    @Spy
+    private ObjectMapper objectMapper = new ObjectMapper();
 
     @InjectMocks
     private CourseServiceImpl courseService;
@@ -217,9 +225,14 @@ class CourseServiceImplTest {
         Course course = buildCourse(courseId, actorId, CourseStatus.PUBLIC);
         CourseDetailDTO mapped = new CourseDetailDTO();
 
-        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course), Optional.of(course));
         when(courseRepository.save(course)).thenReturn(course);
         when(courseMapper.toDetailDto(course)).thenReturn(mapped);
+        when(enrollmentRepository.syncUpgradePolicySnapshotByStatus(
+                courseId,
+                CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY.name(),
+                EnrollmentStatus.ENROLLED
+        )).thenReturn(4);
 
         CourseDetailDTO result = courseService.updateUpgradePolicy(
                 courseId,
@@ -232,6 +245,54 @@ class CourseServiceImplTest {
                 "AUTO_COMPATIBLE_ONLY: hệ thống sẽ tự nâng learner khi revision non-breaking; revision breaking sẽ bị skip.",
                 result.getUpgradePolicyStatusMessage()
         );
+        verify(enrollmentRepository).syncUpgradePolicySnapshotByStatus(
+                courseId,
+                CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY.name(),
+                EnrollmentStatus.ENROLLED
+        );
+        verify(enrollmentRepository, never()).syncUpgradePolicySnapshotByStatus(
+                eq(courseId),
+                eq(CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY.name()),
+                eq(EnrollmentStatus.COMPLETED)
+        );
+    }
+
+    @Test
+    void approveCourse_createsInitialApprovedRevisionWhenMissing() {
+        Long courseId = 400L;
+        Long adminId = 99L;
+        Long authorId = 45L;
+        Instant now = Instant.parse("2026-03-20T10:00:00Z");
+
+        Course course = buildCourse(courseId, authorId, CourseStatus.PENDING);
+        course.setSubmittedAt(Instant.parse("2026-03-20T09:30:00Z"));
+        CourseDetailDTO mapped = new CourseDetailDTO();
+
+        CourseRevision savedRevision = CourseRevision.builder()
+                .id(7001L)
+                .course(course)
+                .revisionNumber(1)
+                .status(CourseRevisionStatus.APPROVED)
+                .build();
+
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(courseRepository.save(any(Course.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(courseRevisionRepository.findTopByCourseIdOrderByRevisionNumberDesc(courseId))
+                .thenReturn(Optional.empty());
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenReturn(savedRevision);
+        when(enrollmentRepository.countByCourseId(courseId)).thenReturn(0L);
+        when(courseMapper.toDetailDto(course)).thenReturn(mapped);
+        when(clock.instant()).thenReturn(now);
+        when(objectMapper.valueToTree(any())).thenReturn(new ObjectMapper().createArrayNode());
+
+        CourseDetailDTO result = courseService.approveCourse(courseId, adminId);
+
+        assertEquals(CourseStatus.PUBLIC, course.getStatus());
+        assertEquals(7001L, course.getActiveRevisionId());
+        assertEquals(7001L, course.getLatestRevisionId());
+        assertEquals(Boolean.TRUE, course.getRevisioningEnabled());
+        assertEquals(mapped, result);
+        verify(courseRevisionRepository).save(any(CourseRevision.class));
     }
 
     private Course buildCourse(Long courseId, Long authorId, CourseStatus status) {

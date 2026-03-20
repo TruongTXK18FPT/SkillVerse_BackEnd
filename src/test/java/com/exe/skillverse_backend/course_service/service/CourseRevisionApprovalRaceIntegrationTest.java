@@ -36,6 +36,7 @@ import com.exe.skillverse_backend.course_service.repository.AssignmentSubmission
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
+import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizAttemptAnswerSnapshotRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizAttemptRepository;
@@ -48,6 +49,7 @@ import com.exe.skillverse_backend.course_service.service.impl.AssignmentServiceI
 import com.exe.skillverse_backend.course_service.service.impl.CourseAutoCompatibleUpgradeExecutor;
 import com.exe.skillverse_backend.course_service.service.impl.CourseRevisionServiceImpl;
 import com.exe.skillverse_backend.course_service.service.impl.QuizServiceImpl;
+import com.exe.skillverse_backend.course_service.service.impl.RevisionPinnedContentResolver;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
@@ -101,6 +103,8 @@ class CourseRevisionApprovalRaceIntegrationTest {
     @Mock
     private ModuleRepository moduleRepository;
     @Mock
+    private LessonRepository lessonRepository;
+    @Mock
     private QuizAttemptRepository attemptRepository;
     @Mock
     private QuizMapper quizMapper;
@@ -150,6 +154,9 @@ class CourseRevisionApprovalRaceIntegrationTest {
     @Mock
     private MeterRegistry meterRegistry;
 
+        @Mock
+        private RevisionPinnedContentResolver revisionPinnedContentResolver;
+
     private CourseRevisionServiceImpl courseRevisionService;
     private QuizServiceImpl quizService;
     private AssignmentServiceImpl assignmentService;
@@ -159,6 +166,11 @@ class CourseRevisionApprovalRaceIntegrationTest {
         courseRevisionService = new CourseRevisionServiceImpl(
                 courseRepository,
                 courseRevisionRepository,
+                moduleRepository,
+                lessonRepository,
+                quizRepository,
+                assignmentRepository,
+                mediaRepository,
                 courseRevisionFeatureProperties,
                 autoCompatibleUpgradeExecutor,
                 revisionClock,
@@ -170,6 +182,7 @@ class CourseRevisionApprovalRaceIntegrationTest {
                 questionRepository,
                 optionRepository,
                 moduleRepository,
+                enrollmentRepository,
                 attemptRepository,
                 quizMapper,
                 questionMapper,
@@ -180,7 +193,8 @@ class CourseRevisionApprovalRaceIntegrationTest {
                 attemptAnswerSnapshotRepository,
                 attemptSessionRepository,
                 quizObjectMapper,
-                attemptSessionProperties
+                attemptSessionProperties,
+                revisionPinnedContentResolver
         );
         assignmentService = new AssignmentServiceImpl(
                 assignmentRepository,
@@ -196,7 +210,8 @@ class CourseRevisionApprovalRaceIntegrationTest {
                 assignmentSubmissionMapper,
                 userProfileRepository,
                 assignmentClock,
-                courseLearningProgressService
+                                courseLearningProgressService,
+                                revisionPinnedContentResolver
         );
     }
 
@@ -232,7 +247,7 @@ class CourseRevisionApprovalRaceIntegrationTest {
         when(autoCompatibleUpgradeExecutor.executeAfterRevisionApproval(eq(course), eq(oldRevisionId), eq(pendingRevision)))
                 .thenReturn(CourseAutoCompatibleUpgradeExecutor.AutoUpgradeExecutionResult.upgraded(1));
 
-        Course quizCourse = Course.builder().id(courseId).build();
+        Course quizCourse = Course.builder().id(courseId).author(author).build();
         Module module = Module.builder().id(88L).course(quizCourse).build();
         Quiz quiz = Quiz.builder().id(12L).module(module).passScore(70).maxAttempts(3).build();
         QuizQuestion question = QuizQuestion.builder()
@@ -241,6 +256,9 @@ class CourseRevisionApprovalRaceIntegrationTest {
                 .score(1)
                 .options(List.of(QuizOption.builder().id(10L).isCorrect(true).optionText("A").build()))
                 .build();
+        CourseEnrollment quizEnrollment = CourseEnrollment.builder()
+                .status(EnrollmentStatus.ENROLLED)
+                .build();
         SubmitQuizDTO submitQuizDTO = SubmitQuizDTO.builder()
                 .quizId(12L)
                 .answers(List.of(new SubmitQuizDTO.Answer(1L, 10L, null, null)))
@@ -248,6 +266,7 @@ class CourseRevisionApprovalRaceIntegrationTest {
 
         when(quizClock.instant()).thenReturn(now);
         when(quizRepository.findById(12L)).thenReturn(Optional.of(quiz));
+        when(enrollmentRepository.findByCourseIdAndUserId(courseId, userId)).thenReturn(Optional.of(quizEnrollment));
         when(questionRepository.findByQuizIdWithOptions(12L)).thenReturn(List.of(question));
         when(attemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(12L, userId)).thenReturn(List.of());
         when(attemptRepository.save(any(QuizAttempt.class))).thenAnswer(invocation -> invocation.getArgument(0));

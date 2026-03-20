@@ -123,6 +123,10 @@ public class DatabaseSchemaFixer {
                 "Backfill revision #1 for existing courses and set active/latest pointers",
                 this::patchBackfillCourseRevisionsV1,
                 this::verifyBackfillCourseRevisionsV1);
+        applyPatch("PATCH-019-public-course-revision-v1-backfill",
+            "Ensure PUBLIC courses missing revisions get approved revision #1 and enabled revision pointers",
+            this::patchPublicCourseRevisionV1Backfill,
+            this::verifyPublicCourseRevisionV1Backfill);
         applyPatch("PATCH-016-course-revisions-baseline-and-hash-foundation",
                 "Add source baseline/hash columns for phased revision diff enforcement",
                 this::patchCourseRevisionBaselineAndHashFoundation,
@@ -1064,6 +1068,162 @@ public class DatabaseSchemaFixer {
 
         return (missingBaseline == null || missingBaseline == 0)
                 && (missingPointers == null || missingPointers == 0);
+    }
+
+    private void patchPublicCourseRevisionV1Backfill() {
+        jdbcTemplate.execute("""
+            INSERT INTO course_revisions (
+                course_id,
+                revision_number,
+                status,
+                title,
+                description,
+                level,
+                category,
+                short_description,
+                estimated_duration_hours,
+                language,
+                price,
+                currency,
+                learning_objectives_json,
+                requirements_json,
+                content_snapshot_json,
+                source_course_status,
+                created_by,
+                created_at,
+                updated_at,
+                submitted_at,
+                approved_at,
+                rejected_at,
+                rejection_reason,
+                archived_at
+            )
+            SELECT
+                c.id,
+                1,
+                'APPROVED',
+                c.title,
+                c.description,
+                c.level,
+                c.category,
+                c.short_description,
+                c.estimated_duration_hours,
+                c.language,
+                c.price,
+                c.currency,
+                COALESCE(
+                    (
+                        SELECT jsonb_agg(clo.objective ORDER BY clo.objective)
+                        FROM course_learning_objectives clo
+                        WHERE clo.course_id = c.id
+                    ),
+                    '[]'::jsonb
+                ),
+                COALESCE(
+                    (
+                        SELECT jsonb_agg(cr.requirement ORDER BY cr.requirement)
+                        FROM course_requirements cr
+                        WHERE cr.course_id = c.id
+                    ),
+                    '[]'::jsonb
+                ),
+                '{}'::jsonb,
+                c.status,
+                c.author_id,
+                COALESCE(c.created_at, NOW()),
+                c.updated_at,
+                c.submitted_at,
+                COALESCE(c.published_at, c.updated_at, c.created_at, NOW()),
+                c.rejected_at,
+                c.rejection_reason,
+                CASE
+                    WHEN c.status = 'ARCHIVED' THEN COALESCE(c.updated_at, NOW())
+                    ELSE NULL
+                END
+            FROM courses c
+            WHERE c.status = 'PUBLIC'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM course_revisions r
+                  WHERE r.course_id = c.id
+                    AND r.revision_number = 1
+              )
+        """);
+
+        jdbcTemplate.execute("""
+            UPDATE course_revisions r
+            SET status = 'APPROVED',
+                approved_at = COALESCE(r.approved_at, NOW()),
+                updated_at = COALESCE(r.updated_at, NOW())
+            FROM courses c
+            WHERE c.id = r.course_id
+              AND c.status = 'PUBLIC'
+              AND r.revision_number = 1
+              AND r.status IS DISTINCT FROM 'APPROVED'
+        """);
+
+        jdbcTemplate.execute("""
+            WITH latest AS (
+                SELECT DISTINCT ON (r.course_id) r.course_id, r.id
+                FROM course_revisions r
+                JOIN courses c ON c.id = r.course_id
+                WHERE c.status = 'PUBLIC'
+                ORDER BY r.course_id, r.revision_number DESC, r.id DESC
+            ),
+            latest_approved AS (
+                SELECT DISTINCT ON (r.course_id) r.course_id, r.id
+                FROM course_revisions r
+                JOIN courses c ON c.id = r.course_id
+                WHERE c.status = 'PUBLIC'
+                  AND r.status = 'APPROVED'
+                ORDER BY r.course_id, r.revision_number DESC, r.id DESC
+            )
+            UPDATE courses c
+            SET active_revision_id = latest_approved.id,
+                latest_revision_id = latest.id,
+                revisioning_enabled = TRUE
+            FROM latest
+            JOIN latest_approved ON latest_approved.course_id = latest.course_id
+            WHERE c.id = latest.course_id
+              AND (
+                  c.active_revision_id IS DISTINCT FROM latest_approved.id
+                  OR c.latest_revision_id IS DISTINCT FROM latest.id
+                  OR c.revisioning_enabled IS DISTINCT FROM TRUE
+              )
+        """);
+    }
+
+    private boolean verifyPublicCourseRevisionV1Backfill() {
+        Integer missing = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM courses c
+            WHERE c.status = 'PUBLIC'
+              AND (
+                  NOT EXISTS (
+                      SELECT 1
+                      FROM course_revisions r
+                      WHERE r.course_id = c.id
+                  )
+                  OR
+                  c.active_revision_id IS NULL
+                  OR c.latest_revision_id IS NULL
+                  OR c.revisioning_enabled IS DISTINCT FROM TRUE
+                  OR NOT EXISTS (
+                      SELECT 1
+                      FROM course_revisions r
+                      WHERE r.id = c.active_revision_id
+                        AND r.course_id = c.id
+                        AND r.status = 'APPROVED'
+                  )
+                  OR NOT EXISTS (
+                      SELECT 1
+                      FROM course_revisions r
+                      WHERE r.id = c.latest_revision_id
+                        AND r.course_id = c.id
+                  )
+              )
+        """, Integer.class);
+        return missing == null || missing == 0;
     }
 
     private void patchCourseRevisionBaselineAndHashFoundation() {

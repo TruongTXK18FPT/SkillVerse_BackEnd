@@ -1,6 +1,8 @@
 package com.exe.skillverse_backend.course_service.service.impl;
 
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
+import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Quiz;
 import com.exe.skillverse_backend.course_service.entity.QuizAttempt;
@@ -8,6 +10,8 @@ import com.exe.skillverse_backend.course_service.entity.QuizAttemptAnswerSnapsho
 import com.exe.skillverse_backend.course_service.entity.QuizAttemptSession;
 import com.exe.skillverse_backend.course_service.entity.QuizOption;
 import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
+import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.QuizAttemptSessionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
 import com.exe.skillverse_backend.course_service.mapper.QuizAttemptMapper;
@@ -15,6 +19,7 @@ import com.exe.skillverse_backend.course_service.mapper.QuizMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizOptionMapper;
 import com.exe.skillverse_backend.course_service.mapper.QuizQuestionMapper;
 import com.exe.skillverse_backend.course_service.policy.CourseQuizAttemptSessionProperties;
+import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizAttemptAnswerSnapshotRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizAttemptRepository;
@@ -77,11 +82,13 @@ public class QuizServiceImpl implements QuizService {
 
     private static final int DEFAULT_ASSESSMENT_COOLDOWN_HOURS = 8;
     private static final int LEGACY_ASSESSMENT_COOLDOWN_HOURS = 24;
+    private static final String QUIZ_RETRY_LOCKED_BY_PASS = "QUIZ_RETRY_LOCKED_BY_PASS";
 
     private final QuizRepository quizRepository;
     private final QuizQuestionRepository questionRepository;
     private final QuizOptionRepository optionRepository;
     private final ModuleRepository moduleRepository;
+    private final CourseEnrollmentRepository enrollmentRepository;
     private final QuizAttemptRepository attemptRepository;
     private final QuizMapper quizMapper;
     private final QuizQuestionMapper questionMapper;
@@ -93,6 +100,7 @@ public class QuizServiceImpl implements QuizService {
     private final QuizAttemptSessionRepository attemptSessionRepository;
     private final ObjectMapper objectMapper;
     private final CourseQuizAttemptSessionProperties attemptSessionProperties;
+    private final RevisionPinnedContentResolver revisionPinnedContentResolver;
 
     @Override
     @Transactional
@@ -292,22 +300,68 @@ public class QuizServiceImpl implements QuizService {
     }
 
     private void ensureAuthorOrAdmin(Long actorId, Long authorId) {
-        // Allow if actor is the author of the course
+        if (!isAuthorOrAdmin(actorId, authorId)) {
+            throw new AccessDeniedException("FORBIDDEN");
+        }
+    }
+
+    private void ensureCanReadCourseStructure(Module module, Long actorId) {
+        if (module == null || module.getCourse() == null) {
+            throw new NotFoundException("COURSE_NOT_FOUND");
+        }
+        if (isAuthorOrAdmin(actorId, module.getCourse().getAuthor().getId())) {
+            return;
+        }
+        if (module.getCourse().getStatus() == CourseStatus.PUBLIC) {
+            return;
+        }
+        ensureCanAccessLearningContent(module.getCourse().getId(), module.getCourse().getAuthor().getId(), actorId);
+    }
+
+    private void ensureCanAccessLearningContent(Quiz quiz, Long actorId) {
+        if (quiz == null || quiz.getModule() == null || quiz.getModule().getCourse() == null) {
+            throw new NotFoundException("COURSE_NOT_FOUND");
+        }
+        Course course = quiz.getModule().getCourse();
+        ensureCanAccessLearningContent(course.getId(), course.getAuthor().getId(), actorId);
+        if (shouldUsePinnedSnapshotForLearner(course, actorId)
+                && !revisionPinnedContentResolver.isQuizInPinnedRevision(course, actorId, quiz.getId())) {
+            throw new NotFoundException("QUIZ_NOT_FOUND");
+        }
+    }
+
+    private void ensureCanAccessLearningContent(Long courseId, Long authorId, Long actorId) {
+        if (isAuthorOrAdmin(actorId, authorId)) {
+            return;
+        }
+        enrollmentRepository.findByCourseIdAndUserId(courseId, actorId)
+                .filter(enrollment -> hasLearningAccess(enrollment.getStatus()))
+                .orElseThrow(() -> new AccessDeniedException("USER_NOT_ENROLLED"));
+    }
+
+    private boolean hasLearningAccess(EnrollmentStatus status) {
+        return status == EnrollmentStatus.ENROLLED || status == EnrollmentStatus.COMPLETED;
+    }
+
+    private boolean shouldUsePinnedSnapshotForLearner(Course course, Long actorId) {
+        return course != null
+                && Boolean.TRUE.equals(course.getRevisioningEnabled())
+                && actorId != null
+                && !isAuthorOrAdmin(actorId, course.getAuthor().getId())
+                && revisionPinnedContentResolver.hasLearningAccessEnrollment(course, actorId);
+    }
+
+    private boolean isAuthorOrAdmin(Long actorId, Long authorId) {
+        if (actorId == null) {
+            throw new AccessDeniedException("UNAUTHORIZED");
+        }
         if (actorId.equals(authorId)) {
-            return;
+            return true;
         }
-
-        // Only ADMIN can bypass the author check.
-        // This prevents Mentor A from editing Mentor B's quizzes.
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getAuthorities().stream()
+        return auth != null && auth.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_CONTENT_ADMIN"))) {
-            log.debug("Actor {} allowed via admin role", actorId);
-            return;
-        }
-
-        throw new AccessDeniedException("FORBIDDEN");
+                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_CONTENT_ADMIN"));
     }
 
     private void validateCreateQuizRequest(QuizCreateDTO dto) {
@@ -525,6 +579,7 @@ public class QuizServiceImpl implements QuizService {
         log.debug("Getting learner-safe quiz details for {} by user {}", quizId, userId);
 
         Quiz quizEntity = getQuizOrThrow(quizId);
+        ensureCanAccessLearningContent(quizEntity, userId);
         QuizDetailDTO quiz = quizMapper.toDetailDto(quizEntity);
         sanitizeQuizForLearner(quiz);
         return quiz;
@@ -534,6 +589,11 @@ public class QuizServiceImpl implements QuizService {
     @Transactional
     public QuizAttemptSessionDTO startAttemptSession(Long quizId, Long userId) {
         Quiz quiz = getQuizOrThrow(quizId);
+        ensureCanAccessLearningContent(quiz, userId);
+
+        List<QuizAttempt> attemptEntities = attemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(quizId, userId);
+        ensureRetryNotLockedByPass(quizId, userId, attemptEntities);
+
         if (!isAttemptSessionEnabled()) {
             return QuizAttemptSessionDTO.builder()
                     .quizId(quizId)
@@ -549,6 +609,8 @@ public class QuizServiceImpl implements QuizService {
     @Override
     @Transactional
     public QuizAttemptSessionDTO heartbeatAttemptSession(Long quizId, Long userId, String sessionToken) {
+        Quiz quiz = getQuizOrThrow(quizId);
+        ensureCanAccessLearningContent(quiz, userId);
         if (!isAttemptSessionEnabled()) {
             return QuizAttemptSessionDTO.builder()
                     .quizId(quizId)
@@ -580,11 +642,19 @@ public class QuizServiceImpl implements QuizService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<QuizSummaryDTO> listQuizzesByModule(Long moduleId) {
+    public List<QuizSummaryDTO> listQuizzesByModule(Long moduleId, Long actorId) {
         log.debug("Listing quizzes for module {}", moduleId);
 
-        // Verify module exists
-        getModuleOrThrow(moduleId);
+        Module module = getModuleOrThrow(moduleId);
+        ensureCanReadCourseStructure(module, actorId);
+
+        Course course = module.getCourse();
+        if (shouldUsePinnedSnapshotForLearner(course, actorId)) {
+            ModuleDetailDTO pinnedModule = revisionPinnedContentResolver
+                    .resolvePinnedModule(course, actorId, moduleId)
+                    .orElseThrow(() -> new NotFoundException("MODULE_NOT_FOUND"));
+            return pinnedModule.getQuizzes() != null ? pinnedModule.getQuizzes() : List.of();
+        }
 
         List<Quiz> quizzes = quizRepository.findByModuleIdWithQuestions(moduleId);
         return quizzes.stream()
@@ -600,14 +670,13 @@ public class QuizServiceImpl implements QuizService {
         log.info("[QUIZ_SUBMIT] User {} submitting quiz {}", userId, quizId);
 
         Quiz quiz = getQuizOrThrow(quizId);
+        ensureCanAccessLearningContent(quiz, userId);
         applyQuizDefaults(quiz);
         expireStaleAttemptSessions(quizId, userId, now());
 
-        List<QuizQuestion> quizQuestions = questionRepository.findByQuizIdWithOptions(quizId);
-        Map<Long, QuizQuestion> questionMap = quizQuestions.stream()
-                .collect(Collectors.toMap(QuizQuestion::getId, q -> q, (a, b) -> a));
-
         List<QuizAttempt> attemptEntities = attemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(quizId, userId);
+        ensureRetryNotLockedByPass(quizId, userId, attemptEntities);
+
         int maxAttempts = quiz.getMaxAttempts() != null ? quiz.getMaxAttempts() : 3;
         boolean useWindow = Boolean.TRUE.equals(quiz.getIsAssessment())
                 && quiz.getCooldownHours() != null
@@ -640,6 +709,10 @@ public class QuizServiceImpl implements QuizService {
                 throw new BadRequestException("Bạn đã hết lượt làm bài.");
             }
         }
+
+        List<QuizQuestion> quizQuestions = questionRepository.findByQuizIdWithOptions(quizId);
+        Map<Long, QuizQuestion> questionMap = quizQuestions.stream()
+                .collect(Collectors.toMap(QuizQuestion::getId, q -> q, (a, b) -> a));
 
         Map<Long, SubmitQuizDTO.Answer> answerMap = Optional.ofNullable(submitData.getAnswers())
                 .orElse(List.of())
@@ -710,6 +783,8 @@ public class QuizServiceImpl implements QuizService {
     @Transactional(readOnly = true)
     public List<QuizAttemptDTO> getUserAttempts(Long quizId, Long userId) {
         log.debug("Getting attempts for quiz {} by user {}", quizId, userId);
+        Quiz quiz = getQuizOrThrow(quizId);
+        ensureCanAccessLearningContent(quiz, userId);
 
         List<QuizAttempt> attempts = attemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(quizId, userId);
         return attempts.stream()
@@ -725,6 +800,12 @@ public class QuizServiceImpl implements QuizService {
         }
         log.debug("Getting attempts for quizzes {} by user {}", quizIds, userId);
 
+        Set<Long> uniqueQuizIds = new HashSet<>(quizIds);
+        for (Long quizId : uniqueQuizIds) {
+            Quiz quiz = getQuizOrThrow(quizId);
+            ensureCanAccessLearningContent(quiz, userId);
+        }
+
         List<QuizAttempt> attempts = attemptRepository.findByQuizIdInAndUserIdOrderBySubmittedAtDesc(quizIds, userId);
         return attempts.stream()
                 .map(attemptMapper::toDto)
@@ -735,6 +816,8 @@ public class QuizServiceImpl implements QuizService {
     @Transactional(readOnly = true)
     public QuizAttemptReviewDTO getMyLatestReview(Long quizId, Long userId) {
         log.debug("Getting latest review for quiz {} by user {}", quizId, userId);
+        Quiz quiz = getQuizOrThrow(quizId);
+        ensureCanAccessLearningContent(quiz, userId);
 
         QuizAttempt latestAttempt = attemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(quizId, userId)
                 .stream()
@@ -771,6 +854,7 @@ public class QuizServiceImpl implements QuizService {
     public QuizAttemptStatusDTO getAttemptStatus(Long quizId, Long userId) {
         log.debug("Getting attempt status for quiz {} by user {}", quizId, userId);
         Quiz quiz = getQuizOrThrow(quizId);
+        ensureCanAccessLearningContent(quiz, userId);
         applyQuizDefaults(quiz);
         
         List<QuizAttemptDTO> allAttempts = getUserAttempts(quizId, userId);
@@ -788,7 +872,8 @@ public class QuizServiceImpl implements QuizService {
         }
 
         int attemptsUsed = windowAttempts.size();
-        boolean canRetry = attemptsUsed < maxAttempts;
+        boolean hasPassed = allAttempts.stream().anyMatch(a -> Boolean.TRUE.equals(a.getPassed()));
+        boolean canRetry = !hasPassed && attemptsUsed < maxAttempts;
 
         long secondsUntilRetry = 0;
         Instant nextRetryAt = null;
@@ -804,8 +889,6 @@ public class QuizServiceImpl implements QuizService {
             }
         }
 
-        // Check if passed
-        boolean hasPassed = allAttempts.stream().anyMatch(a -> Boolean.TRUE.equals(a.getPassed()));
         Integer bestScore = calculateBestScore(allAttempts, quiz.getGradingMethod());
         
         return QuizAttemptStatusDTO.builder()
@@ -820,6 +903,18 @@ public class QuizServiceImpl implements QuizService {
                 .nextRetryAt(nextRetryAt)
                 .recentAttempts(windowAttempts)
                 .build();
+    }
+
+    private void ensureRetryNotLockedByPass(Long quizId, Long userId, List<QuizAttempt> attempts) {
+        boolean hasPassedAttempt = attempts != null
+                && attempts.stream().anyMatch(attempt -> Boolean.TRUE.equals(attempt.getPassed()));
+        if (!hasPassedAttempt) {
+            return;
+        }
+        log.info("[QUIZ_RETRY_LOCK] Blocking new attempt because learner already passed (quizId={}, userId={})",
+                quizId,
+                userId);
+        throw new BadRequestException(QUIZ_RETRY_LOCKED_BY_PASS);
     }
 
     private void applyQuizDefaults(Quiz quiz) {

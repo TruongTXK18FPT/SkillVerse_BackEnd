@@ -6,11 +6,16 @@ import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
+import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.Lesson;
 import com.exe.skillverse_backend.course_service.entity.LessonProgress;
 import com.exe.skillverse_backend.course_service.entity.LessonProgressId;
 import com.exe.skillverse_backend.course_service.entity.Module;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
+import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.mapper.LessonMapper;
+import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonProgressRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
@@ -23,6 +28,7 @@ import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.Authentication;
@@ -39,11 +45,13 @@ public class LessonServiceImpl implements LessonService {
     private final LessonRepository lessonRepository;
     private final LessonProgressRepository lessonProgressRepository;
     private final ModuleRepository moduleRepository;
+    private final CourseEnrollmentRepository enrollmentRepository;
     private final MediaRepository mediaRepository;
     private final LessonMapper lessonMapper;
     private final Clock clock;
     private final UserRepository userRepository;
     private final CourseLearningProgressService courseLearningProgressService;
+    private final RevisionPinnedContentResolver revisionPinnedContentResolver;
 
     @Override
     @Transactional
@@ -126,11 +134,19 @@ public class LessonServiceImpl implements LessonService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<LessonBriefDTO> listLessonsByModule(Long moduleId) {
+    public List<LessonBriefDTO> listLessonsByModule(Long moduleId, Long actorId) {
         log.debug("Listing lessons for module {}", moduleId);
 
-        // Verify module exists
-        getModuleOrThrow(moduleId);
+        Module module = getModuleOrThrow(moduleId);
+        Course course = module.getCourse();
+        ensureCanReadCourseStructure(course.getId(), course.getAuthor().getId(), course.getStatus(), actorId);
+
+        if (shouldUsePinnedSnapshotForLearner(course, actorId)) {
+            ModuleDetailDTO pinnedModule = revisionPinnedContentResolver
+                    .resolvePinnedModule(course, actorId, moduleId)
+                    .orElseThrow(() -> new NotFoundException("MODULE_NOT_FOUND"));
+            return pinnedModule.getLessons() != null ? pinnedModule.getLessons() : List.of();
+        }
 
         List<Lesson> lessons = lessonRepository.findByModuleIdOrderByOrderIndexAsc(moduleId);
         return lessons.stream()
@@ -140,18 +156,36 @@ public class LessonServiceImpl implements LessonService {
 
     @Override
     @Transactional(readOnly = true)
-    public LessonDetailDTO getLesson(Long lessonId) {
+    public LessonDetailDTO getLesson(Long lessonId, Long actorId) {
         Lesson lesson = getLessonOrThrow(lessonId);
+        Course course = lesson.getModule().getCourse();
+        ensureCanAccessLearningContent(course.getId(), course.getAuthor().getId(), actorId);
+        ensurePinnedLessonAccessibleForLearner(course, actorId, lessonId);
         return lessonMapper.toDetailDto(lesson);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public LessonBriefDTO getNextLesson(Long moduleId, Long currentLessonId) {
+    public LessonBriefDTO getNextLesson(Long moduleId, Long currentLessonId, Long actorId) {
         Lesson current = getLessonOrThrow(currentLessonId);
         if (!current.getModule().getId().equals(moduleId)) {
             throw new NotFoundException("LESSON_NOT_IN_MODULE");
         }
+        Course course = current.getModule().getCourse();
+        ensureCanAccessLearningContent(course.getId(), course.getAuthor().getId(), actorId);
+
+        if (shouldUsePinnedSnapshotForLearner(course, actorId)) {
+            ModuleDetailDTO pinnedModule = revisionPinnedContentResolver
+                    .resolvePinnedModule(course, actorId, moduleId)
+                    .orElseThrow(() -> new NotFoundException("MODULE_NOT_FOUND"));
+            List<LessonBriefDTO> pinnedLessons = pinnedModule.getLessons() != null ? pinnedModule.getLessons() : List.of();
+            int currentIndex = findPinnedLessonIndex(pinnedLessons, currentLessonId);
+            if (currentIndex < 0) {
+                throw new NotFoundException("LESSON_NOT_FOUND");
+            }
+            return currentIndex + 1 < pinnedLessons.size() ? pinnedLessons.get(currentIndex + 1) : null;
+        }
+
         return lessonRepository.findNextLesson(moduleId, current.getOrderIndex())
                 .map(lessonMapper::toBriefDto)
                 .orElse(null);
@@ -159,11 +193,26 @@ public class LessonServiceImpl implements LessonService {
 
     @Override
     @Transactional(readOnly = true)
-    public LessonBriefDTO getPreviousLesson(Long moduleId, Long currentLessonId) {
+    public LessonBriefDTO getPreviousLesson(Long moduleId, Long currentLessonId, Long actorId) {
         Lesson current = getLessonOrThrow(currentLessonId);
         if (!current.getModule().getId().equals(moduleId)) {
             throw new NotFoundException("LESSON_NOT_IN_MODULE");
         }
+        Course course = current.getModule().getCourse();
+        ensureCanAccessLearningContent(course.getId(), course.getAuthor().getId(), actorId);
+
+        if (shouldUsePinnedSnapshotForLearner(course, actorId)) {
+            ModuleDetailDTO pinnedModule = revisionPinnedContentResolver
+                    .resolvePinnedModule(course, actorId, moduleId)
+                    .orElseThrow(() -> new NotFoundException("MODULE_NOT_FOUND"));
+            List<LessonBriefDTO> pinnedLessons = pinnedModule.getLessons() != null ? pinnedModule.getLessons() : List.of();
+            int currentIndex = findPinnedLessonIndex(pinnedLessons, currentLessonId);
+            if (currentIndex < 0) {
+                throw new NotFoundException("LESSON_NOT_FOUND");
+            }
+            return currentIndex > 0 ? pinnedLessons.get(currentIndex - 1) : null;
+        }
+
         return lessonRepository.findPreviousLesson(moduleId, current.getOrderIndex())
                 .map(lessonMapper::toBriefDto)
                 .orElse(null);
@@ -176,6 +225,9 @@ public class LessonServiceImpl implements LessonService {
         if (!lesson.getModule().getId().equals(moduleId)) {
             throw new NotFoundException("LESSON_NOT_IN_MODULE");
         }
+        Course course = lesson.getModule().getCourse();
+        ensureCanAccessLearningContent(course.getId(), course.getAuthor().getId(), userId);
+        ensurePinnedLessonAccessibleForLearner(course, userId, lessonId);
 
         LessonProgressId id = new LessonProgressId(userId, lessonId);
         boolean exists = lessonProgressRepository.existsByUserAndLesson(userId, lessonId);
@@ -201,8 +253,15 @@ public class LessonServiceImpl implements LessonService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Long> listCompletedLessonIds(Long courseId, Long userId) {
-        return lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(courseId, userId);
+    public List<Long> listCompletedLessonIds(Long courseId, Long actorId) {
+        Module anyModule = moduleRepository.findByCourseIdOrderByOrderIndexAsc(courseId)
+                .stream()
+                .findFirst()
+                .orElse(null);
+        if (anyModule != null) {
+            ensureCanAccessLearningContent(anyModule.getCourse().getId(), anyModule.getCourse().getAuthor().getId(), actorId);
+        }
+        return lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(courseId, actorId);
     }
     
     // ===== Helper Methods =====
@@ -218,22 +277,76 @@ public class LessonServiceImpl implements LessonService {
     }
 
     private void ensureAuthorOrAdmin(Long actorId, Long authorId) {
-        // Allow if actor is the author of the course
+        if (!isAuthorOrAdmin(actorId, authorId)) {
+            throw new AccessDeniedException("FORBIDDEN");
+        }
+    }
+
+    private void ensureCanReadCourseStructure(Long courseId, Long authorId, CourseStatus courseStatus, Long actorId) {
+        if (isAuthorOrAdmin(actorId, authorId)) {
+            return;
+        }
+        if (courseStatus == CourseStatus.PUBLIC) {
+            return;
+        }
+        ensureCanAccessLearningContent(courseId, authorId, actorId);
+    }
+
+    private void ensureCanAccessLearningContent(Long courseId, Long authorId, Long actorId) {
+        if (isAuthorOrAdmin(actorId, authorId)) {
+            return;
+        }
+        enrollmentRepository.findByCourseIdAndUserId(courseId, actorId)
+                .filter(enrollment -> hasLearningAccess(enrollment.getStatus()))
+                .orElseThrow(() -> new AccessDeniedException("USER_NOT_ENROLLED"));
+    }
+
+    private boolean hasLearningAccess(EnrollmentStatus status) {
+        return status == EnrollmentStatus.ENROLLED || status == EnrollmentStatus.COMPLETED;
+    }
+
+    private boolean shouldUsePinnedSnapshotForLearner(Course course, Long actorId) {
+        return course != null
+                && Boolean.TRUE.equals(course.getRevisioningEnabled())
+                && actorId != null
+                && !isAuthorOrAdmin(actorId, course.getAuthor().getId())
+                && revisionPinnedContentResolver.hasLearningAccessEnrollment(course, actorId);
+    }
+
+    private void ensurePinnedLessonAccessibleForLearner(Course course, Long actorId, Long lessonId) {
+        if (!shouldUsePinnedSnapshotForLearner(course, actorId)) {
+            return;
+        }
+        if (!revisionPinnedContentResolver.isLessonInPinnedRevision(course, actorId, lessonId)) {
+            throw new NotFoundException("LESSON_NOT_FOUND");
+        }
+    }
+
+    private int findPinnedLessonIndex(List<LessonBriefDTO> lessons, Long lessonId) {
+        if (lessons == null || lessonId == null) {
+            return -1;
+        }
+        for (int index = 0; index < lessons.size(); index++) {
+            LessonBriefDTO lesson = lessons.get(index);
+            if (lesson != null && lessonId.equals(lesson.getId())) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private boolean isAuthorOrAdmin(Long actorId, Long authorId) {
+        if (actorId == null) {
+            throw new AccessDeniedException("UNAUTHORIZED");
+        }
         if (actorId.equals(authorId)) {
-            return;
+            return true;
         }
 
-        // Only ADMIN can bypass the author check.
-        // This prevents Mentor A from editing Mentor B's lessons.
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getAuthorities().stream()
+        return auth != null && auth.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_CONTENT_ADMIN"))) {
-            log.debug("Actor {} allowed via admin role", actorId);
-            return;
-        }
-
-        throw new AccessDeniedException("FORBIDDEN");
+                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_CONTENT_ADMIN"));
     }
 
     private long countRelatedContent(Long lessonId) {

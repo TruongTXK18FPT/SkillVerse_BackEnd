@@ -142,10 +142,12 @@ public class AssignmentController {
     @GetMapping("/{assignmentId}")
     @Operation(summary = "Get assignment details by ID")
     public ResponseEntity<AssignmentDetailDTO> getAssignmentById(
-            @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId) {
+            @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = extractUserId(jwt);
         log.info("Getting assignment details for ID {}", assignmentId);
-        AssignmentDetailDTO assignment = assignmentService.getAssignmentById(assignmentId);
+        AssignmentDetailDTO assignment = assignmentService.getAssignmentById(assignmentId, actorId);
         return ResponseEntity.ok(assignment);
     }
 

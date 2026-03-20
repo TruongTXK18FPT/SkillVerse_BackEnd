@@ -2,22 +2,37 @@ package com.exe.skillverse_backend.course_service.service;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionDTO;
+import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
+import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.Module;
+import com.exe.skillverse_backend.course_service.entity.Assignment;
+import com.exe.skillverse_backend.course_service.entity.Quiz;
+import com.exe.skillverse_backend.course_service.entity.QuizOption;
+import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
+import com.exe.skillverse_backend.course_service.entity.enums.LessonType;
+import com.exe.skillverse_backend.course_service.entity.enums.QuestionType;
 import com.exe.skillverse_backend.course_service.policy.CourseRevisionFeatureProperties;
+import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
+import com.exe.skillverse_backend.course_service.repository.LessonRepository;
+import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 import com.exe.skillverse_backend.course_service.service.impl.CourseAutoCompatibleUpgradeExecutor;
 import com.exe.skillverse_backend.course_service.service.impl.CourseRevisionServiceImpl;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
+import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -26,6 +41,7 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.nio.charset.StandardCharsets;
@@ -46,15 +62,35 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
 class CourseRevisionServiceImplTest {
+    private long generatedModuleId;
+    private long generatedLessonId;
+    private long generatedQuizId;
+    private long generatedAssignmentId;
 
     @Mock
     private CourseRepository courseRepository;
 
     @Mock
     private CourseRevisionRepository courseRevisionRepository;
+
+    @Mock
+    private ModuleRepository moduleRepository;
+
+    @Mock
+    private LessonRepository lessonRepository;
+
+    @Mock
+    private QuizRepository quizRepository;
+
+    @Mock
+    private AssignmentRepository assignmentRepository;
+
+    @Mock
+    private MediaRepository mediaRepository;
 
     @Mock
     private CourseRevisionFeatureProperties courseRevisionFeatureProperties;
@@ -74,11 +110,111 @@ class CourseRevisionServiceImplTest {
     @InjectMocks
     private CourseRevisionServiceImpl courseRevisionService;
 
+    @BeforeEach
+    void setUpRepositorySaveDefaults() {
+        generatedModuleId = 20_000L;
+        generatedLessonId = 30_000L;
+        generatedQuizId = 40_000L;
+        generatedAssignmentId = 50_000L;
+
+        lenient().when(moduleRepository.save(any(Module.class))).thenAnswer(invocation -> {
+            Module module = invocation.getArgument(0);
+            if (module.getId() == null) {
+                module.setId(generatedModuleId++);
+            }
+            return module;
+        });
+        lenient().when(lessonRepository.save(any(Lesson.class))).thenAnswer(invocation -> {
+            Lesson lesson = invocation.getArgument(0);
+            if (lesson.getId() == null) {
+                lesson.setId(generatedLessonId++);
+            }
+            return lesson;
+        });
+        lenient().when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
+            Quiz quiz = invocation.getArgument(0);
+            if (quiz.getId() == null) {
+                quiz.setId(generatedQuizId++);
+            }
+            return quiz;
+        });
+        lenient().when(assignmentRepository.save(any(Assignment.class))).thenAnswer(invocation -> {
+            Assignment assignment = invocation.getArgument(0);
+            if (assignment.getId() == null) {
+                assignment.setId(generatedAssignmentId++);
+            }
+            return assignment;
+        });
+    }
+
     @Test
     void createRevision_throwsWhenWriteFeatureDisabled() {
         when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(false);
 
         assertThrows(ConflictException.class, () -> courseRevisionService.createRevision(200L, 11L));
+    }
+
+    @Test
+    void createRevision_bootstrapsLegacyInitialApprovedRevisionThenCreatesDraftFromLiveContent() throws Exception {
+        Long courseId = 201L;
+        Long authorId = 11L;
+        Instant now = Instant.parse("2026-03-20T08:00:00Z");
+
+        Module module = Module.builder()
+                .id(501L)
+                .title("Module A")
+                .orderIndex(0)
+                .build();
+        Lesson lesson = Lesson.builder()
+                .id(701L)
+                .module(module)
+                .title("Lesson A")
+                .type(LessonType.READING)
+                .orderIndex(0)
+                .contentText("Live content")
+                .build();
+        module.setLessons(List.of(lesson));
+
+        Course course = Course.builder()
+                .id(courseId)
+                .author(User.builder().id(authorId).build())
+                .status(CourseStatus.PUBLIC)
+                .title("Course A")
+                .modules(List.of(module))
+                .build();
+
+        when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
+        when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
+        when(courseRevisionRepository.existsByCourseIdAndStatusIn(eq(courseId), any())).thenReturn(false);
+        when(courseRevisionRepository.findTopByCourseIdOrderByRevisionNumberDesc(courseId))
+                .thenReturn(
+                        Optional.empty(),
+                        Optional.of(CourseRevision.builder()
+                                .id(9000L)
+                                .course(course)
+                                .revisionNumber(1)
+                                .status(CourseRevisionStatus.APPROVED)
+                                .build())
+                );
+        when(clock.instant()).thenReturn(now);
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> {
+            CourseRevision revision = invocation.getArgument(0);
+            if (revision.getRevisionNumber() != null && revision.getRevisionNumber() == 1) {
+                revision.setId(9000L);
+            } else {
+                revision.setId(9001L);
+            }
+            return revision;
+        });
+        when(courseRepository.save(any(Course.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CourseRevisionDTO created = courseRevisionService.createRevision(courseId, authorId);
+
+        assertEquals(2, created.getRevisionNumber());
+        JsonNode snapshot = objectMapper.readTree(created.getContentSnapshotJson());
+        assertEquals(1, snapshot.path("snapshotVersion").asInt());
+        assertEquals("Module A", snapshot.path("modules").get(0).path("title").asText());
+        assertEquals("Lesson A", snapshot.path("modules").get(0).path("lessons").get(0).path("title").asText());
     }
 
     @Test
@@ -162,10 +298,10 @@ class CourseRevisionServiceImplTest {
                 .language("vi")
                 .currency("VND")
                 .build();
+        draft.setBaselineSnapshotHash(computeSnapshotHashForDraft(draft));
 
         when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
         when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
-        when(courseRevisionRepository.findById(baselineRevisionId)).thenReturn(Optional.of(baseline));
 
         ConflictException exception = assertThrows(
                 ConflictException.class,
@@ -213,12 +349,12 @@ class CourseRevisionServiceImplTest {
                 .shortDescription("Same short")
                 .sourceRevisionId(baselineRevisionId)
                 .build();
+        draft.setBaselineSnapshotHash(computeSnapshotHashForDraft(draft));
 
         when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
         when(courseRevisionFeatureProperties.getSubmitChangeCheckMode())
                 .thenReturn(CourseRevisionFeatureProperties.SubmitChangeCheckMode.WARN);
         when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
-        when(courseRevisionRepository.findById(baselineRevisionId)).thenReturn(Optional.of(baseline));
         when(clock.instant()).thenReturn(now);
         when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -228,6 +364,598 @@ class CourseRevisionServiceImplTest {
         verify(courseRevisionRepository).save(argThat(saved -> saved != null
                 && saved.getId().equals(revisionId)
                 && saved.getStatus() == CourseRevisionStatus.PENDING));
+    }
+
+    @Test
+    void submitRevision_materializesMissingLessonLikeItemIdBeforeTransitionToPending() {
+        Long revisionId = 320L;
+        Long authorId = 22L;
+        Instant now = Instant.parse("2026-03-20T13:00:00Z");
+
+        Course course = Course.builder()
+                .id(100L)
+                .author(User.builder().id(authorId).build())
+                .status(CourseStatus.PUBLIC)
+                .title("Public course")
+                .build();
+
+        JsonNode snapshotWithMissingId = objectMapper.createObjectNode()
+                .put("snapshotVersion", 1)
+                .set("modules", objectMapper.createArrayNode()
+                        .add(objectMapper.createObjectNode()
+                                .put("id", 1)
+                                .put("title", "Module 1")
+                                .set("lessons", objectMapper.createArrayNode()
+                                        .add(objectMapper.createObjectNode()
+                                                .put("type", "reading")
+                                                .put("title", "Missing id")))));
+
+        CourseRevision draft = CourseRevision.builder()
+                .id(revisionId)
+                .course(course)
+                .revisionNumber(2)
+                .status(CourseRevisionStatus.DRAFT)
+                .title("Draft revision")
+                .contentSnapshotJson(snapshotWithMissingId)
+                .build();
+
+        Module existingModule = Module.builder()
+                .id(1L)
+                .course(course)
+                .title("Module 1")
+                .build();
+
+        when(clock.instant()).thenReturn(now);
+        when(moduleRepository.findById(1L)).thenReturn(Optional.of(existingModule));
+        when(lessonRepository.save(any(Lesson.class))).thenAnswer(invocation -> {
+            Lesson lesson = invocation.getArgument(0);
+            lesson.setId(777L);
+            return lesson;
+        });
+
+        when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
+        when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CourseRevisionDTO result = courseRevisionService.submitRevision(revisionId, authorId);
+
+        assertEquals(CourseRevisionStatus.PENDING, result.getStatus());
+        ArgumentCaptor<CourseRevision> savedCaptor = ArgumentCaptor.forClass(CourseRevision.class);
+        verify(courseRevisionRepository).save(savedCaptor.capture());
+        CourseRevision pendingRevision = savedCaptor.getValue();
+        JsonNode savedSnapshot = pendingRevision.getContentSnapshotJson();
+        assertEquals(777L, savedSnapshot.path("modules").get(0).path("lessons").get(0).path("id").asLong());
+    }
+
+    @Test
+    void submitRevision_materializesMissingQuizAndAssignmentIdsBeforePending() {
+        Long revisionId = 321L;
+        Long authorId = 22L;
+        Instant now = Instant.parse("2026-03-20T13:15:00Z");
+
+        Course course = Course.builder()
+                .id(100L)
+                .author(User.builder().id(authorId).build())
+                .status(CourseStatus.PUBLIC)
+                .title("Public course")
+                .build();
+
+        ObjectNode snapshotWithMissingIds = objectMapper.createObjectNode();
+        snapshotWithMissingIds.put("snapshotVersion", 1);
+
+        ArrayNode modulesNode = objectMapper.createArrayNode();
+        ObjectNode moduleNode = objectMapper.createObjectNode();
+        moduleNode.put("id", 1);
+        moduleNode.put("title", "Module 1");
+
+        ArrayNode lessonsNode = objectMapper.createArrayNode();
+
+        ObjectNode quizNode = objectMapper.createObjectNode();
+        quizNode.put("type", "quiz");
+        quizNode.put("title", "Quiz mới");
+
+        ArrayNode questionsNode = objectMapper.createArrayNode();
+        ObjectNode questionNode = objectMapper.createObjectNode();
+        questionNode.put("text", "1 + 1 = ?");
+        questionNode.put("type", "MULTIPLE_CHOICE");
+
+        ArrayNode optionsNode = objectMapper.createArrayNode();
+        optionsNode.add(objectMapper.createObjectNode().put("text", "2").put("correct", true));
+        optionsNode.add(objectMapper.createObjectNode().put("text", "3").put("correct", false));
+        questionNode.set("options", optionsNode);
+        questionsNode.add(questionNode);
+        quizNode.set("questions", questionsNode);
+        lessonsNode.add(quizNode);
+
+        ObjectNode assignmentNode = objectMapper.createObjectNode();
+        assignmentNode.put("type", "assignment");
+        assignmentNode.put("title", "Assignment mới");
+        assignmentNode.put("assignmentMaxScore", "100");
+        ArrayNode criteriaNode = objectMapper.createArrayNode();
+        criteriaNode.add(objectMapper.createObjectNode().put("name", "Tiêu chí 1").put("maxPoints", "50"));
+        assignmentNode.set("assignmentCriteria", criteriaNode);
+        lessonsNode.add(assignmentNode);
+
+        moduleNode.set("lessons", lessonsNode);
+        modulesNode.add(moduleNode);
+        snapshotWithMissingIds.set("modules", modulesNode);
+
+        CourseRevision draft = CourseRevision.builder()
+                .id(revisionId)
+                .course(course)
+                .revisionNumber(2)
+                .status(CourseRevisionStatus.DRAFT)
+                .title("Draft revision")
+                .contentSnapshotJson(snapshotWithMissingIds)
+                .build();
+
+        Module existingModule = Module.builder()
+                .id(1L)
+                .course(course)
+                .title("Module 1")
+                .build();
+
+        when(clock.instant()).thenReturn(now);
+        when(moduleRepository.findById(1L)).thenReturn(Optional.of(existingModule));
+        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
+            Quiz quiz = invocation.getArgument(0);
+            quiz.setId(881L);
+            return quiz;
+        });
+        when(assignmentRepository.save(any(Assignment.class))).thenAnswer(invocation -> {
+            Assignment assignment = invocation.getArgument(0);
+            assignment.setId(882L);
+            return assignment;
+        });
+        when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
+        when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CourseRevisionDTO result = courseRevisionService.submitRevision(revisionId, authorId);
+
+        assertEquals(CourseRevisionStatus.PENDING, result.getStatus());
+        ArgumentCaptor<CourseRevision> savedCaptor = ArgumentCaptor.forClass(CourseRevision.class);
+        verify(courseRevisionRepository).save(savedCaptor.capture());
+        JsonNode savedSnapshot = savedCaptor.getValue().getContentSnapshotJson();
+        assertEquals(881L, savedSnapshot.path("modules").get(0).path("lessons").get(0).path("id").asLong());
+        assertEquals(882L, savedSnapshot.path("modules").get(0).path("lessons").get(1).path("id").asLong());
+    }
+
+    @Test
+    void submitRevision_materializesWhenItemIdIsNonPositivePlaceholder() {
+        Long revisionId = 323L;
+        Long authorId = 22L;
+        Instant now = Instant.parse("2026-03-20T13:20:00Z");
+
+        Course course = Course.builder()
+                .id(100L)
+                .author(User.builder().id(authorId).build())
+                .status(CourseStatus.PUBLIC)
+                .title("Public course")
+                .build();
+
+        JsonNode snapshotWithZeroId = objectMapper.createObjectNode()
+                .put("snapshotVersion", 1)
+                .set("modules", objectMapper.createArrayNode()
+                        .add(objectMapper.createObjectNode()
+                                .put("id", 1)
+                                .put("title", "Module 1")
+                                .set("lessons", objectMapper.createArrayNode()
+                                        .add(objectMapper.createObjectNode()
+                                                .put("id", 0)
+                                                .put("type", "reading")
+                                                .put("title", "Placeholder id")))));
+
+        CourseRevision draft = CourseRevision.builder()
+                .id(revisionId)
+                .course(course)
+                .revisionNumber(2)
+                .status(CourseRevisionStatus.DRAFT)
+                .title("Draft revision")
+                .contentSnapshotJson(snapshotWithZeroId)
+                .build();
+
+        Module existingModule = Module.builder()
+                .id(1L)
+                .course(course)
+                .title("Module 1")
+                .build();
+
+        when(clock.instant()).thenReturn(now);
+        when(moduleRepository.findById(1L)).thenReturn(Optional.of(existingModule));
+        when(lessonRepository.save(any(Lesson.class))).thenAnswer(invocation -> {
+            Lesson lesson = invocation.getArgument(0);
+            lesson.setId(778L);
+            return lesson;
+        });
+        when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
+        when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CourseRevisionDTO result = courseRevisionService.submitRevision(revisionId, authorId);
+
+        assertEquals(CourseRevisionStatus.PENDING, result.getStatus());
+        JsonNode savedSnapshot = draft.getContentSnapshotJson();
+        assertEquals(778L, savedSnapshot.path("modules").get(0).path("lessons").get(0).path("id").asLong());
+    }
+
+    @Test
+    void submitRevision_clonesExistingLessonIdentityWhenContentChanged() {
+        Long revisionId = 324L;
+        Long authorId = 22L;
+        Instant now = Instant.parse("2026-03-20T13:25:00Z");
+
+        Course course = Course.builder()
+                .id(100L)
+                .author(User.builder().id(authorId).build())
+                .status(CourseStatus.PUBLIC)
+                .title("Public course")
+                .build();
+
+        Module existingModule = Module.builder()
+                .id(1L)
+                .course(course)
+                .title("Module 1")
+                .build();
+
+        Lesson existingLesson = Lesson.builder()
+                .id(55L)
+                .module(existingModule)
+                .title("Bài cũ")
+                .type(LessonType.READING)
+                .orderIndex(0)
+                .contentText("Nội dung cũ")
+                .build();
+
+        JsonNode snapshotChangedLesson = objectMapper.createObjectNode()
+                .put("snapshotVersion", 1)
+                .set("modules", objectMapper.createArrayNode()
+                        .add(objectMapper.createObjectNode()
+                                .put("id", 1)
+                                .set("lessons", objectMapper.createArrayNode()
+                                        .add(objectMapper.createObjectNode()
+                                                .put("id", 55)
+                                                .put("type", "reading")
+                                                .put("title", "Bài đã sửa")
+                                                .put("contentText", "Nội dung mới")))));
+
+        CourseRevision draft = CourseRevision.builder()
+                .id(revisionId)
+                .course(course)
+                .revisionNumber(2)
+                .status(CourseRevisionStatus.DRAFT)
+                .title("Draft revision")
+                .contentSnapshotJson(snapshotChangedLesson)
+                .build();
+
+        when(clock.instant()).thenReturn(now);
+        when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
+        when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(moduleRepository.findById(1L)).thenReturn(Optional.of(existingModule));
+        when(lessonRepository.findById(55L)).thenReturn(Optional.of(existingLesson));
+        when(lessonRepository.save(any(Lesson.class))).thenAnswer(invocation -> {
+            Lesson cloned = invocation.getArgument(0);
+            cloned.setId(955L);
+            return cloned;
+        });
+
+        CourseRevisionDTO result = courseRevisionService.submitRevision(revisionId, authorId);
+
+        assertEquals(CourseRevisionStatus.PENDING, result.getStatus());
+        JsonNode savedSnapshot = draft.getContentSnapshotJson();
+        assertEquals(955L, savedSnapshot.path("modules").get(0).path("lessons").get(0).path("id").asLong());
+    }
+
+    @Test
+    void submitRevision_clonesExistingQuizIdentityWhenAnswerChanged() {
+        Long revisionId = 325L;
+        Long authorId = 22L;
+        Instant now = Instant.parse("2026-03-20T13:30:00Z");
+
+        Course course = Course.builder()
+                .id(100L)
+                .author(User.builder().id(authorId).build())
+                .status(CourseStatus.PUBLIC)
+                .title("Public course")
+                .build();
+
+        Module existingModule = Module.builder()
+                .id(1L)
+                .course(course)
+                .title("Module 1")
+                .build();
+
+        QuizOption oldOptionA = QuizOption.builder()
+                .id(1001L)
+                .optionText("2")
+                .isCorrect(true)
+                .orderIndex(0)
+                .build();
+        QuizOption oldOptionB = QuizOption.builder()
+                .id(1002L)
+                .optionText("3")
+                .isCorrect(false)
+                .orderIndex(1)
+                .build();
+        QuizQuestion oldQuestion = QuizQuestion.builder()
+                .id(901L)
+                .questionText("1 + 1 = ?")
+                .questionType(QuestionType.MULTIPLE_CHOICE)
+                .score(1)
+                .orderIndex(0)
+                .options(List.of(oldOptionA, oldOptionB))
+                .build();
+        Quiz existingQuiz = Quiz.builder()
+                .id(66L)
+                .module(existingModule)
+                .title("Quiz cũ")
+                .description("Mô tả")
+                .passScore(80)
+                .orderIndex(0)
+                .questions(List.of(oldQuestion))
+                .build();
+        oldQuestion.setQuiz(existingQuiz);
+        oldOptionA.setQuestion(oldQuestion);
+        oldOptionB.setQuestion(oldQuestion);
+
+        JsonNode snapshotChangedQuiz = objectMapper.createObjectNode()
+                .put("snapshotVersion", 1)
+                .set("modules", objectMapper.createArrayNode()
+                        .add(objectMapper.createObjectNode()
+                                .put("id", 1)
+                                .set("lessons", objectMapper.createArrayNode()
+                                        .add(objectMapper.createObjectNode()
+                                                .put("id", 66)
+                                                .put("type", "quiz")
+                                                .put("title", "Quiz cũ")
+                                                .put("passScore", 80)
+                                                .set("questions", objectMapper.createArrayNode()
+                                                        .add(objectMapper.createObjectNode()
+                                                                .put("text", "1 + 1 = ?")
+                                                                .put("type", "MULTIPLE_CHOICE")
+                                                                .put("score", 1)
+                                                                .set("options", objectMapper.createArrayNode()
+                                                                        .add(objectMapper.createObjectNode().put("text", "2").put("correct", false))
+                                                                        .add(objectMapper.createObjectNode().put("text", "3").put("correct", true)))))))));
+
+        CourseRevision draft = CourseRevision.builder()
+                .id(revisionId)
+                .course(course)
+                .revisionNumber(2)
+                .status(CourseRevisionStatus.DRAFT)
+                .title("Draft revision")
+                .contentSnapshotJson(snapshotChangedQuiz)
+                .build();
+
+        when(clock.instant()).thenReturn(now);
+        when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
+        when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(moduleRepository.findById(1L)).thenReturn(Optional.of(existingModule));
+        when(quizRepository.findById(66L)).thenReturn(Optional.of(existingQuiz));
+        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
+            Quiz cloned = invocation.getArgument(0);
+            cloned.setId(966L);
+            return cloned;
+        });
+
+        CourseRevisionDTO result = courseRevisionService.submitRevision(revisionId, authorId);
+
+        assertEquals(CourseRevisionStatus.PENDING, result.getStatus());
+        JsonNode savedSnapshot = draft.getContentSnapshotJson();
+        assertEquals(966L, savedSnapshot.path("modules").get(0).path("lessons").get(0).path("id").asLong());
+    }
+
+    @Test
+    void submitRevision_reusesExistingQuizIdentityWhenOnlyModulePlacementChanges() {
+        Long revisionId = 326L;
+        Long authorId = 22L;
+        Instant now = Instant.parse("2026-03-20T13:35:00Z");
+
+        Course course = Course.builder()
+                .id(100L)
+                .author(User.builder().id(authorId).build())
+                .status(CourseStatus.PUBLIC)
+                .title("Public course")
+                .build();
+
+        Module oldModule = Module.builder()
+                .id(1L)
+                .course(course)
+                .title("Module old")
+                .build();
+        Module newModule = Module.builder()
+                .id(2L)
+                .course(course)
+                .title("Module new")
+                .build();
+
+        QuizOption optionA = QuizOption.builder()
+                .id(1101L)
+                .optionText("Đúng")
+                .isCorrect(true)
+                .orderIndex(0)
+                .build();
+        QuizQuestion question = QuizQuestion.builder()
+                .id(1001L)
+                .questionText("Git là gì?")
+                .questionType(QuestionType.MULTIPLE_CHOICE)
+                .score(1)
+                .orderIndex(0)
+                .options(List.of(optionA))
+                .build();
+        Quiz existingQuiz = Quiz.builder()
+                .id(66L)
+                .module(oldModule)
+                .title("Quiz cũ")
+                .description("Mô tả")
+                .passScore(80)
+                .orderIndex(0)
+                .questions(List.of(question))
+                .build();
+        question.setQuiz(existingQuiz);
+        optionA.setQuestion(question);
+
+        JsonNode snapshotMovedQuiz = objectMapper.createObjectNode()
+                .put("snapshotVersion", 1)
+                .set("modules", objectMapper.createArrayNode()
+                        .add(objectMapper.createObjectNode()
+                                .put("id", 2)
+                                .set("lessons", objectMapper.createArrayNode()
+                                        .add(objectMapper.createObjectNode()
+                                                .put("id", 66)
+                                                .put("type", "quiz")
+                                                .put("title", "Quiz cũ")
+                                                .put("quizDescription", "Mô tả")
+                                                .put("passScore", 80)
+                                                .set("questions", objectMapper.createArrayNode()
+                                                        .add(objectMapper.createObjectNode()
+                                                                .put("text", "Git là gì?")
+                                                                .put("type", "MULTIPLE_CHOICE")
+                                                                .put("score", 1)
+                                                                .put("orderIndex", 0)
+                                                                .set("options", objectMapper.createArrayNode()
+                                                                        .add(objectMapper.createObjectNode()
+                                                                                .put("text", "Đúng")
+                                                                                .put("correct", true)
+                                                                                .put("orderIndex", 0)))))))));
+
+        CourseRevision draft = CourseRevision.builder()
+                .id(revisionId)
+                .course(course)
+                .revisionNumber(2)
+                .status(CourseRevisionStatus.DRAFT)
+                .title("Draft revision")
+                .contentSnapshotJson(snapshotMovedQuiz)
+                .build();
+
+        when(clock.instant()).thenReturn(now);
+        when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
+        when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(moduleRepository.findById(2L)).thenReturn(Optional.of(newModule));
+        when(quizRepository.findById(66L)).thenReturn(Optional.of(existingQuiz));
+
+        CourseRevisionDTO result = courseRevisionService.submitRevision(revisionId, authorId);
+
+        assertEquals(CourseRevisionStatus.PENDING, result.getStatus());
+        JsonNode savedSnapshot = draft.getContentSnapshotJson();
+        assertEquals(66L, savedSnapshot.path("modules").get(0).path("lessons").get(0).path("id").asLong());
+        verify(quizRepository, never()).save(any(Quiz.class));
+    }
+
+    @Test
+    void submitThenApprove_materializesNewLessonQuizAssignmentIds_andApprovePassesIdentityCheck() {
+        Long revisionId = 322L;
+        Long authorId = 22L;
+        Long adminId = 3L;
+        Instant now = Instant.parse("2026-03-20T14:00:00Z");
+
+        Course course = Course.builder()
+                .id(100L)
+                .author(User.builder().id(authorId).build())
+                .status(CourseStatus.PUBLIC)
+                .title("Public course")
+                .activeRevisionId(300L)
+                .latestRevisionId(300L)
+                .build();
+
+        ObjectNode snapshotWithMissingIds = objectMapper.createObjectNode();
+        snapshotWithMissingIds.put("snapshotVersion", 1);
+
+        ArrayNode modulesNode = objectMapper.createArrayNode();
+        ObjectNode moduleNode = objectMapper.createObjectNode();
+        moduleNode.put("id", 1);
+        moduleNode.put("title", "Module 1");
+
+        ArrayNode lessonsNode = objectMapper.createArrayNode();
+
+        ObjectNode readingNode = objectMapper.createObjectNode();
+        readingNode.put("type", "reading");
+        readingNode.put("title", "Reading mới");
+        lessonsNode.add(readingNode);
+
+        ObjectNode quizNode = objectMapper.createObjectNode();
+        quizNode.put("type", "quiz");
+        quizNode.put("title", "Quiz mới");
+        ArrayNode questionsNode = objectMapper.createArrayNode();
+        ObjectNode questionNode = objectMapper.createObjectNode();
+        questionNode.put("text", "1 + 1 = ?");
+        questionNode.put("type", "MULTIPLE_CHOICE");
+        questionNode.set("options", objectMapper.createArrayNode()
+                .add(objectMapper.createObjectNode().put("text", "2").put("correct", true))
+                .add(objectMapper.createObjectNode().put("text", "3").put("correct", false)));
+        questionsNode.add(questionNode);
+        quizNode.set("questions", questionsNode);
+        lessonsNode.add(quizNode);
+
+        ObjectNode assignmentNode = objectMapper.createObjectNode();
+        assignmentNode.put("type", "assignment");
+        assignmentNode.put("title", "Assignment mới");
+        lessonsNode.add(assignmentNode);
+
+        moduleNode.set("lessons", lessonsNode);
+        modulesNode.add(moduleNode);
+        snapshotWithMissingIds.set("modules", modulesNode);
+
+        CourseRevision draft = CourseRevision.builder()
+                .id(revisionId)
+                .course(course)
+                .revisionNumber(3)
+                .status(CourseRevisionStatus.DRAFT)
+                .title("Draft revision")
+                .contentSnapshotJson(snapshotWithMissingIds)
+                .build();
+
+        Module existingModule = Module.builder()
+                .id(1L)
+                .course(course)
+                .title("Module 1")
+                .build();
+
+        when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
+        when(courseRevisionFeatureProperties.isApprovalEnabled()).thenReturn(true);
+        when(clock.instant()).thenReturn(now);
+
+        when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
+        when(courseRevisionRepository.findByIdForApproval(revisionId)).thenReturn(Optional.of(draft));
+        when(courseRepository.findByIdForRevisionApproval(course.getId())).thenReturn(Optional.of(course));
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(courseRepository.save(any(Course.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(moduleRepository.findById(1L)).thenReturn(Optional.of(existingModule));
+
+        when(lessonRepository.save(any(Lesson.class))).thenAnswer(invocation -> {
+            Lesson lesson = invocation.getArgument(0);
+            lesson.setId(901L);
+            return lesson;
+        });
+        when(quizRepository.save(any(Quiz.class))).thenAnswer(invocation -> {
+            Quiz quiz = invocation.getArgument(0);
+            quiz.setId(902L);
+            return quiz;
+        });
+        when(assignmentRepository.save(any(Assignment.class))).thenAnswer(invocation -> {
+            Assignment assignment = invocation.getArgument(0);
+            assignment.setId(903L);
+            return assignment;
+        });
+        when(autoCompatibleUpgradeExecutor.executeAfterRevisionApproval(eq(course), eq(300L), eq(draft)))
+                .thenReturn(CourseAutoCompatibleUpgradeExecutor.AutoUpgradeExecutionResult
+                        .skipped("NO_ELIGIBLE_ENROLLMENTS", "unit-test"));
+
+        CourseRevisionDTO submitResult = courseRevisionService.submitRevision(revisionId, authorId);
+        assertEquals(CourseRevisionStatus.PENDING, submitResult.getStatus());
+
+        JsonNode materializedSnapshot = draft.getContentSnapshotJson();
+        assertEquals(901L, materializedSnapshot.path("modules").get(0).path("lessons").get(0).path("id").asLong());
+        assertEquals(902L, materializedSnapshot.path("modules").get(0).path("lessons").get(1).path("id").asLong());
+        assertEquals(903L, materializedSnapshot.path("modules").get(0).path("lessons").get(2).path("id").asLong());
+
+        CourseRevisionDTO approveResult = courseRevisionService.approveRevision(revisionId, adminId);
+        assertEquals(CourseRevisionStatus.APPROVED, approveResult.getStatus());
+        assertEquals(revisionId, course.getActiveRevisionId());
+        assertEquals(revisionId, course.getLatestRevisionId());
     }
 
     @Test
@@ -265,12 +993,12 @@ class CourseRevisionServiceImplTest {
                 .shortDescription("Same short")
                 .sourceRevisionId(baselineRevisionId)
                 .build();
+        draft.setBaselineSnapshotHash(computeSnapshotHashForDraft(draft));
 
         when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
         when(courseRevisionFeatureProperties.getSubmitChangeCheckMode())
                 .thenReturn(CourseRevisionFeatureProperties.SubmitChangeCheckMode.OFF);
         when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
-        when(courseRevisionRepository.findById(baselineRevisionId)).thenReturn(Optional.of(baseline));
         when(clock.instant()).thenReturn(now);
         when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -541,8 +1269,11 @@ class CourseRevisionServiceImplTest {
 
         ObjectNode changedSnapshot = objectMapper.createObjectNode();
         changedSnapshot.put("snapshotVersion", 1);
-        changedSnapshot.putArray("modules")
-                .add(objectMapper.createObjectNode().put("title", "Module A"));
+        ObjectNode changedModule = objectMapper.createObjectNode();
+        changedModule.put("id", 501);
+        changedModule.put("title", "Module A");
+        changedModule.putArray("lessons");
+        changedSnapshot.putArray("modules").add(changedModule);
 
         CourseRevision draft = CourseRevision.builder()
                 .id(revisionId)
@@ -588,8 +1319,7 @@ class CourseRevisionServiceImplTest {
                 .title("Draft revision")
                 .build();
 
-        com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionUpdateDTO dto =
-                new com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionUpdateDTO();
+        CourseRevisionUpdateDTO dto = new CourseRevisionUpdateDTO();
         dto.setContentSnapshotJson("{\"modules\":[{\"id\":1,\"title\":\"very-large-content\"}]}");
 
         when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
@@ -624,8 +1354,7 @@ class CourseRevisionServiceImplTest {
                 .title("Draft revision")
                 .build();
 
-        com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionUpdateDTO dto =
-                new com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionUpdateDTO();
+        CourseRevisionUpdateDTO dto = new CourseRevisionUpdateDTO();
         dto.setContentSnapshotJson("{\"snapshotVersion\":2,\"modules\":[]}");
 
         when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
@@ -659,8 +1388,7 @@ class CourseRevisionServiceImplTest {
                 .title("Draft revision")
                 .build();
 
-        com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionUpdateDTO dto =
-                new com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionUpdateDTO();
+        CourseRevisionUpdateDTO dto = new CourseRevisionUpdateDTO();
         dto.setContentSnapshotJson("{\"modules\":[]}");
 
         when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
@@ -672,6 +1400,54 @@ class CourseRevisionServiceImplTest {
 
         assertEquals(revisionId, result.getId());
         assertTrue(result.getContentSnapshotJson().contains("\"snapshotVersion\":1"));
+    }
+
+    @Test
+    void updateRevision_allowsDraftSnapshotWithoutEntityIds() {
+        Long revisionId = 362L;
+        Long authorId = 22L;
+
+        Course course = Course.builder()
+                .id(100L)
+                .author(User.builder().id(authorId).build())
+                .status(CourseStatus.PUBLIC)
+                .build();
+
+        CourseRevision draft = CourseRevision.builder()
+                .id(revisionId)
+                .course(course)
+                .revisionNumber(2)
+                .status(CourseRevisionStatus.DRAFT)
+                .title("Draft revision")
+                .build();
+
+        CourseRevisionUpdateDTO dto = new CourseRevisionUpdateDTO();
+        dto.setContentSnapshotJson("""
+                {
+                  "snapshotVersion": 1,
+                  "modules": [
+                    {
+                      "title": "Module chưa lưu id",
+                      "lessons": [
+                        {
+                          "type": "reading",
+                          "title": "Lesson local draft"
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """);
+
+        when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
+        when(courseRevisionFeatureProperties.getMaxContentSnapshotBytes()).thenReturn(1_048_576);
+        when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        CourseRevisionDTO result = courseRevisionService.updateRevision(revisionId, dto, authorId);
+
+        assertEquals(revisionId, result.getId());
+        assertTrue(result.getContentSnapshotJson().contains("Lesson local draft"));
     }
 
     @Test
@@ -793,7 +1569,7 @@ class CourseRevisionServiceImplTest {
         putNullableText(root, "price", normalizeMoney(revision.getPrice()));
         root.set("learningObjectives", canonicalizeStringArray(revision.getLearningObjectivesJson()));
         root.set("requirements", canonicalizeStringArray(revision.getRequirementsJson()));
-        root.set("contentSnapshot", canonicalizeJsonNode(defaultJsonObject(revision.getContentSnapshotJson())));
+        root.set("contentSnapshot", canonicalizeJsonNode(defaultContentSnapshot(revision.getContentSnapshotJson())));
 
         return sha256Hex(root.toString());
     }
@@ -801,17 +1577,20 @@ class CourseRevisionServiceImplTest {
     private JsonNode buildLargeSnapshot(boolean reorderModules, boolean includeExtraLesson) throws Exception {
         String firstModule = """
                 {
+                                                                        "id": 501,
                   "orderIndex": 0,
                   "title": "Module A",
                   "description": "Core foundations",
                   "lessons": [
                     {
+                                                                                        "id": 701,
                       "orderIndex": 0,
                       "title": "Intro",
                       "type": "reading",
                       "contentText": "Lesson intro"
                     },
                     {
+                                                                                        "id": 702,
                       "orderIndex": 1,
                       "title": "Quiz A",
                       "type": "quiz",
@@ -834,11 +1613,13 @@ class CourseRevisionServiceImplTest {
         String secondModule = includeExtraLesson
                 ? """
                 {
+                                                                        "id": 502,
                   "orderIndex": 1,
                   "title": "Module B",
                   "description": "Advanced practice",
                   "lessons": [
                     {
+                                                                                        "id": 703,
                       "orderIndex": 0,
                       "title": "Assignment B",
                       "type": "assignment",
@@ -846,6 +1627,7 @@ class CourseRevisionServiceImplTest {
                       "assignmentPassingScore": 75
                     },
                     {
+                                                                                        "id": 704,
                       "orderIndex": 1,
                       "title": "Wrap up",
                       "type": "reading",
@@ -856,11 +1638,13 @@ class CourseRevisionServiceImplTest {
                 """
                 : """
                 {
+                                                                        "id": 502,
                   "orderIndex": 1,
                   "title": "Module B",
                   "description": "Advanced practice",
                   "lessons": [
                     {
+                                                                                        "id": 703,
                       "orderIndex": 0,
                       "title": "Assignment B",
                       "type": "assignment",
@@ -883,7 +1667,7 @@ class CourseRevisionServiceImplTest {
         return collapsed.isEmpty() ? null : collapsed;
     }
 
-    private String normalizeMoney(java.math.BigDecimal money) {
+    private String normalizeMoney(BigDecimal money) {
         if (money == null) return null;
         return money.stripTrailingZeros().toPlainString();
     }
@@ -924,6 +1708,17 @@ class CourseRevisionServiceImplTest {
             return objectMapper.createObjectNode();
         }
         return value;
+    }
+
+    private JsonNode defaultContentSnapshot(JsonNode value) {
+        JsonNode objectNode = defaultJsonObject(value);
+        if (!(objectNode instanceof ObjectNode snapshotObject)) {
+            return objectNode;
+        }
+        if (!snapshotObject.has("snapshotVersion") || snapshotObject.path("snapshotVersion").isNull()) {
+            snapshotObject.put("snapshotVersion", 1);
+        }
+        return snapshotObject;
     }
 
     private JsonNode canonicalizeJsonNode(JsonNode source) {

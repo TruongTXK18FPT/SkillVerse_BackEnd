@@ -2,19 +2,39 @@ package com.exe.skillverse_backend.course_service.service.impl;
 
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionUpdateDTO;
+import com.exe.skillverse_backend.course_service.entity.Assignment;
+import com.exe.skillverse_backend.course_service.entity.AssignmentCriteria;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
+import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.LessonAttachment;
+import com.exe.skillverse_backend.course_service.entity.Module;
+import com.exe.skillverse_backend.course_service.entity.Quiz;
+import com.exe.skillverse_backend.course_service.entity.QuizOption;
+import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
+import com.exe.skillverse_backend.course_service.entity.enums.AttachmentType;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
+import com.exe.skillverse_backend.course_service.entity.enums.LessonType;
+import com.exe.skillverse_backend.course_service.entity.enums.QuestionType;
+import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
+import com.exe.skillverse_backend.course_service.entity.enums.SubmissionType;
 import com.exe.skillverse_backend.course_service.policy.CourseRevisionFeatureProperties;
+import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
+import com.exe.skillverse_backend.course_service.repository.LessonRepository;
+import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 import com.exe.skillverse_backend.course_service.service.CourseRevisionService;
+import com.exe.skillverse_backend.course_service.util.CourseRevisionSnapshotAssembler;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
+import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,6 +51,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
@@ -62,6 +83,11 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
 
     private final CourseRepository courseRepository;
     private final CourseRevisionRepository courseRevisionRepository;
+    private final ModuleRepository moduleRepository;
+    private final LessonRepository lessonRepository;
+    private final QuizRepository quizRepository;
+    private final AssignmentRepository assignmentRepository;
+    private final MediaRepository mediaRepository;
     private final CourseRevisionFeatureProperties courseRevisionFeatureProperties;
     private final CourseAutoCompatibleUpgradeExecutor autoCompatibleUpgradeExecutor;
     private final Clock clock;
@@ -79,6 +105,8 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         if (course.getStatus() != CourseStatus.PUBLIC) {
             throw new ConflictException("COURSE_REVISION_CREATE_ALLOWED_ONLY_FOR_PUBLIC");
         }
+
+        ensureLegacyInitialApprovedRevision(course, actorId);
 
         boolean hasOpenRevision = courseRevisionRepository.existsByCourseIdAndStatusIn(
                 courseId,
@@ -122,6 +150,67 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         );
 
         return toRevisionDto(saved);
+    }
+
+    private void ensureLegacyInitialApprovedRevision(Course course, Long actorId) {
+        if (course == null || course.getId() == null) {
+            return;
+        }
+        if (course.getActiveRevisionId() != null) {
+            return;
+        }
+        if (courseRevisionRepository.findTopByCourseIdOrderByRevisionNumberDesc(course.getId()).isPresent()) {
+            return;
+        }
+
+        Instant now = now();
+        CourseRevision initialRevision = CourseRevision.builder()
+                .course(course)
+                .revisionNumber(1)
+                .status(CourseRevisionStatus.APPROVED)
+                .title(course.getTitle())
+                .description(course.getDescription())
+                .level(course.getLevel())
+                .category(course.getCategory())
+                .shortDescription(course.getShortDescription())
+                .estimatedDurationHours(course.getEstimatedDurationHours())
+                .language(course.getLanguage())
+                .price(course.getPrice())
+                .currency(course.getCurrency())
+                .learningObjectivesJson(writeJsonSafely(course.getLearningObjectives(), "[]"))
+                .requirementsJson(writeJsonSafely(course.getRequirements(), "[]"))
+                .contentSnapshotJson(CourseRevisionSnapshotAssembler.buildCourseContentSnapshot(
+                        objectMapper,
+                        course,
+                        CONTENT_SNAPSHOT_VERSION_V1
+                ))
+                .sourceRevisionId(null)
+                .sourceCourseStatus(course.getStatus().name())
+                .snapshotVersion(CONTENT_SNAPSHOT_VERSION_V1)
+                .createdBy(actorId)
+                .createdAt(now)
+                .submittedAt(course.getSubmittedAt() != null ? course.getSubmittedAt() : now)
+                .approvedAt(course.getPublishedAt() != null ? course.getPublishedAt() : now)
+                .updatedAt(now)
+                .build();
+        initialRevision.setBaselineSnapshotHash(computeCourseSnapshotHash(course));
+        initialRevision.setSnapshotHash(computeRevisionSnapshotHash(initialRevision));
+
+        CourseRevision savedInitialRevision = courseRevisionRepository.save(initialRevision);
+        course.setActiveRevisionId(savedInitialRevision.getId());
+        course.setLatestRevisionId(savedInitialRevision.getId());
+        course.setRevisioningEnabled(Boolean.TRUE);
+        course.setUpdatedAt(now);
+        courseRepository.save(course);
+
+        logRevisionEvent(
+                "bootstrap_initial",
+                course.getId(),
+                savedInitialRevision.getId(),
+                null,
+                actorId,
+                "LEGACY_PUBLIC_WITHOUT_INITIAL_REVISION"
+        );
     }
 
     @Override
@@ -177,10 +266,11 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             throw new ConflictException("COURSE_REVISION_BASELINE_NOT_FOUND");
         }
 
+        String preMaterializeSnapshotHash = computeRevisionSnapshotHash(revision);
         boolean hasMeaningfulChanges = hasMeaningfulChangesComparedToBaseline(revision, course);
         boolean noChangesSinceLastReject = revision.getRejectedSnapshotHash() != null
                 && !revision.getRejectedSnapshotHash().isBlank()
-                && Objects.equals(revision.getSnapshotHash(), revision.getRejectedSnapshotHash());
+                && Objects.equals(preMaterializeSnapshotHash, revision.getRejectedSnapshotHash());
 
         if (noChangesSinceLastReject) {
             if (isSubmitChangeCheckEnforced()) {
@@ -210,13 +300,22 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             }
         }
 
+        JsonNode materializedSnapshot = materializeSnapshotIdentityForSubmit(
+                revision.getContentSnapshotJson(),
+                course,
+                revision.getId()
+        );
+        revision.setContentSnapshotJson(materializedSnapshot);
+        ensureSnapshotIdentityContract(revision.getContentSnapshotJson(), course.getId(), revision.getId());
+        String currentSnapshotHash = computeRevisionSnapshotHash(revision);
+
         boolean wasRejected = revision.getStatus() == CourseRevisionStatus.REJECTED;
         revision.setStatus(CourseRevisionStatus.PENDING);
         revision.setSubmittedAt(now());
         revision.setUpdatedAt(now());
         revision.setRejectedAt(null);
         revision.setRejectionReason(null);
-        revision.setSnapshotHash(computeRevisionSnapshotHash(revision));
+        revision.setSnapshotHash(currentSnapshotHash);
         if (revision.getBaselineSnapshotHash() == null || revision.getBaselineSnapshotHash().isBlank()) {
             revision.setBaselineSnapshotHash(resolveBaselineHashForRevision(revision, course));
         }
@@ -317,6 +416,12 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         if (revision.getStatus() != CourseRevisionStatus.PENDING) {
             throw new ConflictException("COURSE_REVISION_CANNOT_BE_APPROVED_IN_STATUS_" + revision.getStatus());
         }
+
+        ensureSnapshotIdentityContract(
+            revision.getContentSnapshotJson(),
+            revision.getCourse() != null ? revision.getCourse().getId() : null,
+            revision.getId()
+        );
 
         Long courseId = revision.getCourse().getId();
         Course course = courseRepository.findByIdForRevisionApproval(courseId)
@@ -429,7 +534,13 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .currency(course.getCurrency())
                 .learningObjectivesJson(writeJsonSafely(course.getLearningObjectives(), "[]"))
                 .requirementsJson(writeJsonSafely(course.getRequirements(), "[]"))
-                .contentSnapshotJson(defaultContentSnapshot(null))
+                .contentSnapshotJson(defaultContentSnapshot(
+                        CourseRevisionSnapshotAssembler.buildCourseContentSnapshot(
+                                objectMapper,
+                                course,
+                                CONTENT_SNAPSHOT_VERSION_V1
+                        )
+                ))
                 .sourceRevisionId(null)
                 .sourceCourseStatus(course.getStatus().name())
                 .createdBy(actorId)
@@ -552,7 +663,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     revision.getCurrency(),
                     defaultJsonArray(revision.getLearningObjectivesJson()),
                     defaultJsonArray(revision.getRequirementsJson()),
-                    defaultJsonObject(revision.getContentSnapshotJson())
+                    defaultContentSnapshot(revision.getContentSnapshotJson())
             );
             return sha256Hex(snapshot.toString());
         } finally {
@@ -575,7 +686,11 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     course.getCurrency(),
                     writeJsonSafely(course.getLearningObjectives(), "[]"),
                     writeJsonSafely(course.getRequirements(), "[]"),
-                    parseJsonSafely("{}")
+                    CourseRevisionSnapshotAssembler.buildCourseContentSnapshot(
+                            objectMapper,
+                            course,
+                            CONTENT_SNAPSHOT_VERSION_V1
+                    )
             );
             return sha256Hex(snapshot.toString());
         } finally {
@@ -947,6 +1062,1033 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             throw new BadRequestException("COURSE_REVISION_UNSUPPORTED_SNAPSHOT_VERSION");
         }
         return objectNode;
+    }
+
+    private JsonNode materializeSnapshotIdentityForSubmit(JsonNode contentSnapshot, Course course, Long revisionId) {
+        JsonNode normalized = defaultContentSnapshot(contentSnapshot);
+        if (!(normalized instanceof ObjectNode snapshotObject)) {
+            return normalized;
+        }
+
+        JsonNode modulesNode = snapshotObject.path("modules");
+        if (!modulesNode.isArray()) {
+            return snapshotObject;
+        }
+
+        for (int moduleIndex = 0; moduleIndex < modulesNode.size(); moduleIndex++) {
+            JsonNode rawModuleNode = modulesNode.get(moduleIndex);
+            if (!(rawModuleNode instanceof ObjectNode moduleNode)) {
+                continue;
+            }
+            String moduleIdPath = "modules[" + moduleIndex + "].id";
+            Module module = resolveOrCreateModuleIdentity(
+                    moduleNode,
+                    moduleIdPath,
+                    course,
+                    moduleIndex,
+                    revisionId
+            );
+            moduleNode.put("id", module.getId());
+
+            JsonNode lessonLikeItems = moduleNode.path("lessons");
+            if (!lessonLikeItems.isArray()) {
+                continue;
+            }
+
+            for (int itemIndex = 0; itemIndex < lessonLikeItems.size(); itemIndex++) {
+                JsonNode rawItemNode = lessonLikeItems.get(itemIndex);
+                if (!(rawItemNode instanceof ObjectNode itemNode)) {
+                    continue;
+                }
+                String itemIdPath = "modules[" + moduleIndex + "].lessons[" + itemIndex + "].id";
+                String itemType = normalizeSnapshotItemType(itemNode);
+                Long itemId = resolveOrCreateItemIdentity(
+                        itemNode,
+                        itemType,
+                        itemIdPath,
+                        module,
+                        itemIndex,
+                        revisionId
+                );
+                itemNode.put("id", itemId);
+            }
+        }
+
+        return snapshotObject;
+    }
+
+    private Module resolveOrCreateModuleIdentity(
+            ObjectNode moduleNode,
+            String path,
+            Course course,
+            int fallbackOrderIndex,
+            Long revisionId
+    ) {
+        Long explicitId = parseExplicitPositiveId(moduleNode);
+        if (explicitId != null) {
+            Optional<Module> existingOpt = moduleRepository.findById(explicitId);
+            if (existingOpt.isPresent()) {
+                Module existing = existingOpt.get();
+                Long moduleCourseId = existing.getCourse() != null ? existing.getCourse().getId() : null;
+                if (moduleCourseId != null && moduleCourseId.equals(course.getId())) {
+                    return existing;
+                }
+                log.warn(
+                        "course_revision_event action=materialize_module_identity_fallback_new courseId={} revisionId={} path={} reasonCode={}",
+                        course.getId(),
+                        revisionId,
+                        path,
+                        "MODULE_ID_SCOPE_MISMATCH"
+                );
+            } else {
+                log.warn(
+                        "course_revision_event action=materialize_module_identity_fallback_new courseId={} revisionId={} path={} reasonCode={}",
+                        course.getId(),
+                        revisionId,
+                        path,
+                        "MODULE_ID_NOT_FOUND"
+                );
+            }
+        }
+
+        Module created = Module.builder()
+                .course(course)
+                .title(textOrDefault(moduleNode.path("title"), "Module " + (fallbackOrderIndex + 1)))
+                .description(textOrNull(moduleNode.path("description")))
+                .orderIndex(parseInteger(moduleNode.path("orderIndex"), fallbackOrderIndex))
+                .createdAt(now())
+                .updatedAt(now())
+                .build();
+        return moduleRepository.save(created);
+    }
+
+    private Long resolveOrCreateItemIdentity(
+            ObjectNode itemNode,
+            String itemType,
+            String path,
+            Module module,
+            int fallbackOrderIndex,
+            Long revisionId
+    ) {
+        return switch (itemType) {
+            case "quiz" -> resolveQuizIdentity(itemNode, path, module, fallbackOrderIndex, revisionId);
+            case "assignment" -> resolveAssignmentIdentity(itemNode, path, module, fallbackOrderIndex, revisionId);
+            default -> resolveLessonIdentity(itemNode, path, module, fallbackOrderIndex, revisionId);
+        };
+    }
+
+    private Long resolveLessonIdentity(
+            ObjectNode itemNode,
+            String path,
+            Module module,
+            int fallbackOrderIndex,
+            Long revisionId
+    ) {
+        Long explicitId = parseExplicitPositiveId(itemNode);
+        if (explicitId == null) {
+            return createLessonFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        Optional<Lesson> existingOpt = lessonRepository.findById(explicitId);
+        if (existingOpt.isEmpty()) {
+            return createLessonFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        Lesson existing = existingOpt.get();
+        Long lessonCourseId = extractCourseId(existing.getModule());
+        if (lessonCourseId == null || !lessonCourseId.equals(module.getCourse().getId())) {
+            log.warn(
+                    "course_revision_event action=materialize_lesson_identity_fallback_new courseId={} revisionId={} path={} reasonCode={}",
+                    module.getCourse().getId(),
+                    revisionId,
+                    path,
+                    "LESSON_ID_SCOPE_MISMATCH"
+            );
+            return createLessonFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        boolean equivalentSnapshot = isLessonEquivalentSnapshot(existing, itemNode);
+        if (!equivalentSnapshot) {
+            return createLessonFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        if (!Objects.equals(existing.getModule().getId(), module.getId())) {
+            log.info(
+                    "course_revision_event action=materialize_lesson_identity_reused courseId={} revisionId={} path={} reasonCode={}",
+                    module.getCourse().getId(),
+                    revisionId,
+                    path,
+                    "LESSON_MODULE_CHANGED_REUSE_ID"
+            );
+        }
+        return explicitId;
+    }
+
+    private Long resolveQuizIdentity(
+            ObjectNode itemNode,
+            String path,
+            Module module,
+            int fallbackOrderIndex,
+            Long revisionId
+    ) {
+        Long explicitId = parseExplicitPositiveId(itemNode);
+        if (explicitId == null) {
+            return createQuizFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        Optional<Quiz> existingOpt = quizRepository.findById(explicitId);
+        if (existingOpt.isEmpty()) {
+            return createQuizFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        Quiz existing = existingOpt.get();
+        Long quizCourseId = extractCourseId(existing.getModule());
+        if (quizCourseId == null || !quizCourseId.equals(module.getCourse().getId())) {
+            log.warn(
+                    "course_revision_event action=materialize_quiz_identity_fallback_new courseId={} revisionId={} path={} reasonCode={}",
+                    module.getCourse().getId(),
+                    revisionId,
+                    path,
+                    "QUIZ_ID_SCOPE_MISMATCH"
+            );
+            return createQuizFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        boolean equivalentSnapshot = isQuizEquivalentSnapshot(existing, itemNode);
+        if (!equivalentSnapshot) {
+            return createQuizFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        if (!Objects.equals(existing.getModule().getId(), module.getId())) {
+            log.info(
+                    "course_revision_event action=materialize_quiz_identity_reused courseId={} revisionId={} path={} reasonCode={}",
+                    module.getCourse().getId(),
+                    revisionId,
+                    path,
+                    "QUIZ_MODULE_CHANGED_REUSE_ID"
+            );
+        }
+        return explicitId;
+    }
+
+    private Long resolveAssignmentIdentity(
+            ObjectNode itemNode,
+            String path,
+            Module module,
+            int fallbackOrderIndex,
+            Long revisionId
+    ) {
+        Long explicitId = parseExplicitPositiveId(itemNode);
+        if (explicitId == null) {
+            return createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        Optional<Assignment> existingOpt = assignmentRepository.findById(explicitId);
+        if (existingOpt.isEmpty()) {
+            return createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        Assignment existing = existingOpt.get();
+        Long assignmentCourseId = extractCourseId(existing.getModule());
+        if (assignmentCourseId == null || !assignmentCourseId.equals(module.getCourse().getId())) {
+            log.warn(
+                    "course_revision_event action=materialize_assignment_identity_fallback_new courseId={} revisionId={} path={} reasonCode={}",
+                    module.getCourse().getId(),
+                    revisionId,
+                    path,
+                    "ASSIGNMENT_ID_SCOPE_MISMATCH"
+            );
+            return createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        boolean equivalentSnapshot = isAssignmentEquivalentSnapshot(existing, itemNode);
+        if (!equivalentSnapshot) {
+            return createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+        }
+
+        if (!Objects.equals(existing.getModule().getId(), module.getId())) {
+            log.info(
+                    "course_revision_event action=materialize_assignment_identity_reused courseId={} revisionId={} path={} reasonCode={}",
+                    module.getCourse().getId(),
+                    revisionId,
+                    path,
+                    "ASSIGNMENT_MODULE_CHANGED_REUSE_ID"
+            );
+        }
+        return explicitId;
+    }
+
+    private Lesson createLessonFromSnapshot(ObjectNode itemNode, Module module, int fallbackOrderIndex) {
+        Lesson lesson = Lesson.builder()
+                .module(module)
+                .title(textOrDefault(itemNode.path("title"), "Bài học"))
+                .type(resolveLessonType(itemNode))
+                .orderIndex(parseInteger(itemNode.path("orderIndex"), fallbackOrderIndex))
+                .contentText(textOrNull(itemNode.path("contentText")))
+                .resourceUrl(textOrNull(itemNode.path("resourceUrl")))
+                .videoUrl(firstNonBlank(
+                        textOrNull(itemNode.path("youtubeUrl")),
+                        textOrNull(itemNode.path("videoUrl"))
+                ))
+                .videoMedia(resolveMedia(itemNode.path("videoMediaId")))
+                .durationSec(resolveDurationSec(itemNode))
+                .createdAt(now())
+                .updatedAt(now())
+                .attachments(new ArrayList<>())
+                .build();
+
+        List<LessonAttachment> attachments = buildLessonAttachments(itemNode.path("attachments"));
+        for (LessonAttachment attachment : attachments) {
+            attachment.setLesson(lesson);
+        }
+        lesson.setAttachments(attachments);
+        return lessonRepository.save(lesson);
+    }
+
+    private Quiz createQuizFromSnapshot(ObjectNode itemNode, Module module, int fallbackOrderIndex) {
+        Quiz quiz = Quiz.builder()
+                .module(module)
+                .title(textOrDefault(itemNode.path("title"), "Quiz"))
+                .description(firstNonBlank(
+                        textOrNull(itemNode.path("quizDescription")),
+                        textOrNull(itemNode.path("description")),
+                        textOrNull(itemNode.path("contentText"))
+                ))
+                .passScore(parseInteger(itemNode.path("passScore"), 80))
+                .maxAttempts(parseInteger(itemNode.path("quizMaxAttempts"), null))
+                .timeLimitMinutes(parseInteger(itemNode.path("quizTimeLimitMinutes"), null))
+                .roundingIncrement(parseInteger(itemNode.path("roundingIncrement"), null))
+                .gradingMethod(parseQuizGradingMethod(itemNode.path("gradingMethod")))
+                .isAssessment(parseBoolean(itemNode.path("isAssessment"), null))
+                .cooldownHours(parseInteger(itemNode.path("cooldownHours"), null))
+                .orderIndex(parseInteger(itemNode.path("orderIndex"), fallbackOrderIndex))
+                .createdAt(now())
+                .updatedAt(now())
+                .questions(buildQuizQuestions(itemNode.path("questions")))
+                .build();
+
+        if (quiz.getQuestions() != null) {
+            for (QuizQuestion question : quiz.getQuestions()) {
+                question.setQuiz(quiz);
+                if (question.getOptions() != null) {
+                    for (QuizOption option : question.getOptions()) {
+                        option.setQuestion(question);
+                    }
+                }
+            }
+        }
+
+        return quizRepository.save(quiz);
+    }
+
+    private List<QuizQuestion> buildQuizQuestions(JsonNode questionsNode) {
+        if (questionsNode == null || !questionsNode.isArray()) {
+            return List.of();
+        }
+
+        List<QuizQuestion> questions = new ArrayList<>();
+        for (int questionIndex = 0; questionIndex < questionsNode.size(); questionIndex++) {
+            JsonNode questionNode = questionsNode.get(questionIndex);
+            if (!(questionNode instanceof ObjectNode questionObject)) {
+                continue;
+            }
+
+            QuizQuestion question = QuizQuestion.builder()
+                    .questionText(textOrDefault(questionObject.path("text"), "Question " + (questionIndex + 1)))
+                    .questionType(parseQuestionType(questionObject.path("type")))
+                    .score(parseInteger(questionObject.path("score"), 1))
+                    .orderIndex(parseInteger(questionObject.path("orderIndex"), questionIndex))
+                    .options(buildQuizOptions(questionObject.path("options")))
+                    .build();
+            questions.add(question);
+        }
+        return questions;
+    }
+
+    private List<QuizOption> buildQuizOptions(JsonNode optionsNode) {
+        if (optionsNode == null || !optionsNode.isArray()) {
+            return List.of();
+        }
+
+        List<QuizOption> options = new ArrayList<>();
+        for (int optionIndex = 0; optionIndex < optionsNode.size(); optionIndex++) {
+            JsonNode optionNode = optionsNode.get(optionIndex);
+            if (!(optionNode instanceof ObjectNode optionObject)) {
+                continue;
+            }
+
+            QuizOption option = QuizOption.builder()
+                    .optionText(textOrDefault(optionObject.path("text"), "Option " + (optionIndex + 1)))
+                    .isCorrect(parseBoolean(optionObject.path("correct"), false))
+                    .orderIndex(parseInteger(optionObject.path("orderIndex"), optionIndex))
+                    .build();
+            options.add(option);
+        }
+        return options;
+    }
+
+    private List<LessonAttachment> buildLessonAttachments(JsonNode attachmentsNode) {
+        if (attachmentsNode == null || !attachmentsNode.isArray()) {
+            return List.of();
+        }
+        List<LessonAttachment> attachments = new ArrayList<>();
+        for (int attachmentIndex = 0; attachmentIndex < attachmentsNode.size(); attachmentIndex++) {
+            JsonNode attachmentNode = attachmentsNode.get(attachmentIndex);
+            if (!(attachmentNode instanceof ObjectNode attachmentObject)) {
+                continue;
+            }
+            Media media = resolveMedia(attachmentObject.path("mediaId"));
+            String externalUrl = firstNonBlank(
+                    textOrNull(attachmentObject.path("url")),
+                    textOrNull(attachmentObject.path("externalUrl"))
+            );
+            LessonAttachment attachment = LessonAttachment.builder()
+                    .title(firstNonBlank(
+                            textOrNull(attachmentObject.path("name")),
+                            textOrNull(attachmentObject.path("title")),
+                            "Tài liệu " + (attachmentIndex + 1)
+                    ))
+                    .description(textOrNull(attachmentObject.path("description")))
+                    .media(media)
+                    .externalUrl(externalUrl)
+                    .type(parseAttachmentType(attachmentObject.path("type"), media != null))
+                    .fileSize(parseLongValue(attachmentObject.path("fileSize")))
+                    .orderIndex(parseInteger(attachmentObject.path("orderIndex"), attachmentIndex))
+                    .createdAt(now())
+                    .updatedAt(now())
+                    .build();
+            attachments.add(attachment);
+        }
+        attachments.sort(Comparator
+                .comparing(LessonAttachment::getOrderIndex, Comparator.nullsLast(Integer::compareTo))
+                .thenComparing(LessonAttachment::getTitle, Comparator.nullsLast(String::compareTo)));
+        return attachments;
+    }
+
+    private Assignment createAssignmentFromSnapshot(ObjectNode itemNode, Module module, int fallbackOrderIndex) {
+        Assignment assignment = Assignment.builder()
+                .module(module)
+                .title(textOrDefault(itemNode.path("title"), "Bài tập"))
+                .description(firstNonBlank(
+                        textOrNull(itemNode.path("assignmentDescription")),
+                        textOrNull(itemNode.path("description")),
+                        textOrNull(itemNode.path("contentText"))
+                ))
+                .submissionType(parseSubmissionType(itemNode.path("assignmentSubmissionType")))
+                .maxScore(parseDecimal(itemNode.path("assignmentMaxScore"), new BigDecimal("100")))
+                .passingScore(parseDecimal(itemNode.path("assignmentPassingScore"), null))
+                .orderIndex(parseInteger(itemNode.path("orderIndex"), fallbackOrderIndex))
+                .isRequired(parseBoolean(itemNode.path("isRequired"), true))
+                .createdAt(now())
+                .updatedAt(now())
+                .criteria(buildAssignmentCriteria(itemNode.path("assignmentCriteria")))
+                .build();
+
+        if (assignment.getCriteria() != null) {
+            for (AssignmentCriteria criteria : assignment.getCriteria()) {
+                criteria.setAssignment(assignment);
+            }
+        }
+
+        return assignmentRepository.save(assignment);
+    }
+
+    private List<AssignmentCriteria> buildAssignmentCriteria(JsonNode criteriaNode) {
+        if (criteriaNode == null || !criteriaNode.isArray()) {
+            return List.of();
+        }
+
+        List<AssignmentCriteria> criteria = new ArrayList<>();
+        for (int criteriaIndex = 0; criteriaIndex < criteriaNode.size(); criteriaIndex++) {
+            JsonNode criteriaItem = criteriaNode.get(criteriaIndex);
+            if (!(criteriaItem instanceof ObjectNode criteriaObject)) {
+                continue;
+            }
+
+            AssignmentCriteria assignmentCriteria = AssignmentCriteria.builder()
+                    .name(textOrDefault(criteriaObject.path("name"), "Tiêu chí " + (criteriaIndex + 1)))
+                    .description(textOrNull(criteriaObject.path("description")))
+                    .maxPoints(parseDecimal(criteriaObject.path("maxPoints"), BigDecimal.ZERO))
+                    .orderIndex(parseInteger(criteriaObject.path("orderIndex"), criteriaIndex))
+                    .isRequired(parseBoolean(criteriaObject.path("isRequired"), false))
+                    .build();
+            criteria.add(assignmentCriteria);
+        }
+        return criteria;
+    }
+
+    private boolean isLessonEquivalentSnapshot(Lesson existing, ObjectNode itemNode) {
+        if (existing == null) {
+            return false;
+        }
+        if (existing.getType() != resolveLessonType(itemNode)) {
+            return false;
+        }
+        if (!Objects.equals(normalizeText(existing.getTitle()), normalizeText(textOrDefault(itemNode.path("title"), "Bài học")))) {
+            return false;
+        }
+        if (!Objects.equals(normalizeText(existing.getContentText()), normalizeText(textOrNull(itemNode.path("contentText"))))) {
+            return false;
+        }
+        if (!Objects.equals(normalizeText(existing.getResourceUrl()), normalizeText(textOrNull(itemNode.path("resourceUrl"))))) {
+            return false;
+        }
+        String snapshotVideoUrl = firstNonBlank(
+                textOrNull(itemNode.path("youtubeUrl")),
+                textOrNull(itemNode.path("videoUrl"))
+        );
+        if (!Objects.equals(normalizeText(existing.getVideoUrl()), normalizeText(snapshotVideoUrl))) {
+            return false;
+        }
+        Long existingVideoMediaId = existing.getVideoMedia() != null ? existing.getVideoMedia().getId() : null;
+        Long snapshotVideoMediaId = parsePositiveId(itemNode.path("videoMediaId"));
+        if (!Objects.equals(existingVideoMediaId, snapshotVideoMediaId)) {
+            return false;
+        }
+        if (!Objects.equals(existing.getDurationSec(), resolveDurationSec(itemNode))) {
+            return false;
+        }
+        return areLessonAttachmentsEquivalent(existing.getAttachments(), itemNode.path("attachments"));
+    }
+
+    private boolean areLessonAttachmentsEquivalent(List<LessonAttachment> existingAttachments, JsonNode attachmentsNode) {
+        List<LessonAttachment> existing = existingAttachments == null ? List.of() : new ArrayList<>(existingAttachments);
+        existing.sort(Comparator
+                .comparing(LessonAttachment::getOrderIndex, Comparator.nullsLast(Integer::compareTo))
+                .thenComparing(LessonAttachment::getId, Comparator.nullsLast(Long::compareTo)));
+
+        List<ObjectNode> snapshotAttachments = collectObjectNodes(attachmentsNode);
+        if (existing.size() != snapshotAttachments.size()) {
+            return false;
+        }
+
+        for (int index = 0; index < snapshotAttachments.size(); index++) {
+            LessonAttachment existingAttachment = existing.get(index);
+            ObjectNode snapshotAttachment = snapshotAttachments.get(index);
+
+            String snapshotTitle = firstNonBlank(
+                    textOrNull(snapshotAttachment.path("name")),
+                    textOrNull(snapshotAttachment.path("title")),
+                    "Tài liệu " + (index + 1)
+            );
+            if (!Objects.equals(normalizeText(existingAttachment.getTitle()), normalizeText(snapshotTitle))) {
+                return false;
+            }
+            if (!Objects.equals(
+                    normalizeText(existingAttachment.getDescription()),
+                    normalizeText(textOrNull(snapshotAttachment.path("description")))
+            )) {
+                return false;
+            }
+            String snapshotExternalUrl = firstNonBlank(
+                    textOrNull(snapshotAttachment.path("url")),
+                    textOrNull(snapshotAttachment.path("externalUrl"))
+            );
+            if (!Objects.equals(
+                    normalizeText(existingAttachment.getExternalUrl()),
+                    normalizeText(snapshotExternalUrl)
+            )) {
+                return false;
+            }
+            Long existingMediaId = existingAttachment.getMedia() != null ? existingAttachment.getMedia().getId() : null;
+            Long snapshotMediaId = parsePositiveId(snapshotAttachment.path("mediaId"));
+            if (!Objects.equals(existingMediaId, snapshotMediaId)) {
+                return false;
+            }
+            AttachmentType snapshotType = parseAttachmentType(snapshotAttachment.path("type"), snapshotMediaId != null);
+            if (existingAttachment.getType() != snapshotType) {
+                return false;
+            }
+            Integer snapshotOrderIndex = parseInteger(snapshotAttachment.path("orderIndex"), index);
+            if (!Objects.equals(existingAttachment.getOrderIndex(), snapshotOrderIndex)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isQuizEquivalentSnapshot(Quiz existing, ObjectNode itemNode) {
+        if (existing == null) {
+            return false;
+        }
+        if (!Objects.equals(normalizeText(existing.getTitle()), normalizeText(textOrDefault(itemNode.path("title"), "Quiz")))) {
+            return false;
+        }
+        String snapshotDescription = firstNonBlank(
+                textOrNull(itemNode.path("quizDescription")),
+                textOrNull(itemNode.path("description")),
+                textOrNull(itemNode.path("contentText"))
+        );
+        if (!Objects.equals(normalizeText(existing.getDescription()), normalizeText(snapshotDescription))) {
+            return false;
+        }
+        if (!Objects.equals(existing.getPassScore(), parseInteger(itemNode.path("passScore"), 80))) {
+            return false;
+        }
+        if (!Objects.equals(existing.getMaxAttempts(), parseInteger(itemNode.path("quizMaxAttempts"), null))) {
+            return false;
+        }
+        if (!Objects.equals(existing.getTimeLimitMinutes(), parseInteger(itemNode.path("quizTimeLimitMinutes"), null))) {
+            return false;
+        }
+        if (!Objects.equals(existing.getRoundingIncrement(), parseInteger(itemNode.path("roundingIncrement"), null))) {
+            return false;
+        }
+        if (!Objects.equals(existing.getGradingMethod(), parseQuizGradingMethod(itemNode.path("gradingMethod")))) {
+            return false;
+        }
+        if (!Objects.equals(existing.getIsAssessment(), parseBoolean(itemNode.path("isAssessment"), null))) {
+            return false;
+        }
+        if (!Objects.equals(existing.getCooldownHours(), parseInteger(itemNode.path("cooldownHours"), null))) {
+            return false;
+        }
+        return areQuizQuestionListsEquivalent(existing.getQuestions(), itemNode.path("questions"));
+    }
+
+    private boolean areQuizQuestionListsEquivalent(List<QuizQuestion> existingQuestions, JsonNode questionsNode) {
+        List<QuizQuestion> existing = existingQuestions == null ? List.of() : new ArrayList<>(existingQuestions);
+        existing.sort(Comparator
+                .comparing(QuizQuestion::getOrderIndex, Comparator.nullsLast(Integer::compareTo))
+                .thenComparing(QuizQuestion::getId, Comparator.nullsLast(Long::compareTo)));
+
+        List<ObjectNode> snapshotQuestions = collectObjectNodes(questionsNode);
+        if (existing.size() != snapshotQuestions.size()) {
+            return false;
+        }
+
+        for (int questionIndex = 0; questionIndex < snapshotQuestions.size(); questionIndex++) {
+            QuizQuestion existingQuestion = existing.get(questionIndex);
+            ObjectNode snapshotQuestion = snapshotQuestions.get(questionIndex);
+            String snapshotText = textOrDefault(snapshotQuestion.path("text"), "Question " + (questionIndex + 1));
+            if (!Objects.equals(normalizeText(existingQuestion.getQuestionText()), normalizeText(snapshotText))) {
+                return false;
+            }
+            if (!Objects.equals(existingQuestion.getQuestionType(), parseQuestionType(snapshotQuestion.path("type")))) {
+                return false;
+            }
+            if (!Objects.equals(existingQuestion.getScore(), parseInteger(snapshotQuestion.path("score"), 1))) {
+                return false;
+            }
+            if (!Objects.equals(existingQuestion.getOrderIndex(), parseInteger(snapshotQuestion.path("orderIndex"), questionIndex))) {
+                return false;
+            }
+            if (!areQuizOptionListsEquivalent(existingQuestion.getOptions(), snapshotQuestion.path("options"))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean areQuizOptionListsEquivalent(List<QuizOption> existingOptions, JsonNode optionsNode) {
+        List<QuizOption> existing = existingOptions == null ? List.of() : new ArrayList<>(existingOptions);
+        existing.sort(Comparator
+                .comparing(QuizOption::getOrderIndex, Comparator.nullsLast(Integer::compareTo))
+                .thenComparing(QuizOption::getId, Comparator.nullsLast(Long::compareTo)));
+
+        List<ObjectNode> snapshotOptions = collectObjectNodes(optionsNode);
+        if (existing.size() != snapshotOptions.size()) {
+            return false;
+        }
+
+        for (int optionIndex = 0; optionIndex < snapshotOptions.size(); optionIndex++) {
+            QuizOption existingOption = existing.get(optionIndex);
+            ObjectNode snapshotOption = snapshotOptions.get(optionIndex);
+            String snapshotText = textOrDefault(snapshotOption.path("text"), "Option " + (optionIndex + 1));
+            if (!Objects.equals(normalizeText(existingOption.getOptionText()), normalizeText(snapshotText))) {
+                return false;
+            }
+            if (!Objects.equals(existingOption.getIsCorrect(), parseBoolean(snapshotOption.path("correct"), false))) {
+                return false;
+            }
+            if (!Objects.equals(existingOption.getOrderIndex(), parseInteger(snapshotOption.path("orderIndex"), optionIndex))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isAssignmentEquivalentSnapshot(Assignment existing, ObjectNode itemNode) {
+        if (existing == null) {
+            return false;
+        }
+        if (!Objects.equals(normalizeText(existing.getTitle()), normalizeText(textOrDefault(itemNode.path("title"), "Bài tập")))) {
+            return false;
+        }
+        String snapshotDescription = firstNonBlank(
+                textOrNull(itemNode.path("assignmentDescription")),
+                textOrNull(itemNode.path("description")),
+                textOrNull(itemNode.path("contentText"))
+        );
+        if (!Objects.equals(normalizeText(existing.getDescription()), normalizeText(snapshotDescription))) {
+            return false;
+        }
+        if (!Objects.equals(existing.getSubmissionType(), parseSubmissionType(itemNode.path("assignmentSubmissionType")))) {
+            return false;
+        }
+        if (!Objects.equals(normalizeMoney(existing.getMaxScore()), normalizeMoney(parseDecimal(itemNode.path("assignmentMaxScore"), new BigDecimal("100"))))) {
+            return false;
+        }
+        if (!Objects.equals(normalizeMoney(existing.getPassingScore()), normalizeMoney(parseDecimal(itemNode.path("assignmentPassingScore"), null)))) {
+            return false;
+        }
+        if (!Objects.equals(existing.getIsRequired(), parseBoolean(itemNode.path("isRequired"), true))) {
+            return false;
+        }
+        return areAssignmentCriteriaEquivalent(existing.getCriteria(), itemNode.path("assignmentCriteria"));
+    }
+
+    private boolean areAssignmentCriteriaEquivalent(List<AssignmentCriteria> existingCriteria, JsonNode criteriaNode) {
+        List<AssignmentCriteria> existing = existingCriteria == null ? List.of() : new ArrayList<>(existingCriteria);
+        existing.sort(Comparator
+                .comparing(AssignmentCriteria::getOrderIndex, Comparator.nullsLast(Integer::compareTo))
+                .thenComparing(AssignmentCriteria::getId, Comparator.nullsLast(Long::compareTo)));
+
+        List<ObjectNode> snapshotCriteria = collectObjectNodes(criteriaNode);
+        if (existing.size() != snapshotCriteria.size()) {
+            return false;
+        }
+
+        for (int criteriaIndex = 0; criteriaIndex < snapshotCriteria.size(); criteriaIndex++) {
+            AssignmentCriteria existingItem = existing.get(criteriaIndex);
+            ObjectNode snapshotItem = snapshotCriteria.get(criteriaIndex);
+
+            String snapshotName = textOrDefault(snapshotItem.path("name"), "Tiêu chí " + (criteriaIndex + 1));
+            if (!Objects.equals(normalizeText(existingItem.getName()), normalizeText(snapshotName))) {
+                return false;
+            }
+            if (!Objects.equals(
+                    normalizeText(existingItem.getDescription()),
+                    normalizeText(textOrNull(snapshotItem.path("description")))
+            )) {
+                return false;
+            }
+            if (!Objects.equals(
+                    normalizeMoney(existingItem.getMaxPoints()),
+                    normalizeMoney(parseDecimal(snapshotItem.path("maxPoints"), BigDecimal.ZERO))
+            )) {
+                return false;
+            }
+            if (!Objects.equals(existingItem.getOrderIndex(), parseInteger(snapshotItem.path("orderIndex"), criteriaIndex))) {
+                return false;
+            }
+            if (existingItem.isRequired() != parseBoolean(snapshotItem.path("isRequired"), false)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private List<ObjectNode> collectObjectNodes(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        List<ObjectNode> objects = new ArrayList<>();
+        for (int index = 0; index < node.size(); index++) {
+            JsonNode child = node.get(index);
+            if (child instanceof ObjectNode objectNode) {
+                objects.add(objectNode);
+            }
+        }
+        return objects;
+    }
+
+    private Long parseExplicitPositiveId(ObjectNode node) {
+        if (!node.has("id") || node.get("id") == null || node.get("id").isNull()) {
+            return null;
+        }
+        return parsePositiveId(node.get("id"));
+    }
+
+    private Long parseLongValue(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        if (node.canConvertToLong()) {
+            return node.longValue();
+        }
+        if (!node.isTextual()) {
+            return null;
+        }
+        String raw = node.asText().trim();
+        if (raw.isEmpty()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private AttachmentType parseAttachmentType(JsonNode typeNode, boolean hasMedia) {
+        String raw = textOrNull(typeNode);
+        if (raw != null) {
+            try {
+                return AttachmentType.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException ignored) {
+                // Default inference below.
+            }
+        }
+        return hasMedia ? AttachmentType.PDF : AttachmentType.EXTERNAL_LINK;
+    }
+
+    private Long extractCourseId(Module module) {
+        if (module == null || module.getCourse() == null) {
+            return null;
+        }
+        return module.getCourse().getId();
+    }
+
+    private String normalizeSnapshotItemType(JsonNode node) {
+        String type = textOrNull(node.path("type"));
+        if (type == null) {
+            type = textOrNull(node.path("itemType"));
+        }
+        if (type == null) {
+            type = textOrNull(node.path("lessonType"));
+        }
+        if (type == null) {
+            return "lesson";
+        }
+        String normalized = type.trim().toLowerCase(Locale.ROOT);
+        return normalized.isEmpty() ? "lesson" : normalized;
+    }
+
+    private LessonType resolveLessonType(JsonNode node) {
+        String itemType = normalizeSnapshotItemType(node);
+        return switch (itemType) {
+            case "video" -> LessonType.VIDEO;
+            case "codelab" -> LessonType.CODELAB;
+            default -> LessonType.READING;
+        };
+    }
+
+    private Integer resolveDurationSec(JsonNode node) {
+        Integer durationSec = parseInteger(node.path("durationSec"), null);
+        if (durationSec != null) {
+            return durationSec;
+        }
+        Integer durationMin = parseInteger(node.path("durationMin"), null);
+        return durationMin == null ? null : durationMin * 60;
+    }
+
+    private SubmissionType parseSubmissionType(JsonNode node) {
+        String raw = textOrNull(node);
+        if (raw == null) {
+            return SubmissionType.TEXT;
+        }
+        try {
+            return SubmissionType.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return SubmissionType.TEXT;
+        }
+    }
+
+    private QuizGradingMethod parseQuizGradingMethod(JsonNode node) {
+        String raw = textOrNull(node);
+        if (raw == null) {
+            return null;
+        }
+        try {
+            return QuizGradingMethod.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private QuestionType parseQuestionType(JsonNode node) {
+        String raw = textOrNull(node);
+        if (raw == null) {
+            return QuestionType.MULTIPLE_CHOICE;
+        }
+        try {
+            return QuestionType.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return QuestionType.MULTIPLE_CHOICE;
+        }
+    }
+
+    private Media resolveMedia(JsonNode mediaIdNode) {
+        Long mediaId = parsePositiveId(mediaIdNode);
+        if (mediaId == null) {
+            return null;
+        }
+        return mediaRepository.findById(mediaId)
+                .orElseThrow(() -> new BadRequestException("COURSE_REVISION_CONTENT_MEDIA_NOT_FOUND"));
+    }
+
+    private Integer parseInteger(JsonNode node, Integer fallback) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return fallback;
+        }
+        if (node.canConvertToInt()) {
+            return node.asInt();
+        }
+        if (!node.isTextual()) {
+            return fallback;
+        }
+        String raw = node.asText().trim();
+        if (raw.isEmpty()) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
+    private BigDecimal parseDecimal(JsonNode node, BigDecimal fallback) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return fallback;
+        }
+        if (node.isNumber()) {
+            return node.decimalValue();
+        }
+        if (!node.isTextual()) {
+            return fallback;
+        }
+        String raw = node.asText().trim();
+        if (raw.isEmpty()) {
+            return fallback;
+        }
+        try {
+            return new BigDecimal(raw);
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
+    }
+
+    private Boolean parseBoolean(JsonNode node, Boolean fallback) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return fallback;
+        }
+        if (node.isBoolean()) {
+            return node.asBoolean();
+        }
+        if (!node.isTextual()) {
+            return fallback;
+        }
+        String raw = node.asText().trim();
+        if (raw.isEmpty()) {
+            return fallback;
+        }
+        if ("true".equalsIgnoreCase(raw)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(raw)) {
+            return false;
+        }
+        return fallback;
+    }
+
+    private String textOrNull(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        String value = node.asText();
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String textOrDefault(JsonNode node, String fallback) {
+        String value = textOrNull(node);
+        return value == null ? fallback : value;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private void ensureSnapshotIdentityContract(JsonNode contentSnapshot, Long courseId, Long revisionId) {
+        JsonNode snapshot = defaultContentSnapshot(contentSnapshot);
+        JsonNode modulesNode = snapshot.path("modules");
+        if (!modulesNode.isArray()) {
+            return;
+        }
+
+        for (int moduleIndex = 0; moduleIndex < modulesNode.size(); moduleIndex++) {
+            JsonNode moduleNode = modulesNode.get(moduleIndex);
+            if (!(moduleNode instanceof ObjectNode)) {
+                continue;
+            }
+
+            Long moduleId = parsePositiveId(moduleNode.path("id"));
+            if (moduleId == null) {
+                throwInvalidSnapshotIdentity(courseId, revisionId, "modules[" + moduleIndex + "].id");
+            }
+
+            JsonNode itemsNode = moduleNode.path("lessons");
+            if (!itemsNode.isArray()) {
+                continue;
+            }
+
+            for (int itemIndex = 0; itemIndex < itemsNode.size(); itemIndex++) {
+                JsonNode itemNode = itemsNode.get(itemIndex);
+                if (!(itemNode instanceof ObjectNode)) {
+                    continue;
+                }
+
+                Long itemId = parsePositiveId(itemNode.path("id"));
+                if (itemId == null) {
+                    throwInvalidSnapshotIdentity(
+                            courseId,
+                            revisionId,
+                            "modules[" + moduleIndex + "].lessons[" + itemIndex + "].id"
+                    );
+                }
+            }
+        }
+    }
+
+    private void throwInvalidSnapshotIdentity(Long courseId, Long revisionId, String path) {
+        log.warn(
+                "course_revision_event action=snapshot_identity_invalid courseId={} revisionId={} reasonCode={} path={}",
+                courseId,
+                revisionId,
+                "COURSE_REVISION_CONTENT_ID_REQUIRED",
+                path
+        );
+        throw new BadRequestException("COURSE_REVISION_CONTENT_ID_REQUIRED: " + path);
+    }
+
+    private Long parsePositiveId(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+
+        if (node.canConvertToLong()) {
+            long value = node.asLong();
+            return value > 0 ? value : null;
+        }
+
+        if (!node.isTextual()) {
+            return null;
+        }
+
+        String raw = node.asText().trim();
+        if (raw.isEmpty()) {
+            return null;
+        }
+
+        try {
+            long parsed = Long.parseLong(raw);
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private JsonNode parseJsonSafely(String json) {

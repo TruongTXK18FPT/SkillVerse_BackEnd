@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.course_service.dto.lessondto.LessonCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonUpdateDTO;
 import com.exe.skillverse_backend.course_service.service.LessonService;
+import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -88,17 +89,21 @@ public class LessonController {
     @GetMapping("/modules/{moduleId}/lessons")
     @Operation(summary = "List lessons by module")
     public ResponseEntity<List<LessonBriefDTO>> listLessonsByModule(
-            @Parameter(description = "Module ID") @PathVariable @NotNull Long moduleId) {
+            @Parameter(description = "Module ID") @PathVariable @NotNull Long moduleId,
+            @AuthenticationPrincipal Jwt jwt) {
 
-        List<LessonBriefDTO> lessons = lessonService.listLessonsByModule(moduleId);
+        Long actorId = extractUserId(jwt);
+        List<LessonBriefDTO> lessons = lessonService.listLessonsByModule(moduleId, actorId);
         return ResponseEntity.ok(lessons);
     }
 
     @GetMapping("/{lessonId}")
     @Operation(summary = "Get lesson detail by ID")
     public ResponseEntity<LessonDetailDTO> getLessonById(
-            @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId) {
-        LessonDetailDTO lesson = lessonService.getLesson(lessonId);
+            @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long actorId = extractUserId(jwt);
+        LessonDetailDTO lesson = lessonService.getLesson(lessonId, actorId);
         return ResponseEntity.ok(lesson);
     }
 
@@ -106,8 +111,10 @@ public class LessonController {
     @Operation(summary = "Get next lesson in a module")
     public ResponseEntity<LessonBriefDTO> getNextLesson(
             @PathVariable @NotNull Long moduleId,
-            @PathVariable @NotNull Long lessonId) {
-        LessonBriefDTO next = lessonService.getNextLesson(moduleId, lessonId);
+            @PathVariable @NotNull Long lessonId,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long actorId = extractUserId(jwt);
+        LessonBriefDTO next = lessonService.getNextLesson(moduleId, lessonId, actorId);
         return ResponseEntity.ok(next);
     }
 
@@ -115,8 +122,10 @@ public class LessonController {
     @Operation(summary = "Get previous lesson in a module")
     public ResponseEntity<LessonBriefDTO> getPrevLesson(
             @PathVariable @NotNull Long moduleId,
-            @PathVariable @NotNull Long lessonId) {
-        LessonBriefDTO prev = lessonService.getPreviousLesson(moduleId, lessonId);
+            @PathVariable @NotNull Long lessonId,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long actorId = extractUserId(jwt);
+        LessonBriefDTO prev = lessonService.getPreviousLesson(moduleId, lessonId, actorId);
         return ResponseEntity.ok(prev);
     }
 
@@ -125,8 +134,13 @@ public class LessonController {
     public ResponseEntity<Void> completeLesson(
             @PathVariable @NotNull Long moduleId,
             @PathVariable @NotNull Long lessonId,
-            @RequestParam @NotNull Long userId) {
-        lessonService.markLessonCompleted(moduleId, lessonId, userId);
+            @AuthenticationPrincipal Jwt jwt,
+            @RequestParam(required = false) Long userId) {
+        Long actorId = extractUserId(jwt);
+        if (userId != null && !userId.equals(actorId)) {
+            throw new AccessDeniedException("FORBIDDEN");
+        }
+        lessonService.markLessonCompleted(moduleId, lessonId, actorId);
         return ResponseEntity.noContent().build();
     }
 
@@ -134,7 +148,12 @@ public class LessonController {
     @Operation(summary = "Get completed lesson IDs for a user in a course")
     public ResponseEntity<List<Long>> getCompletedLessonIds(
             @PathVariable @NotNull Long courseId,
-            @PathVariable @NotNull Long userId) {
-        return ResponseEntity.ok(lessonService.listCompletedLessonIds(courseId, userId));
+            @PathVariable @NotNull Long userId,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long actorId = extractUserId(jwt);
+        if (!userId.equals(actorId)) {
+            throw new AccessDeniedException("FORBIDDEN");
+        }
+        return ResponseEntity.ok(lessonService.listCompletedLessonIds(courseId, actorId));
     }
 }

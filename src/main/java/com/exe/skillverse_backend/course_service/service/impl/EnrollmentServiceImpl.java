@@ -259,9 +259,6 @@ public class EnrollmentServiceImpl implements EnrollmentService {
         if (course == null) {
             return null;
         }
-        if (course.getActiveRevisionId() != null) {
-            return course.getActiveRevisionId();
-        }
-        return course.getLatestRevisionId();
+        return course.getActiveRevisionId();
     }
 }

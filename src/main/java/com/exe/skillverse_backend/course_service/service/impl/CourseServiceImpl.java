@@ -8,8 +8,10 @@ import com.exe.skillverse_backend.course_service.dto.coursedto.CourseSummaryDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
+import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.mapper.CourseMapper;
 import com.exe.skillverse_backend.course_service.policy.CourseDeletionPolicy;
 import com.exe.skillverse_backend.course_service.policy.CourseRevisionFeatureProperties;
@@ -19,6 +21,7 @@ import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.service.CourseService;
+import com.exe.skillverse_backend.course_service.util.CourseRevisionSnapshotAssembler;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
@@ -30,6 +33,7 @@ import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -69,6 +73,7 @@ public class CourseServiceImpl implements CourseService {
     private final CourseDeletionPolicy courseDeletionPolicy;
     private final CourseRevisionRepository courseRevisionRepository;
     private final CourseRevisionFeatureProperties courseRevisionFeatureProperties;
+    private final ObjectMapper objectMapper;
     // TODO: inject ApplicationEventPublisher for events
 
     @Override
@@ -325,6 +330,8 @@ public class CourseServiceImpl implements CourseService {
         course.setUpdatedAt(now());
 
         Course saved = courseRepository.save(course);
+        ensureInitialApprovedRevisionExists(saved, adminId);
+        saved = courseRepository.save(saved);
         log.info("Course {} approved by admin {}", courseId, adminId);
 
         // Notify the course author
@@ -512,8 +519,21 @@ public class CourseServiceImpl implements CourseService {
         course.setUpgradePolicy(policy);
         course.setUpdatedAt(now());
 
-        Course saved = courseRepository.save(course);
-        CourseDetailDTO detailDTO = courseMapper.toDetailDto(saved);
+        courseRepository.save(course);
+        int syncedEnrollments = enrollmentRepository.syncUpgradePolicySnapshotByStatus(
+                courseId,
+                policy.name(),
+                EnrollmentStatus.ENROLLED
+        );
+        log.info("Synced upgrade policy snapshot for {} enrolled learners in course {}", syncedEnrollments, courseId);
+
+        /*
+         * syncUpgradePolicySnapshotByStatus uses a bulk update query.
+         * Repository method currently clears persistence context, so entities may become detached.
+         * Re-load a managed Course instance before mapping to avoid LazyInitializationException.
+         */
+        Course refreshedCourse = getCourseOrThrow(courseId);
+        CourseDetailDTO detailDTO = courseMapper.toDetailDto(refreshedCourse);
         detailDTO.setUpgradePolicyStatusMessage(buildUpgradePolicyStatusMessage(policy));
         return detailDTO;
     }
@@ -570,6 +590,53 @@ public class CourseServiceImpl implements CourseService {
             return "AUTO_COMPATIBLE_ONLY: hệ thống sẽ tự nâng learner khi revision non-breaking; revision breaking sẽ bị skip.";
         }
         return "MANUAL: learner giữ revision hiện tại cho đến khi chủ động nâng cấp.";
+    }
+
+    private void ensureInitialApprovedRevisionExists(Course course, Long adminId) {
+        if (course == null || course.getId() == null) {
+            return;
+        }
+        if (course.getActiveRevisionId() != null) {
+            return;
+        }
+        if (courseRevisionRepository.findTopByCourseIdOrderByRevisionNumberDesc(course.getId()).isPresent()) {
+            return;
+        }
+
+        CourseRevision initialRevision = CourseRevision.builder()
+                .course(course)
+                .revisionNumber(1)
+                .status(CourseRevisionStatus.APPROVED)
+                .title(course.getTitle())
+                .description(course.getDescription())
+                .level(course.getLevel())
+                .category(course.getCategory())
+                .shortDescription(course.getShortDescription())
+                .estimatedDurationHours(course.getEstimatedDurationHours())
+                .language(course.getLanguage())
+                .price(course.getPrice())
+                .currency(course.getCurrency())
+                .learningObjectivesJson(objectMapper.valueToTree(course.getLearningObjectives()))
+                .requirementsJson(objectMapper.valueToTree(course.getRequirements()))
+                .contentSnapshotJson(CourseRevisionSnapshotAssembler.buildCourseContentSnapshot(
+                        objectMapper,
+                        course,
+                        1
+                ))
+                .sourceRevisionId(null)
+                .sourceCourseStatus(course.getStatus().name())
+                .snapshotVersion(1)
+                .createdBy(adminId)
+                .createdAt(now())
+                .submittedAt(course.getSubmittedAt() != null ? course.getSubmittedAt() : now())
+                .approvedAt(now())
+                .updatedAt(now())
+                .build();
+
+        CourseRevision savedRevision = courseRevisionRepository.save(initialRevision);
+        course.setActiveRevisionId(savedRevision.getId());
+        course.setLatestRevisionId(savedRevision.getId());
+        course.setRevisioningEnabled(Boolean.TRUE);
     }
 
     private void applyRevisionToDetail(CourseDetailDTO detail, CourseRevision revision) {

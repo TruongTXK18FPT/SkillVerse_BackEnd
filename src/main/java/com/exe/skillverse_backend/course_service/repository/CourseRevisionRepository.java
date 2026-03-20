@@ -21,6 +21,12 @@ public interface CourseRevisionRepository extends JpaRepository<CourseRevision, 
     Optional<CourseRevision> findTopByCourseIdOrderByRevisionNumberDesc(Long courseId);
 
     @Transactional(readOnly = true)
+    Optional<CourseRevision> findTopByCourseIdAndStatusOrderByRevisionNumberDesc(
+            Long courseId,
+            CourseRevisionStatus status
+    );
+
+    @Transactional(readOnly = true)
     boolean existsByCourseIdAndStatusIn(Long courseId, Collection<CourseRevisionStatus> statuses);
 
     @Transactional(readOnly = true)

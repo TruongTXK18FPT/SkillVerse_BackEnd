@@ -34,9 +34,11 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -423,6 +425,28 @@ class CourseLearningProgressServiceImplTest {
     }
 
     @Test
+    void upgradeToActiveRevision_throwsWhenOnlyLatestRevisionExistsButNoActiveRevision() {
+        Course course = new Course();
+        course.setId(221L);
+        course.setActiveRevisionId(null);
+        course.setLatestRevisionId(777L);
+
+        User user = new User();
+        user.setId(111L);
+
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setCourse(course);
+        enrollment.setUser(user);
+        enrollment.setLearningRevisionId(null);
+
+        when(courseRepository.findById(221L)).thenReturn(Optional.of(course));
+        when(enrollmentRepository.findByCourseIdAndUserIdForUpdate(221L, 111L)).thenReturn(Optional.of(enrollment));
+
+        assertThrows(ConflictException.class, () -> courseLearningProgressService.upgradeToActiveRevision(221L, 111L));
+        verify(enrollmentRepository, never()).save(any());
+    }
+
+    @Test
     void upgradeToActiveRevision_throwsWhenPendingAssignmentGradeExists() {
         Course course = new Course();
         course.setId(23L);
@@ -469,4 +493,118 @@ class CourseLearningProgressServiceImplTest {
         assertThrows(ConflictException.class, () -> courseLearningProgressService.upgradeToActiveRevision(24L, 13L));
         verify(enrollmentRepository, never()).save(any());
     }
+
+    @Test
+    void getLearningRevisionInfo_usesEffectiveRevisionWhenPinMissing() {
+        Course course = new Course();
+        course.setId(30L);
+        course.setActiveRevisionId(901L);
+        course.setLatestRevisionId(901L);
+        course.setUpgradePolicy(CourseUpgradePolicy.MANUAL);
+
+        User user = new User();
+        user.setId(15L);
+
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setCourse(course);
+        enrollment.setUser(user);
+        enrollment.setLearningRevisionId(null);
+
+        when(courseRepository.findById(30L)).thenReturn(Optional.of(course));
+        when(enrollmentRepository.findByCourseIdAndUserId(30L, 15L)).thenReturn(Optional.of(enrollment));
+
+        CourseLearningRevisionInfoDTO info = courseLearningProgressService.getLearningRevisionInfo(30L, 15L);
+
+        assertEquals(901L, info.getLearningRevisionId());
+        assertEquals(901L, info.getActiveRevisionId());
+        assertFalse(info.isHasNewerRevision());
+    }
+
+    @Test
+    void upgradeToActiveRevision_setsInitialPinWhenMissingWithoutUpgradeBlockingChecks() {
+        Course course = new Course();
+        course.setId(31L);
+        course.setActiveRevisionId(1001L);
+        course.setLatestRevisionId(1001L);
+        course.setUpgradePolicy(CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY);
+
+        User user = new User();
+        user.setId(16L);
+
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setCourse(course);
+        enrollment.setUser(user);
+        enrollment.setLearningRevisionId(null);
+
+        when(courseRepository.findById(31L)).thenReturn(Optional.of(course));
+        when(enrollmentRepository.findByCourseIdAndUserIdForUpdate(31L, 16L)).thenReturn(Optional.of(enrollment));
+
+        CourseLearningRevisionInfoDTO info = courseLearningProgressService.upgradeToActiveRevision(31L, 16L);
+
+        assertEquals(1001L, enrollment.getLearningRevisionId());
+        assertEquals("AUTO_COMPATIBLE_ONLY", enrollment.getUpgradePolicySnapshot());
+        assertEquals(1001L, info.getLearningRevisionId());
+        assertFalse(info.isHasNewerRevision());
+        verify(certificateService, never()).findActiveUserCourseCertificate(anyLong(), anyLong());
+        verify(assignmentSubmissionRepository, never()).existsNewestPendingGradeByCourseAndUser(anyLong(), anyLong());
+        verify(quizAttemptSessionRepository, never())
+                .existsActiveSessionByCourseAndUser(anyLong(), anyLong(), eq(QuizAttemptSessionStatus.IN_PROGRESS));
+        verify(enrollmentRepository).save(enrollment);
+    }
+
+        @Test
+        void getLearningRevisionInfo_manualPolicy_keepsExistingPinnedRevisionUntilManualUpgrade() {
+                Course course = new Course();
+                course.setId(41L);
+                course.setActiveRevisionId(4102L);
+                course.setLatestRevisionId(4102L);
+                course.setUpgradePolicy(CourseUpgradePolicy.MANUAL);
+
+                User user = new User();
+                user.setId(17L);
+
+                CourseEnrollment enrollment = new CourseEnrollment();
+                enrollment.setCourse(course);
+                enrollment.setUser(user);
+                enrollment.setStatus(EnrollmentStatus.ENROLLED);
+                enrollment.setLearningRevisionId(4101L);
+
+                when(courseRepository.findById(41L)).thenReturn(Optional.of(course));
+                when(enrollmentRepository.findByCourseIdAndUserId(41L, 17L)).thenReturn(Optional.of(enrollment));
+
+                CourseLearningRevisionInfoDTO info = courseLearningProgressService.getLearningRevisionInfo(41L, 17L);
+
+                assertEquals(4101L, info.getLearningRevisionId());
+                assertEquals(4102L, info.getActiveRevisionId());
+                assertEquals(Boolean.TRUE, info.isHasNewerRevision());
+                verify(enrollmentRepository, never()).save(any());
+        }
+
+        @Test
+        void getLearningRevisionInfo_autoCompatibleOnly_doesNotAutoMoveCompletedLearner() {
+                Course course = new Course();
+                course.setId(42L);
+                course.setActiveRevisionId(4202L);
+                course.setLatestRevisionId(4202L);
+                course.setUpgradePolicy(CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY);
+
+                User user = new User();
+                user.setId(18L);
+
+                CourseEnrollment enrollment = new CourseEnrollment();
+                enrollment.setCourse(course);
+                enrollment.setUser(user);
+                enrollment.setStatus(EnrollmentStatus.COMPLETED);
+                enrollment.setLearningRevisionId(4201L);
+
+                when(courseRepository.findById(42L)).thenReturn(Optional.of(course));
+                when(enrollmentRepository.findByCourseIdAndUserId(42L, 18L)).thenReturn(Optional.of(enrollment));
+
+                CourseLearningRevisionInfoDTO info = courseLearningProgressService.getLearningRevisionInfo(42L, 18L);
+
+                assertEquals(4201L, info.getLearningRevisionId());
+                assertEquals(4202L, info.getActiveRevisionId());
+                assertEquals(Boolean.TRUE, info.isHasNewerRevision());
+                verify(enrollmentRepository, never()).save(any());
+        }
 }

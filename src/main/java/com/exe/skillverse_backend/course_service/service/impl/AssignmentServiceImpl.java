@@ -6,8 +6,10 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.AssignmentCriteria;
 import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
+import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.SubmissionCriteriaScore;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.mapper.AssignmentMapper;
 import com.exe.skillverse_backend.course_service.mapper.AssignmentSubmissionMapper;
@@ -57,6 +59,7 @@ import com.exe.skillverse_backend.course_service.dto.assignmentdto.CriteriaScore
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionItemDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionStatsDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.PendingSubmissionItemDTO;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
 
 @Slf4j
 @Service
@@ -77,6 +80,7 @@ public class AssignmentServiceImpl implements AssignmentService {
     private final UserProfileRepository userProfileRepository;
     private final Clock clock;
     private final CourseLearningProgressService courseLearningProgressService;
+    private final RevisionPinnedContentResolver revisionPinnedContentResolver;
 
     @Override
     @Transactional
@@ -137,10 +141,13 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional(readOnly = true)
-    public AssignmentDetailDTO getAssignmentById(Long assignmentId) {
+    public AssignmentDetailDTO getAssignmentById(Long assignmentId, Long actorId) {
         log.debug("Getting assignment details for ID {}", assignmentId);
         
         Assignment assignment = getAssignmentOrThrow(assignmentId);
+        Course course = assignment.getModule().getCourse();
+        ensureCanReadCourseStructure(course.getId(), course.getAuthor().getId(), course.getStatus(), actorId);
+        ensurePinnedAssignmentAccessibleForLearner(course, actorId, assignmentId);
         return assignmentMapper.toDetailDto(assignment);
     }
 
@@ -171,7 +178,8 @@ public class AssignmentServiceImpl implements AssignmentService {
         log.info("Submitting assignment {} by user {}", assignmentId, userId);
         
         Assignment assignment = getAssignmentOrThrow(assignmentId);
-        Long courseId = assignment.getModule().getCourse().getId();
+        Course course = assignment.getModule().getCourse();
+        Long courseId = course.getId();
         
         // Allow submissions from active learners and already-completed learners.
         var enrollmentOpt = enrollmentRepository.findByCourseIdAndUserId(courseId, userId);
@@ -187,6 +195,8 @@ public class AssignmentServiceImpl implements AssignmentService {
                     userId, enrollment.getStatus(), courseId);
             throw new AccessDeniedException("USER_NOT_ENROLLED");
         }
+
+        ensurePinnedAssignmentAccessibleForLearner(course, userId, assignmentId);
         
         // Check if late submission (Coursera pattern: allow but mark as late)
         boolean isLate = false;
@@ -361,13 +371,21 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<AssignmentSummaryDTO> listAssignmentsByModule(Long moduleId) {
+    public List<AssignmentSummaryDTO> listAssignmentsByModule(Long moduleId, Long actorId) {
         log.debug("Listing assignments for module {}", moduleId);
         
-        // Verify module exists
-        getModuleOrThrow(moduleId);
+        Module module = getModuleOrThrow(moduleId);
+        Course course = module.getCourse();
+        ensureCanReadCourseStructure(course.getId(), course.getAuthor().getId(), course.getStatus(), actorId);
+
+        if (shouldUsePinnedSnapshotForLearner(course, actorId)) {
+            ModuleDetailDTO pinnedModule = revisionPinnedContentResolver
+                    .resolvePinnedModule(course, actorId, moduleId)
+                    .orElseThrow(() -> new NotFoundException("MODULE_NOT_FOUND"));
+            return pinnedModule.getAssignments() != null ? pinnedModule.getAssignments() : List.of();
+        }
         
-        List<Assignment> assignments = assignmentRepository.findByModuleId(moduleId);
+        List<Assignment> assignments = assignmentRepository.findByModuleIdOrderByOrderIndexAsc(moduleId);
         
         return assignments.stream()
                 .map(assignmentMapper::toSummaryDto)
@@ -410,22 +428,9 @@ public class AssignmentServiceImpl implements AssignmentService {
     }
 
     private void ensureAuthorOrAdmin(Long actorId, Long authorId) {
-        // Allow if actor is the author of the course
-        if (actorId.equals(authorId)) {
-            return;
+        if (!isAuthorOrAdmin(actorId, authorId)) {
+            throw new AccessDeniedException("FORBIDDEN");
         }
-
-        // Only ADMIN (not just any MENTOR) can bypass the author check.
-        // This prevents Mentor A from grading/editing Mentor B's assignments.
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_CONTENT_ADMIN"))) {
-            log.debug("Actor {} allowed via admin role", actorId);
-            return;
-        }
-
-        throw new AccessDeniedException("FORBIDDEN");
     }
 
     private void validateCreateAssignmentRequest(AssignmentCreateDTO dto) {
@@ -786,8 +791,10 @@ public class AssignmentServiceImpl implements AssignmentService {
     public List<AssignmentSubmissionDetailDTO> getUserSubmissions(Long assignmentId, Long userId) {
         log.debug("Getting submissions for user {} on assignment {}", userId, assignmentId);
         
-        // Verify assignment exists
-        getAssignmentOrThrow(assignmentId);
+        Assignment assignment = getAssignmentOrThrow(assignmentId);
+        Course course = assignment.getModule().getCourse();
+        ensureCanAccessLearningContent(course.getId(), course.getAuthor().getId(), userId);
+        ensurePinnedAssignmentAccessibleForLearner(course, userId, assignmentId);
         
         List<AssignmentSubmission> submissions = submissionRepository
                 .findByAssignmentIdAndUserIdOrderByAttemptNumberDesc(assignmentId, userId);
@@ -901,6 +908,55 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     private boolean hasLearningAccess(EnrollmentStatus status) {
         return status == EnrollmentStatus.ENROLLED || status == EnrollmentStatus.COMPLETED;
+    }
+
+    private boolean shouldUsePinnedSnapshotForLearner(Course course, Long actorId) {
+        return course != null
+                && Boolean.TRUE.equals(course.getRevisioningEnabled())
+                && actorId != null
+                && !isAuthorOrAdmin(actorId, course.getAuthor().getId())
+                && revisionPinnedContentResolver.hasLearningAccessEnrollment(course, actorId);
+    }
+
+    private void ensurePinnedAssignmentAccessibleForLearner(Course course, Long actorId, Long assignmentId) {
+        if (!shouldUsePinnedSnapshotForLearner(course, actorId)) {
+            return;
+        }
+        if (!revisionPinnedContentResolver.isAssignmentInPinnedRevision(course, actorId, assignmentId)) {
+            throw new NotFoundException("ASSIGNMENT_NOT_FOUND");
+        }
+    }
+
+    private void ensureCanReadCourseStructure(Long courseId, Long authorId, CourseStatus courseStatus, Long actorId) {
+        if (isAuthorOrAdmin(actorId, authorId)) {
+            return;
+        }
+        if (courseStatus == CourseStatus.PUBLIC) {
+            return;
+        }
+        ensureCanAccessLearningContent(courseId, authorId, actorId);
+    }
+
+    private void ensureCanAccessLearningContent(Long courseId, Long authorId, Long actorId) {
+        if (isAuthorOrAdmin(actorId, authorId)) {
+            return;
+        }
+        enrollmentRepository.findByCourseIdAndUserId(courseId, actorId)
+                .filter(enrollment -> hasLearningAccess(enrollment.getStatus()))
+                .orElseThrow(() -> new AccessDeniedException("USER_NOT_ENROLLED"));
+    }
+
+    private boolean isAuthorOrAdmin(Long actorId, Long authorId) {
+        if (actorId == null) {
+            throw new AccessDeniedException("UNAUTHORIZED");
+        }
+        if (actorId.equals(authorId)) {
+            return true;
+        }
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_CONTENT_ADMIN"));
     }
 
     private PendingSubmissionItemDTO toPendingSubmissionItem(AssignmentSubmission submission) {
