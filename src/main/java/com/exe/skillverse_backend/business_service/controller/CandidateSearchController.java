@@ -9,8 +9,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -34,7 +34,7 @@ public class CandidateSearchController {
     @GetMapping("/search")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> searchCandidates(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @RequestParam(required = false) String query,
             @RequestParam(required = false) String skills,
             @RequestParam(required = false) Integer minExperience,
@@ -55,7 +55,7 @@ public class CandidateSearchController {
             @RequestParam(defaultValue = "DESC") String sortOrder,
             @RequestParam(defaultValue = "false") Boolean enableAIMatching) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} searching candidates, query: {}, jobId: {}", recruiterId, query, jobId);
 
         CandidateSearchRequest request = CandidateSearchRequest.builder()
@@ -100,11 +100,11 @@ public class CandidateSearchController {
     @GetMapping("/{candidateId}/match")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> getMatchExplanation(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @PathVariable Long candidateId,
             @RequestParam Long jobId) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} getting match explanation for candidate {} job {}", recruiterId, candidateId, jobId);
 
         Object result = candidateSearchService.getCandidateMatchExplanation(recruiterId, jobId, candidateId);
@@ -123,12 +123,12 @@ public class CandidateSearchController {
     @GetMapping("/job/{jobId}")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> getMatchingCandidates(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @PathVariable Long jobId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} getting matching candidates for job {}", recruiterId, jobId);
 
         Page<CandidateSummaryDTO> results = candidateSearchService.getMatchingCandidatesForJob(recruiterId, jobId, page, size);
@@ -151,12 +151,12 @@ public class CandidateSearchController {
     @PostMapping("/{candidateId}/shortlist")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> shortlistCandidate(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @PathVariable Long candidateId,
             @RequestParam(required = false) Long jobId,
             @RequestParam(required = false) String notes) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} shortlisting candidate {} for job {}", recruiterId, candidateId, jobId);
 
         candidateSearchService.shortlistCandidate(recruiterId, candidateId, jobId, notes);
@@ -174,11 +174,11 @@ public class CandidateSearchController {
     @DeleteMapping("/{candidateId}/shortlist")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> removeFromShortlist(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @PathVariable Long candidateId,
             @RequestParam(required = false) Long jobId) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} removing candidate {} from shortlist", recruiterId, candidateId);
 
         candidateSearchService.removeFromShortlist(recruiterId, candidateId, jobId);
@@ -196,12 +196,12 @@ public class CandidateSearchController {
     @GetMapping("/shortlisted")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> getShortlistedCandidates(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} getting shortlisted candidates", recruiterId);
 
         Page<CandidateSummaryDTO> results = candidateSearchService.getShortlistedCandidates(recruiterId, status, page, size);
@@ -224,11 +224,11 @@ public class CandidateSearchController {
     @PostMapping("/{candidateId}/connect")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> connectCandidateToJob(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @PathVariable Long candidateId,
             @RequestParam(required = false) Long jobId) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} connecting candidate {} to job {}", recruiterId, candidateId, jobId);
 
         var result = candidateSearchService.connectCandidateToJob(recruiterId, candidateId, jobId);
@@ -247,11 +247,11 @@ public class CandidateSearchController {
     @PostMapping("/{candidateId}/chat")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> startChatWithCandidate(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @PathVariable Long candidateId,
             @RequestParam(required = false) Long jobId) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} starting chat with candidate {} for job {}", recruiterId, candidateId, jobId);
 
         var result = candidateSearchService.startChatWithCandidate(recruiterId, candidateId, jobId);
@@ -263,14 +263,35 @@ public class CandidateSearchController {
         ));
     }
 
-    private Long extractUserId(UserDetails userDetails) {
-        if (userDetails == null) {
+    /**
+     * Extract user ID from Authentication (Jwt principal).
+     * Spring Security OAuth2 Resource Server passes Jwt as the principal,
+     * NOT UserDetails. This is the correct approach for JWT-based auth.
+     */
+    private Long extractUserId(Authentication authentication) {
+        if (authentication == null) {
             throw new BadRequestException("User not authenticated");
         }
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof Jwt jwt) {
+            String userIdStr = jwt.getClaimAsString("userId");
+            if (userIdStr == null) {
+                log.error("JWT does not contain userId claim");
+                throw new BadRequestException("Invalid token: missing userId claim");
+            }
+            try {
+                return Long.parseLong(userIdStr);
+            } catch (NumberFormatException e) {
+                log.error("Failed to parse userId from JWT: {}", userIdStr);
+                throw new BadRequestException("Invalid user ID format in token");
+            }
+        }
+        // Fallback: try to get username from principal
+        String username = principal.toString();
         try {
-            return Long.parseLong(userDetails.getUsername());
+            return Long.parseLong(username);
         } catch (NumberFormatException e) {
-            log.error("Failed to parse user ID from: {}", userDetails.getUsername());
+            log.error("Failed to parse user ID from principal: {}", username);
             throw new BadRequestException("Invalid user ID format");
         }
     }

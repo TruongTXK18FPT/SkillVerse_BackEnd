@@ -271,6 +271,63 @@ public class UsageLimitServiceImpl implements UsageLimitService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public void checkQuotaOnly(Long userId, FeatureType featureType) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "User not found"));
+
+        UserSubscription subscription = subscriptionRepository.findCurrentActiveSubscription(user)
+                .orElse(null);
+        if (subscription == null) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "Bạn cần gói Premium để sử dụng tính năng này.");
+        }
+
+        PremiumPlan plan = subscription.getPlan();
+
+        Optional<PlanFeatureLimits> limitConfig = featureLimitsRepository
+                .findByPlanAndFeatureTypeAndIsActiveTrue(plan, featureType);
+
+        if (limitConfig.isEmpty()) {
+            // No limit = unlimited, always allowed
+            return;
+        }
+
+        PlanFeatureLimits limit = limitConfig.get();
+        if (limit.getIsUnlimited()) {
+            return;
+        }
+
+        Optional<UserUsageTracking> trackingOpt = usageTrackingRepository
+                .findByUserAndFeatureType(user, featureType);
+
+        Integer currentUsage = 0;
+        LocalDateTime periodEnd = null;
+
+        if (trackingOpt.isPresent()) {
+            UserUsageTracking tracking = trackingOpt.get();
+            // Auto-reset if expired (no save needed for read-only check)
+            if (tracking.needsReset()) {
+                currentUsage = 0;
+                LocalDateTime periodStart = limit.getResetPeriod().calculatePeriodStart();
+                periodEnd = limit.getResetPeriod().calculateNextReset(periodStart);
+            } else {
+                currentUsage = tracking.getUsageCount();
+                periodEnd = tracking.getCurrentPeriodEnd();
+            }
+        }
+
+        if (currentUsage >= limit.getLimitValue()) {
+            UsageCheckResult check = UsageCheckResult.limitExceeded(
+                    currentUsage,
+                    limit.getLimitValue(),
+                    periodEnd,
+                    periodEnd != null ? formatTimeUntilReset(periodEnd) : "Unknown"
+            );
+            throw UsageLimitExceededException.fromCheckResult(featureType, check);
+        }
+    }
+
+    @Override
     @Transactional
     public FeatureLimitInfo getUserUsage(Long userId, FeatureType featureType) {
         User user = getUserOrThrow(userId);

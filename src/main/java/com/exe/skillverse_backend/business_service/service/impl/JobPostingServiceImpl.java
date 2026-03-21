@@ -61,7 +61,7 @@ public class JobPostingServiceImpl implements JobPostingService {
     private static final long REOPEN_GRACE_SECONDS = 300; // 5 minutes = 300 seconds
 
     /**
-     * Create a new job posting (status = PENDING_APPROVAL)
+     * Create a new job posting (status = OPEN — self-service model, no admin approval needed)
      * If recruiter has premium subscription — uses quota (free)
      * If not — deducts 50,000 VND from wallet
      */
@@ -122,7 +122,7 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .deadline(request.getDeadline())
                 .isRemote(request.getIsRemote())
                 .location(request.getLocation())
-                .status(JobStatus.PENDING_APPROVAL) // Default status for approval
+                .status(JobStatus.OPEN) // Self-service: job is immediately visible
                 .applicantCount(0)
                 .experienceLevel(request.getExperienceLevel())
                 .jobType(request.getJobType())

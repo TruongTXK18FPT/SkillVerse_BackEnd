@@ -43,6 +43,17 @@ public interface UsageLimitService {
     void checkAndRecordUsage(Long userId, FeatureType featureType);
 
     /**
+     * Check quota without recording usage.
+     * Throws UsageLimitExceededException if limit exceeded — does NOT save any entity.
+     * Use this for a read-only pre-check before performing a transactional operation.
+     *
+     * @param userId      User ID
+     * @param featureType Feature to check
+     * @throws com.exe.skillverse_backend.premium_service.exception.UsageLimitExceededException if limit exceeded
+     */
+    void checkQuotaOnly(Long userId, FeatureType featureType);
+
+    /**
      * Get usage information for a specific feature
      * 
      * @param userId      User ID

@@ -72,9 +72,9 @@ public class JobBoostServiceImpl implements JobBoostService {
             throw new BadRequestException("Tin này đang được đẩy rồi.");
         }
 
-        // 6. Record usage of boost quota
+        // 6. Check quota — do NOT record yet (record after boost is fully saved)
         try {
-            usageLimitService.checkAndRecordUsage(recruiterId, FeatureType.JOB_BOOST_MONTHLY);
+            usageLimitService.checkQuotaOnly(recruiterId, FeatureType.JOB_BOOST_MONTHLY);
         } catch (Exception e) {
             log.warn("Job boost quota exceeded for recruiter {}: {}", recruiterId, e.getMessage());
             throw new BadRequestException("Bạn đã hết quota đẩy tin trong tháng này.");

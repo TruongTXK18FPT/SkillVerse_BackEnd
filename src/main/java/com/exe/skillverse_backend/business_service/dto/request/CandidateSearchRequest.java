@@ -32,7 +32,8 @@ public class CandidateSearchRequest {
     private Boolean hasCertificates; // Only candidates with certificates
 
     // For matching with specific job
-    private Long jobId; // Match candidates to this job
+    private Long jobId; // Match candidates to this long-term job posting
+    private Long shortTermJobId; // Match candidates to this short-term job (gig/freelance)
 
     // Pagination
     @Builder.Default

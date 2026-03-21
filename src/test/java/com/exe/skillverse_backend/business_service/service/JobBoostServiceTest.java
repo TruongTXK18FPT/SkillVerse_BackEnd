@@ -114,7 +114,7 @@ class JobBoostServiceTest {
                     setRemaining(3);
                     setIsUnlimited(false);
                 }});
-        doNothing().when(usageLimitService).checkAndRecordUsage(100L, FeatureType.JOB_BOOST_MONTHLY);
+        doNothing().when(usageLimitService).checkQuotaOnly(100L, FeatureType.JOB_BOOST_MONTHLY);
         when(jobPostingRepository.findByIdAndRecruiterProfileUserId(1L, 100L))
                 .thenReturn(Optional.of(openJob));
         when(jobBoostRepository.findActiveBoostByJobPostingId(1L)).thenReturn(Optional.empty());
@@ -135,7 +135,7 @@ class JobBoostServiceTest {
         // Then
         assertNotNull(response);
         assertEquals(JobBoostStatus.ACTIVE, response.getBoostStatus());
-        verify(usageLimitService).checkAndRecordUsage(100L, FeatureType.JOB_BOOST_MONTHLY);
+        verify(usageLimitService).checkQuotaOnly(100L, FeatureType.JOB_BOOST_MONTHLY);
     }
 
     @Test

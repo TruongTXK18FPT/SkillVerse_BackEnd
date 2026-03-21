@@ -13,8 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -39,10 +39,10 @@ public class JobBoostController {
     @PostMapping
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> createBoost(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @Valid @RequestBody CreateJobBoostRequest request) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} creating boost for job {}", recruiterId, request.getJobId());
 
         JobBoostResponse response = jobBoostService.createBoost(recruiterId, request);
@@ -60,8 +60,9 @@ public class JobBoostController {
      */
     @GetMapping("/job/{jobId}")
     @PreAuthorize("hasRole('RECRUITER')")
-    public ResponseEntity<?> getBoostByJob(@AuthenticationPrincipal UserDetails userDetails,
+    public ResponseEntity<?> getBoostByJob(Authentication authentication,
                                             @PathVariable Long jobId) {
+        extractUserId(authentication); // verify auth is valid
         JobBoostResponse response = jobBoostService.getBoostByJobId(jobId);
 
         return ResponseEntity.ok(Map.of(
@@ -76,8 +77,8 @@ public class JobBoostController {
      */
     @GetMapping
     @PreAuthorize("hasRole('RECRUITER')")
-    public ResponseEntity<?> getMyBoosts(@AuthenticationPrincipal UserDetails userDetails) {
-        Long recruiterId = extractUserId(userDetails);
+    public ResponseEntity<?> getMyBoosts(Authentication authentication) {
+        Long recruiterId = extractUserId(authentication);
 
         List<JobBoostResponse> boosts = jobBoostService.getBoostsByRecruiter(recruiterId);
 
@@ -95,8 +96,8 @@ public class JobBoostController {
      */
     @GetMapping("/quota")
     @PreAuthorize("hasRole('RECRUITER')")
-    public ResponseEntity<?> getBoostQuota(@AuthenticationPrincipal UserDetails userDetails) {
-        Long recruiterId = extractUserId(userDetails);
+    public ResponseEntity<?> getBoostQuota(Authentication authentication) {
+        Long recruiterId = extractUserId(authentication);
 
         int availableQuota = jobBoostService.getAvailableBoostQuota(recruiterId);
 
@@ -115,10 +116,10 @@ public class JobBoostController {
     @DeleteMapping("/{boostId}")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> cancelBoost(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @PathVariable Long boostId) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} cancelling boost {}", recruiterId, boostId);
 
         JobBoostResponse response = jobBoostService.cancelBoost(recruiterId, boostId);
@@ -137,11 +138,11 @@ public class JobBoostController {
     @PostMapping("/{boostId}/extend")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> extendBoost(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @PathVariable Long boostId,
             @RequestParam @Valid @Min(1) @Max(30) int days) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} extending boost {} by {} days", recruiterId, boostId, days);
 
         JobBoostResponse response = jobBoostService.extendBoost(recruiterId, boostId, days);
@@ -160,10 +161,10 @@ public class JobBoostController {
     @GetMapping("/{boostId}/analytics")
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<?> getBoostAnalytics(
-            @AuthenticationPrincipal UserDetails userDetails,
+            Authentication authentication,
             @PathVariable Long boostId) {
 
-        Long recruiterId = extractUserId(userDetails);
+        Long recruiterId = extractUserId(authentication);
         JobBoostAnalyticsResponse response = jobBoostService.getBoostAnalytics(recruiterId, boostId);
 
         return ResponseEntity.ok(Map.of(
@@ -174,24 +175,34 @@ public class JobBoostController {
     }
 
     /**
-     * Extract user ID from UserDetails
+     * Extract user ID from Authentication (Jwt principal).
+     * Spring Security OAuth2 Resource Server passes Jwt as the principal,
+     * NOT UserDetails. This is the correct approach for JWT-based auth.
      */
-    private Long extractUserDetails(UserDetails userDetails) {
-        try {
-            return Long.parseLong(userDetails.getUsername());
-        } catch (NumberFormatException e) {
-            throw new BadRequestException("Invalid user ID");
-        }
-    }
-
-    private Long extractUserId(UserDetails userDetails) {
-        if (userDetails == null) {
+    private Long extractUserId(Authentication authentication) {
+        if (authentication == null) {
             throw new BadRequestException("User not authenticated");
         }
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof Jwt jwt) {
+            String userIdStr = jwt.getClaimAsString("userId");
+            if (userIdStr == null) {
+                log.error("JWT does not contain userId claim. Available claims: {}", jwt.getClaims().keySet());
+                throw new BadRequestException("Invalid token: missing userId claim");
+            }
+            try {
+                return Long.parseLong(userIdStr);
+            } catch (NumberFormatException e) {
+                log.error("Failed to parse userId from JWT: {}", userIdStr);
+                throw new BadRequestException("Invalid user ID format in token");
+            }
+        }
+        // Fallback: try to get username from principal
+        String username = principal.toString();
         try {
-            return Long.parseLong(userDetails.getUsername());
+            return Long.parseLong(username);
         } catch (NumberFormatException e) {
-            log.error("Failed to parse user ID from: {}", userDetails.getUsername());
+            log.error("Failed to parse user ID from principal: {}", username);
             throw new BadRequestException("Invalid user ID format");
         }
     }

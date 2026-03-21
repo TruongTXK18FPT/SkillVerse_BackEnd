@@ -13,7 +13,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -58,8 +57,6 @@ public class AISearchServiceImpl implements AISearchService {
     // Cache for match results (jobId + candidateId -> result)
     private final Map<String, AICandidateMatchResponse> matchCache = new ConcurrentHashMap<>();
 
-    @Value("${ai-search.api-key:}")
-    private String apiKey;
 
     @Override
     public AICandidateMatchResponse generateMatchExplanation(Long jobId, Long candidateId) {
@@ -133,7 +130,9 @@ public class AISearchServiceImpl implements AISearchService {
 
     @Override
     public boolean isEnabled() {
-        return aiSearchConfig.isEnabled() && apiKey != null && !apiKey.isEmpty();
+        return aiSearchConfig.isEnabled()
+                && aiSearchConfig.getApiKey() != null
+                && !aiSearchConfig.getApiKey().isEmpty();
     }
 
     @Override
@@ -197,7 +196,7 @@ public class AISearchServiceImpl implements AISearchService {
             String url = aiSearchConfig.getBaseUrl();
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
             headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
-            headers.set("Authorization", "Bearer " + apiKey);
+            headers.set("Authorization", "Bearer " + aiSearchConfig.getApiKey());
 
             org.springframework.http.HttpEntity<Map<String, Object>> entity =
                     new org.springframework.http.HttpEntity<>(payload, headers);
@@ -215,33 +214,79 @@ public class AISearchServiceImpl implements AISearchService {
 
     private String buildPrompt(AICandidateMatchRequest request) {
         return String.format("""
-            Analyze the following job and candidate to determine fit:
+            Bạn là chuyên gia HR giàu kinh nghiệm trong việc đánh giá ứng viên cho thị trường Việt Nam.
+            Hãy phân tích công việc và hồ sơ ứng viên dưới đây để đưa ra đánh giá chi tiết bằng TIẾNG VIỆT.
 
-            JOB:
-            - Title: %s
-            - Description: %s
-            - Required Skills: %s
-            - Budget: %s - %s
-            - Experience Level: %s
-            - Job Type: %s
+            CÔNG VIỆC:
+            - Vị trí: %s
+            - Mô tả: %s
+            - Kỹ năng yêu cầu: %s
+            - Mức lương: %s - %s VND/tháng
+            - Cấp bậc kinh nghiệm: %s
+            - Loại công việc: %s
 
-            CANDIDATE:
-            - Name: %s
-            - Professional Title: %s
-            - Bio: %s
-            - Skills: %s
-            - Years of Experience: %s
-            - Hourly Rate: %s
-            - Total Projects: %s
-            - Total Certificates: %s
+            ỨNG VIÊN:
+            - Tên: %s
+            - Chức danh: %s
+            - Giới thiệu bản thân: %s
+            - Kỹ năng nổi bật: %s
+            - Số năm kinh nghiệm: %s
+            - Mức lương theo giờ kỳ vọng: %s VND/giờ
+            - Tổng số dự án đã hoàn thành: %s
+            - Tổng số chứng chỉ: %s
 
-            Provide a JSON response with:
-            1. fit_summary: 1-2 sentence explanation of why this candidate fits (or doesn't fit) the job
-            2. skill_signals: Array of skills found in candidate profile that match job requirements, with evidence and relevance score (0-1)
-            3. reasoning: Brief reasoning for the match (2-3 sentences)
-            4. confidence_score: Overall confidence (0-1)
+            Hãy phân tích và trả về markdown đẹp mắt, giàu thông tin, với cấu trúc rõ ràng bằng TIẾNG VIỆT.
+            **CHỈ trả về markdown text, không có JSON, không có code block, không có backtick.**
 
-            Return ONLY valid JSON, no other text.
+            Output format bắt buộc (dùng đúng emoji và cấu trúc này):
+
+            ## 🧠 Đánh giá tổng quan
+
+            [Viết 2-3 câu tổng kết về mức độ phù hợp tổng thể. Nêu rõ điểm mạnh nổi bật nhất, điểm cần lưu ý, và khuyến nghị sơ bộ cho recruiter. Dùng **text** để nhấn mạnh từ khóa quan trọng.]
+
+            ---
+
+            ## 🔧 Phân tích kỹ năng
+
+            [Với MỖI kỹ năng trong danh sách yêu cầu của job, viết một section riêng theo format sau:]
+
+            ### {index}. {Tên kỹ năng} ({isRequired ? 'Quan trọng' : 'Ưu tiên'})
+            - **Mức độ phù hợp:** ⭐⭐⭐⭐☆ ({relevanceScore}/1.0)
+            - **Trạng thái:** {status emoji} {status text}
+            - **Bằng chứng:** {evidence từ hồ sơ ứng viên}
+            - **Nhận định:** {2-3 câu phân tích chi tiết về kỹ năng này}
+
+            [Status emoji mapping: relevanceScore >= 0.8 → ✅ Rất tốt, >= 0.6 → ⚠️ Khá, >= 0.4 → ❗ Cần xác minh, < 0.4 → ❌ Thiếu]
+
+            ---
+
+            ## 📊 So sánh điểm mạnh & điểm yếu
+
+            ### ✅ Điểm mạnh của ứng viên
+            [Liệt kê 2-4 điểm mạnh nổi bật, dùng bullet points]
+
+            ### ⚠️ Điểm cần xem xét
+            [Liệt kê 2-4 điểm yếu hoặc thiếu sót, dùng bullet points]
+
+            ---
+
+            ## 📌 Gợi ý cho recruiter
+
+            ### Câu hỏi phỏng vấn gợi ý
+            [Liệt kê 2-3 câu hỏi cụ thể nên hỏi ứng viên]
+
+            ### Hành động khuyến nghị
+            [Liệt kê 1-2 hành động cụ thể recruiter nên làm (ví dụ: yêu cầu portfolio, test kỹ năng, v.v.)]
+
+            ---
+
+            ## ⚠️ Kết luận
+
+            [Viết 2-3 câu kết luận tổng hợp: mức độ phù hợp chung, đề xuất hành động tiếp theo rõ ràng cho recruiter.]
+
+            ---
+
+            **Confidence: {confidenceScore}/1.0** | Phân tích bởi AI
             """,
                 request.getJobTitle(),
                 request.getJobDescription(),
@@ -263,9 +308,7 @@ public class AISearchServiceImpl implements AISearchService {
 
     private AICandidateMatchResponse parseMistralResponse(String jsonResponse, Long jobId, Long candidateId) {
         try {
-            // Simplified JSON parsing - actual implementation would properly parse the response
             // Mistral response format: { choices: [{ message: { content: "..." } }] }
-
             Map<String, Object> response = objectMapper.readValue(jsonResponse, Map.class);
             List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
 
@@ -274,15 +317,12 @@ public class AISearchServiceImpl implements AISearchService {
             }
 
             String content = (String) ((Map<String, Object>) choices.get(0).get("message")).get("content");
-
-            // Try to parse as JSON, fallback if not valid
-            try {
-                Map<String, Object> parsed = objectMapper.readValue(content, Map.class);
-                return buildResponseFromParsed(parsed, jobId, candidateId);
-            } catch (JsonProcessingException e) {
-                // Not valid JSON, create response from text
-                return createResponseFromText(content, jobId, candidateId);
+            if (content == null || content.isBlank()) {
+                return generateFallbackMatch(jobId, candidateId, 0L);
             }
+
+            // AI returns rich markdown text now — extract structured fields
+            return buildResponseFromMarkdown(content, jobId, candidateId);
 
         } catch (Exception e) {
             log.error("Error parsing Mistral response: {}", e.getMessage());
@@ -290,31 +330,23 @@ public class AISearchServiceImpl implements AISearchService {
         }
     }
 
-    private AICandidateMatchResponse buildResponseFromParsed(Map<String, Object> parsed, Long jobId, Long candidateId) {
-        // Extract skill signals
-        List<AICandidateMatchResponse.SkillSignal> skillSignals = new ArrayList<>();
-        if (parsed.get("skill_signals") instanceof List) {
-            List<Map<String, Object>> signals = (List<Map<String, Object>>) parsed.get("skill_signals");
-            for (Map<String, Object> signal : signals) {
-                skillSignals.add(AICandidateMatchResponse.SkillSignal.builder()
-                        .skill((String) signal.get("skill"))
-                        .evidence((String) signal.get("evidence"))
-                        .isRequired((Boolean) signal.get("isRequired"))
-                        .relevanceScore(((Number) signal.getOrDefault("relevanceScore", 0.0)).doubleValue())
-                        .build());
-            }
-        }
+    private AICandidateMatchResponse buildResponseFromMarkdown(String markdown, Long jobId, Long candidateId) {
+        // Extract fit_summary from the "Đánh giá tổng quan" section (first 2-3 sentences after heading)
+        String fitSummary = extractFitSummary(markdown);
 
-        // Determine match quality
-        double confidence = ((Number) parsed.getOrDefault("confidence_score", 0.5)).doubleValue();
+        // Extract skill signals from "Phân tích kỹ năng" section
+        List<AICandidateMatchResponse.SkillSignal> skillSignals = extractSkillSignals(markdown);
+
+        // Estimate confidence from skill signals
+        double confidence = estimateConfidence(skillSignals);
         AICandidateMatchResponse.MatchQuality quality = determineMatchQuality(confidence);
 
         return AICandidateMatchResponse.builder()
                 .jobId(jobId)
                 .candidateId(candidateId)
-                .fitSummary((String) parsed.get("fit_summary"))
+                .fitSummary(fitSummary)
                 .skillSignals(skillSignals)
-                .reasoning((String) parsed.get("reasoning"))
+                .reasoning(markdown) // Full markdown content for rich rendering
                 .confidenceScore(confidence)
                 .matchQuality(quality)
                 .modelUsed(aiSearchConfig.getModel())
@@ -322,18 +354,120 @@ public class AISearchServiceImpl implements AISearchService {
                 .build();
     }
 
-    private AICandidateMatchResponse createResponseFromText(String text, Long jobId, Long candidateId) {
-        // Fallback when AI returns non-JSON text
-        return AICandidateMatchResponse.builder()
-                .jobId(jobId)
-                .candidateId(candidateId)
-                .fitSummary("AI analysis available. Please review candidate profile for details.")
-                .reasoning(text.substring(0, Math.min(text.length(), 500)))
-                .confidenceScore(0.5)
-                .matchQuality(AICandidateMatchResponse.MatchQuality.FAIR)
-                .modelUsed(aiSearchConfig.getModel())
-                .isFallback(false)
-                .build();
+    private String extractFitSummary(String markdown) {
+        // Extract text from "## 🧠 Đánh giá tổng quan" section
+        // Find the section, skip the heading, collect text until the next --- or ##
+        int startIdx = markdown.indexOf("## 🧠");
+        if (startIdx == -1) {
+            startIdx = markdown.indexOf("## Đánh giá tổng quan");
+        }
+        if (startIdx == -1) {
+            // Fallback: return first non-heading paragraph
+            String[] lines = markdown.split("\n");
+            for (String line : lines) {
+                String trimmed = line.trim();
+                if (!trimmed.isEmpty() && !trimmed.startsWith("#") && !trimmed.startsWith("-") && !trimmed.startsWith("*")) {
+                    return trimmed.length() > 200 ? trimmed.substring(0, 200) + "..." : trimmed;
+                }
+            }
+            return "Phân tích chi tiết về mức độ phù hợp của ứng viên với công việc.";
+        }
+
+        int contentStart = markdown.indexOf("\n", startIdx);
+        if (contentStart == -1) return "";
+
+        int sectionEnd = markdown.indexOf("\n---", contentStart);
+        if (sectionEnd == -1) sectionEnd = markdown.indexOf("\n## ", contentStart);
+        if (sectionEnd == -1) sectionEnd = markdown.length();
+
+        String section = markdown.substring(contentStart, sectionEnd).trim();
+        // Remove markdown heading markers and clean up
+        section = section.replaceAll("#+\\s*", "").replaceAll("\\*+", "").trim();
+
+        // Get first 2 sentences or up to 250 chars
+        String[] sentences = section.split("[.!?]+\\s*");
+        StringBuilder summary = new StringBuilder();
+        for (String s : sentences) {
+            if (summary.length() + s.length() > 250) break;
+            if (!s.trim().isEmpty()) {
+                if (summary.length() > 0) summary.append(". ");
+                summary.append(s.trim());
+            }
+        }
+        String result = summary.toString();
+        return result.isEmpty() ? section.substring(0, Math.min(section.length(), 200)) : result;
+    }
+
+    private List<AICandidateMatchResponse.SkillSignal> extractSkillSignals(String markdown) {
+        List<AICandidateMatchResponse.SkillSignal> signals = new ArrayList<>();
+
+        // Pattern: ### {index}. {SkillName} (Quan trọng/Ưu tiên)
+        // Then: - **Mức độ phù hợp:** ... (X/1.0)
+        java.util.regex.Pattern skillPattern = java.util.regex.Pattern.compile(
+            "###\\s*\\d+\\.\\s*([^\\n(]+?)\\s*\\((Quan trọng|Ưu tiên)\\)",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        java.util.regex.Pattern scorePattern = java.util.regex.Pattern.compile(
+            "Mức độ phù hợp[^:]*:\\s*[⭐✅⚠️❗❌\\s]*\\(?([0-9.]+)/1\\.0\\)?",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        java.util.regex.Pattern evidencePattern = java.util.regex.Pattern.compile(
+            "\\*\\*Bằng chứng:\\*\\*\\s*([^\\n-]+)",
+            java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+
+        java.util.regex.Matcher skillMatcher = skillPattern.matcher(markdown);
+        while (skillMatcher.find()) {
+            String skillName = skillMatcher.group(1).trim();
+            boolean isRequired = "Quan trọng".equalsIgnoreCase(skillMatcher.group(2).trim());
+
+            // Look for score in next 200 chars after skill name
+            int searchStart = skillMatcher.end();
+            int searchEnd = Math.min(searchStart + 400, markdown.length());
+            String nearby = markdown.substring(searchStart, searchEnd);
+
+            double relevanceScore = 0.5; // default
+            java.util.regex.Matcher scoreMatcher = scorePattern.matcher(nearby);
+            if (scoreMatcher.find()) {
+                try {
+                    relevanceScore = Double.parseDouble(scoreMatcher.group(1).trim());
+                } catch (NumberFormatException ignored) {}
+            }
+
+            String evidence = "";
+            java.util.regex.Matcher evidenceMatcher = evidencePattern.matcher(nearby);
+            if (evidenceMatcher.find()) {
+                evidence = evidenceMatcher.group(1).trim();
+            } else {
+                // Try to find evidence in bullet list
+                java.util.regex.Pattern altEvidence = java.util.regex.Pattern.compile(
+                    "Bằng chứng[^:]*:\\s*([^\\n]+)", java.util.regex.Pattern.CASE_INSENSITIVE
+                );
+                java.util.regex.Matcher alt = altEvidence.matcher(nearby);
+                if (alt.find()) {
+                    evidence = alt.group(1).trim();
+                }
+            }
+
+            if (!skillName.isEmpty()) {
+                signals.add(AICandidateMatchResponse.SkillSignal.builder()
+                        .skill(skillName)
+                        .evidence(evidence.isEmpty() ? "Không có bằng chứng cụ thể" : evidence)
+                        .isRequired(isRequired)
+                        .relevanceScore(Math.max(0, Math.min(1, relevanceScore)))
+                        .build());
+            }
+        }
+
+        return signals;
+    }
+
+    private double estimateConfidence(List<AICandidateMatchResponse.SkillSignal> signals) {
+        if (signals.isEmpty()) return 0.5;
+        double total = signals.stream()
+                .mapToDouble(s -> s.getRelevanceScore() != null ? s.getRelevanceScore() : 0)
+                .sum();
+        return Math.min(1.0, total / signals.size());
     }
 
     /**
@@ -357,19 +491,19 @@ public class AISearchServiceImpl implements AISearchService {
 
             double totalScore = (skillScore * 0.5) + (expScore * 0.3) + (budgetScore * 0.2);
 
-            String summary = String.format("Candidate has %s experience and %s skills matching job requirements. Budget match: %s.",
-                    getExperienceLabel(expScore),
-                    getSkillLabel(skillScore),
-                    getBudgetLabel(budgetScore));
+            String summary = String.format("Ứng viên có kinh nghiệm %s và kỹ năng %s phù hợp với yêu cầu công việc. Mức lương: %s.",
+                    getExperienceLabelVi(expScore),
+                    getSkillLabelVi(skillScore),
+                    getBudgetLabelVi(budgetScore));
 
             return AICandidateMatchResponse.builder()
                     .jobId(jobId)
                     .candidateId(candidateId)
                     .fitSummary(summary)
                     .skillSignals(extractMatchingSkills(job, profile))
-                    .reasoning("Rule-based matching: Skills (" + Math.round(skillScore * 100) + "%), "
-                            + "Experience (" + Math.round(expScore * 100) + "%), "
-                            + "Budget (" + Math.round(budgetScore * 100) + "%)")
+                    .reasoning("Đánh giá dựa trên quy tắc - Kỹ năng: " + Math.round(skillScore * 100) + "% khớp, "
+                            + "Kinh nghiệm: " + Math.round(expScore * 100) + "% phù hợp, "
+                            + "Mức lương: " + Math.round(budgetScore * 100) + "% hợp lý")
                     .confidenceScore(totalScore)
                     .matchQuality(determineMatchQuality(totalScore))
                     .modelUsed("rule-based-fallback")
@@ -497,6 +631,24 @@ public class AISearchServiceImpl implements AISearchService {
         if (score >= 0.8) return "excellent";
         if (score >= 0.5) return "acceptable";
         return "below expectations";
+    }
+
+    private String getExperienceLabelVi(double score) {
+        if (score >= 0.8) return "vững";
+        if (score >= 0.5) return "tương đối";
+        return "hạn chế";
+    }
+
+    private String getSkillLabelVi(double score) {
+        if (score >= 0.8) return "xuất sắc";
+        if (score >= 0.5) return "tốt";
+        return "cơ bản";
+    }
+
+    private String getBudgetLabelVi(double score) {
+        if (score >= 0.8) return "phù hợp";
+        if (score >= 0.5) return "chấp nhận được";
+        return "chưa đạt";
     }
 
     private List<AICandidateMatchResponse.SkillSignal> extractMatchingSkills(JobPosting job, PortfolioExtendedProfile profile) {

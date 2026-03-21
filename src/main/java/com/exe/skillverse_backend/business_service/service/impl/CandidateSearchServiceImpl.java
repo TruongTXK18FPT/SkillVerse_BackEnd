@@ -8,9 +8,11 @@ import com.exe.skillverse_backend.business_service.entity.CandidateMatchScore;
 import com.exe.skillverse_backend.business_service.entity.CandidateSearchSession;
 import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.RecruiterShortlist;
+import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
 import com.exe.skillverse_backend.business_service.repository.CandidateMatchScoreRepository;
+import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
 import com.exe.skillverse_backend.business_service.repository.CandidateSearchSessionRepository;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterShortlistRepository;
@@ -53,6 +55,7 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
 
     private final PortfolioExtendedProfileRepository portfolioRepository;
     private final JobPostingRepository jobPostingRepository;
+    private final ShortTermJobRepository shortTermJobRepository;
     private final CandidateMatchScoreRepository matchScoreRepository;
     private final CandidateSearchSessionRepository searchSessionRepository;
     private final RecruiterShortlistRepository shortlistRepository;
@@ -93,13 +96,25 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         if (request.getJobId() != null) {
             resolvedJob = jobPostingRepository.findById(request.getJobId()).orElse(null);
         }
+
+        ShortTermJob resolvedShortTermJob = null;
+        if (request.getShortTermJobId() != null) {
+            resolvedShortTermJob = shortTermJobRepository.findById(request.getShortTermJobId()).orElse(null);
+        }
+
+        // Verify ownership for short-term job
+        if (resolvedShortTermJob != null && !resolvedShortTermJob.getRecruiterProfile().getUser().getId().equals(recruiterId)) {
+            throw new ForbiddenException("Bạn không có quyền truy cập tin ngắn hạn này.");
+        }
+
         final JobPosting job = resolvedJob;
+        final ShortTermJob shortTermJob = resolvedShortTermJob;
 
         Map<Long, PortfolioExtendedProfile> profileIndex = profiles.getContent().stream()
                 .collect(Collectors.toMap(PortfolioExtendedProfile::getUserId, profile -> profile));
 
         List<CandidateSummaryDTO> scoredCandidates = profiles.getContent().stream()
-                .map(profile -> calculateHybridScore(profile, job, request))
+                .map(profile -> calculateHybridScore(profile, job, shortTermJob, request))
                 .filter(Objects::nonNull)
                 .filter(candidate -> matchesCandidateFilters(
                         profileIndex.get(candidate.getUserId()),
@@ -282,15 +297,16 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
     private CandidateSummaryDTO calculateHybridScore(
             PortfolioExtendedProfile profile,
             JobPosting job,
+            ShortTermJob shortTermJob,
             CandidateSearchRequest request
     ) {
         // Start with base candidate info
         CandidateSummaryDTO dto = mapProfileToDTO(profile);
 
-        // Calculate component scores
-        double skillScore = calculateSkillScore(profile, job, request);
-        double experienceScore = calculateExperienceScore(profile, job, request);
-        double budgetScore = calculateBudgetScore(profile, job, request);
+        // Calculate component scores — pass both job types
+        double skillScore = calculateSkillScore(profile, job, shortTermJob, request);
+        double experienceScore = calculateExperienceScore(profile, job, shortTermJob, request);
+        double budgetScore = calculateBudgetScore(profile, job, shortTermJob, request);
         double premiumScore = calculatePremiumScore(profile);
         double activityScore = calculateActivityScore(profile);
 
@@ -563,13 +579,20 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         return value != null && value.toLowerCase().contains(query.toLowerCase());
     }
 
-    private double calculateSkillScore(PortfolioExtendedProfile profile, JobPosting job, CandidateSearchRequest request) {
+    private double calculateSkillScore(PortfolioExtendedProfile profile, JobPosting job, ShortTermJob shortTermJob, CandidateSearchRequest request) {
         double baseScore = 0.5; // Default if no specific skills to match
 
-        // If we have a job, calculate skill match
-        if (job != null && job.getRequiredSkills() != null) {
+        // Try short-term job first, then long-term job
+        String requiredSkillsRaw = null;
+        if (shortTermJob != null && shortTermJob.getRequiredSkills() != null) {
+            requiredSkillsRaw = shortTermJob.getRequiredSkills();
+        } else if (job != null && job.getRequiredSkills() != null) {
+            requiredSkillsRaw = job.getRequiredSkills();
+        }
+
+        if (requiredSkillsRaw != null && !requiredSkillsRaw.isBlank()) {
             try {
-                List<String> requiredSkills = objectMapper.readValue(job.getRequiredSkills(), List.class);
+                List<String> requiredSkills = objectMapper.readValue(requiredSkillsRaw, List.class);
                 List<String> candidateSkills = profile.getTopSkills() != null
                         ? objectMapper.readValue(profile.getTopSkills(), List.class)
                         : Collections.emptyList();
@@ -615,7 +638,7 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         return baseScore;
     }
 
-    private double calculateExperienceScore(PortfolioExtendedProfile profile, JobPosting job, CandidateSearchRequest request) {
+    private double calculateExperienceScore(PortfolioExtendedProfile profile, JobPosting job, ShortTermJob shortTermJob, CandidateSearchRequest request) {
         double score = 0.5; // Default
 
         Integer candidateExp = profile.getYearsOfExperience();
@@ -623,8 +646,27 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
             return score;
         }
 
-        // Check against job requirement
-        if (job != null && job.getExperienceLevel() != null) {
+        // Check against short-term job requirements (preferred) or long-term job
+        if (shortTermJob != null) {
+            // Short-term jobs use urgency to infer experience expectations
+            if (shortTermJob.getUrgency() != null) {
+                switch (shortTermJob.getUrgency()) {
+                    case ASAP:
+                        score = 0.9; // Needs experienced person immediately
+                        break;
+                    case VERY_URGENT:
+                        score = 0.8;
+                        break;
+                    case URGENT:
+                        score = 0.7;
+                        break;
+                    default:
+                        // NORMAL: flexible, favor moderately experienced
+                        score = getExperienceMatchScore(candidateExp, 1);
+                        break;
+                }
+            }
+        } else if (job != null && job.getExperienceLevel() != null) {
             int requiredYears = parseExperienceLevel(job.getExperienceLevel());
             score = getExperienceMatchScore(candidateExp, requiredYears);
         }
@@ -640,14 +682,36 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         return score;
     }
 
-    private double calculateBudgetScore(PortfolioExtendedProfile profile, JobPosting job, CandidateSearchRequest request) {
+    private double calculateBudgetScore(PortfolioExtendedProfile profile, JobPosting job, ShortTermJob shortTermJob, CandidateSearchRequest request) {
         double score = 0.5; // Default
 
         if (profile.getHourlyRate() == null) {
             return score;
         }
 
-        if (job != null) {
+        if (shortTermJob != null && shortTermJob.getBudget() != null) {
+            // Short-term jobs have a fixed budget — estimate hours from estimatedDuration
+            double candidateRate = profile.getHourlyRate();
+            double fixedBudget = shortTermJob.getBudget().doubleValue();
+
+            // Rough estimation: if no estimated duration, assume 40 hours
+            double estimatedHours = 40.0;
+            if (shortTermJob.getEstimatedDuration() != null) {
+                estimatedHours = parseEstimatedHours(shortTermJob.getEstimatedDuration());
+            }
+
+            double impliedHourlyRate = fixedBudget / estimatedHours;
+
+            if (candidateRate <= impliedHourlyRate) {
+                score = 1.0; // Candidate is within or under budget
+            } else if (candidateRate <= impliedHourlyRate * 1.2) {
+                score = 0.7; // Slightly over
+            } else if (candidateRate <= impliedHourlyRate * 1.5) {
+                score = 0.4;
+            } else {
+                score = 0.2;
+            }
+        } else if (job != null) {
             double candidateRate = profile.getHourlyRate();
             double minBudget = job.getMinBudget().doubleValue() / 160; // Convert monthly to hourly
             double maxBudget = job.getMaxBudget().doubleValue() / 160;
@@ -701,6 +765,31 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         if (daysSinceUpdate < 90) return 0.6;
         if (daysSinceUpdate < 180) return 0.4;
         return 0.2;
+    }
+
+    private double parseEstimatedHours(String estimatedDuration) {
+        if (estimatedDuration == null || estimatedDuration.isBlank()) {
+            return 40.0;
+        }
+        String duration = estimatedDuration.toLowerCase().trim();
+        // Parse patterns like "2 hours", "1 day", "3 days", "1 week"
+        java.util.regex.Pattern hourPattern = java.util.regex.Pattern.compile("([\\d.]+)\\s*h(our)?s?");
+        java.util.regex.Pattern dayPattern = java.util.regex.Pattern.compile("([\\d.]+)\\s*d(ay)?s?");
+        java.util.regex.Pattern weekPattern = java.util.regex.Pattern.compile("([\\d.]+)\\s*w(eek)?s?");
+
+        java.util.regex.Matcher hourMatcher = hourPattern.matcher(duration);
+        if (hourMatcher.find()) {
+            return Double.parseDouble(hourMatcher.group(1));
+        }
+        java.util.regex.Matcher dayMatcher = dayPattern.matcher(duration);
+        if (dayMatcher.find()) {
+            return Double.parseDouble(dayMatcher.group(1)) * 8; // 8 hours per day
+        }
+        java.util.regex.Matcher weekMatcher = weekPattern.matcher(duration);
+        if (weekMatcher.find()) {
+            return Double.parseDouble(weekMatcher.group(1)) * 40; // 40 hours per week
+        }
+        return 40.0; // Default fallback
     }
 
     private int parseExperienceLevel(String level) {
