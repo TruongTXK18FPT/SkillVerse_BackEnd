@@ -6,6 +6,8 @@ import com.exe.skillverse_backend.course_service.dto.quizdto.QuizOptionDetailDTO
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizQuestionDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptSessionDTO;
 import com.exe.skillverse_backend.course_service.dto.quizdto.SubmitQuizDTO;
+import com.exe.skillverse_backend.course_service.dto.progressdto.CourseLearningStatusDTO;
+import com.exe.skillverse_backend.course_service.dto.progressdto.ImpactedLearningItemDTO;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.Module;
@@ -56,6 +58,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
 class QuizServiceImplTest {
@@ -145,6 +148,10 @@ class QuizServiceImplTest {
                 2L,
                 Instant.parse("2026-03-01T08:00:00Z"),
                 Instant.parse("2026-03-01T08:00:00Z"),
+                null,
+                null,
+                null,
+                null,
                 List.of(question)
         );
 
@@ -157,8 +164,48 @@ class QuizServiceImplTest {
         assertFalse(learnerView.getQuestions().get(0).getOptions().get(0).isCorrect());
         assertEquals(null, learnerView.getQuestions().get(0).getOptions().get(0).getFeedback());
         assertEquals(1, learnerView.getQuestions().get(0).getCorrectOptionCount());
+                assertFalse(Boolean.TRUE.equals(learnerView.getIsBreakingChanged()));
+                assertFalse(Boolean.TRUE.equals(learnerView.getRequiresRetake()));
+                assertEquals(null, learnerView.getBreakingReason());
         verifyNoInteractions(attemptSessionRepository);
     }
+
+        @Test
+        void getQuizForAttempt_marksBreakingMetadataWhenImpactedQuizExists() {
+                Course course = Course.builder().id(52L).author(User.builder().id(1000L).build()).build();
+                Module module = Module.builder().id(22L).course(course).build();
+                Quiz quiz = Quiz.builder().id(109L).module(module).build();
+                CourseEnrollment enrollment = CourseEnrollment.builder().status(EnrollmentStatus.ENROLLED).build();
+                QuizDetailDTO detail = new QuizDetailDTO();
+                detail.setId(109L);
+                detail.setQuestions(List.of());
+
+                ImpactedLearningItemDTO impactedQuiz = ImpactedLearningItemDTO.builder()
+                                .itemId(109L)
+                                .itemType("QUIZ")
+                                .isBreakingChanged(true)
+                                .breakingReason("PASS_SCORE_CHANGED")
+                                .sourceRevisionId(7001L)
+                                .requiresRetake(true)
+                                .build();
+                CourseLearningStatusDTO status = CourseLearningStatusDTO.builder()
+                                .courseId(52L)
+                                .userId(188L)
+                                .impactedItems(List.of(impactedQuiz))
+                                .build();
+
+                when(quizRepository.findById(109L)).thenReturn(Optional.of(quiz));
+                when(enrollmentRepository.findByCourseIdAndUserId(52L, 188L)).thenReturn(Optional.of(enrollment));
+                when(quizMapper.toDetailDto(quiz)).thenReturn(detail);
+                when(courseLearningProgressService.getCourseLearningStatus(52L, 188L)).thenReturn(status);
+
+                QuizDetailDTO learnerView = quizService.getQuizForAttempt(109L, 188L);
+
+                assertTrue(Boolean.TRUE.equals(learnerView.getIsBreakingChanged()));
+                assertTrue(Boolean.TRUE.equals(learnerView.getRequiresRetake()));
+                assertEquals("PASS_SCORE_CHANGED", learnerView.getBreakingReason());
+                assertEquals(7001L, learnerView.getSourceRevisionId());
+        }
 
     @Test
     void submitQuiz_shortAnswerIgnoresCaseAndExtraWhitespace() throws Exception {
@@ -216,6 +263,64 @@ class QuizServiceImplTest {
                 QuizAttemptSessionStatus.SUBMITTED,
                 Instant.parse("2026-03-01T09:00:00Z")
         );
+    }
+
+    @Test
+    void submitQuiz_afterRevisionUpdate_recalculatesProgressWithoutError() throws Exception {
+        Course course = Course.builder()
+                .id(199L)
+                .revisioningEnabled(true)
+                .author(User.builder().id(1001L).build())
+                .build();
+        Module module = Module.builder().id(15L).course(course).build();
+        Quiz quiz = Quiz.builder()
+                .id(112L)
+                .passScore(70)
+                .maxAttempts(3)
+                .module(module)
+                .build();
+        QuizQuestion question = QuizQuestion.builder()
+                .id(144L)
+                .questionType(QuestionType.SHORT_ANSWER)
+                .score(1)
+                .options(List.of(
+                        QuizOption.builder().id(201L).optionText("Java").isCorrect(true).build()
+                ))
+                .build();
+        SubmitQuizDTO submitQuizDTO = SubmitQuizDTO.builder()
+                .quizId(112L)
+                .answers(List.of(new SubmitQuizDTO.Answer(144L, null, null, "java")))
+                .build();
+        CourseEnrollment enrollment = CourseEnrollment.builder().status(EnrollmentStatus.ENROLLED).build();
+
+        when(clock.instant()).thenReturn(Instant.parse("2026-03-03T09:00:00Z"));
+        when(attemptSessionProperties.isEnabled()).thenReturn(true);
+        when(quizRepository.findById(112L)).thenReturn(Optional.of(quiz));
+        when(enrollmentRepository.findByCourseIdAndUserId(199L, 77L)).thenReturn(Optional.of(enrollment));
+        when(revisionPinnedContentResolver.hasLearningAccessEnrollment(course, 77L)).thenReturn(true);
+        when(revisionPinnedContentResolver.isQuizInPinnedRevision(course, 77L, 112L)).thenReturn(true);
+        when(questionRepository.findByQuizIdWithOptions(112L)).thenReturn(List.of(question));
+        when(attemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(112L, 77L)).thenReturn(List.of());
+        when(attemptRepository.save(any(QuizAttempt.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0, QuizAttempt.class));
+        when(objectMapper.writeValueAsString(any())).thenReturn("{}");
+        when(attemptMapper.toDto(any(QuizAttempt.class)))
+                .thenAnswer(invocation -> {
+                    QuizAttempt saved = invocation.getArgument(0, QuizAttempt.class);
+                    return QuizAttemptDTO.builder()
+                            .score(saved.getScore())
+                            .passed(saved.getPassed())
+                            .correctAnswers(saved.getCorrectAnswers())
+                            .totalQuestions(saved.getTotalQuestions())
+                            .build();
+                });
+
+        QuizAttemptDTO result = quizService.submitQuiz(112L, submitQuizDTO, 77L);
+
+        assertNotNull(result);
+        assertEquals(100, result.getScore());
+        assertTrue(result.getPassed());
+        verify(courseLearningProgressService, times(1)).recalculateCourseProgress(199L, 77L);
     }
 
     @Test

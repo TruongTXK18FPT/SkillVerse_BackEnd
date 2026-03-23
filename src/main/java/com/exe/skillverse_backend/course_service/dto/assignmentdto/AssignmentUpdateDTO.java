@@ -15,6 +15,7 @@ import lombok.NoArgsConstructor;
 public class AssignmentUpdateDTO {
     private String title;
     private SubmissionType submissionType;
+    private Integer orderIndex;
     private BigDecimal maxScore;
     private BigDecimal passingScore;
     private Instant dueAt;

@@ -143,6 +143,18 @@ public class DatabaseSchemaFixer {
                 "Backfill legacy enrollment upgrade_policy_snapshot NULL to MANUAL",
                 this::patchEnrollmentUpgradePolicySnapshotManualBackfill,
                 this::verifyEnrollmentUpgradePolicySnapshotManualBackfill);
+        applyPatch("PATCH-022-upgrade-policy-auto-compatible-cleanup",
+            "Normalize legacy AUTO_COMPATIBLE_ONLY policy values to MANUAL",
+            this::patchUpgradePolicyAutoCompatibleCleanup,
+            this::verifyUpgradePolicyAutoCompatibleCleanup);
+        applyPatch("PATCH-020-legacy-revision-content-repair",
+            "Repair broken legacy active/pinned revisions with empty snapshot items when valid approved content exists",
+            this::patchLegacyRevisionContentRepair,
+            this::verifyLegacyRevisionContentRepair);
+        applyPatch("PATCH-021-legacy-revision-snapshot-materialization",
+            "Materialize snapshotVersion/modules JSON for active or pinned revisions missing structured content",
+            this::patchLegacyRevisionSnapshotMaterialization,
+            this::verifyLegacyRevisionSnapshotMaterialization);
 
         log.info("All PostgreSQL schema patches applied and verified successfully.");
     }
@@ -1463,6 +1475,378 @@ public class DatabaseSchemaFixer {
         """, Integer.class);
 
         return nullCount == null || nullCount == 0;
+    }
+
+    private void patchUpgradePolicyAutoCompatibleCleanup() {
+        if (hasColumn("courses", "upgrade_policy")) {
+            jdbcTemplate.execute("""
+                UPDATE courses
+                SET upgrade_policy = 'MANUAL'
+                WHERE UPPER(TRIM(COALESCE(upgrade_policy, ''))) = 'AUTO_COMPATIBLE_ONLY'
+            """);
+        }
+
+        if (hasColumn("course_enrollment", "upgrade_policy_snapshot")) {
+            jdbcTemplate.execute("""
+                UPDATE course_enrollment
+                SET upgrade_policy_snapshot = 'MANUAL'
+                WHERE UPPER(TRIM(COALESCE(upgrade_policy_snapshot, ''))) = 'AUTO_COMPATIBLE_ONLY'
+            """);
+        }
+    }
+
+    private boolean verifyUpgradePolicyAutoCompatibleCleanup() {
+        if (hasColumn("courses", "upgrade_policy")) {
+            Integer autoPolicyCount = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM courses
+                WHERE UPPER(TRIM(COALESCE(upgrade_policy, ''))) = 'AUTO_COMPATIBLE_ONLY'
+            """, Integer.class);
+            if (autoPolicyCount != null && autoPolicyCount > 0) {
+                return false;
+            }
+        }
+
+        if (hasColumn("course_enrollment", "upgrade_policy_snapshot")) {
+            Integer autoSnapshotPolicyCount = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM course_enrollment
+                WHERE UPPER(TRIM(COALESCE(upgrade_policy_snapshot, ''))) = 'AUTO_COMPATIBLE_ONLY'
+            """, Integer.class);
+            if (autoSnapshotPolicyCount != null && autoSnapshotPolicyCount > 0) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void patchLegacyRevisionContentRepair() {
+        // Step 1: move course active_revision_id to latest APPROVED revision that has valid item IDs,
+        // only when current active revision exists but has no valid lesson/quiz/assignment IDs.
+        Integer repairedCourses = jdbcTemplate.update("""
+            WITH revision_item_counts AS (
+                SELECT
+                    r.id,
+                    r.course_id,
+                    (
+                        COALESCE((
+                            SELECT COUNT(*)
+                            FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                 jsonb_array_elements(COALESCE(m -> 'lessons', '[]'::jsonb)) item
+                            WHERE (item ->> 'id') ~ '^[0-9]+$'
+                        ), 0)
+                        + COALESCE((
+                            SELECT COUNT(*)
+                            FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                 jsonb_array_elements(COALESCE(m -> 'quizzes', '[]'::jsonb)) item
+                            WHERE (item ->> 'id') ~ '^[0-9]+$'
+                        ), 0)
+                        + COALESCE((
+                            SELECT COUNT(*)
+                            FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                 jsonb_array_elements(COALESCE(m -> 'assignments', '[]'::jsonb)) item
+                            WHERE (item ->> 'id') ~ '^[0-9]+$'
+                        ), 0)
+                    ) AS valid_item_count
+                FROM course_revisions r
+            ),
+            replacement AS (
+                SELECT
+                    c.id AS course_id,
+                    c.active_revision_id,
+                    replacement_revision.id AS replacement_revision_id
+                FROM courses c
+                JOIN revision_item_counts active_cnt ON active_cnt.id = c.active_revision_id
+                JOIN LATERAL (
+                    SELECT r2.id
+                    FROM course_revisions r2
+                    JOIN revision_item_counts cnt2 ON cnt2.id = r2.id
+                    WHERE r2.course_id = c.id
+                      AND r2.status = 'APPROVED'
+                      AND cnt2.valid_item_count > 0
+                    ORDER BY r2.revision_number DESC, r2.id DESC
+                    LIMIT 1
+                ) replacement_revision ON TRUE
+                WHERE c.active_revision_id IS NOT NULL
+                  AND active_cnt.valid_item_count = 0
+                  AND replacement_revision.id <> c.active_revision_id
+            )
+            UPDATE courses c
+            SET active_revision_id = replacement.replacement_revision_id,
+                latest_revision_id = CASE
+                    WHEN c.latest_revision_id IS NULL THEN replacement.replacement_revision_id
+                    ELSE c.latest_revision_id
+                END,
+                updated_at = NOW()
+            FROM replacement
+            WHERE c.id = replacement.course_id
+        """);
+
+        // Step 2: re-pin enrollments only when current pinned revision has no valid item IDs,
+        // but course active revision has valid item IDs.
+        Integer repairedEnrollments = jdbcTemplate.update("""
+            WITH revision_item_counts AS (
+                SELECT
+                    r.id,
+                    (
+                        COALESCE((
+                            SELECT COUNT(*)
+                            FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                 jsonb_array_elements(COALESCE(m -> 'lessons', '[]'::jsonb)) item
+                            WHERE (item ->> 'id') ~ '^[0-9]+$'
+                        ), 0)
+                        + COALESCE((
+                            SELECT COUNT(*)
+                            FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                 jsonb_array_elements(COALESCE(m -> 'quizzes', '[]'::jsonb)) item
+                            WHERE (item ->> 'id') ~ '^[0-9]+$'
+                        ), 0)
+                        + COALESCE((
+                            SELECT COUNT(*)
+                            FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                 jsonb_array_elements(COALESCE(m -> 'assignments', '[]'::jsonb)) item
+                            WHERE (item ->> 'id') ~ '^[0-9]+$'
+                        ), 0)
+                    ) AS valid_item_count
+                FROM course_revisions r
+            ),
+            candidates AS (
+                SELECT
+                    ce.user_id,
+                    ce.course_id,
+                    c.active_revision_id AS target_revision_id
+                FROM course_enrollment ce
+                JOIN courses c ON c.id = ce.course_id
+                LEFT JOIN revision_item_counts pinned_cnt ON pinned_cnt.id = ce.learning_revision_id
+                LEFT JOIN revision_item_counts active_cnt ON active_cnt.id = c.active_revision_id
+                WHERE ce.learning_revision_id IS NOT NULL
+                  AND c.active_revision_id IS NOT NULL
+                  AND ce.learning_revision_id <> c.active_revision_id
+                  AND COALESCE(pinned_cnt.valid_item_count, 0) = 0
+                  AND COALESCE(active_cnt.valid_item_count, 0) > 0
+            )
+            UPDATE course_enrollment ce
+            SET learning_revision_id = candidates.target_revision_id,
+                last_upgraded_at = COALESCE(ce.last_upgraded_at, NOW())
+            FROM candidates
+            WHERE ce.user_id = candidates.user_id
+              AND ce.course_id = candidates.course_id
+        """);
+
+        log.info(
+                "Legacy revision content repair applied: repairedCourses={}, repairedEnrollments={}",
+                repairedCourses,
+                repairedEnrollments
+        );
+    }
+
+    private boolean verifyLegacyRevisionContentRepair() {
+        Integer remainingBrokenPinsWithValidActive = jdbcTemplate.queryForObject("""
+            WITH revision_item_counts AS (
+                SELECT
+                    r.id,
+                    (
+                        COALESCE((
+                            SELECT COUNT(*)
+                            FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                 jsonb_array_elements(COALESCE(m -> 'lessons', '[]'::jsonb)) item
+                            WHERE (item ->> 'id') ~ '^[0-9]+$'
+                        ), 0)
+                        + COALESCE((
+                            SELECT COUNT(*)
+                            FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                 jsonb_array_elements(COALESCE(m -> 'quizzes', '[]'::jsonb)) item
+                            WHERE (item ->> 'id') ~ '^[0-9]+$'
+                        ), 0)
+                        + COALESCE((
+                            SELECT COUNT(*)
+                            FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                 jsonb_array_elements(COALESCE(m -> 'assignments', '[]'::jsonb)) item
+                            WHERE (item ->> 'id') ~ '^[0-9]+$'
+                        ), 0)
+                    ) AS valid_item_count
+                FROM course_revisions r
+            )
+            SELECT COUNT(*)
+            FROM course_enrollment ce
+            JOIN courses c ON c.id = ce.course_id
+            LEFT JOIN revision_item_counts pinned_cnt ON pinned_cnt.id = ce.learning_revision_id
+            LEFT JOIN revision_item_counts active_cnt ON active_cnt.id = c.active_revision_id
+            WHERE ce.learning_revision_id IS NOT NULL
+              AND c.active_revision_id IS NOT NULL
+              AND ce.learning_revision_id <> c.active_revision_id
+              AND COALESCE(pinned_cnt.valid_item_count, 0) = 0
+              AND COALESCE(active_cnt.valid_item_count, 0) > 0
+        """, Integer.class);
+
+        return remainingBrokenPinsWithValidActive == null || remainingBrokenPinsWithValidActive == 0;
+    }
+
+    private void patchLegacyRevisionSnapshotMaterialization() {
+        Integer repairedSnapshots = jdbcTemplate.update("""
+            WITH target_revisions AS (
+                SELECT DISTINCT r.id, r.course_id
+                FROM course_revisions r
+                LEFT JOIN courses c ON c.active_revision_id = r.id
+                LEFT JOIN course_enrollment ce ON ce.learning_revision_id = r.id
+                WHERE (c.id IS NOT NULL OR ce.course_id IS NOT NULL)
+                  AND r.status = 'APPROVED'
+            ),
+            needs_fix AS (
+                SELECT tr.id, tr.course_id
+                FROM target_revisions tr
+                JOIN course_revisions r ON r.id = tr.id
+                WHERE
+                    r.content_snapshot_json IS NULL
+                    OR jsonb_typeof(r.content_snapshot_json) <> 'object'
+                    OR r.content_snapshot_json ->> 'snapshotVersion' IS NULL
+                    OR jsonb_typeof(r.content_snapshot_json -> 'modules') <> 'array'
+                    OR (
+                        (
+                            COALESCE((
+                                SELECT COUNT(*)
+                                FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                     jsonb_array_elements(COALESCE(m -> 'lessons', '[]'::jsonb)) item
+                                WHERE (item ->> 'id') ~ '^[0-9]+$'
+                            ), 0)
+                            + COALESCE((
+                                SELECT COUNT(*)
+                                FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                     jsonb_array_elements(COALESCE(m -> 'quizzes', '[]'::jsonb)) item
+                                WHERE (item ->> 'id') ~ '^[0-9]+$'
+                            ), 0)
+                            + COALESCE((
+                                SELECT COUNT(*)
+                                FROM jsonb_array_elements(COALESCE(r.content_snapshot_json -> 'modules', '[]'::jsonb)) m,
+                                     jsonb_array_elements(COALESCE(m -> 'assignments', '[]'::jsonb)) item
+                                WHERE (item ->> 'id') ~ '^[0-9]+$'
+                            ), 0)
+                        ) = 0
+                        AND EXISTS (
+                            SELECT 1 FROM modules m WHERE m.course_id = tr.course_id
+                        )
+                    )
+            ),
+            module_payload AS (
+                SELECT
+                    nf.id AS revision_id,
+                    m.id AS module_id,
+                    COALESCE(m.order_index, 0) AS module_order,
+                    jsonb_build_object(
+                        'id', m.id,
+                        'orderIndex', COALESCE(m.order_index, 0),
+                        'title', m.title,
+                        'description', m.description,
+                        'lessons', COALESCE((
+                            SELECT jsonb_agg(
+                                jsonb_build_object(
+                                    'id', l.id,
+                                    'orderIndex', COALESCE(l.order_index, 0),
+                                    'type', LOWER(COALESCE(l.type::text, 'reading')),
+                                    'title', l.title,
+                                    'durationSec', l.duration_sec,
+                                    'contentText', l.content_text,
+                                    'resourceUrl', l.resource_url,
+                                    'videoUrl', l.video_url,
+                                    'videoMediaId', l.video_media_id
+                                )
+                                ORDER BY COALESCE(l.order_index, 0), l.id
+                            )
+                            FROM lessons l
+                            WHERE l.module_id = m.id
+                        ), '[]'::jsonb),
+                        'quizzes', COALESCE((
+                            SELECT jsonb_agg(
+                                jsonb_build_object(
+                                    'id', q.id,
+                                    'orderIndex', COALESCE(q.order_index, 0),
+                                    'title', q.title,
+                                    'description', q.description,
+                                    'passScore', q.pass_score,
+                                    'quizMaxAttempts', q.max_attempts,
+                                    'quizTimeLimitMinutes', q.time_limit_minutes,
+                                    'roundingIncrement', q.rounding_increment,
+                                    'gradingMethod', q.grading_method,
+                                    'isAssessment', q.is_assessment,
+                                    'cooldownHours', q.cooldown_hours
+                                )
+                                ORDER BY COALESCE(q.order_index, 0), q.id
+                            )
+                            FROM quizzes q
+                            WHERE q.module_id = m.id
+                        ), '[]'::jsonb),
+                        'assignments', COALESCE((
+                            SELECT jsonb_agg(
+                                jsonb_build_object(
+                                    'id', a.id,
+                                    'orderIndex', COALESCE(a.order_index, 0),
+                                    'title', a.title,
+                                    'description', a.description,
+                                    'assignmentSubmissionType', a.submission_type,
+                                    'assignmentMaxScore', a.max_score,
+                                    'assignmentPassingScore', a.passing_score,
+                                    'isRequired', a.is_required
+                                )
+                                ORDER BY COALESCE(a.order_index, 0), a.id
+                            )
+                            FROM assignments a
+                            WHERE a.module_id = m.id
+                        ), '[]'::jsonb)
+                    ) AS module_json
+                FROM needs_fix nf
+                JOIN modules m ON m.course_id = nf.course_id
+            ),
+            aggregated AS (
+                SELECT
+                    nf.id AS revision_id,
+                    jsonb_build_object(
+                        'snapshotVersion', 1,
+                        'compatibility', jsonb_build_object(
+                            'autoCompatibleOnly', true,
+                            'level', 'NON_BREAKING'
+                        ),
+                        'modules', COALESCE(
+                            jsonb_agg(module_payload.module_json ORDER BY module_payload.module_order, module_payload.module_id),
+                            '[]'::jsonb
+                        )
+                    ) AS rebuilt_snapshot
+                FROM needs_fix nf
+                LEFT JOIN module_payload ON module_payload.revision_id = nf.id
+                GROUP BY nf.id
+            )
+            UPDATE course_revisions r
+            SET content_snapshot_json = aggregated.rebuilt_snapshot,
+                snapshot_version = COALESCE(r.snapshot_version, 1),
+                updated_at = NOW()
+            FROM aggregated
+            WHERE r.id = aggregated.revision_id
+        """);
+
+        log.info("Legacy revision snapshot materialization applied: repairedSnapshots={}", repairedSnapshots);
+    }
+
+    private boolean verifyLegacyRevisionSnapshotMaterialization() {
+        Integer remainingInvalidSnapshots = jdbcTemplate.queryForObject("""
+            WITH target_revisions AS (
+                SELECT DISTINCT r.id, r.course_id
+                FROM course_revisions r
+                LEFT JOIN courses c ON c.active_revision_id = r.id
+                LEFT JOIN course_enrollment ce ON ce.learning_revision_id = r.id
+                WHERE (c.id IS NOT NULL OR ce.course_id IS NOT NULL)
+                  AND r.status = 'APPROVED'
+            )
+            SELECT COUNT(*)
+            FROM target_revisions tr
+            JOIN course_revisions r ON r.id = tr.id
+            WHERE
+                r.content_snapshot_json IS NULL
+                OR jsonb_typeof(r.content_snapshot_json) <> 'object'
+                OR r.content_snapshot_json ->> 'snapshotVersion' IS NULL
+                OR jsonb_typeof(r.content_snapshot_json -> 'modules') <> 'array'
+        """, Integer.class);
+
+        return remainingInvalidSnapshots == null || remainingInvalidSnapshots == 0;
     }
 
     private boolean hasTable(String tableName) {

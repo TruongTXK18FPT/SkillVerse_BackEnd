@@ -149,10 +149,11 @@ public class AdminCourseController {
     }
 
     @PostMapping("/{courseId}/upgrade-policy")
-    @Operation(summary = "Update course upgrade policy (MANUAL/AUTO_COMPATIBLE_ONLY)")
+    @Operation(summary = "Update course upgrade policy (MANUAL only)")
     public ResponseEntity<CourseDetailDTO> updateUpgradePolicy(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
-            @Parameter(description = "Upgrade policy") @RequestParam @NotNull CourseUpgradePolicy policy,
+            @Parameter(description = "Upgrade policy. Only MANUAL is supported.")
+            @RequestParam @NotNull CourseUpgradePolicy policy,
             @AuthenticationPrincipal Jwt jwt) {
 
         Long adminId = extractUserId(jwt);

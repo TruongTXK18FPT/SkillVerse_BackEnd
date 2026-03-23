@@ -33,6 +33,12 @@ public class CourseLearningStatusDTO {
     private long totalItemCount;
 
     private int percent;
+    private List<LearningResultHistoryItemDTO> legacyQuizResults;
+    private List<LearningResultHistoryItemDTO> legacyAssignmentResults;
+    private Boolean legacyQuizResultsHasMore;
+    private Boolean legacyAssignmentResultsHasMore;
+    private Integer legacyHistoryLimit;
+    private List<ImpactedLearningItemDTO> impactedItems;
     private Long certificateId;
     private String certificateSerial;
     private Boolean certificateRevoked;

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -109,8 +110,7 @@ public class CourseRevisionCompatibilityChecker {
 
         String level = compatibilityLevel.asText("");
         return "NON_BREAKING".equalsIgnoreCase(level)
-                || "COMPATIBLE".equalsIgnoreCase(level)
-                || "AUTO_COMPATIBLE_ONLY".equalsIgnoreCase(level);
+            || "COMPATIBLE".equalsIgnoreCase(level);
     }
 
     private String findBreakingCourseRuleChange(JsonNode sourceSnapshot, JsonNode targetSnapshot) {
@@ -118,10 +118,15 @@ public class CourseRevisionCompatibilityChecker {
             JsonNode sourceValue = sourceSnapshot.at(pointer);
             JsonNode targetValue = targetSnapshot.at(pointer);
 
-            boolean sourceMissing = sourceValue.isMissingNode() || sourceValue.isNull();
-            boolean targetMissing = targetValue.isMissingNode() || targetValue.isNull();
+            boolean sourceMissing = isMissing(sourceValue);
+            boolean targetMissing = isMissing(targetValue);
 
             if (sourceMissing && targetMissing) {
+                continue;
+            }
+
+            // Target omission is treated as "inherit source rule" for compatibility checks.
+            if (!sourceMissing && targetMissing) {
                 continue;
             }
 
@@ -197,14 +202,26 @@ public class CourseRevisionCompatibilityChecker {
         JsonNode sourceValue = sourceNode.at(pointer);
         JsonNode targetValue = targetNode.at(pointer);
 
-        boolean sourceMissing = sourceValue.isMissingNode() || sourceValue.isNull();
-        boolean targetMissing = targetValue.isMissingNode() || targetValue.isNull();
+        boolean sourceMissing = isMissing(sourceValue);
+        boolean targetMissing = isMissing(targetValue);
 
         if (sourceMissing && targetMissing) {
             return false;
         }
 
+        if (!sourceMissing && targetMissing) {
+            return false;
+        }
+
+        if (sourceMissing && !targetMissing) {
+            return true;
+        }
+
         return !sourceValue.equals(targetValue);
+    }
+
+    private boolean isMissing(JsonNode node) {
+        return node == null || node.isMissingNode();
     }
 
     private String findRemovedLearningItem(JsonNode sourceSnapshot, JsonNode targetSnapshot) {
@@ -229,13 +246,13 @@ public class CourseRevisionCompatibilityChecker {
         if (modules.isArray()) {
             modules.forEach(module -> {
                 addId(itemIds, "module", module.get("id"));
-                collectFromArray(itemIds, "lesson", module.get("lessons"));
+                collectFromLessonLikeArray(itemIds, module.get("lessons"));
                 collectFromArray(itemIds, "quiz", module.get("quizzes"));
                 collectFromArray(itemIds, "assignment", module.get("assignments"));
             });
         }
 
-        collectFromArray(itemIds, "lesson", snapshot.at("/lessons"));
+        collectFromLessonLikeArray(itemIds, snapshot.at("/lessons"));
         collectFromArray(itemIds, "quiz", snapshot.at("/quizzes"));
         collectFromArray(itemIds, "assignment", snapshot.at("/assignments"));
 
@@ -248,16 +265,23 @@ public class CourseRevisionCompatibilityChecker {
         JsonNode modules = snapshot.at("/modules");
         if (modules.isArray()) {
             modules.forEach(module -> {
-                collectItems(items, "lesson", module.get("lessons"));
+                collectLessonLikeItems(items, module.get("lessons"));
                 collectItems(items, "quiz", module.get("quizzes"));
                 collectItems(items, "assignment", module.get("assignments"));
             });
         }
 
-        collectItems(items, "lesson", snapshot.at("/lessons"));
+        collectLessonLikeItems(items, snapshot.at("/lessons"));
         collectItems(items, "quiz", snapshot.at("/quizzes"));
         collectItems(items, "assignment", snapshot.at("/assignments"));
         return items;
+    }
+
+    private void collectFromLessonLikeArray(Set<String> itemIds, JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return;
+        }
+        node.forEach(item -> addId(itemIds, resolveItemPrefix(item, "lesson"), item.get("id")));
     }
 
     private void collectFromArray(Set<String> itemIds, String prefix, JsonNode node) {
@@ -284,6 +308,48 @@ public class CourseRevisionCompatibilityChecker {
             }
             items.putIfAbsent(prefix + ":" + id, item);
         });
+    }
+
+    private void collectLessonLikeItems(Map<String, JsonNode> items, JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return;
+        }
+        node.forEach(item -> {
+            JsonNode idNode = item.get("id");
+            if (idNode == null || idNode.isNull()) {
+                return;
+            }
+            String id = idNode.asText();
+            if (id.isBlank()) {
+                return;
+            }
+            String prefix = resolveItemPrefix(item, "lesson");
+            items.putIfAbsent(prefix + ":" + id, item);
+        });
+    }
+
+    private String resolveItemPrefix(JsonNode itemNode, String fallbackPrefix) {
+        if (itemNode == null || itemNode.isNull()) {
+            return fallbackPrefix;
+        }
+        JsonNode typeNode = itemNode.path("type");
+        if (typeNode.isMissingNode() || typeNode.isNull()) {
+            typeNode = itemNode.path("lessonType");
+        }
+        if (typeNode.isMissingNode() || typeNode.isNull()) {
+            typeNode = itemNode.path("itemType");
+        }
+        if (!typeNode.isTextual()) {
+            return fallbackPrefix;
+        }
+        String normalized = typeNode.asText("").trim().toLowerCase(Locale.ROOT);
+        if ("quiz".equals(normalized) || "assignment".equals(normalized) || "lesson".equals(normalized)) {
+            return normalized;
+        }
+        if ("reading".equals(normalized) || "video".equals(normalized)) {
+            return "lesson";
+        }
+        return fallbackPrefix;
     }
 
     private void addId(Set<String> itemIds, String prefix, JsonNode idNode) {

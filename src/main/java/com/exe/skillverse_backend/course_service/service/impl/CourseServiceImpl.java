@@ -516,13 +516,15 @@ public class CourseServiceImpl implements CourseService {
         Course course = getCourseOrThrow(courseId);
         ensureAuthorOrAdmin(actorId, course.getAuthor().getId());
 
-        course.setUpgradePolicy(policy);
+        CourseUpgradePolicy effectivePolicy = policy;
+
+        course.setUpgradePolicy(effectivePolicy);
         course.setUpdatedAt(now());
 
         courseRepository.save(course);
         int syncedEnrollments = enrollmentRepository.syncUpgradePolicySnapshotByStatus(
                 courseId,
-                policy.name(),
+            effectivePolicy.name(),
                 EnrollmentStatus.ENROLLED
         );
         log.info("Synced upgrade policy snapshot for {} enrolled learners in course {}", syncedEnrollments, courseId);
@@ -534,7 +536,9 @@ public class CourseServiceImpl implements CourseService {
          */
         Course refreshedCourse = getCourseOrThrow(courseId);
         CourseDetailDTO detailDTO = courseMapper.toDetailDto(refreshedCourse);
-        detailDTO.setUpgradePolicyStatusMessage(buildUpgradePolicyStatusMessage(policy));
+        detailDTO.setUpgradePolicyStatusMessage(
+            buildUpgradePolicyStatusMessage(effectivePolicy)
+        );
         return detailDTO;
     }
 
@@ -586,9 +590,6 @@ public class CourseServiceImpl implements CourseService {
     }
 
     private String buildUpgradePolicyStatusMessage(CourseUpgradePolicy policy) {
-        if (policy == CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY) {
-            return "AUTO_COMPATIBLE_ONLY: hệ thống sẽ tự nâng learner khi revision non-breaking; revision breaking sẽ bị skip.";
-        }
         return "MANUAL: learner giữ revision hiện tại cho đến khi chủ động nâng cấp.";
     }
 
@@ -670,6 +671,48 @@ public class CourseServiceImpl implements CourseService {
         summary.setLanguage(revision.getLanguage());
         summary.setPrice(revision.getPrice());
         summary.setCurrency(revision.getCurrency());
+        summary.setLessonCount(countLessonLikeItemsFromRevisionSnapshot(revision.getContentSnapshotJson()));
+    }
+
+    private int countLessonLikeItemsFromRevisionSnapshot(JsonNode contentSnapshotJson) {
+        if (contentSnapshotJson == null || !contentSnapshotJson.isObject()) {
+            return 0;
+        }
+
+        JsonNode modulesNode = contentSnapshotJson.path("modules");
+        if (!modulesNode.isArray()) {
+            return 0;
+        }
+
+        int total = 0;
+        for (JsonNode moduleNode : modulesNode) {
+            if (moduleNode == null || !moduleNode.isObject()) {
+                continue;
+            }
+
+            JsonNode lessonsNode = moduleNode.path("lessons");
+            if (lessonsNode.isArray()) {
+                total += lessonsNode.size();
+                continue;
+            }
+
+            // Backward compatibility for very old snapshot structures.
+            JsonNode legacyItemsNode = moduleNode.path("items");
+            JsonNode legacyQuizzesNode = moduleNode.path("quizzes");
+            JsonNode legacyAssignmentsNode = moduleNode.path("assignments");
+
+            if (legacyItemsNode.isArray()) {
+                total += legacyItemsNode.size();
+            }
+            if (legacyQuizzesNode.isArray()) {
+                total += legacyQuizzesNode.size();
+            }
+            if (legacyAssignmentsNode.isArray()) {
+                total += legacyAssignmentsNode.size();
+            }
+        }
+
+        return total;
     }
 
     private List<String> toStringList(JsonNode jsonNode) {

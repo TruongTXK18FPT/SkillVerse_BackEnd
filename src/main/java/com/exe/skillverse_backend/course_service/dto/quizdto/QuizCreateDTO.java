@@ -12,6 +12,7 @@ import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
 public class QuizCreateDTO {
     private String title;
     private String description;
+    private Integer orderIndex;
     private Integer passScore;
     private Integer maxAttempts;
     private Integer timeLimitMinutes;

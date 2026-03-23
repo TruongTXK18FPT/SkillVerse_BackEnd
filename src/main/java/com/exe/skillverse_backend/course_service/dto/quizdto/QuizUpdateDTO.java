@@ -11,6 +11,7 @@ public class QuizUpdateDTO {
     //String title, String description, Integer passScore
     private String title;
     private String description;
+    private Integer orderIndex;
     private Integer passScore;
     private Integer maxAttempts;
     private Integer timeLimitMinutes;

@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.course_service.dto.progressdto;
 
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -17,4 +18,5 @@ public class CourseLearningRevisionInfoDTO {
     private Long latestRevisionId;
     private String upgradePolicy;
     private boolean hasNewerRevision;
+    private List<ImpactedLearningItemDTO> impactedItems;
 }

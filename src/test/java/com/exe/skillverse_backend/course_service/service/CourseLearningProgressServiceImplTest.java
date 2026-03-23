@@ -3,9 +3,12 @@ package com.exe.skillverse_backend.course_service.service;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.course_service.dto.certificatedto.CertificateDTO;
 import com.exe.skillverse_backend.course_service.dto.progressdto.CourseLearningRevisionInfoDTO;
+import com.exe.skillverse_backend.course_service.entity.Assignment;
+import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
+import com.exe.skillverse_backend.course_service.entity.Lesson;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.QuizAttemptSessionStatus;
@@ -29,7 +32,10 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -37,9 +43,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -345,6 +354,649 @@ class CourseLearningProgressServiceImplTest {
     }
 
     @Test
+    void getCourseLearningStatus_failClosesWhenRevisionEnabledAndSnapshotMissing() {
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setLearningRevisionId(704L);
+
+        Course revisionEnabledCourse = new Course();
+        revisionEnabledCourse.setId(17L);
+        revisionEnabledCourse.setRevisioningEnabled(true);
+
+        when(courseRepository.findById(17L)).thenReturn(Optional.of(revisionEnabledCourse));
+        when(enrollmentRepository.findByCourseIdAndUserId(17L, 10L)).thenReturn(Optional.of(enrollment));
+        when(courseRevisionRepository.findByIdAndCourse_Id(704L, 17L)).thenReturn(Optional.empty());
+        when(lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(17L, 10L))
+                .thenReturn(List.of(10L));
+        when(quizAttemptRepository.findPassedQuizIdsByCourseAndUser(17L, 10L))
+                .thenReturn(List.of(20L));
+        when(assignmentSubmissionRepository.findPassedAssignmentIdsByCourseAndUser(17L, 10L))
+                .thenReturn(List.of(30L));
+        when(assignmentSubmissionRepository.findPassedRequiredAssignmentIdsByCourseAndUser(17L, 10L))
+                .thenReturn(List.of(30L));
+        when(certificateService.findActiveUserCourseCertificate(17L, 10L)).thenReturn(Optional.empty());
+        when(certificateService.findUserCourseCertificate(17L, 10L)).thenReturn(Optional.empty());
+
+        var status = courseLearningProgressService.getCourseLearningStatus(17L, 10L);
+
+        assertEquals(0, status.getTotalItemCount());
+        assertEquals(0, status.getCompletedItemCount());
+        assertEquals(0, status.getPercent());
+        assertEquals(List.of(), status.getLegacyQuizResults());
+        assertEquals(List.of(), status.getLegacyAssignmentResults());
+        verify(lessonRepository, never()).countByCourseId(17L);
+        verify(quizRepository, never()).countByCourseId(17L);
+        verify(assignmentRepository, never()).countRequiredByCourseId(17L);
+    }
+
+    @Test
+    void getCourseLearningStatus_ignoresLegacyQuizHistoryQueryError() throws Exception {
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setLearningRevisionId(705L);
+
+        CourseRevision revision = CourseRevision.builder()
+                .id(705L)
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "snapshotVersion": 1,
+                          "modules": [
+                            {
+                              "id": 1,
+                              "lessons": [],
+                              "quizzes": [ { "id": 21 } ],
+                              "assignments": []
+                            }
+                          ]
+                        }
+                        """))
+                .build();
+
+        when(enrollmentRepository.findByCourseIdAndUserId(18L, 11L)).thenReturn(Optional.of(enrollment));
+        when(courseRevisionRepository.findByIdAndCourse_Id(705L, 18L)).thenReturn(Optional.of(revision));
+        when(lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(18L, 11L))
+                .thenReturn(List.of());
+        when(quizAttemptRepository.findPassedQuizIdsByCourseAndUser(18L, 11L))
+                .thenReturn(List.of(21L));
+        when(assignmentSubmissionRepository.findPassedAssignmentIdsByCourseAndUser(18L, 11L))
+                .thenReturn(List.of());
+        when(assignmentSubmissionRepository.findPassedRequiredAssignmentIdsByCourseAndUser(18L, 11L))
+                .thenReturn(List.of());
+        when(quizAttemptRepository.findPassedQuizAttemptSummariesByCourseAndUser(18L, 11L))
+                .thenThrow(new NullPointerException("hibernate_bug_repro"));
+        when(certificateService.findActiveUserCourseCertificate(18L, 11L)).thenReturn(Optional.empty());
+        when(certificateService.findUserCourseCertificate(18L, 11L)).thenReturn(Optional.empty());
+
+        var status = courseLearningProgressService.getCourseLearningStatus(18L, 11L);
+
+        assertEquals(1, status.getTotalQuizCount());
+        assertEquals(1, status.getCompletedQuizCount());
+        assertEquals(100, status.getPercent());
+        assertEquals(List.of(), status.getLegacyQuizResults());
+    }
+
+                @Test
+                void getCourseLearningStatus_degradesGracefullyWhenLegacyQuizProjectionAndFallbackBothFail() throws Exception {
+                                CourseEnrollment enrollment = new CourseEnrollment();
+                                enrollment.setLearningRevisionId(7051L);
+
+                                CourseRevision revision = CourseRevision.builder()
+                                                                .id(7051L)
+                                                                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                                                                                                {
+                                                                                                        "snapshotVersion": 1,
+                                                                                                        "modules": [
+                                                                                                                {
+                                                                                                                        "id": 1,
+                                                                                                                        "lessons": [],
+                                                                                                                        "quizzes": [ { "id": 21 } ],
+                                                                                                                        "assignments": []
+                                                                                                                }
+                                                                                                        ]
+                                                                                                }
+                                                                                                """))
+                                                                .build();
+
+                                when(enrollmentRepository.findByCourseIdAndUserId(18001L, 1101L)).thenReturn(Optional.of(enrollment));
+                                when(courseRevisionRepository.findByIdAndCourse_Id(7051L, 18001L)).thenReturn(Optional.of(revision));
+                                when(lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(18001L, 1101L)).thenReturn(List.of());
+                                when(quizAttemptRepository.findPassedQuizIdsByCourseAndUser(18001L, 1101L)).thenReturn(List.of(21L));
+                                when(assignmentSubmissionRepository.findPassedAssignmentIdsByCourseAndUser(18001L, 1101L)).thenReturn(List.of());
+                                when(assignmentSubmissionRepository.findPassedRequiredAssignmentIdsByCourseAndUser(18001L, 1101L)).thenReturn(List.of());
+                                when(quizAttemptRepository.findPassedQuizAttemptSummariesByCourseAndUser(18001L, 1101L))
+                                                                .thenThrow(new IllegalStateException("projection_error"));
+                                when(quizAttemptRepository.findPassedQuizAttemptsByCourseAndUser(18001L, 1101L))
+                                                                .thenThrow(new IllegalStateException("entity_fallback_error"));
+                                when(certificateService.findActiveUserCourseCertificate(18001L, 1101L)).thenReturn(Optional.empty());
+                                when(certificateService.findUserCourseCertificate(18001L, 1101L)).thenReturn(Optional.empty());
+
+                                var status = courseLearningProgressService.getCourseLearningStatus(18001L, 1101L);
+
+                                assertEquals(1, status.getTotalQuizCount());
+                                assertEquals(1, status.getCompletedQuizCount());
+                                assertEquals(100, status.getPercent());
+                                assertEquals(List.of(), status.getLegacyQuizResults());
+                }
+
+                @Test
+                void getCourseLearningStatus_manyAttemptsPerfGuard_reportsBeforeAfterLocally() throws Exception {
+                                CourseEnrollment enrollment = new CourseEnrollment();
+                                enrollment.setLearningRevisionId(7052L);
+
+                                CourseRevision revision = CourseRevision.builder()
+                                                                .id(7052L)
+                                                                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                                                                                                {
+                                                                                                        "snapshotVersion": 1,
+                                                                                                        "modules": [
+                                                                                                                {
+                                                                                                                        "id": 1,
+                                                                                                                        "lessons": [],
+                                                                                                                        "quizzes": [ { "id": 21 } ],
+                                                                                                                        "assignments": []
+                                                                                                                }
+                                                                                                        ]
+                                                                                                }
+                                                                                                """))
+                                                                .build();
+
+                                List<QuizAttemptRepository.PassedQuizAttemptSummary> beforeLikeSummaries = new ArrayList<>();
+                                List<QuizAttemptRepository.PassedQuizAttemptSummary> afterLikeSummaries = new ArrayList<>();
+                                Instant anchor = Instant.parse("2026-01-11T10:00:00Z");
+
+                                for (long quizId = 20000L; quizId < 20200L; quizId++) {
+                                                QuizAttemptRepository.PassedQuizAttemptSummary summary = mock(QuizAttemptRepository.PassedQuizAttemptSummary.class);
+                                        when(summary.getQuizId()).thenReturn(quizId);
+                                        when(summary.getQuizTitle()).thenReturn("Quiz " + quizId);
+                                                when(summary.getScore()).thenReturn(70);
+                                        when(summary.getSubmittedAt()).thenReturn(anchor.minusSeconds(quizId));
+                                        afterLikeSummaries.add(summary);
+                                }
+
+                                for (long quizId = 20000L; quizId < 20200L; quizId++) {
+                                        for (int attemptOffset = 0; attemptOffset < 30; attemptOffset++) {
+                                                QuizAttemptRepository.PassedQuizAttemptSummary summary = mock(QuizAttemptRepository.PassedQuizAttemptSummary.class);
+                                                when(summary.getQuizId()).thenReturn(quizId);
+                                                when(summary.getQuizTitle()).thenReturn("Quiz " + quizId);
+                                                when(summary.getScore()).thenReturn(70);
+                                                when(summary.getSubmittedAt()).thenReturn(anchor.minusSeconds(quizId + attemptOffset));
+                                                beforeLikeSummaries.add(summary);
+                                        }
+                                }
+
+                                when(enrollmentRepository.findByCourseIdAndUserId(18002L, 1102L)).thenReturn(Optional.of(enrollment));
+                                when(courseRevisionRepository.findByIdAndCourse_Id(7052L, 18002L)).thenReturn(Optional.of(revision));
+                                when(lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(18002L, 1102L)).thenReturn(List.of());
+                                when(quizAttemptRepository.findPassedQuizIdsByCourseAndUser(18002L, 1102L)).thenReturn(List.of(21L));
+                                when(assignmentSubmissionRepository.findPassedAssignmentIdsByCourseAndUser(18002L, 1102L)).thenReturn(List.of());
+                                when(assignmentSubmissionRepository.findPassedRequiredAssignmentIdsByCourseAndUser(18002L, 1102L)).thenReturn(List.of());
+                                when(quizAttemptRepository.findPassedQuizAttemptSummariesByCourseAndUser(18002L, 1102L))
+                                        .thenReturn(beforeLikeSummaries)
+                                        .thenReturn(afterLikeSummaries);
+                                when(assignmentSubmissionRepository.findLatestPassedNewestByCourseAndUser(18002L, 1102L)).thenReturn(List.of());
+                                when(certificateService.findActiveUserCourseCertificate(18002L, 1102L)).thenReturn(Optional.empty());
+                                when(certificateService.findUserCourseCertificate(18002L, 1102L)).thenReturn(Optional.empty());
+
+                                Instant beforeStart = Instant.now();
+                                var beforeLikeStatus = courseLearningProgressService.getCourseLearningStatus(18002L, 1102L);
+                                long beforeMs = Duration.between(beforeStart, Instant.now()).toMillis();
+
+                                Instant afterStart = Instant.now();
+                                var afterLikeStatus = courseLearningProgressService.getCourseLearningStatus(18002L, 1102L);
+                                long afterMs = Duration.between(afterStart, Instant.now()).toMillis();
+
+                                assertEquals(20, beforeLikeStatus.getLegacyQuizResults().size());
+                                assertEquals(20, afterLikeStatus.getLegacyQuizResults().size());
+                                assertEquals(Boolean.TRUE, beforeLikeStatus.getLegacyQuizResultsHasMore());
+                                assertEquals(Boolean.TRUE, afterLikeStatus.getLegacyQuizResultsHasMore());
+                                assertTrue(beforeMs < 3000, "Expected before-like local perf guard under 3000ms, actual=" + beforeMs);
+                                assertTrue(afterMs < 3000, "Expected after-like local perf guard under 3000ms, actual=" + afterMs);
+
+                                System.out.println("[LOCAL_BENCH] history_before_ms=" + beforeMs + " history_after_ms=" + afterMs
+                                        + " before_payload_size=" + beforeLikeSummaries.size()
+                                        + " after_payload_size=" + afterLikeSummaries.size());
+                }
+
+    @Test
+    void getCourseLearningStatus_includesLegacyMetadataAndImpactedItemsForRevisionScopedHistory() throws Exception {
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setLearningRevisionId(706L);
+
+        Course course = new Course();
+        course.setId(1810L);
+        course.setActiveRevisionId(707L);
+
+        CourseRevision revision = CourseRevision.builder()
+                .id(706L)
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "snapshotVersion": 1,
+                          "modules": [
+                            {
+                              "id": 1,
+                              "lessons": [ { "id": 10 } ],
+                              "quizzes": [ { "id": 21 } ],
+                              "assignments": [ { "id": 31, "isRequired": true } ]
+                            }
+                          ]
+                        }
+                        """))
+                .build();
+
+        QuizAttemptRepository.PassedQuizAttemptSummary legacyQuiz = mock(QuizAttemptRepository.PassedQuizAttemptSummary.class);
+        when(legacyQuiz.getQuizId()).thenReturn(22L);
+        when(legacyQuiz.getQuizTitle()).thenReturn("Legacy Quiz");
+        when(legacyQuiz.getScore()).thenReturn(85);
+        when(legacyQuiz.getSubmittedAt()).thenReturn(Instant.parse("2026-01-10T10:00:00Z"));
+
+        Assignment assignment = new Assignment();
+        assignment.setId(32L);
+        assignment.setTitle("Legacy Assignment");
+
+        AssignmentSubmission legacySubmission = new AssignmentSubmission();
+        legacySubmission.setAssignment(assignment);
+        legacySubmission.setScore(new BigDecimal("7.50"));
+        legacySubmission.setSubmittedAt(Instant.parse("2026-01-09T10:00:00Z"));
+
+        Lesson legacyLesson = new Lesson();
+        legacyLesson.setId(99L);
+        legacyLesson.setTitle("Legacy Lesson");
+
+        when(courseRepository.findById(1810L)).thenReturn(Optional.of(course));
+        when(enrollmentRepository.findByCourseIdAndUserId(1810L, 81L)).thenReturn(Optional.of(enrollment));
+        when(courseRevisionRepository.findByIdAndCourse_Id(706L, 1810L)).thenReturn(Optional.of(revision));
+        when(lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(1810L, 81L))
+                .thenReturn(List.of(10L, 99L));
+        when(quizAttemptRepository.findPassedQuizIdsByCourseAndUser(1810L, 81L))
+                .thenReturn(List.of(21L, 22L));
+        when(assignmentSubmissionRepository.findPassedAssignmentIdsByCourseAndUser(1810L, 81L))
+                .thenReturn(List.of(31L, 32L));
+        when(assignmentSubmissionRepository.findPassedRequiredAssignmentIdsByCourseAndUser(1810L, 81L))
+                .thenReturn(List.of(31L, 32L));
+        when(quizAttemptRepository.findPassedQuizAttemptSummariesByCourseAndUser(1810L, 81L))
+                .thenReturn(List.of(legacyQuiz));
+        when(assignmentSubmissionRepository.findLatestPassedNewestByCourseAndUser(1810L, 81L))
+                .thenReturn(List.of(legacySubmission));
+        when(lessonRepository.findAllById(anyCollection())).thenReturn(List.of(legacyLesson));
+        when(certificateService.findActiveUserCourseCertificate(1810L, 81L)).thenReturn(Optional.empty());
+        when(certificateService.findUserCourseCertificate(1810L, 81L)).thenReturn(Optional.empty());
+
+        var status = courseLearningProgressService.getCourseLearningStatus(1810L, 81L);
+
+        assertEquals(1, status.getLegacyQuizResults().size());
+        assertEquals(706L, status.getLegacyQuizResults().get(0).getSourceRevisionId());
+        assertEquals("Item does not exist in the active revision.", status.getLegacyQuizResults().get(0).getReason());
+        assertEquals(Boolean.TRUE, status.getLegacyQuizResults().get(0).getIsBreakingChanged());
+        assertEquals("ITEM_NOT_IN_ACTIVE_REVISION", status.getLegacyQuizResults().get(0).getBreakingReason());
+        assertEquals(Boolean.TRUE, status.getLegacyQuizResults().get(0).getRequiresRetake());
+
+        assertEquals(1, status.getLegacyAssignmentResults().size());
+        assertEquals(706L, status.getLegacyAssignmentResults().get(0).getSourceRevisionId());
+        assertEquals("Item does not exist in the active revision.", status.getLegacyAssignmentResults().get(0).getReason());
+        assertEquals(Boolean.TRUE, status.getLegacyAssignmentResults().get(0).getIsBreakingChanged());
+        assertEquals("ITEM_NOT_IN_ACTIVE_REVISION", status.getLegacyAssignmentResults().get(0).getBreakingReason());
+        assertEquals(Boolean.TRUE, status.getLegacyAssignmentResults().get(0).getRequiresRetake());
+
+        assertEquals(Boolean.FALSE, status.getLegacyQuizResultsHasMore());
+        assertEquals(Boolean.FALSE, status.getLegacyAssignmentResultsHasMore());
+        assertEquals(20, status.getLegacyHistoryLimit());
+
+        assertEquals(3, status.getImpactedItems().size());
+        assertTrue(status.getImpactedItems().stream().anyMatch(item -> "QUIZ".equals(item.getItemType()) && item.getItemId().equals(22L)));
+        assertTrue(status.getImpactedItems().stream().anyMatch(item -> "ASSIGNMENT".equals(item.getItemType()) && item.getItemId().equals(32L)));
+        assertTrue(status.getImpactedItems().stream().anyMatch(item -> "LESSON".equals(item.getItemType()) && item.getItemId().equals(99L)));
+        assertTrue(status.getImpactedItems().stream().anyMatch(item ->
+                "ASSIGNMENT".equals(item.getItemType())
+                        && item.getItemId().equals(32L)
+                        && Boolean.TRUE.equals(item.getIsBreakingChanged())
+                        && Boolean.TRUE.equals(item.getRequiresRetake())
+                        && "ITEM_NOT_IN_ACTIVE_REVISION".equals(item.getBreakingReason())));
+    }
+
+    @Test
+    void getCourseLearningStatus_marksBreakingAssignmentMetadataForImpactedAssignment() throws Exception {
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setLearningRevisionId(7061L);
+
+        Course course = new Course();
+        course.setId(1812L);
+        course.setActiveRevisionId(7062L);
+
+        CourseRevision revision = CourseRevision.builder()
+                .id(7061L)
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "snapshotVersion": 1,
+                          "modules": [
+                            {
+                              "id": 1,
+                              "lessons": [],
+                              "quizzes": [],
+                              "assignments": [ { "id": 31, "isRequired": true } ]
+                            }
+                          ]
+                        }
+                        """))
+                .build();
+
+        Assignment assignment = new Assignment();
+        assignment.setId(32L);
+        assignment.setTitle("Legacy Assignment");
+
+        AssignmentSubmission legacySubmission = new AssignmentSubmission();
+        legacySubmission.setAssignment(assignment);
+        legacySubmission.setScore(new BigDecimal("9.00"));
+        legacySubmission.setSubmittedAt(Instant.parse("2026-01-11T10:00:00Z"));
+
+        when(courseRepository.findById(1812L)).thenReturn(Optional.of(course));
+        when(enrollmentRepository.findByCourseIdAndUserId(1812L, 83L)).thenReturn(Optional.of(enrollment));
+        when(courseRevisionRepository.findByIdAndCourse_Id(7061L, 1812L)).thenReturn(Optional.of(revision));
+        when(lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(1812L, 83L)).thenReturn(List.of());
+        when(quizAttemptRepository.findPassedQuizIdsByCourseAndUser(1812L, 83L)).thenReturn(List.of());
+        when(assignmentSubmissionRepository.findPassedAssignmentIdsByCourseAndUser(1812L, 83L)).thenReturn(List.of(31L, 32L));
+        when(assignmentSubmissionRepository.findPassedRequiredAssignmentIdsByCourseAndUser(1812L, 83L)).thenReturn(List.of(31L, 32L));
+        when(quizAttemptRepository.findPassedQuizAttemptSummariesByCourseAndUser(1812L, 83L)).thenReturn(List.of());
+        when(assignmentSubmissionRepository.findLatestPassedNewestByCourseAndUser(1812L, 83L)).thenReturn(List.of(legacySubmission));
+        when(certificateService.findActiveUserCourseCertificate(1812L, 83L)).thenReturn(Optional.empty());
+        when(certificateService.findUserCourseCertificate(1812L, 83L)).thenReturn(Optional.empty());
+
+        var status = courseLearningProgressService.getCourseLearningStatus(1812L, 83L);
+
+        assertTrue(status.getImpactedItems().stream().anyMatch(item ->
+                "ASSIGNMENT".equals(item.getItemType())
+                        && item.getItemId().equals(32L)
+                        && Boolean.TRUE.equals(item.getIsBreakingChanged())
+                        && Boolean.TRUE.equals(item.getRequiresRetake())
+                        && "ITEM_NOT_IN_ACTIVE_REVISION".equals(item.getBreakingReason())
+                        && item.getSourceRevisionId().equals(7061L)));
+    }
+
+    @Test
+    void getCourseLearningStatus_limitsLegacyHistoryAndSetsHasMore() throws Exception {
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setLearningRevisionId(707L);
+
+        Course course = new Course();
+        course.setId(1811L);
+        course.setActiveRevisionId(708L);
+
+        CourseRevision revision = CourseRevision.builder()
+                .id(707L)
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "snapshotVersion": 1,
+                          "modules": [
+                            {
+                              "id": 1,
+                              "lessons": [],
+                              "quizzes": [ { "id": 21 } ],
+                              "assignments": []
+                            }
+                          ]
+                        }
+                        """))
+                .build();
+
+        List<QuizAttemptRepository.PassedQuizAttemptSummary> legacySummaries = new ArrayList<>();
+        for (long id = 1000L; id < 1025L; id++) {
+            QuizAttemptRepository.PassedQuizAttemptSummary summary = mock(QuizAttemptRepository.PassedQuizAttemptSummary.class);
+            when(summary.getQuizId()).thenReturn(id);
+            when(summary.getQuizTitle()).thenReturn("Legacy Quiz " + id);
+            when(summary.getScore()).thenReturn(80);
+            when(summary.getSubmittedAt()).thenReturn(Instant.parse("2026-01-10T10:00:00Z").minusSeconds(id));
+            legacySummaries.add(summary);
+        }
+
+        when(courseRepository.findById(1811L)).thenReturn(Optional.of(course));
+        when(enrollmentRepository.findByCourseIdAndUserId(1811L, 82L)).thenReturn(Optional.of(enrollment));
+        when(courseRevisionRepository.findByIdAndCourse_Id(707L, 1811L)).thenReturn(Optional.of(revision));
+        when(lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(1811L, 82L)).thenReturn(List.of());
+        when(quizAttemptRepository.findPassedQuizIdsByCourseAndUser(1811L, 82L))
+                .thenReturn(List.of(21L, 1000L, 1001L, 1002L));
+        when(assignmentSubmissionRepository.findPassedAssignmentIdsByCourseAndUser(1811L, 82L)).thenReturn(List.of());
+        when(assignmentSubmissionRepository.findPassedRequiredAssignmentIdsByCourseAndUser(1811L, 82L)).thenReturn(List.of());
+        when(quizAttemptRepository.findPassedQuizAttemptSummariesByCourseAndUser(1811L, 82L))
+                .thenReturn(legacySummaries);
+        when(assignmentSubmissionRepository.findLatestPassedNewestByCourseAndUser(1811L, 82L)).thenReturn(List.of());
+        when(certificateService.findActiveUserCourseCertificate(1811L, 82L)).thenReturn(Optional.empty());
+        when(certificateService.findUserCourseCertificate(1811L, 82L)).thenReturn(Optional.empty());
+
+        var status = courseLearningProgressService.getCourseLearningStatus(1811L, 82L);
+
+        assertEquals(20, status.getLegacyQuizResults().size());
+        assertEquals(Boolean.TRUE, status.getLegacyQuizResultsHasMore());
+        assertEquals(20, status.getLegacyHistoryLimit());
+    }
+
+    @Test
+    void recalculateCourseProgress_revisionScopedDoesNotQueryLegacyHistory() throws Exception {
+        Course course = new Course();
+        course.setId(181L);
+        course.setRevisioningEnabled(true);
+
+        User user = new User();
+        user.setId(121L);
+
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setCourse(course);
+        enrollment.setUser(user);
+        enrollment.setStatus(EnrollmentStatus.ENROLLED);
+        enrollment.setLearningRevisionId(706L);
+
+        CourseRevision revision = CourseRevision.builder()
+                .id(706L)
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "snapshotVersion": 1,
+                          "modules": [
+                            {
+                              "id": 1,
+                              "lessons": [ { "id": 10 }, { "id": 11 } ],
+                              "quizzes": [ { "id": 21 } ],
+                              "assignments": []
+                            }
+                          ]
+                        }
+                        """))
+                .build();
+
+        when(enrollmentRepository.findByCourseIdAndUserIdForUpdate(181L, 121L))
+                .thenReturn(Optional.of(enrollment));
+        when(courseRepository.findById(181L)).thenReturn(Optional.of(course));
+        when(courseRevisionRepository.findByIdAndCourse_Id(706L, 181L)).thenReturn(Optional.of(revision));
+        when(lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(181L, 121L))
+                .thenReturn(List.of(10L, 11L));
+        when(quizAttemptRepository.findPassedQuizIdsByCourseAndUser(181L, 121L))
+                .thenReturn(List.of(21L));
+        when(assignmentSubmissionRepository.findPassedAssignmentIdsByCourseAndUser(181L, 121L))
+                .thenReturn(List.of());
+        when(assignmentSubmissionRepository.findPassedRequiredAssignmentIdsByCourseAndUser(181L, 121L))
+                .thenReturn(List.of());
+        when(certificateService.findActiveUserCourseCertificate(181L, 121L)).thenReturn(Optional.empty());
+        when(certificateService.findUserCourseCertificate(181L, 121L)).thenReturn(Optional.empty());
+
+        int percent = courseLearningProgressService.recalculateCourseProgress(181L, 121L);
+
+        assertEquals(100, percent);
+        verify(quizAttemptRepository, never()).findPassedQuizAttemptSummariesByCourseAndUser(anyLong(), anyLong());
+        verify(quizAttemptRepository, never()).findPassedQuizAttemptsByCourseAndUser(anyLong(), anyLong());
+    }
+
+    @Test
+    void getCourseLearningStatus_breakingQuiz_marksOnlyThatQuizRequiresRetake() throws Exception {
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setLearningRevisionId(8101L);
+
+        Course course = new Course();
+        course.setId(1901L);
+        course.setActiveRevisionId(8102L);
+
+        CourseRevision revision = CourseRevision.builder()
+                .id(8101L)
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "snapshotVersion": 1,
+                          "modules": [
+                            {
+                              "id": 1,
+                              "lessons": [],
+                              "quizzes": [ { "id": 21 } ],
+                              "assignments": [ { "id": 31, "isRequired": true } ]
+                            }
+                          ]
+                        }
+                        """))
+                .build();
+
+        QuizAttemptRepository.PassedQuizAttemptSummary legacyQuiz = mock(QuizAttemptRepository.PassedQuizAttemptSummary.class);
+        when(legacyQuiz.getQuizId()).thenReturn(22L);
+        when(legacyQuiz.getQuizTitle()).thenReturn("Legacy Quiz");
+        when(legacyQuiz.getScore()).thenReturn(88);
+        when(legacyQuiz.getSubmittedAt()).thenReturn(Instant.parse("2026-01-12T10:00:00Z"));
+
+        when(courseRepository.findById(1901L)).thenReturn(Optional.of(course));
+        when(enrollmentRepository.findByCourseIdAndUserId(1901L, 91L)).thenReturn(Optional.of(enrollment));
+        when(courseRevisionRepository.findByIdAndCourse_Id(8101L, 1901L)).thenReturn(Optional.of(revision));
+        when(lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(1901L, 91L)).thenReturn(List.of());
+        when(quizAttemptRepository.findPassedQuizIdsByCourseAndUser(1901L, 91L)).thenReturn(List.of(21L, 22L));
+        when(assignmentSubmissionRepository.findPassedAssignmentIdsByCourseAndUser(1901L, 91L)).thenReturn(List.of(31L));
+        when(assignmentSubmissionRepository.findPassedRequiredAssignmentIdsByCourseAndUser(1901L, 91L)).thenReturn(List.of(31L));
+        when(quizAttemptRepository.findPassedQuizAttemptSummariesByCourseAndUser(1901L, 91L)).thenReturn(List.of(legacyQuiz));
+        when(assignmentSubmissionRepository.findLatestPassedNewestByCourseAndUser(1901L, 91L)).thenReturn(List.of());
+        when(certificateService.findActiveUserCourseCertificate(1901L, 91L)).thenReturn(Optional.empty());
+        when(certificateService.findUserCourseCertificate(1901L, 91L)).thenReturn(Optional.empty());
+
+        var status = courseLearningProgressService.getCourseLearningStatus(1901L, 91L);
+
+        assertTrue(status.getImpactedItems().stream().anyMatch(item ->
+                "QUIZ".equals(item.getItemType())
+                        && item.getItemId().equals(22L)
+                        && Boolean.TRUE.equals(item.getRequiresRetake())));
+        assertFalse(status.getImpactedItems().stream().anyMatch(item ->
+                "ASSIGNMENT".equals(item.getItemType()) && Boolean.TRUE.equals(item.getRequiresRetake())));
+    }
+
+    @Test
+    void getCourseLearningStatus_breakingAssignment_marksOnlyThatAssignmentRequiresRetake() throws Exception {
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setLearningRevisionId(8103L);
+
+        Course course = new Course();
+        course.setId(1902L);
+        course.setActiveRevisionId(8104L);
+
+        CourseRevision revision = CourseRevision.builder()
+                .id(8103L)
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "snapshotVersion": 1,
+                          "modules": [
+                            {
+                              "id": 1,
+                              "lessons": [],
+                              "quizzes": [ { "id": 21 } ],
+                              "assignments": [ { "id": 31, "isRequired": true } ]
+                            }
+                          ]
+                        }
+                        """))
+                .build();
+
+        Assignment assignment = new Assignment();
+        assignment.setId(32L);
+        assignment.setTitle("Legacy Assignment");
+
+        AssignmentSubmission legacySubmission = new AssignmentSubmission();
+        legacySubmission.setAssignment(assignment);
+        legacySubmission.setScore(new BigDecimal("8.50"));
+        legacySubmission.setSubmittedAt(Instant.parse("2026-01-12T11:00:00Z"));
+
+        when(courseRepository.findById(1902L)).thenReturn(Optional.of(course));
+        when(enrollmentRepository.findByCourseIdAndUserId(1902L, 92L)).thenReturn(Optional.of(enrollment));
+        when(courseRevisionRepository.findByIdAndCourse_Id(8103L, 1902L)).thenReturn(Optional.of(revision));
+        when(lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(1902L, 92L)).thenReturn(List.of());
+        when(quizAttemptRepository.findPassedQuizIdsByCourseAndUser(1902L, 92L)).thenReturn(List.of(21L));
+        when(assignmentSubmissionRepository.findPassedAssignmentIdsByCourseAndUser(1902L, 92L)).thenReturn(List.of(31L, 32L));
+        when(assignmentSubmissionRepository.findPassedRequiredAssignmentIdsByCourseAndUser(1902L, 92L)).thenReturn(List.of(31L, 32L));
+        when(quizAttemptRepository.findPassedQuizAttemptSummariesByCourseAndUser(1902L, 92L)).thenReturn(List.of());
+        when(assignmentSubmissionRepository.findLatestPassedNewestByCourseAndUser(1902L, 92L)).thenReturn(List.of(legacySubmission));
+        when(certificateService.findActiveUserCourseCertificate(1902L, 92L)).thenReturn(Optional.empty());
+        when(certificateService.findUserCourseCertificate(1902L, 92L)).thenReturn(Optional.empty());
+
+        var status = courseLearningProgressService.getCourseLearningStatus(1902L, 92L);
+
+        assertTrue(status.getImpactedItems().stream().anyMatch(item ->
+                "ASSIGNMENT".equals(item.getItemType())
+                        && item.getItemId().equals(32L)
+                        && Boolean.TRUE.equals(item.getRequiresRetake())));
+        assertFalse(status.getImpactedItems().stream().anyMatch(item ->
+                "QUIZ".equals(item.getItemType()) && Boolean.TRUE.equals(item.getRequiresRetake())));
+    }
+
+    @Test
+    void getLearningRevisionInfo_keepsUpgradeBannerDataEvenWhenStatusHasWarnings() throws Exception {
+        Course course = new Course();
+        course.setId(1950L);
+        course.setActiveRevisionId(9202L);
+        course.setLatestRevisionId(9202L);
+        course.setUpgradePolicy(CourseUpgradePolicy.MANUAL);
+
+        User user = new User();
+        user.setId(95L);
+
+        CourseEnrollment enrollment = new CourseEnrollment();
+        enrollment.setCourse(course);
+        enrollment.setUser(user);
+        enrollment.setStatus(EnrollmentStatus.ENROLLED);
+        enrollment.setLearningRevisionId(9201L);
+
+        CourseRevision pinnedRevision = CourseRevision.builder()
+                .id(9201L)
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "snapshotVersion": 1,
+                          "modules": [
+                            {
+                              "id": 1,
+                              "lessons": [],
+                              "quizzes": [ { "id": 21 } ],
+                              "assignments": []
+                            }
+                          ]
+                        }
+                        """))
+                .build();
+
+        QuizAttemptRepository.PassedQuizAttemptSummary legacyQuiz = mock(QuizAttemptRepository.PassedQuizAttemptSummary.class);
+        when(legacyQuiz.getQuizId()).thenReturn(22L);
+        when(legacyQuiz.getQuizTitle()).thenReturn("Legacy Quiz");
+        when(legacyQuiz.getScore()).thenReturn(86);
+        when(legacyQuiz.getSubmittedAt()).thenReturn(Instant.parse("2026-01-12T12:00:00Z"));
+
+        when(courseRepository.findById(1950L)).thenReturn(Optional.of(course));
+        when(enrollmentRepository.findByCourseIdAndUserId(1950L, 95L)).thenReturn(Optional.of(enrollment));
+        when(courseRevisionRepository.findByIdAndCourse_Id(9201L, 1950L)).thenReturn(Optional.of(pinnedRevision));
+        when(lessonProgressRepository.findCompletedLessonIdsByCourseAndUser(1950L, 95L)).thenReturn(List.of());
+        when(quizAttemptRepository.findPassedQuizIdsByCourseAndUser(1950L, 95L)).thenReturn(List.of(21L, 22L));
+        when(assignmentSubmissionRepository.findPassedAssignmentIdsByCourseAndUser(1950L, 95L)).thenReturn(List.of());
+        when(assignmentSubmissionRepository.findPassedRequiredAssignmentIdsByCourseAndUser(1950L, 95L)).thenReturn(List.of());
+        when(quizAttemptRepository.findPassedQuizAttemptSummariesByCourseAndUser(1950L, 95L)).thenReturn(List.of(legacyQuiz));
+        when(assignmentSubmissionRepository.findLatestPassedNewestByCourseAndUser(1950L, 95L)).thenReturn(List.of());
+        when(certificateService.findActiveUserCourseCertificate(1950L, 95L)).thenReturn(Optional.empty());
+        when(certificateService.findUserCourseCertificate(1950L, 95L)).thenReturn(Optional.empty());
+
+        var status = courseLearningProgressService.getCourseLearningStatus(1950L, 95L);
+        CourseLearningRevisionInfoDTO info = courseLearningProgressService.getLearningRevisionInfo(1950L, 95L);
+
+        assertTrue(status.getImpactedItems().stream().anyMatch(item ->
+                "QUIZ".equals(item.getItemType())
+                        && item.getItemId().equals(22L)
+                        && Boolean.TRUE.equals(item.getRequiresRetake())));
+        assertEquals(9201L, info.getLearningRevisionId());
+        assertEquals(9202L, info.getActiveRevisionId());
+        assertEquals(Boolean.TRUE, info.isHasNewerRevision());
+        assertEquals("MANUAL", info.getUpgradePolicy());
+    }
+
+    @Test
     void upgradeToActiveRevision_updatesPinnedRevisionAndSnapshot() {
         Course course = new Course();
         course.setId(20L);
@@ -382,7 +1034,7 @@ class CourseLearningProgressServiceImplTest {
         course.setId(21L);
         course.setActiveRevisionId(402L);
         course.setLatestRevisionId(402L);
-        course.setUpgradePolicy(CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY);
+        course.setUpgradePolicy(CourseUpgradePolicy.MANUAL);
 
         User user = new User();
         user.setId(10L);
@@ -526,7 +1178,7 @@ class CourseLearningProgressServiceImplTest {
         course.setId(31L);
         course.setActiveRevisionId(1001L);
         course.setLatestRevisionId(1001L);
-        course.setUpgradePolicy(CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY);
+        course.setUpgradePolicy(CourseUpgradePolicy.MANUAL);
 
         User user = new User();
         user.setId(16L);
@@ -542,7 +1194,7 @@ class CourseLearningProgressServiceImplTest {
         CourseLearningRevisionInfoDTO info = courseLearningProgressService.upgradeToActiveRevision(31L, 16L);
 
         assertEquals(1001L, enrollment.getLearningRevisionId());
-        assertEquals("AUTO_COMPATIBLE_ONLY", enrollment.getUpgradePolicySnapshot());
+        assertEquals("MANUAL", enrollment.getUpgradePolicySnapshot());
         assertEquals(1001L, info.getLearningRevisionId());
         assertFalse(info.isHasNewerRevision());
         verify(certificateService, never()).findActiveUserCourseCertificate(anyLong(), anyLong());
@@ -581,12 +1233,12 @@ class CourseLearningProgressServiceImplTest {
         }
 
         @Test
-        void getLearningRevisionInfo_autoCompatibleOnly_doesNotAutoMoveCompletedLearner() {
+        void getLearningRevisionInfo_manualPolicy_doesNotAutoMoveCompletedLearner() {
                 Course course = new Course();
                 course.setId(42L);
                 course.setActiveRevisionId(4202L);
                 course.setLatestRevisionId(4202L);
-                course.setUpgradePolicy(CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY);
+                course.setUpgradePolicy(CourseUpgradePolicy.MANUAL);
 
                 User user = new User();
                 user.setId(18L);

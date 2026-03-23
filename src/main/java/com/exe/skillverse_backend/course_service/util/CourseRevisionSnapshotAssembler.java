@@ -26,6 +26,9 @@ public final class CourseRevisionSnapshotAssembler {
     public static ObjectNode buildCourseContentSnapshot(ObjectMapper objectMapper, Course course, int snapshotVersion) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("snapshotVersion", snapshotVersion);
+        ObjectNode compatibilityNode = root.putObject("compatibility");
+        compatibilityNode.put("autoCompatibleOnly", true);
+        compatibilityNode.put("level", "NON_BREAKING");
         ArrayNode modulesNode = root.putArray("modules");
 
         if (course == null || course.getModules() == null) {
@@ -208,6 +211,11 @@ public final class CourseRevisionSnapshotAssembler {
                 assignment.getSubmissionType() != null ? assignment.getSubmissionType().name() : null);
         putNullableDecimal(node, "assignmentMaxScore", assignment.getMaxScore());
         putNullableDecimal(node, "assignmentPassingScore", assignment.getPassingScore());
+        if (assignment.getIsRequired() != null) {
+            node.put("isRequired", assignment.getIsRequired());
+        } else {
+            node.putNull("isRequired");
+        }
 
         ArrayNode criteriaNode = node.putArray("assignmentCriteria");
         List<AssignmentCriteria> criteria = assignment.getCriteria() == null
@@ -228,6 +236,7 @@ public final class CourseRevisionSnapshotAssembler {
             putNullableText(criteriaItem, "name", assignmentCriteria.getName());
             putNullableText(criteriaItem, "description", assignmentCriteria.getDescription());
             putNullableDecimal(criteriaItem, "maxPoints", assignmentCriteria.getMaxPoints());
+            putNullableDecimal(criteriaItem, "passingPoints", assignmentCriteria.getPassingPoints());
             criteriaItem.put("isRequired", assignmentCriteria.isRequired());
         }
 

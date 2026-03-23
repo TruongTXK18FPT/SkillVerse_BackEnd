@@ -357,6 +357,47 @@ class CourseRevisionCompatibilityCheckerTest {
     }
 
     @Test
+    void evaluateCompatibility_detectsBreakingQuizRuleInsideModuleLessonsArray() throws Exception {
+        CourseRevision source = CourseRevision.builder()
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "modules": [
+                            {
+                              "id": 1,
+                              "lessons": [
+                                { "id": 88, "type": "quiz", "passScore": 70 },
+                                { "id": 44, "type": "assignment", "passingScore": 60, "isRequired": true }
+                              ]
+                            }
+                          ]
+                        }
+                        """))
+                .build();
+        CourseRevision target = CourseRevision.builder()
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "compatibility": { "autoCompatibleOnly": true },
+                          "modules": [
+                            {
+                              "id": 1,
+                              "lessons": [
+                                { "id": 88, "type": "quiz", "passScore": 80 },
+                                { "id": 44, "type": "assignment", "passingScore": 60, "isRequired": true }
+                              ]
+                            }
+                          ]
+                        }
+                        """))
+                .build();
+
+        CourseRevisionCompatibilityChecker.CompatibilityResult result = checker.evaluateCompatibility(source, target);
+
+        assertFalse(result.isNonBreaking());
+        assertEquals("ITEM_RULE_CHANGED", result.getReasonCode());
+        assertEquals("quiz:88/passScore", result.getReasonDetail());
+    }
+
+    @Test
     void evaluateCompatibility_returnsCourseRuleReasonWhenCompletionRuleIntroduced() throws Exception {
         CourseRevision source = CourseRevision.builder()
                 .contentSnapshotJson(OBJECT_MAPPER.readTree("{\"modules\":[]}"))
@@ -434,5 +475,62 @@ class CourseRevisionCompatibilityCheckerTest {
         assertFalse(result.isNonBreaking());
         assertEquals("ITEM_REMOVED", result.getReasonCode());
         assertEquals("lesson:10", result.getReasonDetail());
+    }
+
+    @Test
+    void evaluateCompatibility_treatsMissingRuleFieldAsInheritedNotBreaking() throws Exception {
+        CourseRevision source = CourseRevision.builder()
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "modules": [
+                            { "id": 1, "quizzes": [ { "id": 88, "passScore": 70 } ] }
+                          ]
+                        }
+                        """))
+                .build();
+        CourseRevision target = CourseRevision.builder()
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "compatibility": { "autoCompatibleOnly": true },
+                          "modules": [
+                            { "id": 1, "quizzes": [ { "id": 88 } ] }
+                          ]
+                        }
+                        """))
+                .build();
+
+        CourseRevisionCompatibilityChecker.CompatibilityResult result = checker.evaluateCompatibility(source, target);
+
+        assertTrue(result.isNonBreaking());
+        assertEquals("NON_BREAKING", result.getReasonCode());
+    }
+
+    @Test
+    void evaluateCompatibility_treatsExplicitNullRuleAsBreakingChange() throws Exception {
+        CourseRevision source = CourseRevision.builder()
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "modules": [
+                            { "id": 1, "quizzes": [ { "id": 88, "passScore": 70 } ] }
+                          ]
+                        }
+                        """))
+                .build();
+        CourseRevision target = CourseRevision.builder()
+                .contentSnapshotJson(OBJECT_MAPPER.readTree("""
+                        {
+                          "compatibility": { "autoCompatibleOnly": true },
+                          "modules": [
+                            { "id": 1, "quizzes": [ { "id": 88, "passScore": null } ] }
+                          ]
+                        }
+                        """))
+                .build();
+
+        CourseRevisionCompatibilityChecker.CompatibilityResult result = checker.evaluateCompatibility(source, target);
+
+        assertFalse(result.isNonBreaking());
+        assertEquals("ITEM_RULE_CHANGED", result.getReasonCode());
+        assertEquals("quiz:88/passScore", result.getReasonDetail());
     }
 }

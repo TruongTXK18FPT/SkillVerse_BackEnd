@@ -219,7 +219,7 @@ class CourseServiceImplTest {
     }
 
     @Test
-    void updateUpgradePolicy_setsClearStatusMessageForAdminUx() {
+    void updateUpgradePolicy_updatesManualPolicyAndSyncsEnrollmentSnapshot() {
         Long courseId = 300L;
         Long actorId = 21L;
         Course course = buildCourse(courseId, actorId, CourseStatus.PUBLIC);
@@ -230,29 +230,29 @@ class CourseServiceImplTest {
         when(courseMapper.toDetailDto(course)).thenReturn(mapped);
         when(enrollmentRepository.syncUpgradePolicySnapshotByStatus(
                 courseId,
-                CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY.name(),
+            CourseUpgradePolicy.MANUAL.name(),
                 EnrollmentStatus.ENROLLED
         )).thenReturn(4);
 
         CourseDetailDTO result = courseService.updateUpgradePolicy(
                 courseId,
-                CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY,
+                CourseUpgradePolicy.MANUAL,
                 actorId
         );
 
-        assertEquals(CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY, course.getUpgradePolicy());
+        assertEquals(CourseUpgradePolicy.MANUAL, course.getUpgradePolicy());
         assertEquals(
-                "AUTO_COMPATIBLE_ONLY: hệ thống sẽ tự nâng learner khi revision non-breaking; revision breaking sẽ bị skip.",
+            "MANUAL: learner giữ revision hiện tại cho đến khi chủ động nâng cấp.",
                 result.getUpgradePolicyStatusMessage()
         );
         verify(enrollmentRepository).syncUpgradePolicySnapshotByStatus(
                 courseId,
-                CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY.name(),
+            CourseUpgradePolicy.MANUAL.name(),
                 EnrollmentStatus.ENROLLED
         );
         verify(enrollmentRepository, never()).syncUpgradePolicySnapshotByStatus(
                 eq(courseId),
-                eq(CourseUpgradePolicy.AUTO_COMPATIBLE_ONLY.name()),
+            eq(CourseUpgradePolicy.MANUAL.name()),
                 eq(EnrollmentStatus.COMPLETED)
         );
     }

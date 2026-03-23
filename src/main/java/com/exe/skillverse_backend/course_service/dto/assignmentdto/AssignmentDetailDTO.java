@@ -16,6 +16,7 @@ public class AssignmentDetailDTO {
     private Long id;
     private String title;
     private SubmissionType submissionType;
+    private Integer orderIndex;
     private BigDecimal maxScore;
     private BigDecimal passingScore;
     private Instant dueAt;

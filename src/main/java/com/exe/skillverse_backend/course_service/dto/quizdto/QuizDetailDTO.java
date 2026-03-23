@@ -25,5 +25,9 @@ public class QuizDetailDTO {
     private Long moduleId;
     private Instant createdAt;
     private Instant updatedAt;
+    private Boolean isBreakingChanged;
+    private String breakingReason;
+    private Long sourceRevisionId;
+    private Boolean requiresRetake;
     List<QuizQuestionDetailDTO> questions;
 }

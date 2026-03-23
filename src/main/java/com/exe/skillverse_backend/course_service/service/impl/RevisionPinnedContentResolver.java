@@ -5,9 +5,13 @@ import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleSummaryDTO;
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
+import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
+import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.Module;
+import com.exe.skillverse_backend.course_service.entity.Quiz;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.LessonType;
@@ -15,15 +19,21 @@ import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
 import com.exe.skillverse_backend.course_service.entity.enums.SubmissionType;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
+import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -37,6 +47,7 @@ public class RevisionPinnedContentResolver {
 
     private final CourseEnrollmentRepository enrollmentRepository;
     private final CourseRevisionRepository courseRevisionRepository;
+    private final ModuleRepository moduleRepository;
 
     public Optional<List<ModuleDetailDTO>> resolveModulesWithContent(Course course, Long actorId) {
         if (course == null || actorId == null) {
@@ -90,7 +101,8 @@ public class RevisionPinnedContentResolver {
             return Optional.empty();
         }
 
-        List<ModuleDetailDTO> modules = parseModules(course.getId(), revisionId, modulesNode);
+        List<Module> liveModules = moduleRepository.findByCourseIdOrderByOrderIndexAsc(course.getId());
+        List<ModuleDetailDTO> modules = parseModules(course.getId(), revisionId, modulesNode, liveModules);
         return Optional.of(modules);
     }
 
@@ -156,8 +168,22 @@ public class RevisionPinnedContentResolver {
                 .orElse(false);
     }
 
-    private List<ModuleDetailDTO> parseModules(Long courseId, Long revisionId, JsonNode modulesNode) {
+    private List<ModuleDetailDTO> parseModules(
+            Long courseId,
+            Long revisionId,
+            JsonNode modulesNode,
+            List<Module> liveModules
+    ) {
         List<ModuleDetailDTO> modules = new ArrayList<>();
+        Map<Long, Module> liveModuleById = new HashMap<>();
+        if (liveModules != null) {
+            for (Module liveModule : liveModules) {
+                if (liveModule == null || liveModule.getId() == null) {
+                    continue;
+                }
+                liveModuleById.put(liveModule.getId(), liveModule);
+            }
+        }
 
         for (int moduleIndex = 0; moduleIndex < modulesNode.size(); moduleIndex++) {
             JsonNode moduleNode = modulesNode.get(moduleIndex);
@@ -169,6 +195,23 @@ public class RevisionPinnedContentResolver {
             // This prevents legacy / stale orderIndex values from reshuffling learner UI.
             int moduleOrder = moduleIndex;
             Long moduleId = parseLong(moduleNode.path("id"));
+            Module liveModule = null;
+            if (isPositiveEntityId(moduleId)) {
+                liveModule = liveModuleById.get(moduleId);
+            } else {
+                liveModule = resolveLegacyModuleIdentity(moduleNode, moduleIndex, liveModules);
+                if (liveModule != null && liveModule.getId() != null) {
+                    moduleId = liveModule.getId();
+                    log.warn(
+                            "Recovered missing module id from live course structure (courseId={}, revisionId={}, moduleIndex={}, moduleId={})",
+                            courseId,
+                            revisionId,
+                            moduleIndex,
+                            moduleId
+                    );
+                }
+            }
+
             if (!isPositiveEntityId(moduleId)) {
                 log.warn(
                         "Skipping module without valid positive id in pinned snapshot (courseId={}, revisionId={}, moduleIndex={})",
@@ -182,40 +225,61 @@ public class RevisionPinnedContentResolver {
             List<LessonBriefDTO> lessons = new ArrayList<>();
             List<QuizSummaryDTO> quizzes = new ArrayList<>();
             List<AssignmentSummaryDTO> assignments = new ArrayList<>();
+            Set<Long> lessonIds = new HashSet<>();
+            Set<Long> quizIds = new HashSet<>();
+            Set<Long> assignmentIds = new HashSet<>();
 
             JsonNode lessonLikeItems = moduleNode.path("lessons");
-            if (lessonLikeItems.isArray()) {
-                for (int itemIndex = 0; itemIndex < lessonLikeItems.size(); itemIndex++) {
-                    JsonNode itemNode = lessonLikeItems.get(itemIndex);
-                    if (itemNode == null || itemNode.isNull()) {
-                        continue;
-                    }
+            parseModuleLessonLikeItems(
+                    lessonLikeItems,
+                    lessons,
+                    quizzes,
+                    assignments,
+                    lessonIds,
+                    quizIds,
+                    assignmentIds,
+                    courseId,
+                    revisionId,
+                    moduleId,
+                        0,
+                        liveModule
+            );
 
-                    String normalizedType = normalizeItemType(itemNode);
-                    // Keep learner ordering aligned with snapshot sequence, even if stored orderIndex is stale.
-                    int itemOrder = itemIndex;
-                    Long itemId = parseLong(itemNode.path("id"));
-                    if (!isPositiveEntityId(itemId)) {
-                        log.warn(
-                                "Skipping {} item without valid positive id in pinned snapshot (courseId={}, revisionId={}, moduleId={}, itemIndex={})",
-                                normalizedType,
-                                courseId,
-                                revisionId,
-                                moduleId,
-                                itemIndex
-                        );
-                        continue;
-                    }
+            // Backward compatibility for legacy snapshots using `items` array.
+            parseModuleLessonLikeItems(
+                    moduleNode.path("items"),
+                    lessons,
+                    quizzes,
+                    assignments,
+                    lessonIds,
+                    quizIds,
+                    assignmentIds,
+                    courseId,
+                    revisionId,
+                    moduleId,
+                        lessonLikeItems.isArray() ? lessonLikeItems.size() : 0,
+                        liveModule
+            );
 
-                    if ("quiz".equals(normalizedType)) {
-                        quizzes.add(buildQuizSummary(itemNode, itemId, itemOrder));
-                    } else if ("assignment".equals(normalizedType)) {
-                        assignments.add(buildAssignmentSummary(itemNode, itemId, itemOrder, moduleId));
-                    } else {
-                        lessons.add(buildLessonSummary(itemNode, itemId, itemOrder));
-                    }
-                }
-            }
+            // Backward compatibility for snapshots storing quizzes/assignments separately.
+            parseStandaloneQuizzes(
+                    moduleNode.path("quizzes"),
+                    quizzes,
+                    quizIds,
+                    courseId,
+                    revisionId,
+                        moduleId,
+                        liveModule
+            );
+            parseStandaloneAssignments(
+                    moduleNode.path("assignments"),
+                    assignments,
+                    assignmentIds,
+                    courseId,
+                    revisionId,
+                        moduleId,
+                        liveModule
+            );
 
             quizzes.sort(Comparator
                     .comparing(QuizSummaryDTO::getOrderIndex, Comparator.nullsLast(Integer::compareTo))
@@ -245,6 +309,251 @@ public class RevisionPinnedContentResolver {
                 .thenComparing(ModuleDetailDTO::getId, Comparator.nullsLast(Long::compareTo)));
 
         return modules;
+    }
+
+    private void parseModuleLessonLikeItems(
+            JsonNode lessonLikeItems,
+            List<LessonBriefDTO> lessons,
+            List<QuizSummaryDTO> quizzes,
+            List<AssignmentSummaryDTO> assignments,
+            Set<Long> lessonIds,
+            Set<Long> quizIds,
+            Set<Long> assignmentIds,
+            Long courseId,
+            Long revisionId,
+            Long moduleId,
+                int orderOffset,
+                Module liveModule
+    ) {
+        if (lessonLikeItems == null || !lessonLikeItems.isArray()) {
+            return;
+        }
+
+        for (int itemIndex = 0; itemIndex < lessonLikeItems.size(); itemIndex++) {
+            JsonNode itemNode = lessonLikeItems.get(itemIndex);
+            if (itemNode == null || itemNode.isNull()) {
+                continue;
+            }
+
+            String normalizedType = normalizeItemType(itemNode);
+            int itemOrder = orderOffset + itemIndex;
+            Long itemId = parseLong(itemNode.path("id"));
+            if (!isPositiveEntityId(itemId)) {
+                itemId = resolveLegacyItemIdentity(itemNode, normalizedType, itemOrder, liveModule);
+                if (isPositiveEntityId(itemId)) {
+                    log.warn(
+                            "Recovered missing {} id from live course structure (courseId={}, revisionId={}, moduleId={}, itemIndex={}, itemId={})",
+                            normalizedType,
+                            courseId,
+                            revisionId,
+                            moduleId,
+                            itemIndex,
+                            itemId
+                    );
+                }
+            }
+            if (!isPositiveEntityId(itemId)) {
+                log.warn(
+                        "Skipping {} item without valid positive id in pinned snapshot (courseId={}, revisionId={}, moduleId={}, itemIndex={})",
+                        normalizedType,
+                        courseId,
+                        revisionId,
+                        moduleId,
+                        itemIndex
+                );
+                continue;
+            }
+
+            if ("quiz".equals(normalizedType)) {
+                if (quizIds.add(itemId)) {
+                    quizzes.add(buildQuizSummary(itemNode, itemId, itemOrder));
+                }
+            } else if ("assignment".equals(normalizedType)) {
+                if (assignmentIds.add(itemId)) {
+                    assignments.add(buildAssignmentSummary(itemNode, itemId, itemOrder, moduleId));
+                }
+            } else if (lessonIds.add(itemId)) {
+                lessons.add(buildLessonSummary(itemNode, itemId, itemOrder));
+            }
+        }
+    }
+
+    private void parseStandaloneQuizzes(
+            JsonNode quizzesNode,
+            List<QuizSummaryDTO> quizzes,
+            Set<Long> quizIds,
+            Long courseId,
+            Long revisionId,
+                Long moduleId,
+                Module liveModule
+    ) {
+        if (quizzesNode == null || !quizzesNode.isArray()) {
+            return;
+        }
+
+        for (int index = 0; index < quizzesNode.size(); index++) {
+            JsonNode quizNode = quizzesNode.get(index);
+            if (quizNode == null || quizNode.isNull()) {
+                continue;
+            }
+            Long quizId = parseLong(quizNode.path("id"));
+            if (!isPositiveEntityId(quizId)) {
+                int itemOrder = parseInteger(quizNode.path("orderIndex"), index);
+                quizId = resolveLegacyItemIdentity(quizNode, "quiz", itemOrder, liveModule);
+            }
+            if (!isPositiveEntityId(quizId)) {
+                log.warn(
+                        "Skipping quiz without valid positive id in pinned snapshot (courseId={}, revisionId={}, moduleId={}, itemIndex={})",
+                        courseId,
+                        revisionId,
+                        moduleId,
+                        index
+                );
+                continue;
+            }
+            if (!quizIds.add(quizId)) {
+                continue;
+            }
+            int orderIndex = parseInteger(quizNode.path("orderIndex"), index);
+            quizzes.add(buildQuizSummary(quizNode, quizId, orderIndex));
+        }
+    }
+
+    private void parseStandaloneAssignments(
+            JsonNode assignmentsNode,
+            List<AssignmentSummaryDTO> assignments,
+            Set<Long> assignmentIds,
+            Long courseId,
+            Long revisionId,
+                Long moduleId,
+                Module liveModule
+    ) {
+        if (assignmentsNode == null || !assignmentsNode.isArray()) {
+            return;
+        }
+
+        for (int index = 0; index < assignmentsNode.size(); index++) {
+            JsonNode assignmentNode = assignmentsNode.get(index);
+            if (assignmentNode == null || assignmentNode.isNull()) {
+                continue;
+            }
+            Long assignmentId = parseLong(assignmentNode.path("id"));
+            if (!isPositiveEntityId(assignmentId)) {
+                int itemOrder = parseInteger(assignmentNode.path("orderIndex"), index);
+                assignmentId = resolveLegacyItemIdentity(assignmentNode, "assignment", itemOrder, liveModule);
+            }
+            if (!isPositiveEntityId(assignmentId)) {
+                log.warn(
+                        "Skipping assignment without valid positive id in pinned snapshot (courseId={}, revisionId={}, moduleId={}, itemIndex={})",
+                        courseId,
+                        revisionId,
+                        moduleId,
+                        index
+                );
+                continue;
+            }
+            if (!assignmentIds.add(assignmentId)) {
+                continue;
+            }
+            int orderIndex = parseInteger(assignmentNode.path("orderIndex"), index);
+            assignments.add(buildAssignmentSummary(assignmentNode, assignmentId, orderIndex, moduleId));
+        }
+    }
+
+    private Module resolveLegacyModuleIdentity(JsonNode moduleNode, int moduleIndex, List<Module> liveModules) {
+        if (liveModules == null || liveModules.isEmpty()) {
+            return null;
+        }
+        Integer desiredOrder = parseInteger(moduleNode.path("orderIndex"), moduleIndex);
+        String desiredTitle = normalizeText(textOrNull(moduleNode.path("title")));
+
+        Module byOrder = liveModules.stream()
+                .filter(module -> module != null && module.getId() != null)
+                .filter(module -> module.getOrderIndex() != null && module.getOrderIndex().equals(desiredOrder))
+                .findFirst()
+                .orElse(null);
+        if (byOrder != null) {
+            return byOrder;
+        }
+
+        if (desiredTitle == null) {
+            return null;
+        }
+        return liveModules.stream()
+                .filter(module -> module != null && module.getId() != null)
+                .filter(module -> normalizeText(module.getTitle()) != null)
+                .filter(module -> desiredTitle.equals(normalizeText(module.getTitle())))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Long resolveLegacyItemIdentity(JsonNode itemNode, String normalizedType, int orderIndex, Module liveModule) {
+        if (liveModule == null) {
+            return null;
+        }
+        String desiredTitle = normalizeText(textOrNull(itemNode.path("title")));
+
+        return switch (normalizedType) {
+            case "quiz" -> findByOrderThenTitleId(liveModule.getQuizzes(), orderIndex, desiredTitle,
+                    quiz -> quiz != null ? quiz.getOrderIndex() : null,
+                    quiz -> quiz != null ? normalizeText(quiz.getTitle()) : null,
+                    quiz -> quiz != null ? quiz.getId() : null);
+            case "assignment" -> findByOrderThenTitleId(liveModule.getAssignments(), orderIndex, desiredTitle,
+                    assignment -> assignment != null ? assignment.getOrderIndex() : null,
+                    assignment -> assignment != null ? normalizeText(assignment.getTitle()) : null,
+                    assignment -> assignment != null ? assignment.getId() : null);
+            default -> findByOrderThenTitleId(liveModule.getLessons(), orderIndex, desiredTitle,
+                    lesson -> lesson != null ? lesson.getOrderIndex() : null,
+                    lesson -> lesson != null ? normalizeText(lesson.getTitle()) : null,
+                    lesson -> lesson != null ? lesson.getId() : null);
+        };
+    }
+
+    private <T> Long findByOrderThenTitleId(
+            Collection<T> source,
+            int desiredOrder,
+            String desiredTitle,
+            java.util.function.Function<T, Integer> orderFn,
+            java.util.function.Function<T, String> titleFn,
+            java.util.function.Function<T, Long> idFn
+    ) {
+        if (source == null || source.isEmpty()) {
+            return null;
+        }
+
+        Long byOrder = source.stream()
+                .filter(item -> item != null)
+                .filter(item -> {
+                    Integer order = orderFn.apply(item);
+                    return order != null && order == desiredOrder;
+                })
+                .map(idFn)
+                .filter(this::isPositiveEntityId)
+                .findFirst()
+                .orElse(null);
+        if (byOrder != null) {
+            return byOrder;
+        }
+
+        if (desiredTitle == null) {
+            return null;
+        }
+
+        return source.stream()
+                .filter(item -> item != null)
+                .filter(item -> desiredTitle.equals(titleFn.apply(item)))
+                .map(idFn)
+                .filter(this::isPositiveEntityId)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String normalizeText(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        return normalized.isEmpty() ? null : normalized;
     }
 
     private LessonBriefDTO buildLessonSummary(JsonNode itemNode, Long lessonId, int orderIndex) {

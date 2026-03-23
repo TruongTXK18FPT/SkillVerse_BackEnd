@@ -10,11 +10,14 @@ import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
+import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
+import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.service.impl.RevisionPinnedContentResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
@@ -35,12 +38,15 @@ class RevisionPinnedContentResolverTest {
     @Mock
     private CourseRevisionRepository courseRevisionRepository;
 
+        @Mock
+        private ModuleRepository moduleRepository;
+
     private RevisionPinnedContentResolver resolver;
     private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
-        resolver = new RevisionPinnedContentResolver(enrollmentRepository, courseRevisionRepository);
+                resolver = new RevisionPinnedContentResolver(enrollmentRepository, courseRevisionRepository, moduleRepository);
         objectMapper = new ObjectMapper();
     }
 
@@ -118,6 +124,7 @@ class RevisionPinnedContentResolverTest {
                 .thenReturn(Optional.of(enrollment));
         when(courseRevisionRepository.findByIdAndCourse_Id(revisionId, courseId))
                 .thenReturn(Optional.of(revision));
+        when(moduleRepository.findByCourseIdOrderByOrderIndexAsc(courseId)).thenReturn(List.of());
 
         Optional<List<ModuleDetailDTO>> resolved = resolver.resolveModulesWithContent(course, actorId);
 
@@ -230,6 +237,7 @@ class RevisionPinnedContentResolverTest {
         )).thenReturn(Optional.of(approvedRevision));
         when(courseRevisionRepository.findByIdAndCourse_Id(approvedRevisionId, courseId))
                 .thenReturn(Optional.of(approvedRevision));
+        when(moduleRepository.findByCourseIdOrderByOrderIndexAsc(courseId)).thenReturn(List.of());
 
         Optional<List<ModuleDetailDTO>> resolved = resolver.resolveModulesWithContent(course, actorId);
 
@@ -281,6 +289,7 @@ class RevisionPinnedContentResolverTest {
                 .thenReturn(Optional.of(enrollment));
         when(courseRevisionRepository.findByIdAndCourse_Id(revisionId, courseId))
                 .thenReturn(Optional.of(revision));
+        when(moduleRepository.findByCourseIdOrderByOrderIndexAsc(courseId)).thenReturn(List.of());
 
         Optional<List<ModuleDetailDTO>> resolved = resolver.resolveModulesWithContent(course, actorId);
 
@@ -343,6 +352,7 @@ class RevisionPinnedContentResolverTest {
                 .thenReturn(Optional.of(enrollment));
         when(courseRevisionRepository.findByIdAndCourse_Id(revisionId, courseId))
                 .thenReturn(Optional.of(revision));
+        when(moduleRepository.findByCourseIdOrderByOrderIndexAsc(courseId)).thenReturn(List.of());
 
         Optional<List<ModuleDetailDTO>> resolved = resolver.resolveModulesWithContent(course, actorId);
 
@@ -362,6 +372,142 @@ class RevisionPinnedContentResolverTest {
         assertEquals(1, firstModule.getLessons().get(0).getOrderIndex());
         assertEquals(2, firstModule.getAssignments().get(0).getOrderIndex());
     }
+
+                @Test
+                void shouldParseLegacyModuleItemsAndStandaloneArraysForPinnedContent() throws Exception {
+                                Long actorId = 304L;
+                                Long courseId = 34L;
+                                Long revisionId = 905L;
+
+                                Course course = buildCourse(courseId, 3L);
+                                course.setActiveRevisionId(revisionId);
+
+                                CourseEnrollment enrollment = CourseEnrollment.builder()
+                                                                .course(course)
+                                                                .user(User.builder().id(actorId).build())
+                                                                .status(EnrollmentStatus.ENROLLED)
+                                                                .learningRevisionId(revisionId)
+                                                                .build();
+
+                                CourseRevision revision = CourseRevision.builder()
+                                                                .id(revisionId)
+                                                                .course(course)
+                                                                .revisionNumber(2)
+                                                                .status(CourseRevisionStatus.APPROVED)
+                                                                .contentSnapshotJson(objectMapper.readTree("""
+                                                                                                {
+                                                                                                        "snapshotVersion": 1,
+                                                                                                        "modules": [
+                                                                                                                {
+                                                                                                                        "id": 1101,
+                                                                                                                        "title": "Legacy module",
+                                                                                                                        "items": [
+                                                                                                                                {"id": 2101, "itemType": "LESSON", "title": "Legacy reading", "type": "reading"},
+                                                                                                                                {"id": 2102, "itemType": "QUIZ", "title": "Legacy quiz in items", "passScore": 70}
+                                                                                                                        ],
+                                                                                                                        "quizzes": [
+                                                                                                                                {"id": 2103, "title": "Standalone quiz", "passScore": 80, "orderIndex": 5}
+                                                                                                                        ],
+                                                                                                                        "assignments": [
+                                                                                                                                {"id": 2104, "title": "Standalone assignment", "assignmentSubmissionType": "FILE", "orderIndex": 6}
+                                                                                                                        ]
+                                                                                                                }
+                                                                                                        ]
+                                                                                                }
+                                                                                                """))
+                                                                .createdAt(Instant.now())
+                                                                .build();
+
+                                when(enrollmentRepository.findByCourseIdAndUserId(courseId, actorId))
+                                                                .thenReturn(Optional.of(enrollment));
+                                when(courseRevisionRepository.findByIdAndCourse_Id(revisionId, courseId))
+                                                                .thenReturn(Optional.of(revision));
+                                when(moduleRepository.findByCourseIdOrderByOrderIndexAsc(courseId)).thenReturn(List.of());
+
+                                Optional<List<ModuleDetailDTO>> resolved = resolver.resolveModulesWithContent(course, actorId);
+
+                                assertTrue(resolved.isPresent());
+                                assertEquals(1, resolved.get().size());
+                                ModuleDetailDTO module = resolved.get().get(0);
+
+                                assertEquals(1, module.getLessons().size());
+                                assertEquals(2, module.getQuizzes().size());
+                                assertEquals(1, module.getAssignments().size());
+                                assertEquals("Legacy reading", module.getLessons().get(0).getTitle());
+                                assertEquals("Legacy quiz in items", module.getQuizzes().get(0).getTitle());
+                                assertEquals("Standalone quiz", module.getQuizzes().get(1).getTitle());
+                                assertEquals("Standalone assignment", module.getAssignments().get(0).getTitle());
+                }
+
+                            @Test
+                            void shouldRecoverMissingLegacyLessonIdFromLiveModuleContent() throws Exception {
+                                Long actorId = 305L;
+                                Long courseId = 35L;
+                                Long revisionId = 906L;
+                                Long moduleId = 1201L;
+                                Long lessonId = 2201L;
+
+                                Course course = buildCourse(courseId, 3L);
+                                course.setActiveRevisionId(revisionId);
+
+                                CourseEnrollment enrollment = CourseEnrollment.builder()
+                                        .course(course)
+                                        .user(User.builder().id(actorId).build())
+                                        .status(EnrollmentStatus.ENROLLED)
+                                        .learningRevisionId(revisionId)
+                                        .build();
+
+                                CourseRevision revision = CourseRevision.builder()
+                                        .id(revisionId)
+                                        .course(course)
+                                        .revisionNumber(2)
+                                        .status(CourseRevisionStatus.APPROVED)
+                                        .contentSnapshotJson(objectMapper.readTree("""
+                                                {
+                                                  "snapshotVersion": 1,
+                                                  "modules": [
+                                                    {
+                                                      "id": 1201,
+                                                      "title": "Module Legacy",
+                                                      "lessons": [
+                                                        {"type": "reading", "orderIndex": 0, "title": "Live reading title"}
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                                """))
+                                        .createdAt(Instant.now())
+                                        .build();
+
+                                Module liveModule = Module.builder()
+                                        .id(moduleId)
+                                        .course(course)
+                                        .title("Module Legacy")
+                                        .orderIndex(0)
+                                        .build();
+                                Lesson liveLesson = Lesson.builder()
+                                        .id(lessonId)
+                                        .module(liveModule)
+                                        .title("Live reading title")
+                                        .orderIndex(0)
+                                        .build();
+                                liveModule.setLessons(List.of(liveLesson));
+
+                                when(enrollmentRepository.findByCourseIdAndUserId(courseId, actorId))
+                                        .thenReturn(Optional.of(enrollment));
+                                when(courseRevisionRepository.findByIdAndCourse_Id(revisionId, courseId))
+                                        .thenReturn(Optional.of(revision));
+                                when(moduleRepository.findByCourseIdOrderByOrderIndexAsc(courseId)).thenReturn(List.of(liveModule));
+
+                                Optional<List<ModuleDetailDTO>> resolved = resolver.resolveModulesWithContent(course, actorId);
+
+                                assertTrue(resolved.isPresent());
+                                assertEquals(1, resolved.get().size());
+                                ModuleDetailDTO module = resolved.get().get(0);
+                                assertEquals(1, module.getLessons().size());
+                                assertEquals(lessonId, module.getLessons().get(0).getId());
+                                assertEquals("Live reading title", module.getLessons().get(0).getTitle());
+                            }
 
     private Course buildCourse(Long courseId, Long authorId) {
         return Course.builder()

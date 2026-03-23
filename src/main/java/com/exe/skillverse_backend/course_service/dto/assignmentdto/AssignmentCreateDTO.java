@@ -19,6 +19,7 @@ public class AssignmentCreateDTO {
     private String title;
     @NotNull
     private SubmissionType submissionType;
+    private Integer orderIndex;
     @NotNull
     private BigDecimal maxScore;
     private BigDecimal passingScore;

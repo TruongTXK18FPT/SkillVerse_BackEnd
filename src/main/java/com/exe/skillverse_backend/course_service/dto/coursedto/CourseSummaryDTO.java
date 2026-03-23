@@ -26,7 +26,7 @@ public class CourseSummaryDTO {
     private String thumbnailUrl;
     private Integer enrollmentCount;
     private Integer moduleCount;
-    private Integer lessonCount; // Total number of lessons across all modules
+    private Integer lessonCount; // Total learning items across modules (lessons, quizzes, assignments)
     private BigDecimal price;
     private String currency;
     // Additional timestamps for admin and list views

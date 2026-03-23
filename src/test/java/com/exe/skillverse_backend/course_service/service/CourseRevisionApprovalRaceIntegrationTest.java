@@ -46,7 +46,6 @@ import com.exe.skillverse_backend.course_service.repository.QuizQuestionReposito
 import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 import com.exe.skillverse_backend.course_service.repository.SubmissionCriteriaScoreRepository;
 import com.exe.skillverse_backend.course_service.service.impl.AssignmentServiceImpl;
-import com.exe.skillverse_backend.course_service.service.impl.CourseAutoCompatibleUpgradeExecutor;
 import com.exe.skillverse_backend.course_service.service.impl.CourseRevisionServiceImpl;
 import com.exe.skillverse_backend.course_service.service.impl.QuizServiceImpl;
 import com.exe.skillverse_backend.course_service.service.impl.RevisionPinnedContentResolver;
@@ -87,8 +86,6 @@ class CourseRevisionApprovalRaceIntegrationTest {
     private CourseRevisionRepository courseRevisionRepository;
     @Mock
     private CourseRevisionFeatureProperties courseRevisionFeatureProperties;
-    @Mock
-    private CourseAutoCompatibleUpgradeExecutor autoCompatibleUpgradeExecutor;
     @Mock
     private Clock revisionClock;
     @Mock
@@ -172,7 +169,6 @@ class CourseRevisionApprovalRaceIntegrationTest {
                 assignmentRepository,
                 mediaRepository,
                 courseRevisionFeatureProperties,
-                autoCompatibleUpgradeExecutor,
                 revisionClock,
                 revisionObjectMapper,
                 meterRegistry
@@ -244,8 +240,6 @@ class CourseRevisionApprovalRaceIntegrationTest {
         when(revisionClock.instant()).thenReturn(now);
         when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(courseRepository.save(course)).thenReturn(course);
-        when(autoCompatibleUpgradeExecutor.executeAfterRevisionApproval(eq(course), eq(oldRevisionId), eq(pendingRevision)))
-                .thenReturn(CourseAutoCompatibleUpgradeExecutor.AutoUpgradeExecutionResult.upgraded(1));
 
         Course quizCourse = Course.builder().id(courseId).author(author).build();
         Module module = Module.builder().id(88L).course(quizCourse).build();
@@ -329,8 +323,6 @@ class CourseRevisionApprovalRaceIntegrationTest {
         when(revisionClock.instant()).thenReturn(now);
         when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(courseRepository.save(course)).thenReturn(course);
-        when(autoCompatibleUpgradeExecutor.executeAfterRevisionApproval(eq(course), eq(oldRevisionId), eq(pendingRevision)))
-                .thenReturn(CourseAutoCompatibleUpgradeExecutor.AutoUpgradeExecutionResult.upgraded(1));
 
         User learner = User.builder().id(userId).build();
         Module module = Module.builder().id(99L).course(course).build();
@@ -375,7 +367,6 @@ class CourseRevisionApprovalRaceIntegrationTest {
             assertEquals(CourseRevisionStatus.APPROVED, approved.getStatus());
             assertEquals(7001L, submitted.getId());
             verify(submissionRepository).save(any(AssignmentSubmission.class));
-            verify(autoCompatibleUpgradeExecutor).executeAfterRevisionApproval(eq(course), eq(oldRevisionId), eq(pendingRevision));
         } finally {
             pool.shutdownNow();
         }

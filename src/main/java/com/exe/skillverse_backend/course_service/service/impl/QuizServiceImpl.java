@@ -2,6 +2,8 @@ package com.exe.skillverse_backend.course_service.service.impl;
 
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
+import com.exe.skillverse_backend.course_service.dto.progressdto.CourseLearningStatusDTO;
+import com.exe.skillverse_backend.course_service.dto.progressdto.ImpactedLearningItemDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Quiz;
@@ -570,7 +572,9 @@ public class QuizServiceImpl implements QuizService {
         log.debug("Getting quiz details for {}", quizId);
 
         Quiz quiz = getQuizOrThrow(quizId);
-        return quizMapper.toDetailDto(quiz);
+        QuizDetailDTO detail = quizMapper.toDetailDto(quiz);
+        applyDefaultBreakingMetadata(detail);
+        return detail;
     }
 
     @Override
@@ -581,6 +585,7 @@ public class QuizServiceImpl implements QuizService {
         Quiz quizEntity = getQuizOrThrow(quizId);
         ensureCanAccessLearningContent(quizEntity, userId);
         QuizDetailDTO quiz = quizMapper.toDetailDto(quizEntity);
+        applyBreakingMetadataForLearner(quizEntity, quiz, userId);
         sanitizeQuizForLearner(quiz);
         return quiz;
     }
@@ -1345,5 +1350,74 @@ public class QuizServiceImpl implements QuizService {
             }
             question.setCorrectOptionCount(correctCount);
         }
+    }
+
+    private void applyBreakingMetadataForLearner(Quiz quizEntity, QuizDetailDTO quiz, Long userId) {
+        applyDefaultBreakingMetadata(quiz);
+        if (quiz == null
+                || quizEntity == null
+                || quizEntity.getModule() == null
+                || quizEntity.getModule().getCourse() == null
+                || quizEntity.getModule().getCourse().getId() == null
+                || userId == null
+                || quiz.getId() == null) {
+            return;
+        }
+
+        try {
+            CourseLearningStatusDTO learningStatus = courseLearningProgressService.getCourseLearningStatus(
+                    quizEntity.getModule().getCourse().getId(),
+                    userId
+            );
+            if (learningStatus == null || learningStatus.getImpactedItems() == null || learningStatus.getImpactedItems().isEmpty()) {
+                return;
+            }
+
+            Optional<ImpactedLearningItemDTO> impactedQuizItem = learningStatus.getImpactedItems().stream()
+                    .filter(item -> item != null
+                            && item.getItemId() != null
+                            && item.getItemType() != null
+                            && Objects.equals(item.getItemId(), quiz.getId())
+                            && "QUIZ".equalsIgnoreCase(item.getItemType()))
+                    .findFirst();
+
+            if (impactedQuizItem.isEmpty()) {
+                return;
+            }
+
+            ImpactedLearningItemDTO impactedItem = impactedQuizItem.get();
+            boolean isBreakingChanged = Boolean.TRUE.equals(impactedItem.getIsBreakingChanged())
+                    || Boolean.TRUE.equals(impactedItem.getRequiresRetake())
+                    || impactedItem.getBreakingReason() != null
+                    || impactedItem.getReasonCode() != null;
+            if (!isBreakingChanged) {
+                return;
+            }
+
+            quiz.setIsBreakingChanged(true);
+            quiz.setRequiresRetake(impactedItem.getRequiresRetake() == null || impactedItem.getRequiresRetake());
+            quiz.setBreakingReason(impactedItem.getBreakingReason() != null
+                    ? impactedItem.getBreakingReason()
+                    : impactedItem.getReasonCode());
+            quiz.setSourceRevisionId(impactedItem.getSourceRevisionId());
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "quiz_breaking_metadata_lookup_failed quizId={} userId={} courseId={} reason={}",
+                    quiz.getId(),
+                    userId,
+                    quizEntity.getModule().getCourse().getId(),
+                    ex.getMessage()
+            );
+        }
+    }
+
+    private void applyDefaultBreakingMetadata(QuizDetailDTO quiz) {
+        if (quiz == null) {
+            return;
+        }
+        quiz.setIsBreakingChanged(false);
+        quiz.setRequiresRetake(false);
+        quiz.setBreakingReason(null);
+        quiz.setSourceRevisionId(null);
     }
 }

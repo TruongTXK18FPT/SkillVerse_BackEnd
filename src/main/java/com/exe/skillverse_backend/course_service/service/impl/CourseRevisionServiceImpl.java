@@ -40,6 +40,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.micrometer.core.instrument.Counter;
@@ -56,10 +57,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -70,8 +73,6 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 @RequiredArgsConstructor
@@ -91,7 +92,6 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
     private final AssignmentRepository assignmentRepository;
     private final MediaRepository mediaRepository;
     private final CourseRevisionFeatureProperties courseRevisionFeatureProperties;
-    private final CourseAutoCompatibleUpgradeExecutor autoCompatibleUpgradeExecutor;
     private final Clock clock;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
@@ -428,7 +428,6 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         Long courseId = revision.getCourse().getId();
         Course course = courseRepository.findByIdForRevisionApproval(courseId)
                 .orElseThrow(() -> new NotFoundException("COURSE_NOT_FOUND"));
-        Long previousActiveRevisionId = course.getActiveRevisionId();
 
         revision.setStatus(CourseRevisionStatus.APPROVED);
         revision.setApprovedAt(now());
@@ -444,9 +443,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         course.setUpdatedAt(now());
         courseRepository.save(course);
 
-        CourseAutoCompatibleUpgradeExecutor.AutoUpgradeExecutionResult autoUpgradeResult =
-                autoCompatibleUpgradeExecutor.executeAfterRevisionApproval(course, previousActiveRevisionId, saved);
-        registerPostCommitAutoUpgradeReconciliation(course.getId(), previousActiveRevisionId, saved.getId());
+        String autoUpgradeReasonCode = "POLICY_MANUAL_ONLY";
 
         logRevisionEvent(
                 "approve",
@@ -454,13 +451,13 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 saved.getId(),
                 saved.getSourceRevisionId(),
                 adminId,
-                autoUpgradeResult.getReasonCode()
+            autoUpgradeReasonCode
         );
         CourseRevisionDTO dto = toRevisionDto(saved);
-        dto.setAutoUpgradeOutcome(autoUpgradeResult.getOutcome());
-        dto.setAutoUpgradeAffectedEnrollments(autoUpgradeResult.getUpgradedCount());
-        dto.setAutoUpgradeReasonCode(autoUpgradeResult.getReasonCode());
-        dto.setAutoUpgradeReasonDetail(autoUpgradeResult.getReasonDetail());
+        dto.setAutoUpgradeOutcome("SKIPPED");
+        dto.setAutoUpgradeAffectedEnrollments(0);
+        dto.setAutoUpgradeReasonCode(autoUpgradeReasonCode);
+        dto.setAutoUpgradeReasonDetail("Manual-only policy: no auto-upgrade execution on approval.");
         return dto;
     }
 
@@ -728,8 +725,22 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         putNullableText(root, "price", normalizeMoney(price));
         root.set("learningObjectives", canonicalizeStringArray(learningObjectives));
         root.set("requirements", canonicalizeStringArray(requirements));
-        root.set("contentSnapshot", canonicalizeJsonNode(contentSnapshot));
+        root.set("contentSnapshot", canonicalizeContentSnapshotForHash(contentSnapshot));
         return root;
+    }
+
+    /**
+     * Compatibility metadata controls auto-upgrade policy evaluation and must not alter
+     * no-meaningful-change hashing for revision content identity.
+     */
+    private JsonNode canonicalizeContentSnapshotForHash(JsonNode contentSnapshot) {
+        JsonNode normalized = defaultContentSnapshot(contentSnapshot);
+        if (!(normalized instanceof ObjectNode normalizedObject)) {
+            return canonicalizeJsonNode(normalized);
+        }
+        ObjectNode hashSafeSnapshot = normalizedObject.deepCopy();
+        hashSafeSnapshot.remove("compatibility");
+        return canonicalizeJsonNode(hashSafeSnapshot);
     }
 
     private String normalizeText(String value) {
@@ -1054,16 +1065,90 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         JsonNode versionNode = objectNode.get("snapshotVersion");
         if (versionNode == null || versionNode.isNull()) {
             objectNode.put("snapshotVersion", CONTENT_SNAPSHOT_VERSION_V1);
-            return objectNode;
-        }
-        if (!versionNode.canConvertToInt()) {
+        } else if (!versionNode.canConvertToInt()) {
             throw new BadRequestException("COURSE_REVISION_UNSUPPORTED_SNAPSHOT_VERSION");
+        } else {
+            int snapshotVersion = versionNode.asInt();
+            if (snapshotVersion != CONTENT_SNAPSHOT_VERSION_V1) {
+                throw new BadRequestException("COURSE_REVISION_UNSUPPORTED_SNAPSHOT_VERSION");
+            }
         }
-        int snapshotVersion = versionNode.asInt();
-        if (snapshotVersion != CONTENT_SNAPSHOT_VERSION_V1) {
-            throw new BadRequestException("COURSE_REVISION_UNSUPPORTED_SNAPSHOT_VERSION");
-        }
+        ensureSnapshotCompatibility(objectNode);
         return objectNode;
+    }
+
+    private void ensureSnapshotCompatibility(ObjectNode snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+        ObjectNode compatibilityNode;
+        JsonNode rawCompatibility = snapshot.get("compatibility");
+        if (rawCompatibility instanceof ObjectNode objectNode) {
+            compatibilityNode = objectNode;
+        } else {
+            compatibilityNode = snapshot.putObject("compatibility");
+        }
+
+        JsonNode autoCompatibleNode = compatibilityNode.get("autoCompatibleOnly");
+        Boolean normalizedAutoCompatible = parseCompatibilityBoolean(autoCompatibleNode);
+        if (normalizedAutoCompatible == null) {
+            compatibilityNode.put("autoCompatibleOnly", true);
+        } else {
+            compatibilityNode.put("autoCompatibleOnly", normalizedAutoCompatible);
+        }
+
+        JsonNode levelNode = compatibilityNode.get("level");
+        compatibilityNode.put("level", normalizeCompatibilityLevel(levelNode));
+    }
+
+    private Boolean parseCompatibilityBoolean(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        if (node.isBoolean()) {
+            return node.asBoolean();
+        }
+        if (node.isNumber()) {
+            return node.intValue() != 0;
+        }
+        if (!node.isTextual()) {
+            return null;
+        }
+        String normalized = node.asText("").trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        if ("true".equals(normalized)
+                || "1".equals(normalized)
+                || "yes".equals(normalized)
+                || "y".equals(normalized)) {
+            return Boolean.TRUE;
+        }
+        if ("false".equals(normalized)
+                || "0".equals(normalized)
+                || "no".equals(normalized)
+                || "n".equals(normalized)) {
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
+    private String normalizeCompatibilityLevel(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return "NON_BREAKING";
+        }
+        if (!node.isTextual()) {
+            return "NON_BREAKING";
+        }
+        String raw = node.asText("").trim();
+        if (raw.isBlank()) {
+            return "NON_BREAKING";
+        }
+        String normalized = raw.toUpperCase(Locale.ROOT);
+        if ("AUTO_COMPATIBLE_ONLY".equals(normalized)) {
+            return "NON_BREAKING";
+        }
+        return normalized;
     }
 
     private JsonNode materializeSnapshotIdentityForSubmit(JsonNode contentSnapshot, Course course, Long revisionId) {
@@ -1071,6 +1156,11 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         if (!(normalized instanceof ObjectNode snapshotObject)) {
             return normalized;
         }
+
+        Set<Long> claimedModuleIds = new LinkedHashSet<>();
+        Set<Long> claimedLessonIds = new LinkedHashSet<>();
+        Set<Long> claimedQuizIds = new LinkedHashSet<>();
+        Set<Long> claimedAssignmentIds = new LinkedHashSet<>();
 
         JsonNode modulesNode = snapshotObject.path("modules");
         if (!modulesNode.isArray()) {
@@ -1088,7 +1178,8 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     moduleIdPath,
                     course,
                     moduleIndex,
-                    revisionId
+                    revisionId,
+                    claimedModuleIds
             );
             moduleNode.put("id", module.getId());
 
@@ -1110,7 +1201,10 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                         itemIdPath,
                         module,
                         itemIndex,
-                        revisionId
+                    revisionId,
+                    claimedLessonIds,
+                    claimedQuizIds,
+                    claimedAssignmentIds
                 );
                 itemNode.put("id", itemId);
             }
@@ -1124,7 +1218,8 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             String path,
             Course course,
             int fallbackOrderIndex,
-            Long revisionId
+            Long revisionId,
+            Set<Long> claimedModuleIds
     ) {
         Long explicitId = parseExplicitPositiveId(moduleNode);
         if (explicitId != null) {
@@ -1132,7 +1227,12 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             if (existingOpt.isPresent()) {
                 Module existing = existingOpt.get();
                 Long moduleCourseId = existing.getCourse() != null ? existing.getCourse().getId() : null;
-                if (moduleCourseId != null && moduleCourseId.equals(course.getId())) {
+                if (moduleCourseId != null
+                        && moduleCourseId.equals(course.getId())
+                        && (claimedModuleIds == null || !claimedModuleIds.contains(existing.getId()))) {
+                    if (claimedModuleIds != null) {
+                        claimedModuleIds.add(existing.getId());
+                    }
                     return existing;
                 }
                 log.warn(
@@ -1153,6 +1253,22 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             }
         }
 
+        Module equivalentModule = findEquivalentModuleInCourse(course, moduleNode, claimedModuleIds);
+        if (equivalentModule != null) {
+            log.info(
+                    "course_revision_event action=materialize_module_identity_reused courseId={} revisionId={} path={} reasonCode={} moduleId={}",
+                    course.getId(),
+                    revisionId,
+                    path,
+                    "MODULE_EQUIVALENT_REUSE_NO_ID",
+                    equivalentModule.getId()
+            );
+            if (claimedModuleIds != null) {
+                claimedModuleIds.add(equivalentModule.getId());
+            }
+            return equivalentModule;
+        }
+
         Module created = Module.builder()
                 .course(course)
                 .title(textOrDefault(moduleNode.path("title"), "Module " + (fallbackOrderIndex + 1)))
@@ -1161,7 +1277,11 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .createdAt(now())
                 .updatedAt(now())
                 .build();
-        return moduleRepository.save(created);
+        Module saved = moduleRepository.save(created);
+        if (claimedModuleIds != null && saved.getId() != null) {
+            claimedModuleIds.add(saved.getId());
+        }
+        return saved;
     }
 
     private Long resolveOrCreateItemIdentity(
@@ -1170,12 +1290,22 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             String path,
             Module module,
             int fallbackOrderIndex,
-            Long revisionId
+            Long revisionId,
+            Set<Long> claimedLessonIds,
+            Set<Long> claimedQuizIds,
+            Set<Long> claimedAssignmentIds
     ) {
         return switch (itemType) {
-            case "quiz" -> resolveQuizIdentity(itemNode, path, module, fallbackOrderIndex, revisionId);
-            case "assignment" -> resolveAssignmentIdentity(itemNode, path, module, fallbackOrderIndex, revisionId);
-            default -> resolveLessonIdentity(itemNode, path, module, fallbackOrderIndex, revisionId);
+            case "quiz" -> resolveQuizIdentity(itemNode, path, module, fallbackOrderIndex, revisionId, claimedQuizIds);
+            case "assignment" -> resolveAssignmentIdentity(
+                    itemNode,
+                    path,
+                    module,
+                    fallbackOrderIndex,
+                    revisionId,
+                    claimedAssignmentIds
+            );
+            default -> resolveLessonIdentity(itemNode, path, module, fallbackOrderIndex, revisionId, claimedLessonIds);
         };
     }
 
@@ -1184,16 +1314,47 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             String path,
             Module module,
             int fallbackOrderIndex,
-            Long revisionId
+            Long revisionId,
+            Set<Long> claimedLessonIds
     ) {
         Long explicitId = parseExplicitPositiveId(itemNode);
         if (explicitId == null) {
-            return createLessonFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Long equivalentId = findEquivalentLessonIdInModule(itemNode, module, claimedLessonIds);
+            if (equivalentId != null) {
+                log.info(
+                        "course_revision_event action=materialize_lesson_identity_reused courseId={} revisionId={} path={} reasonCode={} lessonId={}",
+                        module.getCourse().getId(),
+                        revisionId,
+                        path,
+                        "LESSON_EQUIVALENT_REUSE_NO_ID",
+                        equivalentId
+                );
+                if (claimedLessonIds != null) {
+                    claimedLessonIds.add(equivalentId);
+                }
+                return equivalentId;
+            }
+            Lesson created = createLessonFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedLessonIds != null && created.getId() != null) {
+                claimedLessonIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         Optional<Lesson> existingOpt = lessonRepository.findById(explicitId);
         if (existingOpt.isEmpty()) {
-            return createLessonFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Long equivalentId = findEquivalentLessonIdInModule(itemNode, module, claimedLessonIds);
+            if (equivalentId != null) {
+                if (claimedLessonIds != null) {
+                    claimedLessonIds.add(equivalentId);
+                }
+                return equivalentId;
+            }
+            Lesson created = createLessonFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedLessonIds != null && created.getId() != null) {
+                claimedLessonIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         Lesson existing = existingOpt.get();
@@ -1206,12 +1367,35 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     path,
                     "LESSON_ID_SCOPE_MISMATCH"
             );
-            return createLessonFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Long equivalentId = findEquivalentLessonIdInModule(itemNode, module, claimedLessonIds);
+            if (equivalentId != null) {
+                if (claimedLessonIds != null) {
+                    claimedLessonIds.add(equivalentId);
+                }
+                return equivalentId;
+            }
+            Lesson created = createLessonFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedLessonIds != null && created.getId() != null) {
+                claimedLessonIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         boolean equivalentSnapshot = isLessonEquivalentSnapshot(existing, itemNode);
         if (!equivalentSnapshot) {
-            return createLessonFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Lesson created = createLessonFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedLessonIds != null && created.getId() != null) {
+                claimedLessonIds.add(created.getId());
+            }
+            return created.getId();
+        }
+
+        if (claimedLessonIds != null && claimedLessonIds.contains(explicitId)) {
+            Lesson created = createLessonFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedLessonIds != null && created.getId() != null) {
+                claimedLessonIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         if (!Objects.equals(existing.getModule().getId(), module.getId())) {
@@ -1223,6 +1407,9 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     "LESSON_MODULE_CHANGED_REUSE_ID"
             );
         }
+        if (claimedLessonIds != null) {
+            claimedLessonIds.add(explicitId);
+        }
         return explicitId;
     }
 
@@ -1231,16 +1418,25 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             String path,
             Module module,
             int fallbackOrderIndex,
-            Long revisionId
+            Long revisionId,
+            Set<Long> claimedQuizIds
     ) {
         Long explicitId = parseExplicitPositiveId(itemNode);
         if (explicitId == null) {
-            return createQuizFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Quiz created = createQuizFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedQuizIds != null && created.getId() != null) {
+                claimedQuizIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         Optional<Quiz> existingOpt = quizRepository.findById(explicitId);
         if (existingOpt.isEmpty()) {
-            return createQuizFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Quiz created = createQuizFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedQuizIds != null && created.getId() != null) {
+                claimedQuizIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         Quiz existing = existingOpt.get();
@@ -1253,12 +1449,28 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     path,
                     "QUIZ_ID_SCOPE_MISMATCH"
             );
-            return createQuizFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Quiz created = createQuizFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedQuizIds != null && created.getId() != null) {
+                claimedQuizIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         boolean equivalentSnapshot = isQuizEquivalentSnapshot(existing, itemNode);
         if (!equivalentSnapshot) {
-            return createQuizFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Quiz created = createQuizFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedQuizIds != null && created.getId() != null) {
+                claimedQuizIds.add(created.getId());
+            }
+            return created.getId();
+        }
+
+        if (claimedQuizIds != null && claimedQuizIds.contains(explicitId)) {
+            Quiz created = createQuizFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedQuizIds != null && created.getId() != null) {
+                claimedQuizIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         if (!Objects.equals(existing.getModule().getId(), module.getId())) {
@@ -1270,6 +1482,9 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     "QUIZ_MODULE_CHANGED_REUSE_ID"
             );
         }
+        if (claimedQuizIds != null) {
+            claimedQuizIds.add(explicitId);
+        }
         return explicitId;
     }
 
@@ -1278,16 +1493,39 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             String path,
             Module module,
             int fallbackOrderIndex,
-            Long revisionId
+            Long revisionId,
+            Set<Long> claimedAssignmentIds
     ) {
         Long explicitId = parseExplicitPositiveId(itemNode);
         if (explicitId == null) {
-            return createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Long equivalentId = findEquivalentAssignmentIdInModule(itemNode, module, claimedAssignmentIds);
+            if (equivalentId != null) {
+                if (claimedAssignmentIds != null) {
+                    claimedAssignmentIds.add(equivalentId);
+                }
+                return equivalentId;
+            }
+            Assignment created = createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedAssignmentIds != null && created.getId() != null) {
+                claimedAssignmentIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         Optional<Assignment> existingOpt = assignmentRepository.findById(explicitId);
         if (existingOpt.isEmpty()) {
-            return createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Long equivalentId = findEquivalentAssignmentIdInModule(itemNode, module, claimedAssignmentIds);
+            if (equivalentId != null) {
+                if (claimedAssignmentIds != null) {
+                    claimedAssignmentIds.add(equivalentId);
+                }
+                return equivalentId;
+            }
+            Assignment created = createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedAssignmentIds != null && created.getId() != null) {
+                claimedAssignmentIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         Assignment existing = existingOpt.get();
@@ -1300,12 +1538,35 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     path,
                     "ASSIGNMENT_ID_SCOPE_MISMATCH"
             );
-            return createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Long equivalentId = findEquivalentAssignmentIdInModule(itemNode, module, claimedAssignmentIds);
+            if (equivalentId != null) {
+                if (claimedAssignmentIds != null) {
+                    claimedAssignmentIds.add(equivalentId);
+                }
+                return equivalentId;
+            }
+            Assignment created = createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedAssignmentIds != null && created.getId() != null) {
+                claimedAssignmentIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         boolean equivalentSnapshot = isAssignmentEquivalentSnapshot(existing, itemNode);
         if (!equivalentSnapshot) {
-            return createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex).getId();
+            Assignment created = createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedAssignmentIds != null && created.getId() != null) {
+                claimedAssignmentIds.add(created.getId());
+            }
+            return created.getId();
+        }
+
+        if (claimedAssignmentIds != null && claimedAssignmentIds.contains(explicitId)) {
+            Assignment created = createAssignmentFromSnapshot(itemNode, module, fallbackOrderIndex);
+            if (claimedAssignmentIds != null && created.getId() != null) {
+                claimedAssignmentIds.add(created.getId());
+            }
+            return created.getId();
         }
 
         if (!Objects.equals(existing.getModule().getId(), module.getId())) {
@@ -1317,7 +1578,90 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     "ASSIGNMENT_MODULE_CHANGED_REUSE_ID"
             );
         }
+        if (claimedAssignmentIds != null) {
+            claimedAssignmentIds.add(explicitId);
+        }
         return explicitId;
+    }
+
+    private Module findEquivalentModuleInCourse(
+            Course course,
+            ObjectNode moduleNode,
+            Set<Long> claimedModuleIds
+    ) {
+        if (course == null || course.getId() == null) {
+            return null;
+        }
+        String snapshotTitle = normalizeText(textOrNull(moduleNode.path("title")));
+        if (snapshotTitle == null) {
+            return null;
+        }
+        String snapshotDescription = normalizeText(textOrNull(moduleNode.path("description")));
+
+        List<Module> candidates = moduleRepository.findByCourseIdOrderByOrderIndexAsc(course.getId());
+        for (Module candidate : candidates) {
+            if (candidate == null || candidate.getId() == null) {
+                continue;
+            }
+            if (claimedModuleIds != null && claimedModuleIds.contains(candidate.getId())) {
+                continue;
+            }
+            if (!Objects.equals(normalizeText(candidate.getTitle()), snapshotTitle)) {
+                continue;
+            }
+            if (snapshotDescription != null
+                    && !Objects.equals(normalizeText(candidate.getDescription()), snapshotDescription)) {
+                continue;
+            }
+            return candidate;
+        }
+        return null;
+    }
+
+    private Long findEquivalentLessonIdInModule(
+            ObjectNode itemNode,
+            Module module,
+            Set<Long> claimedLessonIds
+    ) {
+        if (module == null || module.getId() == null) {
+            return null;
+        }
+        List<Lesson> candidates = lessonRepository.findByModuleIdOrderByOrderIndexAsc(module.getId());
+        for (Lesson candidate : candidates) {
+            if (candidate == null || candidate.getId() == null) {
+                continue;
+            }
+            if (claimedLessonIds != null && claimedLessonIds.contains(candidate.getId())) {
+                continue;
+            }
+            if (isLessonEquivalentSnapshot(candidate, itemNode)) {
+                return candidate.getId();
+            }
+        }
+        return null;
+    }
+
+    private Long findEquivalentAssignmentIdInModule(
+            ObjectNode itemNode,
+            Module module,
+            Set<Long> claimedAssignmentIds
+    ) {
+        if (module == null || module.getId() == null) {
+            return null;
+        }
+        List<Assignment> candidates = assignmentRepository.findByModuleIdOrderByOrderIndexAsc(module.getId());
+        for (Assignment candidate : candidates) {
+            if (candidate == null || candidate.getId() == null) {
+                continue;
+            }
+            if (claimedAssignmentIds != null && claimedAssignmentIds.contains(candidate.getId())) {
+                continue;
+            }
+            if (isAssignmentEquivalentSnapshot(candidate, itemNode)) {
+                return candidate.getId();
+            }
+        }
+        return null;
     }
 
     private Lesson createLessonFromSnapshot(ObjectNode itemNode, Module module, int fallbackOrderIndex) {
@@ -1483,7 +1827,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .isRequired(parseBoolean(itemNode.path("isRequired"), true))
                 .createdAt(now())
                 .updatedAt(now())
-                .criteria(buildAssignmentCriteria(itemNode.path("assignmentCriteria")))
+                .criteria(buildAssignmentCriteria(resolveAssignmentCriteriaNode(itemNode)))
                 .build();
 
         if (assignment.getCriteria() != null) {
@@ -1507,16 +1851,39 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 continue;
             }
 
+                BigDecimal snapshotMaxPoints = parseDecimal(criteriaObject.path("maxPoints"), BigDecimal.ZERO);
+                BigDecimal snapshotPassingPoints = resolveCriteriaPassingPointsFromSnapshot(
+                    criteriaObject,
+                    snapshotMaxPoints,
+                    BigDecimal.ZERO
+                );
+
             AssignmentCriteria assignmentCriteria = AssignmentCriteria.builder()
                     .name(textOrDefault(criteriaObject.path("name"), "Tiêu chí " + (criteriaIndex + 1)))
                     .description(textOrNull(criteriaObject.path("description")))
-                    .maxPoints(parseDecimal(criteriaObject.path("maxPoints"), BigDecimal.ZERO))
+                    .maxPoints(snapshotMaxPoints)
+                    .passingPoints(snapshotPassingPoints)
                     .orderIndex(parseInteger(criteriaObject.path("orderIndex"), criteriaIndex))
                     .isRequired(parseBoolean(criteriaObject.path("isRequired"), false))
                     .build();
             criteria.add(assignmentCriteria);
         }
         return criteria;
+    }
+
+    private JsonNode resolveAssignmentCriteriaNode(ObjectNode itemNode) {
+        if (itemNode == null) {
+            return MissingNode.getInstance();
+        }
+        JsonNode assignmentCriteriaNode = itemNode.path("assignmentCriteria");
+        if (assignmentCriteriaNode.isArray()) {
+            return assignmentCriteriaNode;
+        }
+        JsonNode legacyCriteriaNode = itemNode.path("criteria");
+        if (legacyCriteriaNode.isArray()) {
+            return legacyCriteriaNode;
+        }
+        return MissingNode.getInstance();
     }
 
     private boolean isLessonEquivalentSnapshot(Lesson existing, ObjectNode itemNode) {
@@ -1616,34 +1983,60 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         if (!Objects.equals(normalizeText(existing.getTitle()), normalizeText(textOrDefault(itemNode.path("title"), "Quiz")))) {
             return false;
         }
-        String snapshotDescription = firstNonBlank(
-                textOrNull(itemNode.path("quizDescription")),
-                textOrNull(itemNode.path("description")),
-                textOrNull(itemNode.path("contentText"))
-        );
+        String snapshotDescription = hasAnyField(itemNode, "quizDescription", "description", "contentText")
+                ? firstNonBlank(
+                        textOrNull(itemNode.path("quizDescription")),
+                        textOrNull(itemNode.path("description")),
+                        textOrNull(itemNode.path("contentText"))
+                )
+                : existing.getDescription();
         if (!Objects.equals(normalizeText(existing.getDescription()), normalizeText(snapshotDescription))) {
             return false;
         }
-        if (!Objects.equals(existing.getPassScore(), parseInteger(itemNode.path("passScore"), 80))) {
+        Integer snapshotPassScore = hasExplicitField(itemNode, "passScore")
+            ? parseExplicitIntegerField(itemNode, "passScore", 80)
+                : existing.getPassScore();
+        if (!Objects.equals(existing.getPassScore(), snapshotPassScore)) {
             return false;
         }
-        if (!Objects.equals(existing.getMaxAttempts(), parseInteger(itemNode.path("quizMaxAttempts"), null))) {
+        Integer snapshotMaxAttempts = hasExplicitField(itemNode, "quizMaxAttempts")
+            ? parseInteger(itemNode.path("quizMaxAttempts"), existing.getMaxAttempts())
+                : existing.getMaxAttempts();
+        if (!Objects.equals(existing.getMaxAttempts(), snapshotMaxAttempts)) {
             return false;
         }
-        if (!Objects.equals(existing.getTimeLimitMinutes(), parseInteger(itemNode.path("quizTimeLimitMinutes"), null))) {
+        Integer snapshotTimeLimit = hasExplicitField(itemNode, "quizTimeLimitMinutes")
+            ? parseInteger(itemNode.path("quizTimeLimitMinutes"), existing.getTimeLimitMinutes())
+                : existing.getTimeLimitMinutes();
+        if (!Objects.equals(existing.getTimeLimitMinutes(), snapshotTimeLimit)) {
             return false;
         }
-        if (!Objects.equals(existing.getRoundingIncrement(), parseInteger(itemNode.path("roundingIncrement"), null))) {
+        Integer snapshotRoundingIncrement = hasExplicitField(itemNode, "roundingIncrement")
+            ? parseInteger(itemNode.path("roundingIncrement"), existing.getRoundingIncrement())
+                : existing.getRoundingIncrement();
+        if (!Objects.equals(existing.getRoundingIncrement(), snapshotRoundingIncrement)) {
             return false;
         }
-        if (!Objects.equals(existing.getGradingMethod(), parseQuizGradingMethod(itemNode.path("gradingMethod")))) {
+        QuizGradingMethod snapshotGradingMethod = hasExplicitField(itemNode, "gradingMethod")
+            ? parseQuizGradingMethodAllowNullAsExisting(itemNode.path("gradingMethod"), existing.getGradingMethod())
+                : existing.getGradingMethod();
+        if (!Objects.equals(existing.getGradingMethod(), snapshotGradingMethod)) {
             return false;
         }
-        if (!Objects.equals(existing.getIsAssessment(), parseBoolean(itemNode.path("isAssessment"), null))) {
+        Boolean snapshotIsAssessment = hasExplicitField(itemNode, "isAssessment")
+            ? parseBoolean(itemNode.path("isAssessment"), existing.getIsAssessment())
+                : existing.getIsAssessment();
+        if (!Objects.equals(existing.getIsAssessment(), snapshotIsAssessment)) {
             return false;
         }
-        if (!Objects.equals(existing.getCooldownHours(), parseInteger(itemNode.path("cooldownHours"), null))) {
+        Integer snapshotCooldownHours = hasExplicitField(itemNode, "cooldownHours")
+            ? parseInteger(itemNode.path("cooldownHours"), existing.getCooldownHours())
+                : existing.getCooldownHours();
+        if (!Objects.equals(existing.getCooldownHours(), snapshotCooldownHours)) {
             return false;
+        }
+        if (!hasExplicitField(itemNode, "questions")) {
+            return true;
         }
         return areQuizQuestionListsEquivalent(existing.getQuestions(), itemNode.path("questions"));
     }
@@ -1717,27 +2110,114 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         if (!Objects.equals(normalizeText(existing.getTitle()), normalizeText(textOrDefault(itemNode.path("title"), "Bài tập")))) {
             return false;
         }
-        String snapshotDescription = firstNonBlank(
-                textOrNull(itemNode.path("assignmentDescription")),
-                textOrNull(itemNode.path("description")),
-                textOrNull(itemNode.path("contentText"))
-        );
+        String snapshotDescription = hasAnyField(itemNode, "assignmentDescription", "description", "contentText")
+                ? firstNonBlank(
+                        textOrNull(itemNode.path("assignmentDescription")),
+                        textOrNull(itemNode.path("description")),
+                        textOrNull(itemNode.path("contentText"))
+                )
+                : existing.getDescription();
         if (!Objects.equals(normalizeText(existing.getDescription()), normalizeText(snapshotDescription))) {
             return false;
         }
-        if (!Objects.equals(existing.getSubmissionType(), parseSubmissionType(itemNode.path("assignmentSubmissionType")))) {
+        SubmissionType snapshotSubmissionType = hasAnyField(itemNode, "assignmentSubmissionType", "submissionType")
+            ? parseSubmissionTypeAllowNullAsExisting(
+                firstPresentNode(itemNode, "assignmentSubmissionType", "submissionType"),
+                existing.getSubmissionType()
+            )
+                : existing.getSubmissionType();
+        if (!Objects.equals(existing.getSubmissionType(), snapshotSubmissionType)) {
             return false;
         }
-        if (!Objects.equals(normalizeMoney(existing.getMaxScore()), normalizeMoney(parseDecimal(itemNode.path("assignmentMaxScore"), new BigDecimal("100"))))) {
+        BigDecimal snapshotMaxScore = hasAnyField(itemNode, "assignmentMaxScore", "maxScore")
+            ? parseDecimal(firstPresentNode(itemNode, "assignmentMaxScore", "maxScore"), existing.getMaxScore())
+                : existing.getMaxScore();
+        if (!Objects.equals(normalizeMoney(existing.getMaxScore()), normalizeMoney(snapshotMaxScore))) {
             return false;
         }
-        if (!Objects.equals(normalizeMoney(existing.getPassingScore()), normalizeMoney(parseDecimal(itemNode.path("assignmentPassingScore"), null)))) {
+        BigDecimal snapshotPassingScore = hasAnyField(itemNode, "assignmentPassingScore", "passingScore")
+            ? parseDecimalAllowExplicitNull(firstPresentNode(itemNode, "assignmentPassingScore", "passingScore"), null)
+                : existing.getPassingScore();
+        if (!Objects.equals(normalizeMoney(existing.getPassingScore()), normalizeMoney(snapshotPassingScore))) {
             return false;
         }
-        if (!Objects.equals(existing.getIsRequired(), parseBoolean(itemNode.path("isRequired"), true))) {
+        Boolean snapshotIsRequired = hasAnyField(itemNode, "isRequired", "required")
+            ? parseBoolean(firstPresentNode(itemNode, "isRequired", "required"), existing.getIsRequired())
+                : existing.getIsRequired();
+        if (!Objects.equals(existing.getIsRequired(), snapshotIsRequired)) {
             return false;
         }
-        return areAssignmentCriteriaEquivalent(existing.getCriteria(), itemNode.path("assignmentCriteria"));
+        if (!hasAnyField(itemNode, "assignmentCriteria", "criteria")) {
+            return true;
+        }
+        return areAssignmentCriteriaEquivalent(existing.getCriteria(), resolveAssignmentCriteriaNode(itemNode));
+    }
+
+    private boolean hasExplicitField(ObjectNode node, String fieldName) {
+        if (node == null || fieldName == null || fieldName.isBlank()) {
+            return false;
+        }
+        if (!node.has(fieldName)) {
+            return false;
+        }
+        JsonNode fieldNode = node.get(fieldName);
+        return fieldNode != null && !fieldNode.isMissingNode();
+    }
+
+    private boolean hasNonNullField(ObjectNode node, String fieldName) {
+        if (!hasExplicitField(node, fieldName)) {
+            return false;
+        }
+        JsonNode fieldNode = node.get(fieldName);
+        return fieldNode != null && !fieldNode.isNull();
+    }
+
+    private boolean hasAnyField(ObjectNode node, String... fieldNames) {
+        if (fieldNames == null || fieldNames.length == 0) {
+            return false;
+        }
+        for (String fieldName : fieldNames) {
+            if (hasExplicitField(node, fieldName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasAnyNonNullField(ObjectNode node, String... fieldNames) {
+        if (fieldNames == null || fieldNames.length == 0) {
+            return false;
+        }
+        for (String fieldName : fieldNames) {
+            if (hasNonNullField(node, fieldName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private JsonNode firstPresentNonNullNode(ObjectNode node, String... fieldNames) {
+        if (node == null || fieldNames == null || fieldNames.length == 0) {
+            return MissingNode.getInstance();
+        }
+        for (String fieldName : fieldNames) {
+            if (hasNonNullField(node, fieldName)) {
+                return node.get(fieldName);
+            }
+        }
+        return MissingNode.getInstance();
+    }
+
+    private JsonNode firstPresentNode(ObjectNode node, String... fieldNames) {
+        if (node == null || fieldNames == null || fieldNames.length == 0) {
+            return MissingNode.getInstance();
+        }
+        for (String fieldName : fieldNames) {
+            if (hasExplicitField(node, fieldName)) {
+                return node.get(fieldName);
+            }
+        }
+        return MissingNode.getInstance();
     }
 
     private boolean areAssignmentCriteriaEquivalent(List<AssignmentCriteria> existingCriteria, JsonNode criteriaNode) {
@@ -1755,30 +2235,180 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             AssignmentCriteria existingItem = existing.get(criteriaIndex);
             ObjectNode snapshotItem = snapshotCriteria.get(criteriaIndex);
 
-            String snapshotName = textOrDefault(snapshotItem.path("name"), "Tiêu chí " + (criteriaIndex + 1));
+            String snapshotName = hasExplicitField(snapshotItem, "name")
+                    ? textOrDefaultAllowExplicitNull(snapshotItem.path("name"), "Tiêu chí " + (criteriaIndex + 1))
+                    : existingItem.getName();
             if (!Objects.equals(normalizeText(existingItem.getName()), normalizeText(snapshotName))) {
                 return false;
             }
+            String snapshotDescription = hasExplicitField(snapshotItem, "description")
+                    ? textOrNull(snapshotItem.path("description"))
+                    : existingItem.getDescription();
             if (!Objects.equals(
                     normalizeText(existingItem.getDescription()),
-                    normalizeText(textOrNull(snapshotItem.path("description")))
+                    normalizeText(snapshotDescription)
             )) {
                 return false;
             }
+            BigDecimal snapshotMaxPoints = hasExplicitField(snapshotItem, "maxPoints")
+                    ? parseDecimalAllowExplicitNull(snapshotItem.path("maxPoints"), BigDecimal.ZERO)
+                    : existingItem.getMaxPoints();
             if (!Objects.equals(
                     normalizeMoney(existingItem.getMaxPoints()),
-                    normalizeMoney(parseDecimal(snapshotItem.path("maxPoints"), BigDecimal.ZERO))
+                    normalizeMoney(snapshotMaxPoints)
             )) {
                 return false;
             }
-            if (!Objects.equals(existingItem.getOrderIndex(), parseInteger(snapshotItem.path("orderIndex"), criteriaIndex))) {
+            Integer snapshotOrderIndex = hasExplicitField(snapshotItem, "orderIndex")
+                    ? parseInteger(snapshotItem.path("orderIndex"), existingItem.getOrderIndex())
+                    : existingItem.getOrderIndex();
+            if (!Objects.equals(existingItem.getOrderIndex(), snapshotOrderIndex)) {
                 return false;
             }
-            if (existingItem.isRequired() != parseBoolean(snapshotItem.path("isRequired"), false)) {
+            Boolean snapshotIsRequired = hasExplicitField(snapshotItem, "isRequired")
+                    ? parseBoolean(snapshotItem.path("isRequired"), existingItem.isRequired())
+                    : existingItem.isRequired();
+            if (!Objects.equals(Boolean.valueOf(existingItem.isRequired()), snapshotIsRequired)) {
+                return false;
+            }
+            BigDecimal snapshotPassingPoints = hasExplicitField(snapshotItem, "passingPoints")
+                    ? resolveCriteriaPassingPointsFromSnapshot(
+                            snapshotItem,
+                            snapshotMaxPoints,
+                            existingItem.getPassingPoints()
+                    )
+                    : existingItem.getPassingPoints();
+            if (!Objects.equals(
+                    normalizeMoney(existingItem.getPassingPoints()),
+                    normalizeMoney(snapshotPassingPoints)
+            )) {
                 return false;
             }
         }
         return true;
+    }
+
+    private BigDecimal resolveCriteriaPassingPointsFromSnapshot(
+            ObjectNode criteriaNode,
+            BigDecimal resolvedMaxPoints,
+            BigDecimal fallback
+    ) {
+        if (criteriaNode == null) {
+            return fallback;
+        }
+
+        if (hasExplicitField(criteriaNode, "passingPoints")) {
+            BigDecimal explicitPassingPoints = parseDecimalAllowExplicitNull(
+                    criteriaNode.path("passingPoints"),
+                    null
+            );
+            if (explicitPassingPoints != null) {
+                return explicitPassingPoints;
+            }
+        }
+
+        if (resolvedMaxPoints != null) {
+            return resolvedMaxPoints;
+        }
+
+        BigDecimal maxFromNode = parseDecimalAllowExplicitNull(criteriaNode.path("maxPoints"), null);
+        if (maxFromNode != null) {
+            return maxFromNode;
+        }
+
+        return fallback;
+    }
+
+    private Integer parseExplicitIntegerField(ObjectNode node, String fieldName, Integer fallback) {
+        if (node == null || !hasExplicitField(node, fieldName)) {
+            return fallback;
+        }
+        return parseExplicitIntegerNode(node.get(fieldName), fallback);
+    }
+
+    private Integer parseExplicitIntegerNode(JsonNode node, Integer fallback) {
+        if (node == null || node.isMissingNode()) {
+            return fallback;
+        }
+        if (node.isNull()) {
+            return null;
+        }
+        return parseInteger(node, fallback);
+    }
+
+    private Boolean parseExplicitBooleanField(ObjectNode node, String fieldName, Boolean fallback) {
+        if (node == null || !hasExplicitField(node, fieldName)) {
+            return fallback;
+        }
+        return parseBooleanAllowExplicitNull(node.get(fieldName), fallback);
+    }
+
+    private Boolean parseBooleanAllowExplicitNull(JsonNode node, Boolean fallback) {
+        if (node == null || node.isMissingNode()) {
+            return fallback;
+        }
+        if (node.isNull()) {
+            return null;
+        }
+        return parseBoolean(node, fallback);
+    }
+
+    private QuizGradingMethod parseExplicitQuizGradingMethodField(ObjectNode node, String fieldName) {
+        if (node == null || !hasExplicitField(node, fieldName)) {
+            return null;
+        }
+        JsonNode valueNode = node.get(fieldName);
+        if (valueNode == null || valueNode.isNull() || valueNode.isMissingNode()) {
+            return null;
+        }
+        return parseQuizGradingMethod(valueNode);
+    }
+
+    private QuizGradingMethod parseQuizGradingMethodAllowNullAsExisting(
+            JsonNode node,
+            QuizGradingMethod existingValue
+    ) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return existingValue;
+        }
+        return parseQuizGradingMethod(node);
+    }
+
+    private BigDecimal parseDecimalAllowExplicitNull(JsonNode node, BigDecimal fallback) {
+        if (node == null || node.isMissingNode()) {
+            return fallback;
+        }
+        if (node.isNull()) {
+            return null;
+        }
+        return parseDecimal(node, fallback);
+    }
+
+    private SubmissionType parseSubmissionTypeAllowExplicitNull(JsonNode node) {
+        if (node == null || node.isMissingNode()) {
+            return SubmissionType.TEXT;
+        }
+        if (node.isNull()) {
+            return null;
+        }
+        return parseSubmissionType(node);
+    }
+
+    private SubmissionType parseSubmissionTypeAllowNullAsExisting(
+            JsonNode node,
+            SubmissionType existingValue
+    ) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return existingValue;
+        }
+        return parseSubmissionType(node);
+    }
+
+    private String textOrDefaultAllowExplicitNull(JsonNode node, String fallback) {
+        if (node != null && node.isNull()) {
+            return null;
+        }
+        return textOrDefault(node, fallback);
     }
 
     private List<ObjectNode> collectObjectNodes(JsonNode node) {
@@ -2150,29 +2780,5 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
 
     private Instant now() {
         return Instant.now(clock);
-    }
-
-    private void registerPostCommitAutoUpgradeReconciliation(
-            Long courseId,
-            Long sourceRevisionId,
-            Long targetRevisionId
-    ) {
-        if (courseId == null || sourceRevisionId == null || targetRevisionId == null) {
-            return;
-        }
-        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            return;
-        }
-
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                autoCompatibleUpgradeExecutor.executePostCommitReconciliation(
-                        courseId,
-                        sourceRevisionId,
-                        targetRevisionId
-                );
-            }
-        });
     }
 }

@@ -1,8 +1,12 @@
 package com.exe.skillverse_backend.course_service.controller;
 
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -10,6 +14,7 @@ import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSum
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.quizdto.QuizSummaryDTO;
+import com.exe.skillverse_backend.course_service.dto.quizdto.QuizAttemptDTO;
 import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
 import com.exe.skillverse_backend.course_service.entity.enums.LessonType;
 import com.exe.skillverse_backend.course_service.entity.enums.SubmissionType;
@@ -29,6 +34,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -165,6 +171,45 @@ class RevisionPinnedAccessIntegrationTest {
                         .with(jwtWithRole(learnerId, "ROLE_USER")))
                 .andExpect(status().isNotFound());
     }
+
+                @Test
+                void submitQuiz_afterRevisionUpdate_returnsOkAndDoesNotError() throws Exception {
+                                long learnerId = 77L;
+                                long quizId = 902L;
+
+                                QuizAttemptDTO attempt = QuizAttemptDTO.builder()
+                                                                .quizId(quizId)
+                                                                .userId(learnerId)
+                                                                .score(100)
+                                                                .passed(true)
+                                                                .correctAnswers(1)
+                                                                .totalQuestions(1)
+                                                                .build();
+
+                                when(quizService.submitQuiz(eq(quizId), any(), eq(learnerId))).thenReturn(attempt);
+
+                                mockMvc.perform(post("/api/quizzes/{quizId}/submit", quizId)
+                                                                                                .contentType(MediaType.APPLICATION_JSON)
+                                                                                                .content("""
+                                                                                                                                {
+                                                                                                                                        "quizId": 902,
+                                                                                                                                        "answers": [
+                                                                                                                                                {
+                                                                                                                                                        "questionId": 1,
+                                                                                                                                                        "selectedOptionIds": [10]
+                                                                                                                                                }
+                                                                                                                                        ]
+                                                                                                                                }
+                                                                                                                                """)
+                                                                                                .with(jwtWithRole(learnerId, "ROLE_USER")))
+                                                                .andExpect(status().isOk())
+                                                                .andExpect(jsonPath("$.score").value(100))
+                                                                .andExpect(jsonPath("$.passed").value(true))
+                                                                .andExpect(jsonPath("$.attempt.quizId").value(902))
+                                                                .andExpect(jsonPath("$.attempt.userId").value(77));
+
+                                verify(quizService).submitQuiz(eq(quizId), any(), eq(learnerId));
+                }
 
     private RequestPostProcessor jwtWithRole(Long userId, String role) {
         return jwt().jwt(jwt -> jwt.claim("userId", String.valueOf(userId)))

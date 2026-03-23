@@ -116,7 +116,12 @@ public interface CourseMapper {
             if (course.getModules() == null)
                 return 0;
             return course.getModules().stream()
-                    .mapToInt(module -> module.getLessons() != null ? module.getLessons().size() : 0)
+                    .mapToInt(module -> {
+                        int lessonCount = module.getLessons() != null ? module.getLessons().size() : 0;
+                        int quizCount = module.getQuizzes() != null ? module.getQuizzes().size() : 0;
+                        int assignmentCount = module.getAssignments() != null ? module.getAssignments().size() : 0;
+                        return lessonCount + quizCount + assignmentCount;
+                    })
                     .sum();
         } catch (Exception e) {
             // Handle lazy initialization exception

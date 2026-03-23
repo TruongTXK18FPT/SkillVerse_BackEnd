@@ -258,6 +258,16 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
                                                       @Param("userId") Long userId);
 
     @Transactional(readOnly = true)
+    @Query("SELECT asub FROM AssignmentSubmission asub " +
+            "JOIN FETCH asub.assignment a " +
+            "WHERE asub.user.id = :userId " +
+            "AND a.module.course.id = :courseId " +
+            "AND asub.isNewest = true " +
+            "AND asub.isPassed = true")
+    List<AssignmentSubmission> findLatestPassedNewestByCourseAndUser(@Param("courseId") Long courseId,
+                                                                      @Param("userId") Long userId);
+
+    @Transactional(readOnly = true)
     @Query("SELECT DISTINCT asub.assignment.id FROM AssignmentSubmission asub " +
             "WHERE asub.user.id = :userId " +
             "AND asub.assignment.module.course.id = :courseId " +
