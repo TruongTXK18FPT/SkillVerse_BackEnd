@@ -114,6 +114,11 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         // Encode and set new password
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
 
+        if (user.getAuthProvider() == AuthProvider.GOOGLE && !user.isGoogleLinked()) {
+            user.setAuthProvider(AuthProvider.LOCAL);
+            user.setGoogleLinked(true);
+        }
+
         // ✅ SECURITY: Set passwordChangedAt to invalidate all existing JWT tokens
         // Any token issued before this timestamp will be rejected by CustomJwtDecoder
         // Use UTC to ensure consistent comparison with JWT iat (which is always UTC)

@@ -19,7 +19,8 @@ import java.util.Optional;
 import java.time.Instant;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 
 @Component
 @RequiredArgsConstructor
@@ -119,16 +120,17 @@ public class CustomJwtDecoder implements JwtDecoder {
 
                     LocalDateTime passwordChangedAt = securityInfo.getPasswordChangedAt();
                     if (passwordChangedAt != null && issuedAt != null) {
-                        // Convert issuedAt to UTC for consistent comparison with passwordChangedAt
-                        Instant iatInstant = issuedAt.toInstant();
-                        LocalDateTime iatDateTime = LocalDateTime.ofInstant(iatInstant, ZoneId.of("UTC"));
+                        Instant normalizedIssuedAt = normalizeToUtcMillis(issuedAt.toInstant());
+                        Instant normalizedPasswordChangedAt = normalizeToUtcMillis(
+                                passwordChangedAt.toInstant(ZoneOffset.UTC));
 
-                        // Invalidate tokens issued before password change.
-                        // Use strict-before to avoid edge-case false logout when timestamps are equal.
-                        if (iatDateTime.isBefore(passwordChangedAt)) {
+                        // Reject tokens issued at or before the password-change boundary.
+                        // Normalize both sides to millisecond precision because JWT Date values
+                        // are millisecond-based and database timestamps may carry finer precision.
+                        if (!normalizedIssuedAt.isAfter(normalizedPasswordChangedAt)) {
                             log.warn(
                                     "Token rejected due to password change for user {}. Token iat (UTC): {}, passwordChangedAt (UTC): {}",
-                                    userId, iatDateTime, passwordChangedAt);
+                                    userId, normalizedIssuedAt, normalizedPasswordChangedAt);
                             throw new BadJwtException("Token invalidated due to password change. Please login again.");
                         }
                     }
@@ -172,5 +174,9 @@ public class CustomJwtDecoder implements JwtDecoder {
         });
 
         return jwtBuilder.build();
+    }
+
+    private Instant normalizeToUtcMillis(Instant timestamp) {
+        return timestamp.truncatedTo(ChronoUnit.MILLIS);
     }
 }
