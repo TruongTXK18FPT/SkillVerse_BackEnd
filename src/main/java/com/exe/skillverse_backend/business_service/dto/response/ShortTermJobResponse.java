@@ -65,6 +65,12 @@ public class ShortTermJobResponse {
     private Boolean isExpired;
     private Boolean canApply;
 
+    // Admin ban/flag fields
+    private Boolean isBanned;
+    private String banReason;
+    private LocalDateTime bannedAt;
+    private Long bannedBy;
+
     @Data
     @Builder
     @NoArgsConstructor

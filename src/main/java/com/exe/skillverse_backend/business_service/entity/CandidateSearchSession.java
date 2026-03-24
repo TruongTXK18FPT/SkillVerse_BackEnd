@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -30,6 +32,7 @@ public class CandidateSearchSession {
     private String searchQuery;
 
     @Column(name = "filters", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String filters; // JSON string of filters
 
     @Column(name = "total_results", nullable = false)

@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -71,6 +72,9 @@ public interface ShortTermJobRepository extends JpaRepository<ShortTermJob, Long
     @Query("SELECT COUNT(j) FROM ShortTermJob j WHERE j.recruiterProfile.userId = :recruiterId AND j.status = 'PAID'")
     long countPaidJobsByRecruiter(@Param("recruiterId") Long recruiterId);
 
+    @Query("SELECT COUNT(j) FROM ShortTermJob j WHERE j.recruiterProfile.userId = :recruiterId AND j.status = 'COMPLETED'")
+    long countCompletedByRecruiterProfile(@Param("recruiterId") Long recruiterId);
+
     /**
      * Find PENDING_APPROVAL jobs created before cutoff date (for auto-cancel scheduler)
      */
@@ -88,4 +92,13 @@ public interface ShortTermJobRepository extends JpaRepository<ShortTermJob, Long
      */
     @Query("SELECT j FROM ShortTermJob j WHERE j.status = 'IN_PROGRESS' AND j.deadline < :now")
     List<ShortTermJob> findInProgressJobsWithDeadlinePassed(@Param("now") LocalDateTime now);
+
+    // Admin job management queries
+    @Query("SELECT j FROM ShortTermJob j LEFT JOIN FETCH j.recruiterProfile r LEFT JOIN FETCH r.user WHERE j.id = :id")
+    Optional<ShortTermJob> findByIdWithRecruiter(@Param("id") Long id);
+
+    long countByStatus(ShortTermJobStatus status);
+
+    @Query("SELECT COUNT(j) FROM ShortTermJob j WHERE j.status IN :statuses")
+    long countByStatusIn(@Param("statuses") Collection<ShortTermJobStatus> statuses);
 }

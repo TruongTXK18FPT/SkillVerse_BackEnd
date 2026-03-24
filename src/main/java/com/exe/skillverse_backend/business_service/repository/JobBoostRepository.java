@@ -76,6 +76,12 @@ public interface JobBoostRepository extends JpaRepository<JobBoost, Long> {
     Optional<JobBoost> findByJobPostingId(Long jobPostingId);
 
     /**
+     * Delete boosts for a specific job posting.
+     */
+    @Modifying
+    void deleteByJobPostingId(Long jobPostingId);
+
+    /**
      * Update boost status
      */
     @Modifying

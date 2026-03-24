@@ -26,93 +26,77 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**
- * Implementation of JobBoostService
- */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class JobBoostServiceImpl implements JobBoostService {
+
+    private static final int MIN_BOOST_DAYS = 7;
+    private static final int MAX_BOOST_DAYS = 30;
 
     private final JobBoostRepository jobBoostRepository;
     private final JobPostingRepository jobPostingRepository;
     private final RecruiterSubscriptionService recruiterSubscriptionService;
     private final UsageLimitService usageLimitService;
 
-    private static final int DEFAULT_BOOST_DAYS = 7;
-    private static final int MAX_BOOST_DAYS = 30;
-
     @Override
     @Transactional
     public JobBoostResponse createBoost(Long recruiterId, CreateJobBoostRequest request) {
-        log.info("Creating job boost for job ID: {} by recruiter: {}", request.getJobId(), recruiterId);
+        log.info("Creating job boost for job {} by recruiter {}", request.getJobId(), recruiterId);
 
-        // 1. Validate recruiter has premium subscription
+        validateBoostDuration(request.getDurationDays());
+
         if (!recruiterSubscriptionService.hasActiveRecruiterSubscription(recruiterId)) {
-            throw new ForbiddenException("Bạn cần gói Premium Recruiter để sử dụng tính năng đẩy tin.");
+            throw new ForbiddenException("Bạn cần gói Premium Recruiter để sử dụng tính năng boost job.");
         }
 
-        // 2. Check boost quota
-        int availableQuota = getAvailableBoostQuota(recruiterId);
-        if (availableQuota <= 0) {
-            throw new BadRequestException("Bạn đã hết quota đẩy tin trong tháng này.");
+        if (getAvailableBoostQuota(recruiterId) <= 0) {
+            throw new BadRequestException("Bạn đã dùng hết quota boost job trong kỳ hiện tại.");
         }
 
-        // 3. Validate job exists and belongs to recruiter
         JobPosting job = jobPostingRepository.findByIdAndRecruiterProfileUserId(request.getJobId(), recruiterId)
-                .orElseThrow(() -> new NotFoundException("Không tìm thấy tin tuyển dụng hoặc bạn không có quyền."));
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy job hoặc bạn không có quyền thao tác."));
 
-        // 4. Validate job is not closed
         if (job.getStatus() == JobStatus.CLOSED) {
-            throw new BadRequestException("Không thể đẩy tin đã đóng.");
+            throw new BadRequestException("Không thể boost job đã đóng.");
         }
 
-        // 5. Check if job already has active boost
-        if (jobBoostRepository.findActiveBoostByJobPostingId(request.getJobId()).isPresent()) {
-            throw new BadRequestException("Tin này đang được đẩy rồi.");
+        if (jobBoostRepository.findByJobPostingId(request.getJobId()).isPresent()) {
+            throw new BadRequestException("Mỗi job chỉ được boost một lần. Job này đã dùng lượt boost trước đó.");
         }
 
-        // 6. Check quota — do NOT record yet (record after boost is fully saved)
         try {
             usageLimitService.checkQuotaOnly(recruiterId, FeatureType.JOB_BOOST_MONTHLY);
-        } catch (Exception e) {
-            log.warn("Job boost quota exceeded for recruiter {}: {}", recruiterId, e.getMessage());
-            throw new BadRequestException("Bạn đã hết quota đẩy tin trong tháng này.");
+        } catch (Exception exception) {
+            log.warn("Recruiter {} exceeded job boost quota: {}", recruiterId, exception.getMessage());
+            throw new BadRequestException("Bạn đã dùng hết quota boost job trong kỳ hiện tại.");
         }
 
-        // 7. Calculate boost timing
         LocalDateTime now = LocalDateTime.now();
-        LocalDateTime startedAt;
+        LocalDateTime startedAt = now;
         LocalDateTime expiresAt;
+        JobBoostStatus status = JobBoostStatus.ACTIVE;
 
         if (request.getScheduledStartAt() != null && request.getScheduledStartAt().isAfter(now)) {
-            // Scheduled boost
-            startedAt = now;
-            expiresAt = request.getScheduledStartAt().plusDays(request.getDurationDays());
-            // Validate scheduled time is not too far
-            if (request.getScheduledStartAt().isAfter(now.plusDays(30))) {
-                throw new BadRequestException("Không thể lên lịch đẩy tin quá 30 ngày trước.");
+            if (request.getScheduledStartAt().isAfter(now.plusDays(MAX_BOOST_DAYS))) {
+                throw new BadRequestException("Không thể lên lịch boost quá 30 ngày kể từ hiện tại.");
             }
+            status = JobBoostStatus.SCHEDULED;
+            expiresAt = request.getScheduledStartAt().plusDays(request.getDurationDays());
         } else if (request.getExpiresAt() != null) {
-            // Custom expiration
-            startedAt = now;
             expiresAt = request.getExpiresAt();
-            if (expiresAt.isBefore(now) || expiresAt.isAfter(now.plusDays(MAX_BOOST_DAYS))) {
-                throw new BadRequestException("Thời hạn đẩy tin không hợp lệ (1-30 ngày).");
+            long requestedDays = ChronoUnit.DAYS.between(now, expiresAt);
+            if (expiresAt.isBefore(now) || requestedDays < MIN_BOOST_DAYS || requestedDays > MAX_BOOST_DAYS) {
+                throw new BadRequestException("Thời lượng boost phải nằm trong khoảng 7 đến 30 ngày.");
             }
         } else {
-            // Default: start now, expire after duration days
-            startedAt = now;
             expiresAt = now.plusDays(request.getDurationDays());
         }
 
-        // 8. Create boost
         JobBoost boost = JobBoost.builder()
                 .jobPosting(job)
                 .recruiterId(recruiterId)
-                .boostStatus(request.getScheduledStartAt() != null && request.getScheduledStartAt().isAfter(now)
-                        ? JobBoostStatus.SCHEDULED
-                        : JobBoostStatus.ACTIVE)
+                .boostStatus(status)
                 .startedAt(startedAt)
                 .expiresAt(expiresAt)
                 .scheduledStartAt(request.getScheduledStartAt())
@@ -122,10 +106,10 @@ public class JobBoostServiceImpl implements JobBoostService {
                 .applications(0)
                 .build();
 
-        JobBoost savedBoost = jobBoostRepository.save(boost);
-        log.info("Job boost created successfully: ID={}, jobId={}, expiresAt={}",
-                savedBoost.getId(), request.getJobId(), expiresAt);
+        JobBoost savedBoost = jobBoostRepository.saveAndFlush(boost);
+        usageLimitService.checkAndRecordUsage(recruiterId, FeatureType.JOB_BOOST_MONTHLY);
 
+        log.info("Created job boost {} for job {}. Expires at {}", savedBoost.getId(), request.getJobId(), expiresAt);
         return mapToResponse(savedBoost);
     }
 
@@ -133,18 +117,15 @@ public class JobBoostServiceImpl implements JobBoostService {
     @Transactional(readOnly = true)
     public JobBoostResponse getBoostByJobId(Long jobId) {
         JobBoost boost = jobBoostRepository.findByJobPostingId(jobId)
-                .orElseThrow(() -> new NotFoundException("Không tìm thấy thông tin đẩy tin."));
-
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy thông tin boost cho job này."));
         return mapToResponse(boost);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<JobBoostResponse> getBoostsByRecruiter(Long recruiterId) {
-        List<JobBoost> boosts = jobBoostRepository.findByRecruiterIdAndBoostStatus(
-                recruiterId, JobBoostStatus.ACTIVE);
-
-        return boosts.stream()
+        return jobBoostRepository.findByRecruiterIdAndBoostStatus(recruiterId, JobBoostStatus.ACTIVE)
+                .stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -153,87 +134,52 @@ public class JobBoostServiceImpl implements JobBoostService {
     @Transactional
     public JobBoostResponse cancelBoost(Long recruiterId, Long boostId) {
         JobBoost boost = jobBoostRepository.findById(boostId)
-                .orElseThrow(() -> new NotFoundException("Không tìm thấy thông tin đẩy tin."));
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy thông tin boost."));
 
-        // Validate ownership
         if (!boost.getRecruiterId().equals(recruiterId)) {
-            throw new ForbiddenException("Bạn không có quyền hủy đẩy tin này.");
+            throw new ForbiddenException("Bạn không có quyền hủy boost này.");
         }
 
-        // Only allow cancellation of active or scheduled boosts
         if (boost.getBoostStatus() == JobBoostStatus.CANCELLED) {
-            throw new BadRequestException("Đẩy tin này đã bị hủy trước đó.");
+            throw new BadRequestException("Boost này đã bị hủy trước đó.");
+        }
+
+        if (boost.getBoostStatus() != JobBoostStatus.ACTIVE && boost.getBoostStatus() != JobBoostStatus.SCHEDULED) {
+            throw new BadRequestException("Chỉ có thể hủy boost đang hoạt động hoặc đang chờ kích hoạt.");
         }
 
         boost.setBoostStatus(JobBoostStatus.CANCELLED);
         JobBoost savedBoost = jobBoostRepository.save(boost);
-
-        log.info("Boost cancelled: ID={}, recruiterId={}", boostId, recruiterId);
+        log.info("Cancelled boost {} for recruiter {}", boostId, recruiterId);
         return mapToResponse(savedBoost);
     }
 
     @Override
     @Transactional
     public JobBoostResponse extendBoost(Long recruiterId, Long boostId, int additionalDays) {
-        if (additionalDays < 1 || additionalDays > 30) {
-            throw new BadRequestException("Số ngày mở rộng phải từ 1-30 ngày.");
-        }
-
-        JobBoost boost = jobBoostRepository.findById(boostId)
-                .orElseThrow(() -> new NotFoundException("Không tìm thấy thông tin đẩy tin."));
-
-        // Validate ownership
-        if (!boost.getRecruiterId().equals(recruiterId)) {
-            throw new ForbiddenException("Bạn không có quyền mở rộng đẩy tin này.");
-        }
-
-        // Only allow extension of active boosts
-        if (boost.getBoostStatus() != JobBoostStatus.ACTIVE) {
-            throw new BadRequestException("Chỉ có thể mở rộng đẩy tin đang hoạt động.");
-        }
-
-        // Check if boost has expired
-        if (boost.isExpired()) {
-            throw new BadRequestException("Đẩy tin đã hết hạn, không thể mở rộng.");
-        }
-
-        // Extend expiration
-        LocalDateTime newExpiresAt = boost.getExpiresAt().plusDays(additionalDays);
-
-        // Validate max duration
-        long totalDays = ChronoUnit.DAYS.between(boost.getStartedAt(), newExpiresAt);
-        if (totalDays > MAX_BOOST_DAYS) {
-            throw new BadRequestException("Tổng thời gian đẩy tin không được quá 30 ngày.");
-        }
-
-        boost.setExpiresAt(newExpiresAt);
-        JobBoost savedBoost = jobBoostRepository.save(boost);
-
-        log.info("Boost extended: ID={}, newExpiresAt={}", boostId, newExpiresAt);
-        return mapToResponse(savedBoost);
+        throw new BadRequestException("Mỗi job chỉ được boost một lần. Không hỗ trợ gia hạn boost.");
     }
 
     @Override
     @Transactional(readOnly = true)
     public JobBoostAnalyticsResponse getBoostAnalytics(Long recruiterId, Long boostId) {
         JobBoost boost = jobBoostRepository.findById(boostId)
-                .orElseThrow(() -> new NotFoundException("Không tìm thấy thông tin đẩy tin."));
+                .orElseThrow(() -> new NotFoundException("Không tìm thấy thông tin boost."));
 
-        // Validate ownership
         if (!boost.getRecruiterId().equals(recruiterId)) {
-            throw new ForbiddenException("Bạn không có quyền xem thống kê này.");
+            throw new ForbiddenException("Bạn không có quyền xem thống kê boost này.");
         }
 
-        // Calculate metrics
         int impressions = boost.getImpressions() != null ? boost.getImpressions() : 0;
         int clicks = boost.getClicks() != null ? boost.getClicks() : 0;
         int applications = boost.getApplications() != null ? boost.getApplications() : 0;
 
         double ctr = impressions > 0 ? (double) clicks / impressions : 0.0;
-        double acr = impressions > 0 ? (double) applications / impressions : 0.0;
-
-        long durationMinutes = ChronoUnit.MINUTES.between(boost.getStartedAt(),
-                boost.getExpiresAt().isBefore(LocalDateTime.now()) ? boost.getExpiresAt() : LocalDateTime.now());
+        double conversionRate = impressions > 0 ? (double) applications / impressions : 0.0;
+        long durationMinutes = ChronoUnit.MINUTES.between(
+                boost.getStartedAt(),
+                boost.getExpiresAt().isBefore(LocalDateTime.now()) ? boost.getExpiresAt() : LocalDateTime.now()
+        );
 
         return JobBoostAnalyticsResponse.builder()
                 .boostId(boost.getId())
@@ -243,7 +189,7 @@ public class JobBoostServiceImpl implements JobBoostService {
                 .totalClicks(clicks)
                 .totalApplications(applications)
                 .clickThroughRate(Math.round(ctr * 10000.0) / 100.0)
-                .applicationConversionRate(Math.round(acr * 10000.0) / 100.0)
+                .applicationConversionRate(Math.round(conversionRate * 10000.0) / 100.0)
                 .boostStartedAt(boost.getStartedAt())
                 .boostExpiresAt(boost.getExpiresAt())
                 .totalBoostDurationMinutes(durationMinutes)
@@ -259,14 +205,14 @@ public class JobBoostServiceImpl implements JobBoostService {
 
         try {
             var usage = usageLimitService.getUserUsage(recruiterId, FeatureType.JOB_BOOST_MONTHLY);
-            if (usage.getIsUnlimited() != null && usage.getIsUnlimited()) {
-                return Integer.MAX_VALUE; // Unlimited
+            if (Boolean.TRUE.equals(usage.getIsUnlimited())) {
+                return Integer.MAX_VALUE;
             }
             int limit = usage.getLimit() != null ? usage.getLimit() : 0;
             int used = usage.getCurrentUsage() != null ? usage.getCurrentUsage() : 0;
             return Math.max(0, limit - used);
-        } catch (Exception e) {
-            log.warn("Failed to get boost quota for recruiter {}: {}", recruiterId, e.getMessage());
+        } catch (Exception exception) {
+            log.warn("Failed to resolve boost quota for recruiter {}: {}", recruiterId, exception.getMessage());
             return 0;
         }
     }
@@ -277,7 +223,7 @@ public class JobBoostServiceImpl implements JobBoostService {
         jobBoostRepository.findActiveBoostByJobPostingId(jobId).ifPresent(boost -> {
             boost.incrementImpressions();
             jobBoostRepository.save(boost);
-            log.debug("Recorded impression for boost ID: {}, position: {}", boost.getId(), position);
+            log.debug("Recorded impression for boost {} at position {}", boost.getId(), position);
         });
     }
 
@@ -287,7 +233,7 @@ public class JobBoostServiceImpl implements JobBoostService {
         jobBoostRepository.findActiveBoostByJobPostingId(jobId).ifPresent(boost -> {
             boost.incrementClicks();
             jobBoostRepository.save(boost);
-            log.debug("Recorded click for boost ID: {}", boost.getId());
+            log.debug("Recorded click for boost {}", boost.getId());
         });
     }
 
@@ -306,41 +252,37 @@ public class JobBoostServiceImpl implements JobBoostService {
     @Override
     @Transactional
     public void processExpiredBoosts() {
-        log.info("Processing expired job boosts...");
-
+        log.info("Processing expired boosts");
         List<JobBoost> expiredBoosts = jobBoostRepository.findBoostsExpiringBefore(LocalDateTime.now());
-
         for (JobBoost boost : expiredBoosts) {
             if (boost.getBoostStatus() == JobBoostStatus.ACTIVE) {
                 boost.setBoostStatus(JobBoostStatus.EXPIRED);
                 jobBoostRepository.save(boost);
-                log.info("Boost expired: ID={}, jobId={}", boost.getId(), boost.getJobPosting().getId());
             }
         }
-
         log.info("Processed {} expired boosts", expiredBoosts.size());
     }
 
     @Override
     @Transactional
     public void activateScheduledBoosts() {
-        log.info("Activating scheduled job boosts...");
-
+        log.info("Activating scheduled boosts");
         List<JobBoost> readyBoosts = jobBoostRepository.findScheduledBoostsReadyToActivate(LocalDateTime.now());
-
         for (JobBoost boost : readyBoosts) {
             if (boost.getScheduledStartAt() != null && !boost.getScheduledStartAt().isAfter(LocalDateTime.now())) {
                 boost.setBoostStatus(JobBoostStatus.ACTIVE);
                 boost.setStartedAt(LocalDateTime.now());
                 jobBoostRepository.save(boost);
-                log.info("Scheduled boost activated: ID={}, jobId={}", boost.getId(), boost.getJobPosting().getId());
             }
         }
-
         log.info("Activated {} scheduled boosts", readyBoosts.size());
     }
 
-    // ==================== Helper Methods ====================
+    private void validateBoostDuration(Integer durationDays) {
+        if (durationDays == null || durationDays < MIN_BOOST_DAYS || durationDays > MAX_BOOST_DAYS) {
+            throw new BadRequestException("Thời lượng boost phải nằm trong khoảng 7 đến 30 ngày.");
+        }
+    }
 
     private JobBoostResponse mapToResponse(JobBoost boost) {
         int impressions = boost.getImpressions() != null ? boost.getImpressions() : 0;
@@ -348,7 +290,7 @@ public class JobBoostServiceImpl implements JobBoostService {
         int applications = boost.getApplications() != null ? boost.getApplications() : 0;
 
         double ctr = impressions > 0 ? (double) clicks / impressions : 0.0;
-        double acr = impressions > 0 ? (double) applications / impressions : 0.0;
+        double conversionRate = impressions > 0 ? (double) applications / impressions : 0.0;
 
         return JobBoostResponse.builder()
                 .id(boost.getId())
@@ -368,7 +310,7 @@ public class JobBoostServiceImpl implements JobBoostService {
                 .isActive(boost.isActive())
                 .remainingMinutes(boost.getRemainingMinutes())
                 .clickThroughRate(Math.round(ctr * 100.0) / 100.0)
-                .applicationConversionRate(Math.round(acr * 100.0) / 100.0)
+                .applicationConversionRate(Math.round(conversionRate * 100.0) / 100.0)
                 .build();
     }
 }

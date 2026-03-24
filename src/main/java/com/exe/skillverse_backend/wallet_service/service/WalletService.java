@@ -51,15 +51,23 @@ public interface WalletService {
 
     WalletTransaction freezeCashForBooking(Long userId, BigDecimal amount, Long bookingId);
 
+    WalletTransaction freezeCashForBooking(Long userId, BigDecimal amount, Long bookingId, String description);
+
     WalletTransaction chargeFrozenForBooking(Long userId, BigDecimal amount, Long bookingId);
 
+    WalletTransaction chargeFrozenForBooking(Long userId, BigDecimal amount, Long bookingId, String description);
+
     WalletTransaction unfreezeForBooking(Long userId, BigDecimal amount, Long bookingId);
+
+    WalletTransaction unfreezeForBooking(Long userId, BigDecimal amount, Long bookingId, String description);
 
     WalletTransaction processRefund(Long userId, BigDecimal cashAmount, String description, String referenceId);
 
     WalletTransaction payMentorForBooking(Long mentorId, BigDecimal amount, Long bookingId);
 
     WalletTransaction payMentorForCourse(Long mentorId, BigDecimal amount, Long courseId);
+
+    WalletTransaction payMentorForJobPayout(Long mentorId, BigDecimal amount, Long jobId);
 
     WalletTransaction payRecruiterForSeminar(Long recruiterId, BigDecimal amount, Long seminarId);
 
@@ -68,4 +76,6 @@ public interface WalletService {
     Page<WalletTransactionResponse> getAllTransactionsAdmin(String type, Pageable pageable);
 
     WalletTransaction giftUser(Long userId, BigDecimal cashAmount, Long coinAmount, String reason);
+
+    boolean hasAvailableCash(Long userId, BigDecimal amount);
 }

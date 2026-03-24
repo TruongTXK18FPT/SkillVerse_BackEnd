@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.business_service.entity.RecruitmentSession;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionStatus;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -131,4 +132,17 @@ public interface RecruitmentSessionRepository extends JpaRepository<RecruitmentS
             @Param("recruiterId") Long recruiterId,
             @Param("query") String query,
             Pageable pageable);
+
+    /**
+     * Detach recruitment sessions from a deleted job while keeping message history.
+     */
+    @Modifying
+    @Query("UPDATE RecruitmentSession rs " +
+            "SET rs.jobPosting = null, " +
+            "rs.jobContextType = null, " +
+            "rs.jobContextId = null, " +
+            "rs.jobTitle = null, " +
+            "rs.updatedAt = CURRENT_TIMESTAMP " +
+            "WHERE rs.jobPosting.id = :jobId")
+    void clearJobPostingContext(@Param("jobId") Long jobId);
 }

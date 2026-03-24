@@ -153,6 +153,21 @@ public class ShortTermJob {
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
 
+    // ==================== ADMIN FLAG/BAN FIELDS ====================
+
+    @Builder.Default
+    @Column(name = "is_banned")
+    private Boolean isBanned = false;
+
+    @Column(name = "ban_reason", columnDefinition = "TEXT")
+    private String banReason;
+
+    @Column(name = "banned_at")
+    private LocalDateTime bannedAt;
+
+    @Column(name = "banned_by")
+    private Long bannedBy;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

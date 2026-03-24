@@ -508,12 +508,12 @@ public class WalletServiceImpl implements WalletService {
                                                 "Wallet not found for user: " + userId));
 
                 BigDecimal oldBalance = wallet.getCashBalance();
-                if (oldBalance.compareTo(cashAmount) < 0) {
-                        log.error("Insufficient balance. User: {}, Balance: {}, Required: {}", userId, oldBalance,
-                                        cashAmount);
+                if (!wallet.hasAvailableCash(cashAmount)) {
+                        log.error("Insufficient available balance. User: {}, Balance: {}, Frozen: {}, Required: {}",
+                                        userId, oldBalance, wallet.getFrozenCashBalance(), cashAmount);
                         throw new IllegalArgumentException(String.format(
-                                        "Insufficient balance. Available: %s VND, Required: %s VND",
-                                        oldBalance, cashAmount));
+                                        "Số dư khả dụng không đủ. Khả dụng: %s VND, Cần: %s VND",
+                                        wallet.getAvailableCashBalance(), cashAmount));
                 }
 
                 BigDecimal newBalance = oldBalance.subtract(cashAmount);
@@ -543,35 +543,52 @@ public class WalletServiceImpl implements WalletService {
 
         /**
          * Freeze cash for a booking (reserve funds until completion/cancellation)
+         * NOTE: Do NOT add @Transactional here — this method is called from within
+         * EscrowServiceImpl which has @Transactional. Adding it would create a nested
+         * transaction causing Hibernate entity null-ID assertion failures.
          */
-        @Transactional
         public WalletTransaction freezeCashForBooking(Long userId, BigDecimal amount, Long bookingId) {
-                if (amount.compareTo(BigDecimal.ZERO) <= 0) {
-                        throw new IllegalArgumentException("Số tiền đóng băng phải lớn hơn 0");
+                return freezeCashForBooking(userId, amount, bookingId, "Đóng băng số tiền cho công việc");
+        }
+
+        public WalletTransaction freezeCashForBooking(Long userId, BigDecimal amount, Long bookingId, String description) {
+                log.info("[WalletDebug] freezeCashForBooking START: userId={}, amount={}, bookingId={}", userId, amount, bookingId);
+                try {
+                        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                                throw new IllegalArgumentException("Số tiền đóng băng phải lớn hơn 0");
+                        }
+                        Wallet wallet = walletRepository.findByUserIdWithLock(userId)
+                                        .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+                        log.info("[WalletDebug] freezeCashForBooking: wallet found, id={}", wallet.getWalletId());
+
+                        if (!wallet.hasAvailableCash(amount)) {
+                                throw new IllegalArgumentException("Số dư khả dụng không đủ");
+                        }
+
+                        wallet.freezeCash(amount);
+                        walletRepository.save(wallet);
+                        log.info("[WalletDebug] freezeCashForBooking: wallet saved, frozenBalance={}", wallet.getFrozenCashBalance());
+
+                        WalletTransaction transaction = WalletTransaction.builder()
+                                        .wallet(wallet)
+                                        .transactionType(WalletTransaction.TransactionType.WITHDRAWAL_CASH)
+                                        .currencyType(WalletTransaction.CurrencyType.CASH)
+                                        .cashAmount(amount)
+                                        .cashBalanceAfter(wallet.getCashBalance())
+                                        .description(description)
+                                        .referenceType("BOOKING")
+                                        .referenceId("BOOKING_" + bookingId)
+                                        .status(WalletTransaction.TransactionStatus.PENDING)
+                                        .build();
+                        log.info("[WalletDebug] freezeCashForBooking: transaction built, about to save");
+
+                        WalletTransaction saved = transactionRepository.save(transaction);
+                        log.info("[WalletDebug] freezeCashForBooking SUCCESS: transactionId={}", saved.getTransactionId());
+                        return saved;
+                } catch (Exception e) {
+                        log.error("[WalletDebug] freezeCashForBooking FAILED: {}", e.getMessage(), e);
+                        throw e;
                 }
-                Wallet wallet = walletRepository.findByUserIdWithLock(userId)
-                                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
-
-                if (!wallet.hasAvailableCash(amount)) {
-                        throw new IllegalArgumentException("Số dư khả dụng không đủ");
-                }
-
-                wallet.freezeCash(amount);
-                walletRepository.save(wallet);
-
-                WalletTransaction transaction = WalletTransaction.builder()
-                                .wallet(wallet)
-                                .transactionType(WalletTransaction.TransactionType.WITHDRAWAL_CASH)
-                                .currencyType(WalletTransaction.CurrencyType.CASH)
-                                .cashAmount(amount)
-                                .cashBalanceAfter(wallet.getCashBalance())
-                                .description("Đóng băng số tiền cho booking")
-                                .referenceType("BOOKING")
-                                .referenceId("BOOKING_" + bookingId)
-                                .status(WalletTransaction.TransactionStatus.PENDING)
-                                .build();
-
-                return transactionRepository.save(transaction);
         }
 
         /**
@@ -579,6 +596,10 @@ public class WalletServiceImpl implements WalletService {
          */
         @Transactional
         public WalletTransaction chargeFrozenForBooking(Long userId, BigDecimal amount, Long bookingId) {
+                return chargeFrozenForBooking(userId, amount, bookingId, "Thanh toán công việc từ số tiền đóng băng");
+        }
+
+        public WalletTransaction chargeFrozenForBooking(Long userId, BigDecimal amount, Long bookingId, String description) {
                 if (amount.compareTo(BigDecimal.ZERO) <= 0) {
                         throw new IllegalArgumentException("Số tiền thanh toán phải lớn hơn 0");
                 }
@@ -595,7 +616,7 @@ public class WalletServiceImpl implements WalletService {
                                 .currencyType(WalletTransaction.CurrencyType.CASH)
                                 .cashAmount(amount)
                                 .cashBalanceAfter(wallet.getCashBalance())
-                                .description("Thanh toán booking từ số tiền đóng băng")
+                                .description(description)
                                 .referenceType("BOOKING")
                                 .referenceId("BOOKING_" + bookingId)
                                 .status(WalletTransaction.TransactionStatus.COMPLETED)
@@ -606,37 +627,57 @@ public class WalletServiceImpl implements WalletService {
 
         /**
          * Unfreeze reserved cash for booking (refund before deadline)
+         * NOTE: Do NOT add @Transactional here — this method is called from within
+         * EscrowServiceImpl which has @Transactional. Adding it would create a nested
+         * transaction causing Hibernate entity null-ID assertion failures.
          */
-        @Transactional
         public WalletTransaction unfreezeForBooking(Long userId, BigDecimal amount, Long bookingId) {
-                if (amount.compareTo(BigDecimal.ZERO) <= 0) {
-                        throw new IllegalArgumentException("Số tiền phải lớn hơn 0");
+                return unfreezeForBooking(userId, amount, bookingId, "Hoàn tiền (giải phóng đóng băng) cho công việc");
+        }
+
+        public WalletTransaction unfreezeForBooking(Long userId, BigDecimal amount, Long bookingId, String description) {
+                log.info("[WalletDebug] unfreezeForBooking START: userId={}, amount={}, bookingId={}", userId, amount, bookingId);
+                try {
+                        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                                throw new IllegalArgumentException("Số tiền phải lớn hơn 0");
+                        }
+                        Wallet wallet = walletRepository.findByUserIdWithLock(userId)
+                                        .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+                        log.info("[WalletDebug] unfreezeForBooking: wallet found, id={}", wallet.getWalletId());
+
+                        wallet.unfreezeCash(amount);
+                        walletRepository.save(wallet);
+                        log.info("[WalletDebug] unfreezeForBooking: wallet saved");
+
+                        WalletTransaction transaction = WalletTransaction.builder()
+                                        .wallet(wallet)
+                                        .transactionType(WalletTransaction.TransactionType.REFUND_CASH)
+                                        .currencyType(WalletTransaction.CurrencyType.CASH)
+                                        .cashAmount(amount)
+                                        .cashBalanceAfter(wallet.getCashBalance())
+                                        .description(description)
+                                        .referenceType("BOOKING")
+                                        .referenceId("BOOKING_" + bookingId)
+                                        .status(WalletTransaction.TransactionStatus.REVERSED)
+                                        .build();
+                        log.info("[WalletDebug] unfreezeForBooking: transaction built, about to save");
+
+                        WalletTransaction saved = transactionRepository.save(transaction);
+                        log.info("[WalletDebug] unfreezeForBooking SUCCESS: transactionId={}", saved.getTransactionId());
+                        return saved;
+                } catch (Exception e) {
+                        log.error("[WalletDebug] unfreezeForBooking FAILED: {}", e.getMessage(), e);
+                        throw e;
                 }
-                Wallet wallet = walletRepository.findByUserIdWithLock(userId)
-                                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
-
-                wallet.unfreezeCash(amount);
-                walletRepository.save(wallet);
-
-                WalletTransaction transaction = WalletTransaction.builder()
-                                .wallet(wallet)
-                                .transactionType(WalletTransaction.TransactionType.REFUND_CASH)
-                                .currencyType(WalletTransaction.CurrencyType.CASH)
-                                .cashAmount(amount)
-                                .cashBalanceAfter(wallet.getCashBalance())
-                                .description("Hoàn tiền (giải phóng đóng băng) cho booking")
-                                .referenceType("BOOKING")
-                                .referenceId("BOOKING_" + bookingId)
-                                .status(WalletTransaction.TransactionStatus.REVERSED)
-                                .build();
-
-                return transactionRepository.save(transaction);
         }
 
         /**
          * Process refund to wallet (for subscription cancellation, etc.)
+         * NOTE: Do NOT add @Transactional here — callers that need atomicity
+         * (e.g., AdminShortTermJobServiceImpl.rejectJob, BookingServiceImpl) already
+         * have @Transactional. Adding it here would create nested transactions causing
+         * Hibernate entity null-ID assertion failures.
          */
-        @Transactional
         public WalletTransaction processRefund(
                         Long userId,
                         BigDecimal cashAmount,
@@ -676,8 +717,10 @@ public class WalletServiceImpl implements WalletService {
 
         /**
          * Credit earning to mentor wallet for booking payout (80%)
+         * NOTE: Do NOT add @Transactional here — this method is called from within
+         * EscrowServiceImpl which has @Transactional. Adding it would create a nested
+         * transaction causing Hibernate entity null-ID assertion failures.
          */
-        @Transactional
         public WalletTransaction payMentorForBooking(Long mentorId, BigDecimal amount, Long bookingId) {
                 if (amount.compareTo(BigDecimal.ZERO) <= 0) {
                         throw new IllegalArgumentException("Số tiền phải lớn hơn 0");
@@ -757,6 +800,60 @@ public class WalletServiceImpl implements WalletService {
                                 .build();
 
                 return transactionRepository.save(transaction);
+        }
+
+        /**
+         * Credit payout to worker for short-term job completion
+         * NOTE: Do NOT add @Transactional here — this method is called from within
+         * EscrowServiceImpl which has @Transactional. Adding it would create a nested
+         * transaction causing Hibernate entity null-ID assertion failures.
+         */
+        public WalletTransaction payMentorForJobPayout(Long workerId, BigDecimal amount, Long jobId) {
+                log.info("[WalletDebug] payMentorForJobPayout START: workerId={}, amount={}, jobId={}", workerId, amount, jobId);
+                try {
+                        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                                throw new IllegalArgumentException("Số tiền phải lớn hơn 0");
+                        }
+
+                        String referenceType = "JOB_PAYOUT";
+                        String referenceId = "JOB_" + jobId;
+
+                        boolean alreadyProcessed = transactionRepository.existsByReferenceIdAndReferenceTypeAndStatus(
+                                        referenceId, referenceType, WalletTransaction.TransactionStatus.COMPLETED);
+                        if (alreadyProcessed) {
+                                log.info("[WalletDebug] payMentorForJobPayout: already processed, returning existing");
+                                return transactionRepository.findByReferenceIdAndReferenceType(referenceId, referenceType)
+                                                .orElse(null);
+                        }
+
+                        Wallet wallet = walletRepository.findByUserIdWithLock(workerId)
+                                        .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+                        log.info("[WalletDebug] payMentorForJobPayout: wallet found, id={}", wallet.getWalletId());
+
+                        wallet.depositCash(amount);
+                        walletRepository.save(wallet);
+                        log.info("[WalletDebug] payMentorForJobPayout: wallet saved, new balance={}", wallet.getCashBalance());
+
+                        WalletTransaction transaction = WalletTransaction.builder()
+                                        .wallet(wallet)
+                                        .transactionType(WalletTransaction.TransactionType.JOB_PAYOUT)
+                                        .currencyType(WalletTransaction.CurrencyType.CASH)
+                                        .cashAmount(amount)
+                                        .cashBalanceAfter(wallet.getCashBalance())
+                                        .description("Thu nhập từ công việc ngắn hạn")
+                                        .referenceType(referenceType)
+                                        .referenceId(referenceId)
+                                        .status(WalletTransaction.TransactionStatus.COMPLETED)
+                                        .build();
+                        log.info("[WalletDebug] payMentorForJobPayout: transaction built, about to save");
+
+                        WalletTransaction saved = transactionRepository.save(transaction);
+                        log.info("[WalletDebug] payMentorForJobPayout SUCCESS: transactionId={}", saved.getTransactionId());
+                        return saved;
+                } catch (Exception e) {
+                        log.error("[WalletDebug] payMentorForJobPayout FAILED: {}", e.getMessage(), e);
+                        throw e;
+                }
         }
 
         /**
@@ -968,5 +1065,16 @@ public class WalletServiceImpl implements WalletService {
                 }
 
                 return lastTransaction;
+        }
+
+        @Override
+        @Transactional(readOnly = true)
+        public boolean hasAvailableCash(Long userId, BigDecimal amount) {
+                Wallet wallet = walletRepository.findByUser_Id(userId)
+                                .orElse(null);
+                if (wallet == null) {
+                        return false;
+                }
+                return wallet.hasAvailableCash(amount);
         }
 }

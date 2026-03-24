@@ -46,6 +46,9 @@ public interface JobReviewRepository extends JpaRepository<JobReview, Long> {
     // Count reviews
     long countByRevieweeId(Long revieweeId);
 
+    @Query("SELECT COUNT(r) FROM JobReview r WHERE r.reviewee.id = :userId")
+    long countByUserId(@Param("userId") Long userId);
+
     @Query("SELECT COUNT(r) FROM JobReview r WHERE r.reviewee.id = :userId AND r.isPublic = true")
     long countPublicReviewsForUser(@Param("userId") Long userId);
 

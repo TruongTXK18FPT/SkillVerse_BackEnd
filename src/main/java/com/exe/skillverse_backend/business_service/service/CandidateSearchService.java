@@ -88,4 +88,14 @@ public interface CandidateSearchService {
      * @return The recruitment session
      */
     RecruitmentSessionResponse startChatWithCandidate(Long recruiterId, Long candidateId, Long jobId);
+
+    /**
+     * Get AI match explanation for a short-term job (gig)-candidate pair
+     *
+     * @param recruiterId The recruiter requesting the match
+     * @param shortTermJobId The short-term job ID
+     * @param candidateId The candidate user ID
+     * @return AI match response with explanation
+     */
+    Object getShortTermJobMatchExplanation(Long recruiterId, Long shortTermJobId, Long candidateId);
 }

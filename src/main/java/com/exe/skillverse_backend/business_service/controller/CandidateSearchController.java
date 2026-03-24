@@ -49,6 +49,7 @@ public class CandidateSearchController {
             @RequestParam(required = false) Boolean hasPortfolio,
             @RequestParam(required = false) Boolean hasCertificates,
             @RequestParam(required = false) Long jobId,
+            @RequestParam(required = false) Long shortTermJobId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "totalScore") String sortBy,
@@ -73,6 +74,7 @@ public class CandidateSearchController {
                 .hasPortfolio(hasPortfolio)
                 .hasCertificates(hasCertificates)
                 .jobId(jobId)
+                .shortTermJobId(shortTermJobId)
                 .page(page)
                 .size(size)
                 .sortBy(sortBy)
@@ -112,6 +114,29 @@ public class CandidateSearchController {
         return ResponseEntity.ok(Map.of(
                 "success", true,
                 "message", "AI phân tích match",
+                "data", result
+        ));
+    }
+
+    /**
+     * Get AI match explanation for a specific candidate-shortTermJob pair
+     * GET /api/v1/recruiter/candidates/{candidateId}/shortterm-match
+     */
+    @GetMapping("/{candidateId}/shortterm-match")
+    @PreAuthorize("hasRole('RECRUITER')")
+    public ResponseEntity<?> getShortTermMatchExplanation(
+            Authentication authentication,
+            @PathVariable Long candidateId,
+            @RequestParam Long shortTermJobId) {
+
+        Long recruiterId = extractUserId(authentication);
+        log.info("Recruiter {} getting short-term match explanation for candidate {} job {}", recruiterId, candidateId, shortTermJobId);
+
+        Object result = candidateSearchService.getShortTermJobMatchExplanation(recruiterId, shortTermJobId, candidateId);
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "AI phân tích match cho công việc ngắn hạn",
                 "data", result
         ));
     }

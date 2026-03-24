@@ -7,6 +7,7 @@ import com.exe.skillverse_backend.ai_search_service.dto.AICandidateMatchResponse
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
+import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -32,6 +33,7 @@ public class AISearchServiceImpl implements AISearchService {
 
     private final AISearchConfig aiSearchConfig;
     private final JobPostingRepository jobPostingRepository;
+    private final ShortTermJobRepository shortTermJobRepository;
     private final PortfolioExtendedProfileRepository portfolioRepository;
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
@@ -39,11 +41,13 @@ public class AISearchServiceImpl implements AISearchService {
     public AISearchServiceImpl(
             AISearchConfig aiSearchConfig,
             JobPostingRepository jobPostingRepository,
+            ShortTermJobRepository shortTermJobRepository,
             PortfolioExtendedProfileRepository portfolioRepository,
             ObjectMapper objectMapper,
             @Qualifier("aiSearchRestTemplate") RestTemplate restTemplate) {
         this.aiSearchConfig = aiSearchConfig;
         this.jobPostingRepository = jobPostingRepository;
+        this.shortTermJobRepository = shortTermJobRepository;
         this.portfolioRepository = portfolioRepository;
         this.objectMapper = objectMapper;
         this.restTemplate = restTemplate;
@@ -129,6 +133,238 @@ public class AISearchServiceImpl implements AISearchService {
     }
 
     @Override
+    public AICandidateMatchResponse generateShortTermJobMatchExplanation(Long shortTermJobId, Long candidateId) {
+        long startTime = System.currentTimeMillis();
+
+        // Check cache first
+        String cacheKey = "st_" + shortTermJobId + "_" + candidateId;
+        if (aiSearchConfig.isCacheEnabled() && matchCache.containsKey(cacheKey)) {
+            log.debug("Using cached short-term match result for job {} candidate {}", shortTermJobId, candidateId);
+            return matchCache.get(cacheKey);
+        }
+
+        // Check if AI is enabled
+        if (!isEnabled()) {
+            return generateShortTermFallbackMatch(shortTermJobId, candidateId, startTime);
+        }
+
+        // Check rate limit
+        if (!canMakeRequest()) {
+            log.warn("Rate limit exceeded for short-term matching, using fallback");
+            return generateShortTermFallbackMatch(shortTermJobId, candidateId, startTime);
+        }
+
+        try {
+            // Get short-term job and candidate data
+            com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob =
+                    shortTermJobRepository.findById(shortTermJobId)
+                    .orElseThrow(() -> new RuntimeException("Short-term job not found"));
+
+            User candidate = portfolioRepository.findById(candidateId)
+                    .map(profile -> profile.getUser())
+                    .orElseThrow(() -> new RuntimeException("Candidate not found"));
+
+            PortfolioExtendedProfile profile = portfolioRepository.findById(candidateId).orElse(null);
+
+            // Build request for short-term job
+            AICandidateMatchRequest request = buildShortTermMatchRequest(shortTermJob, candidate, profile);
+
+            // Call Mistral API
+            AICandidateMatchResponse response = callMistralAPI(request);
+
+            // Update rate limiting
+            requestsThisMinute.incrementAndGet();
+            tokensThisDay.addAndGet(estimateTokens(response.getFitSummary() + response.getReasoning()));
+
+            // Cache result
+            if (aiSearchConfig.isCacheEnabled()) {
+                matchCache.put(cacheKey, response);
+            }
+
+            log.info("AI short-term match generated: job={}, candidate={}, quality={}, time={}ms",
+                    shortTermJobId, candidateId, response.getMatchQuality(),
+                    System.currentTimeMillis() - startTime);
+
+            response.setProcessingTimeMs(System.currentTimeMillis() - startTime);
+            return response;
+
+        } catch (Exception e) {
+            log.error("Error generating AI short-term match for job {} candidate {}: {}",
+                    shortTermJobId, candidateId, e.getMessage(), e);
+            return generateShortTermFallbackMatch(shortTermJobId, candidateId, startTime);
+        }
+    }
+
+    private AICandidateMatchRequest buildShortTermMatchRequest(
+            com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob,
+            User candidate,
+            PortfolioExtendedProfile profile) {
+        return AICandidateMatchRequest.builder()
+                .jobId(shortTermJob.getId())
+                .candidateId(candidate.getId())
+                .jobTitle(shortTermJob.getTitle())
+                .jobDescription(shortTermJob.getDescription())
+                .requiredSkills(shortTermJob.getRequiredSkills())
+                .minBudget(shortTermJob.getBudget().toString())
+                .maxBudget(shortTermJob.getBudget().toString())
+                .experienceLevel(null) // Short-term jobs don't have experience level
+                .jobType("SHORT_TERM_GIG")
+                .candidateName(profile != null ? profile.getFullName() : candidate.getEmail())
+                .professionalTitle(profile != null ? profile.getProfessionalTitle() : null)
+                .bio(profile != null ? profile.getBio() : null)
+                .topSkills(profile != null ? profile.getTopSkills() : null)
+                .yearsOfExperience(profile != null ? profile.getYearsOfExperience() : null)
+                .hourlyRate(profile != null && profile.getHourlyRate() != null
+                        ? profile.getHourlyRate().toString() : null)
+                .totalProjects(profile != null ? profile.getTotalProjects() : null)
+                .totalCertificates(profile != null ? profile.getTotalCertificates() : null)
+                .build();
+    }
+
+    private AICandidateMatchResponse generateShortTermFallbackMatch(Long shortTermJobId, Long candidateId, long startTime) {
+        log.debug("Using fallback rule-based matching for short-term job {} candidate {}", shortTermJobId, candidateId);
+
+        try {
+            com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob =
+                    shortTermJobRepository.findById(shortTermJobId).orElse(null);
+            PortfolioExtendedProfile profile = portfolioRepository.findById(candidateId).orElse(null);
+
+            if (shortTermJob == null || profile == null) {
+                return createShortTermBasicResponse(shortTermJobId, candidateId);
+            }
+
+            // Calculate rule-based scores
+            double skillScore = calculateSkillMatchForShortTermJob(shortTermJob, profile);
+            double expScore = calculateExperienceMatch(shortTermJob, profile);
+            double budgetScore = calculateBudgetMatch(shortTermJob, profile);
+
+            double totalScore = (skillScore * 0.5) + (expScore * 0.3) + (budgetScore * 0.2);
+
+            String summary = String.format("Ứng viên có kinh nghiệm %s và kỹ năng %s phù hợp với công việc gig. Mức lương: %s.",
+                    getExperienceLabelVi(expScore),
+                    getSkillLabelVi(skillScore),
+                    getBudgetLabelVi(budgetScore));
+
+            return AICandidateMatchResponse.builder()
+                    .jobId(shortTermJobId)
+                    .candidateId(candidateId)
+                    .fitSummary(summary)
+                    .skillSignals(extractMatchingSkillsForShortTermJob(shortTermJob, profile))
+                    .reasoning("Đánh giá dựa trên quy tắc cho gig - Kỹ năng: " + Math.round(skillScore * 100) + "% khớp, "
+                            + "Kinh nghiệm: " + Math.round(expScore * 100) + "% phù hợp, "
+                            + "Mức lương: " + Math.round(budgetScore * 100) + "% hợp lý")
+                    .confidenceScore(totalScore)
+                    .matchQuality(determineMatchQuality(totalScore))
+                    .modelUsed("rule-based-fallback")
+                    .isFallback(true)
+                    .processingTimeMs(System.currentTimeMillis() - startTime)
+                    .build();
+
+        } catch (Exception e) {
+            log.error("Error in short-term fallback matching: {}", e.getMessage());
+            return createShortTermBasicResponse(shortTermJobId, candidateId);
+        }
+    }
+
+    private double calculateSkillMatchForShortTermJob(
+            com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob,
+            PortfolioExtendedProfile profile) {
+        if (shortTermJob == null || shortTermJob.getRequiredSkills() == null || shortTermJob.getRequiredSkills().isBlank()) {
+            return 0.5;
+        }
+        if (profile == null || profile.getTopSkills() == null) {
+            return 0.3;
+        }
+        try {
+            List<String> requiredSkills = objectMapper.readValue(shortTermJob.getRequiredSkills(), List.class);
+            List<String> candidateSkills = objectMapper.readValue(profile.getTopSkills(), List.class);
+            if (requiredSkills.isEmpty() || candidateSkills.isEmpty()) {
+                return 0.5;
+            }
+            requiredSkills = requiredSkills.stream().map(String::toLowerCase).collect(Collectors.toList());
+            candidateSkills = candidateSkills.stream().map(String::toLowerCase).collect(Collectors.toList());
+            long matchCount = candidateSkills.stream().filter(requiredSkills::contains).count();
+            return Math.min(1.0, (double) matchCount / requiredSkills.size());
+        } catch (JsonProcessingException e) {
+            log.warn("Error parsing skills for short-term scoring: {}", e.getMessage());
+            return 0.5;
+        }
+    }
+
+    private List<AICandidateMatchResponse.SkillSignal> extractMatchingSkillsForShortTermJob(
+            com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob,
+            PortfolioExtendedProfile profile) {
+        List<AICandidateMatchResponse.SkillSignal> signals = new ArrayList<>();
+        if (shortTermJob == null || profile == null) return signals;
+        try {
+            List<String> jobSkills = shortTermJob.getRequiredSkills() != null
+                    ? objectMapper.readValue(shortTermJob.getRequiredSkills(), List.class)
+                    : Collections.emptyList();
+            List<String> profileSkills = profile.getTopSkills() != null
+                    ? objectMapper.readValue(profile.getTopSkills(), List.class)
+                    : Collections.emptyList();
+            jobSkills = jobSkills.stream().map(String::toLowerCase).collect(Collectors.toList());
+            profileSkills = profileSkills.stream().map(String::toLowerCase).collect(Collectors.toList());
+            for (String skill : profileSkills) {
+                if (jobSkills.contains(skill)) {
+                    signals.add(AICandidateMatchResponse.SkillSignal.builder()
+                            .skill(skill)
+                            .evidence("Found in profile top skills")
+                            .isRequired(true)
+                            .relevanceScore(1.0)
+                            .build());
+                }
+            }
+        } catch (JsonProcessingException e) {
+            log.error("Error extracting matching skills for short-term: {}", e.getMessage());
+        }
+        return signals;
+    }
+
+    private AICandidateMatchResponse createShortTermBasicResponse(Long shortTermJobId, Long candidateId) {
+        return AICandidateMatchResponse.builder()
+                .jobId(shortTermJobId)
+                .candidateId(candidateId)
+                .fitSummary("Unable to generate detailed match analysis for this gig.")
+                .confidenceScore(0.5)
+                .matchQuality(AICandidateMatchResponse.MatchQuality.FAIR)
+                .isFallback(true)
+                .build();
+    }
+
+    private double calculateExperienceMatch(com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob, PortfolioExtendedProfile profile) {
+        if (profile.getYearsOfExperience() == null) {
+            return 0.5;
+        }
+        int candidateYears = profile.getYearsOfExperience();
+        // Short-term jobs favor experienced candidates who can deliver quickly
+        if (candidateYears >= 2) return 1.0;
+        if (candidateYears >= 1) return 0.7;
+        return 0.4;
+    }
+
+    private double calculateBudgetMatch(com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob, PortfolioExtendedProfile profile) {
+        if (profile.getHourlyRate() == null) {
+            return 0.5;
+        }
+        double candidateRate = profile.getHourlyRate();
+        double fixedBudget = shortTermJob.getBudget().doubleValue();
+        double estimatedHours = 40.0;
+        if (shortTermJob.getEstimatedDuration() != null) {
+            estimatedHours = parseEstimatedHours(shortTermJob.getEstimatedDuration());
+        }
+        double impliedHourlyRate = fixedBudget / estimatedHours;
+        if (candidateRate <= impliedHourlyRate) {
+            return 1.0;
+        } else if (candidateRate <= impliedHourlyRate * 1.2) {
+            return 0.7;
+        } else if (candidateRate <= impliedHourlyRate * 1.5) {
+            return 0.4;
+        }
+        return 0.2;
+    }
+
+    @Override
     public boolean isEnabled() {
         return aiSearchConfig.isEnabled()
                 && aiSearchConfig.getApiKey() != null
@@ -153,6 +389,35 @@ public class AISearchServiceImpl implements AISearchService {
     }
 
     // ==================== Private Methods ====================
+
+    /**
+     * Parse estimated duration string to hours.
+     * Handles formats like: "2 hours", "1 day", "3 weeks", "1 month"
+     */
+    private double parseEstimatedHours(String duration) {
+        if (duration == null || duration.isBlank()) {
+            return 40.0; // default
+        }
+        String lower = duration.toLowerCase().trim();
+        try {
+            if (lower.contains("hour")) {
+                return Double.parseDouble(lower.replaceAll("[^0-9.]", ""));
+            } else if (lower.contains("day")) {
+                double days = Double.parseDouble(lower.replaceAll("[^0-9.]", ""));
+                return days * 8;
+            } else if (lower.contains("week")) {
+                double weeks = Double.parseDouble(lower.replaceAll("[^0-9.]", ""));
+                return weeks * 40;
+            } else if (lower.contains("month")) {
+                double months = Double.parseDouble(lower.replaceAll("[^0-9.]", ""));
+                return months * 160;
+            } else {
+                return Double.parseDouble(lower);
+            }
+        } catch (NumberFormatException e) {
+            return 40.0;
+        }
+    }
 
     private AICandidateMatchRequest buildMatchRequest(JobPosting job, User candidate, PortfolioExtendedProfile profile) {
         return AICandidateMatchRequest.builder()

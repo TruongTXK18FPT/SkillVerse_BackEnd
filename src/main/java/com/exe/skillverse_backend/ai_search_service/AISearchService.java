@@ -34,6 +34,16 @@ public interface AISearchService {
     boolean isEnabled();
 
     /**
+     * Generate AI-enhanced match explanation for a short-term job (gig/freelance)-candidate pair
+     * Uses Mistral API to analyze gig description and candidate profile
+     *
+     * @param shortTermJobId The short-term job ID
+     * @param candidateId The candidate user ID
+     * @return AI match response with fit summary, skill signals, and reasoning
+     */
+    AICandidateMatchResponse generateShortTermJobMatchExplanation(Long shortTermJobId, Long candidateId);
+
+    /**
      * Check rate limit status
      */
     boolean canMakeRequest();

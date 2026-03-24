@@ -14,6 +14,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 @Service
 @RequiredArgsConstructor
@@ -24,8 +25,18 @@ public class NotificationServiceImpl implements NotificationService {
     private final UserProfileService userProfileService;
     private final PostRepository postRepository;
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createNotification(Long userId, String title, String message, NotificationType type, String relatedId,
+            Long senderId) {
+        persistNotification(userId, title, message, type, relatedId, senderId);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void createNotification(Long userId, String title, String message, NotificationType type, String relatedId) {
+        persistNotification(userId, title, message, type, relatedId, null);
+    }
+
+    private void persistNotification(Long userId, String title, String message, NotificationType type, String relatedId,
             Long senderId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
@@ -40,12 +51,7 @@ public class NotificationServiceImpl implements NotificationService {
                 .isRead(false)
                 .build();
 
-        notificationRepository.save(notification);
-    }
-
-    @Transactional
-    public void createNotification(Long userId, String title, String message, NotificationType type, String relatedId) {
-        createNotification(userId, title, message, type, relatedId, null);
+        notificationRepository.saveAndFlush(notification);
     }
 
     public Page<NotificationResponse> getUserNotifications(Long userId, Boolean isRead, Pageable pageable) {

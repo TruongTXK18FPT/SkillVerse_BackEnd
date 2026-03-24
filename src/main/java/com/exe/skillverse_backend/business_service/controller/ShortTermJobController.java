@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.business_service.dto.response.ShortTermApplica
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
 import com.exe.skillverse_backend.business_service.service.ShortTermJobService;
+import com.exe.skillverse_backend.shared.util.JwtUtils;
 import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.util.List;
@@ -343,7 +344,7 @@ public class ShortTermJobController {
             @RequestParam(required = false) String message,
             Authentication authentication) {
 
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = JwtUtils.extractUserId(authentication);
         log.info("POST /api/short-term-jobs/applications/{}/approve - Approving work", id);
 
         ShortTermApplicationResponse response = shortTermJobService.approveWork(userId, id, message);
@@ -359,7 +360,7 @@ public class ShortTermJobController {
             @Valid @RequestBody RequestRevisionRequest request,
             Authentication authentication) {
 
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = JwtUtils.extractUserId(authentication);
         log.info("POST /api/short-term-jobs/applications/request-revision - Application {}", 
                 request.getApplicationId());
 
@@ -378,7 +379,7 @@ public class ShortTermJobController {
             @PathVariable Long id,
             Authentication authentication) {
 
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = JwtUtils.extractUserId(authentication);
         log.info("POST /api/short-term-jobs/{}/complete - Completing job", id);
 
         ShortTermJobResponse response = shortTermJobService.completeJob(userId, id);
@@ -394,7 +395,7 @@ public class ShortTermJobController {
             @PathVariable Long id,
             Authentication authentication) {
 
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = JwtUtils.extractUserId(authentication);
         log.info("POST /api/short-term-jobs/{}/mark-paid - Marking as paid", id);
 
         ShortTermJobResponse response = shortTermJobService.markAsPaid(userId, id);

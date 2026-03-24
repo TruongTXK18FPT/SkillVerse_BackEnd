@@ -48,4 +48,9 @@ public interface RecruiterShortlistRepository extends JpaRepository<RecruiterSho
      * Count shortlists by recruiter
      */
     long countByRecruiterIdAndShortlistStatus(Long recruiterId, RecruiterShortlist.ShortlistStatus status);
+
+    /**
+     * Delete shortlists attached to a specific full-time job.
+     */
+    void deleteByJobPostingId(Long jobPostingId);
 }

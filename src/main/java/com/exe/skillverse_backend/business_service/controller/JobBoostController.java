@@ -140,7 +140,7 @@ public class JobBoostController {
     public ResponseEntity<?> extendBoost(
             Authentication authentication,
             @PathVariable Long boostId,
-            @RequestParam @Valid @Min(1) @Max(30) int days) {
+            @RequestParam @Valid @Min(7) @Max(30) int days) {
 
         Long recruiterId = extractUserId(authentication);
         log.info("Recruiter {} extending boost {} by {} days", recruiterId, boostId, days);

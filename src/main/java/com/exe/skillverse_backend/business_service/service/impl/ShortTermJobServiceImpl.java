@@ -11,6 +11,9 @@ import com.exe.skillverse_backend.business_service.dto.request.UpdateShortTermJo
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermApplicationResponse;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse;
 import com.exe.skillverse_backend.business_service.entity.JobDeliverable;
+import com.exe.skillverse_backend.business_service.entity.JobEscrow;
+import com.exe.skillverse_backend.business_service.entity.JobEscrow.EscrowStatus;
+import com.exe.skillverse_backend.business_service.entity.ReviewWindow;
 import com.exe.skillverse_backend.business_service.entity.JobStatusAuditLog;
 import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.entity.RevisionNote;
@@ -22,13 +25,17 @@ import com.exe.skillverse_backend.business_service.entity.enums.PaymentMethod;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
 import com.exe.skillverse_backend.business_service.repository.JobDeliverableRepository;
+import com.exe.skillverse_backend.business_service.repository.JobEscrowRepository;
 import com.exe.skillverse_backend.business_service.repository.JobReviewRepository;
+import com.exe.skillverse_backend.business_service.repository.ReviewWindowRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.business_service.repository.RevisionNoteRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobApplicationRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobMilestoneRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
+import com.exe.skillverse_backend.business_service.service.EscrowService;
 import com.exe.skillverse_backend.business_service.service.JobAuditService;
+import com.exe.skillverse_backend.business_service.service.TrustScoreService;
 import com.exe.skillverse_backend.business_service.service.ShortTermJobService;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
@@ -62,6 +69,8 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
 
     private final ShortTermJobRepository shortTermJobRepository;
     private final ShortTermJobApplicationRepository applicationRepository;
+    private final JobEscrowRepository jobEscrowRepository;
+    private final ReviewWindowRepository reviewWindowRepository;
     private final ShortTermJobMilestoneRepository milestoneRepository;
     private final JobDeliverableRepository deliverableRepository;
     private final RevisionNoteRepository revisionNoteRepository;
@@ -74,6 +83,8 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     private final ObjectMapper objectMapper;
     private final RecruiterSubscriptionService recruiterSubscriptionService;
     private final WalletService walletService;
+    private final EscrowService escrowService;
+    private final TrustScoreService trustScoreService;
 
     private static final BigDecimal SHORT_TERM_JOB_POSTING_FEE = new BigDecimal("30000");
 
@@ -106,8 +117,14 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     private static final List<ShortTermJobStatus> REJECTED_TRANSITIONS = List.of(
             ShortTermJobStatus.IN_PROGRESS
     );
-    private static final List<ShortTermJobStatus> COMPLETED_TRANSITIONS = List.of(
-            ShortTermJobStatus.PAID
+    private static final List<ShortTermJobStatus> COMPLETED_TRANSITIONS = Arrays.asList(
+            ShortTermJobStatus.PAID, ShortTermJobStatus.CLOSED, ShortTermJobStatus.CANCELLED
+    );
+    private static final List<ShortTermJobStatus> PAID_TRANSITIONS = Arrays.asList(
+            ShortTermJobStatus.CLOSED, ShortTermJobStatus.CANCELLED
+    );
+    private static final List<ShortTermJobStatus> DISPUTED_TRANSITIONS = List.of(
+            ShortTermJobStatus.CLOSED
     );
 
     // ==================== JOB POSTING (RECRUITER) ====================
@@ -124,13 +141,13 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
                 .description(request.getDescription())
                 .requiredSkills(toJson(request.getRequiredSkills()))
                 .budget(request.getBudget())
-                .isNegotiable(request.getIsNegotiable() != null ? request.getIsNegotiable() : false)
-                .paymentMethod(request.getPaymentMethod() != null ? request.getPaymentMethod() : PaymentMethod.FIXED)
+                .isNegotiable(false)
+                .paymentMethod(PaymentMethod.FIXED)
                 .deadline(request.getDeadline())
                 .estimatedDuration(request.getEstimatedDuration())
                 .urgency(request.getUrgency() != null ? request.getUrgency() : JobUrgency.NORMAL)
                 .startTime(request.getStartTime())
-                .isRemote(request.getIsRemote())
+                .isRemote(true)
                 .location(request.getLocation())
                 .maxApplicants(request.getMaxApplicants())
                 .minRating(request.getMinRating())
@@ -173,8 +190,6 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         if (request.getDescription() != null) job.setDescription(request.getDescription());
         if (request.getRequiredSkills() != null) job.setRequiredSkills(toJson(request.getRequiredSkills()));
         if (request.getBudget() != null) job.setBudget(request.getBudget());
-        if (request.getIsNegotiable() != null) job.setIsNegotiable(request.getIsNegotiable());
-        if (request.getPaymentMethod() != null) job.setPaymentMethod(request.getPaymentMethod());
         if (request.getDeadline() != null) {
             validateDeadline(request.getDeadline());
             job.setDeadline(request.getDeadline());
@@ -182,7 +197,6 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         if (request.getEstimatedDuration() != null) job.setEstimatedDuration(request.getEstimatedDuration());
         if (request.getUrgency() != null) job.setUrgency(request.getUrgency());
         if (request.getStartTime() != null) job.setStartTime(request.getStartTime());
-        if (request.getIsRemote() != null) job.setIsRemote(request.getIsRemote());
         if (request.getLocation() != null) job.setLocation(request.getLocation());
         if (request.getMaxApplicants() != null) job.setMaxApplicants(request.getMaxApplicants());
         if (request.getMinRating() != null) job.setMinRating(request.getMinRating());
@@ -206,6 +220,12 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         if (previousStatus == ShortTermJobStatus.DRAFT && newStatus == ShortTermJobStatus.PENDING_APPROVAL) {
             boolean usedSubscription = recruiterSubscriptionService.tryUseShortTermJobQuota(userId);
             if (!usedSubscription) {
+                // Check wallet has enough balance for posting fee
+                if (!walletService.hasAvailableCash(userId, SHORT_TERM_JOB_POSTING_FEE)) {
+                    throw new BadRequestException(
+                            "Số dư ví không đủ để thanh toán phí đăng tin (30,000 VND). Vui lòng nạp thêm tiền vào ví."
+                    );
+                }
                 // No active subscription — charge 30k from wallet
                 walletService.deductCash(
                         userId,
@@ -217,6 +237,16 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
             }
             job.setPaidViaSubscription(usedSubscription);
             job.setIsHighlighted(usedSubscription && recruiterSubscriptionService.canHighlightJob(userId));
+
+            // Check wallet has enough frozen-capable balance for job budget (escrow will be funded later)
+            // We require available balance >= budget so recruiter can fund escrow when worker is selected
+            BigDecimal requiredForEscrow = job.getBudget();
+            if (!walletService.hasAvailableCash(userId, requiredForEscrow)) {
+                throw new BadRequestException(
+                        "Số dư ví không đủ để ký quỹ cho công việc này ("
+                                + requiredForEscrow + " VND). Vui lòng nạp thêm tiền vào ví để đảm bảo có thể ký quỹ khi chọn được ứng viên."
+                );
+            }
         }
 
         job.setStatus(newStatus);
@@ -230,6 +260,23 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         }
 
         job = shortTermJobRepository.save(job);
+
+        // Handle escrow refund when job is cancelled with a selected candidate
+        // Only refund if escrow has not been released yet (not FULLY_RELEASED)
+        if (newStatus == ShortTermJobStatus.CANCELLED && job.getSelectedApplicantId() != null) {
+            try {
+                JobEscrow escrow = escrowService.getEscrowByJobId(jobId);
+                if (escrow != null && escrow.getStatus() != JobEscrow.EscrowStatus.FULLY_RELEASED
+                        && escrow.getStatus() != JobEscrow.EscrowStatus.REFUNDED) {
+                    escrowService.refundEscrow(jobId, userId, reason != null ? reason : "Job cancelled");
+                    log.info("Escrow refunded for cancelled job {}", jobId);
+                } else {
+                    log.info("Escrow already released or not found for job {}, skipping refund", jobId);
+                }
+            } catch (Exception e) {
+                log.warn("Could not refund escrow for cancelled job {}: {}", jobId, e.getMessage());
+            }
+        }
 
         // Log audit
         auditService.logShortTermJobStatusChange(
@@ -477,6 +524,16 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
             throw new BadRequestException("Application does not belong to this job");
         }
 
+        // Check if job has escrow funded before selecting candidate
+        JobEscrow escrow = escrowService.getEscrowByJobId(jobId);
+        if (escrow == null) {
+            throw new BadRequestException("Job must be funded before selecting a candidate. Please fund the escrow first.");
+        }
+        // Set workerId on existing escrow
+        escrow.setWorkerId(application.getUser().getId());
+        // Update workerId in the job escrow
+        jobEscrowRepository.save(escrow);
+
         // Accept this application
         ShortTermApplicationStatus previousStatus = application.getStatus();
         application.setStatus(ShortTermApplicationStatus.ACCEPTED);
@@ -567,6 +624,19 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         job.setStatus(ShortTermJobStatus.SUBMITTED);
         shortTermJobRepository.save(job);
 
+        // Create review window with 72-hour deadline
+        LocalDateTime reviewDeadline = LocalDateTime.now().plusHours(72);
+        ReviewWindow reviewWindow = ReviewWindow.builder()
+                .applicationId(application.getId())
+                .jobId(job.getId())
+                .deadline(reviewDeadline)
+                .autoActionAt(reviewDeadline)
+                .status(ReviewWindow.ReviewStatus.ACTIVE)
+                .build();
+        reviewWindowRepository.save(reviewWindow);
+        log.info("Created review window {} for application {} with deadline {}",
+                reviewWindow.getId(), application.getId(), reviewDeadline);
+
         auditService.logApplicationStatusChange(
                 request.getApplicationId(), previousStatus, ShortTermApplicationStatus.SUBMITTED,
                 userId, JobStatusAuditLog.AuditRole.CANDIDATE, "Deliverables submitted"
@@ -596,6 +666,14 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         // Update job status
         job.setStatus(ShortTermJobStatus.APPROVED);
         shortTermJobRepository.save(job);
+
+        // Mark review window as manually approved
+        reviewWindowRepository.findByApplicationId(applicationId).ifPresent(window -> {
+            window.setStatus(ReviewWindow.ReviewStatus.MANUAL_APPROVED);
+            window.setApprovedAt(LocalDateTime.now());
+            reviewWindowRepository.save(window);
+            log.info("Review window {} marked as MANUAL_APPROVED", window.getId());
+        });
 
         auditService.logApplicationStatusChange(
                 applicationId, previousStatus, ShortTermApplicationStatus.APPROVED,
@@ -675,12 +753,26 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         job = shortTermJobRepository.save(job);
 
         // Update application status
-        applicationRepository.findWorkingApplicationByJobId(jobId)
+        applicationRepository.findApprovedApplicationByJobId(jobId)
                 .ifPresent(app -> {
                     app.setStatus(ShortTermApplicationStatus.COMPLETED);
                     app.setCompletedAt(LocalDateTime.now());
                     applicationRepository.save(app);
                 });
+
+        // Release escrow to worker (skip if already released)
+        JobEscrow escrow = jobEscrowRepository.findByJobId(jobId).orElse(null);
+        if (escrow != null && escrow.getStatus() != EscrowStatus.FULLY_RELEASED) {
+            try {
+                escrowService.releaseEscrow(jobId, userId, "Job completed");
+            } catch (BadRequestException e) {
+                log.warn("Escrow release skipped for job {}: {}", jobId, e.getMessage());
+            }
+        }
+
+        // Recalculate trust scores for both parties
+        Long workerId = job.getSelectedApplicantId();
+        trustScoreService.triggerRecalculationOnJobComplete(userId, workerId);
 
         auditService.logShortTermJobStatusChange(
                 jobId, previousStatus, ShortTermJobStatus.COMPLETED,
@@ -697,6 +789,10 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         ShortTermJob job = getJobById(jobId);
         validateJobOwnership(job, userId);
 
+        if (job.getStatus() == ShortTermJobStatus.PAID) {
+            log.info("Job {} is already PAID, skipping duplicate markAsPaid", jobId);
+            return mapToResponse(job);
+        }
         if (job.getStatus() != ShortTermJobStatus.COMPLETED) {
             throw new BadRequestException("Can only mark COMPLETED jobs as paid");
         }
@@ -719,18 +815,19 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     private void validateCreateJobRequest(CreateShortTermJobRequest request) {
         validateDeadline(request.getDeadline());
 
-        if (!request.getIsRemote() && (request.getLocation() == null || request.getLocation().isBlank())) {
-            throw new BadRequestException("Location is required for non-remote jobs");
+        // Rule: Only FIXED payment method is allowed
+        if (request.getPaymentMethod() != null && request.getPaymentMethod() != PaymentMethod.FIXED) {
+            throw new BadRequestException("Chỉ cho phép phương thức thanh toán trả một lần (FIXED) cho công việc ngắn hạn");
         }
 
-        // Validate milestones total equals budget if payment method is MILESTONE
-        if (request.getPaymentMethod() == PaymentMethod.MILESTONE && request.getMilestones() != null) {
-            BigDecimal milestonesTotal = request.getMilestones().stream()
-                    .map(CreateShortTermJobRequest.CreateMilestoneRequest::getAmount)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            if (milestonesTotal.compareTo(request.getBudget()) != 0) {
-                throw new BadRequestException("Milestones total must equal job budget");
-            }
+        // Rule: Price negotiation is not allowed
+        if (Boolean.TRUE.equals(request.getIsNegotiable())) {
+            throw new BadRequestException("Không cho phép thương lượng giá cả cho công việc ngắn hạn");
+        }
+
+        // Rule: Only remote work is allowed
+        if (Boolean.FALSE.equals(request.getIsRemote())) {
+            throw new BadRequestException("Chỉ cho phép làm việc từ xa cho công việc ngắn hạn");
         }
     }
 
@@ -760,6 +857,9 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
             case APPROVED: allowed = APPROVED_TRANSITIONS; break;
             case REJECTED: allowed = REJECTED_TRANSITIONS; break;
             case COMPLETED: allowed = COMPLETED_TRANSITIONS; break;
+            case PAID: allowed = PAID_TRANSITIONS; break;
+            case DISPUTED: allowed = DISPUTED_TRANSITIONS; break;
+            case CLOSED: allowed = List.of(); break;
             default: allowed = List.of();
         }
 
@@ -797,6 +897,11 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         // Check job status
         if (job.getStatus() != ShortTermJobStatus.PUBLISHED && job.getStatus() != ShortTermJobStatus.APPLIED) {
             throw new BadRequestException("This job is not accepting applications");
+        }
+
+        // Rule: No more applications allowed after a candidate is selected
+        if (job.getSelectedApplicantId() != null) {
+            throw new BadRequestException("This job already has a selected candidate and is no longer accepting applications");
         }
 
         // Check if job is expired

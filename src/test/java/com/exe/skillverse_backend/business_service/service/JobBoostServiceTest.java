@@ -117,8 +117,8 @@ class JobBoostServiceTest {
         doNothing().when(usageLimitService).checkQuotaOnly(100L, FeatureType.JOB_BOOST_MONTHLY);
         when(jobPostingRepository.findByIdAndRecruiterProfileUserId(1L, 100L))
                 .thenReturn(Optional.of(openJob));
-        when(jobBoostRepository.findActiveBoostByJobPostingId(1L)).thenReturn(Optional.empty());
-        when(jobBoostRepository.save(any(JobBoost.class))).thenAnswer(invocation -> {
+        when(jobBoostRepository.findByJobPostingId(1L)).thenReturn(Optional.empty());
+        when(jobBoostRepository.saveAndFlush(any(JobBoost.class))).thenAnswer(invocation -> {
             JobBoost boost = invocation.getArgument(0);
             boost.setId(1L);
             return boost;
@@ -219,7 +219,7 @@ class JobBoostServiceTest {
                 }});
         when(jobPostingRepository.findByIdAndRecruiterProfileUserId(1L, 100L))
                 .thenReturn(Optional.of(openJob));
-        when(jobBoostRepository.findActiveBoostByJobPostingId(1L))
+        when(jobBoostRepository.findByJobPostingId(1L))
                 .thenReturn(Optional.of(existingBoost));
 
         CreateJobBoostRequest request = CreateJobBoostRequest.builder()
@@ -231,7 +231,7 @@ class JobBoostServiceTest {
         BadRequestException exception = assertThrows(BadRequestException.class,
                 () -> jobBoostService.createBoost(100L, request));
 
-        assertTrue(exception.getMessage().contains("đang được đẩy"));
+        assertTrue(exception.getMessage().contains("đã dùng lượt boost"));
     }
 
     @Test

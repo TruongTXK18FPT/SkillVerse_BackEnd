@@ -5,7 +5,6 @@ import com.exe.skillverse_backend.ai_search_service.dto.AICandidateMatchResponse
 import com.exe.skillverse_backend.business_service.dto.request.CandidateSearchRequest;
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentSessionResponse;
 import com.exe.skillverse_backend.business_service.entity.CandidateMatchScore;
-import com.exe.skillverse_backend.business_service.entity.CandidateSearchSession;
 import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.RecruiterShortlist;
 import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
@@ -13,6 +12,7 @@ import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobCo
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
 import com.exe.skillverse_backend.business_service.repository.CandidateMatchScoreRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
+import com.exe.skillverse_backend.business_service.service.SearchAnalyticsService;
 import com.exe.skillverse_backend.business_service.repository.CandidateSearchSessionRepository;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterShortlistRepository;
@@ -57,12 +57,12 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
     private final JobPostingRepository jobPostingRepository;
     private final ShortTermJobRepository shortTermJobRepository;
     private final CandidateMatchScoreRepository matchScoreRepository;
-    private final CandidateSearchSessionRepository searchSessionRepository;
     private final RecruiterShortlistRepository shortlistRepository;
     private final RecruiterSubscriptionService recruiterSubscriptionService;
     private final UsageLimitService usageLimitService;
     private final AISearchService aiSearchService;
     private final RecruitmentChatService recruitmentChatService;
+    private final SearchAnalyticsService searchAnalyticsService;
     private final ObjectMapper objectMapper;
 
     // Default scoring weights
@@ -107,14 +107,22 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
             throw new ForbiddenException("Bạn không có quyền truy cập tin ngắn hạn này.");
         }
 
+        if (resolvedJob != null && !resolvedJob.getRecruiterProfile().getUser().getId().equals(recruiterId)) {
+            throw new ForbiddenException("Bạn không có quyền truy cập tin tuyển dụng này.");
+        }
+
         final JobPosting job = resolvedJob;
         final ShortTermJob shortTermJob = resolvedShortTermJob;
 
         Map<Long, PortfolioExtendedProfile> profileIndex = profiles.getContent().stream()
-                .collect(Collectors.toMap(PortfolioExtendedProfile::getUserId, profile -> profile));
+                .collect(Collectors.toMap(
+                        PortfolioExtendedProfile::getUserId,
+                        profile -> profile,
+                        (left, right) -> left
+                ));
 
         List<CandidateSummaryDTO> scoredCandidates = profiles.getContent().stream()
-                .map(profile -> calculateHybridScore(profile, job, shortTermJob, request))
+                .map(profile -> safelyCalculateHybridScore(profile, job, shortTermJob, request))
                 .filter(Objects::nonNull)
                 .filter(candidate -> matchesCandidateFilters(
                         profileIndex.get(candidate.getUserId()),
@@ -129,7 +137,8 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         }
 
         sortCandidates(scoredCandidates, profileIndex, request);
-        recordSearchSession(recruiterId, request, scoredCandidates.size());
+        searchAnalyticsService.recordSearchSession(recruiterId, request.getQuery(), request.getSkills(),
+                scoredCandidates.size(), request.getSize());
 
         int fromIndex = Math.min(page * size, scoredCandidates.size());
         int toIndex = Math.min(fromIndex + size, scoredCandidates.size());
@@ -155,6 +164,31 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         }
 
         return aiSearchService.generateMatchExplanation(jobId, candidateId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Object getShortTermJobMatchExplanation(Long recruiterId, Long shortTermJobId, Long candidateId) {
+        // Check permission
+        if (!hasCandidateAccess(recruiterId)) {
+            throw new ForbiddenException("Bạn cần gói Premium Recruiter để sử dụng tính năng AI matching.");
+        }
+
+        // Check AI is available
+        if (!aiSearchService.isEnabled()) {
+            throw new BadRequestException("AI matching hiện không khả dụng. Vui lòng thử lại sau.");
+        }
+
+        // Verify short-term job ownership
+        var shortTermJob = shortTermJobRepository.findById(shortTermJobId).orElse(null);
+        if (shortTermJob == null) {
+            throw new BadRequestException("Không tìm thấy công việc ngắn hạn.");
+        }
+        if (!shortTermJob.getRecruiterProfile().getUser().getId().equals(recruiterId)) {
+            throw new ForbiddenException("Bạn không có quyền truy cập công việc này.");
+        }
+
+        return aiSearchService.generateShortTermJobMatchExplanation(shortTermJobId, candidateId);
     }
 
     @Override
@@ -324,6 +358,21 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         dto.setSkillMatchPercent((int) Math.round(skillScore * 100));
 
         return dto;
+    }
+
+    private CandidateSummaryDTO safelyCalculateHybridScore(
+            PortfolioExtendedProfile profile,
+            JobPosting job,
+            ShortTermJob shortTermJob,
+            CandidateSearchRequest request
+    ) {
+        try {
+            return calculateHybridScore(profile, job, shortTermJob, request);
+        } catch (Exception exception) {
+            Long candidateId = profile != null ? profile.getUserId() : null;
+            log.warn("Skipping candidate {} because hybrid scoring failed: {}", candidateId, exception.getMessage());
+            return null;
+        }
     }
 
     private void sortCandidates(
@@ -711,7 +760,7 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
             } else {
                 score = 0.2;
             }
-        } else if (job != null) {
+        } else if (job != null && job.getMinBudget() != null && job.getMaxBudget() != null) {
             double candidateRate = profile.getHourlyRate();
             double minBudget = job.getMinBudget().doubleValue() / 160; // Convert monthly to hourly
             double maxBudget = job.getMaxBudget().doubleValue() / 160;
@@ -844,23 +893,6 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         }
 
         return candidates;
-    }
-
-    private void recordSearchSession(Long recruiterId, CandidateSearchRequest request, long totalResults) {
-        try {
-            CandidateSearchSession session = CandidateSearchSession.builder()
-                    .recruiterId(recruiterId)
-                    .searchQuery(request.getQuery())
-                    .filters(request.getSkills())
-                    .totalResults((int) totalResults)
-                    .pageSize(request.getSize())
-                    .searchedAt(LocalDateTime.now())
-                    .build();
-
-            searchSessionRepository.save(session);
-        } catch (Exception e) {
-            log.warn("Failed to record search session: {}", e.getMessage());
-        }
     }
 
     // ==================== Mapping Methods ====================

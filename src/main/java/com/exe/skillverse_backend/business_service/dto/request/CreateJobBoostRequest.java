@@ -21,7 +21,7 @@ public class CreateJobBoostRequest {
     private Long jobId;
 
     @NotNull(message = "Duration in days is required")
-    @Min(value = 1, message = "Boost duration must be at least 1 day")
+    @Min(value = 7, message = "Boost duration must be at least 7 days")
     @Max(value = 30, message = "Boost duration cannot exceed 30 days")
     private Integer durationDays;
 

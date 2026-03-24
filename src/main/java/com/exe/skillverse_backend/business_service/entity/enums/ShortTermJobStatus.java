@@ -17,5 +17,6 @@ public enum ShortTermJobStatus {
     COMPLETED,       // Hoàn thành
     PAID,            // Đã thanh toán
     CANCELLED,       // Đã hủy
-    DISPUTED         // Đang tranh chấp
+    DISPUTED,        // Đang tranh chấp
+    CLOSED           // Đã đóng (recruiter chủ động đóng job)
 }

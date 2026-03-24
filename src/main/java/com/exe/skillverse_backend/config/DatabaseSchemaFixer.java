@@ -155,6 +155,14 @@ public class DatabaseSchemaFixer {
             "Materialize snapshotVersion/modules JSON for active or pinned revisions missing structured content",
             this::patchLegacyRevisionSnapshotMaterialization,
             this::verifyLegacyRevisionSnapshotMaterialization);
+        applyPatch("PATCH-023-wallet-transaction-type-check",
+            "Ensure wallet transaction_type CHECK includes JOB_PAYOUT, PLATFORM_FEE, ESCROW_FUND, ESCROW_RELEASE, ESCROW_REFUND",
+            this::patchWalletTransactionTypeCheck,
+            this::verifyWalletTransactionTypeCheck);
+        applyPatch("PATCH-024-short-term-job-notification-types",
+            "Ensure notification type CHECK includes JOB_APPROVED, JOB_REJECTED",
+            this::patchShortTermJobNotificationTypes,
+            this::verifyShortTermJobNotificationTypes);
 
         log.info("All PostgreSQL schema patches applied and verified successfully.");
     }
@@ -1933,6 +1941,77 @@ public class DatabaseSchemaFixer {
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 algorithm is not available", ex);
         }
+    }
+
+    private void patchWalletTransactionTypeCheck() {
+        String sql = "DO $$\nBEGIN\n" +
+            "IF EXISTS (\n" +
+            "SELECT 1 FROM information_schema.table_constraints\n" +
+            "WHERE table_schema = current_schema()\n" +
+            "AND table_name = 'wallet_transactions'\n" +
+            "AND constraint_name = 'wallet_transactions_transaction_type_check'\n" +
+            ") THEN\n" +
+            "ALTER TABLE wallet_transactions DROP CONSTRAINT wallet_transactions_transaction_type_check;\n" +
+            "END IF;\n" +
+            "ALTER TABLE wallet_transactions ADD CONSTRAINT wallet_transactions_transaction_type_check\n" +
+            "CHECK (transaction_type IN (\n" +
+            "'DEPOSIT_CASH','WITHDRAWAL_CASH','PURCHASE_COINS','REFUND_CASH',\n" +
+            "'MENTOR_BOOKING','SEMINAR_PURCHASE','SEMINAR_PAYOUT',\n" +
+            "'ESCROW_FUND','ESCROW_RELEASE','ESCROW_REFUND','JOB_PAYOUT','PLATFORM_FEE',\n" +
+            "'EARN_COINS','SPEND_COINS','PURCHASE_COURSE','PURCHASE_PREMIUM',\n" +
+            "'TIP_MENTOR','RECEIVE_TIP','BONUS_COINS','REWARD_ACHIEVEMENT',\n" +
+            "'DAILY_LOGIN_BONUS','REFUND_COINS',\n" +
+            "'ADMIN_ADJUSTMENT','SYSTEM_CORRECTION'\n" +
+            "));\n" +
+            "END;\n" +
+            "$$ LANGUAGE plpgsql;";
+        jdbcTemplate.execute(sql);
+    }
+
+    private boolean verifyWalletTransactionTypeCheck() {
+        String definition = getConstraintDefinition("wallet_transactions_transaction_type_check");
+        return definition != null
+                && definition.contains("JOB_PAYOUT")
+                && definition.contains("PLATFORM_FEE")
+                && definition.contains("ESCROW_FUND")
+                && definition.contains("ESCROW_RELEASE")
+                && definition.contains("ESCROW_REFUND");
+    }
+
+    private void patchShortTermJobNotificationTypes() {
+        String sql = "DO $$\nDECLARE\n" +
+            "current_check TEXT;\n" +
+            "BEGIN\n" +
+            "SELECT pg_get_constraintdef(oid) INTO current_check\n" +
+            "FROM pg_constraint\n" +
+            "WHERE conname = 'notifications_type_check';\n" +
+            "IF current_check IS NULL OR current_check NOT LIKE '%JOB_APPROVED%' THEN\n" +
+            "ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;\n" +
+            "ALTER TABLE notifications ADD CONSTRAINT notifications_type_check\n" +
+            "CHECK (type IN (\n" +
+            "'LIKE','COMMENT','PREMIUM_PURCHASE','WALLET_DEPOSIT','COIN_PURCHASE',\n" +
+            "'WELCOME','PREMIUM_EXPIRATION','PREMIUM_CANCEL','SYSTEM','WARNING',\n" +
+            "'VIOLATION_REPORT','BOOKING_CREATED','BOOKING_CONFIRMED','BOOKING_REJECTED',\n" +
+            "'BOOKING_REMINDER','BOOKING_COMPLETED','BOOKING_CANCELLED','BOOKING_REFUND',\n" +
+            "'PRECHAT_MESSAGE','RECRUITMENT_MESSAGE','MENTOR_REVIEW_RECEIVED',\n" +
+            "'WITHDRAWAL_APPROVED','WITHDRAWAL_REJECTED','MENTOR_LEVEL_UP',\n" +
+            "'MENTOR_BADGE_AWARDED','TASK_DEADLINE','TASK_OVERDUE','TASK_REVIEW',\n" +
+            "'ASSIGNMENT_SUBMITTED','ASSIGNMENT_GRADED','ASSIGNMENT_LATE',\n" +
+            "'COURSE_REJECTED','COURSE_SUSPENDED','COURSE_RESTORED',\n" +
+            "'JOB_APPROVED','JOB_REJECTED',\n" +
+            "'ESCROW_FUNDED','ESCROW_RELEASED','ESCROW_REFUNDED'\n" +
+            "));\n" +
+            "END IF;\n" +
+            "END;\n" +
+            "$$ LANGUAGE plpgsql;";
+        jdbcTemplate.execute(sql);
+    }
+
+    private boolean verifyShortTermJobNotificationTypes() {
+        String definition = getConstraintDefinition("notifications_type_check");
+        return definition != null
+                && definition.contains("JOB_APPROVED")
+                && definition.contains("JOB_REJECTED");
     }
 
     private void ensureCourseRevisioningColumns() {

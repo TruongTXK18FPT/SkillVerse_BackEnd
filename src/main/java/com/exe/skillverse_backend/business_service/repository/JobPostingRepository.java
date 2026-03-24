@@ -6,6 +6,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -106,4 +108,22 @@ public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
             "WHERE j.status = 'OPEN' " +
             "ORDER BY CASE WHEN jb.id IS NOT NULL THEN 0 ELSE 1 END, j.createdAt DESC")
     List<JobPosting> findOpenJobsWithBoostInfo();
+
+    /**
+     * Paginated: Find OPEN jobs with boost ranking, boosted jobs first
+     */
+    @Query(value = """
+        SELECT j.* FROM job_postings j
+        LEFT JOIN job_boosts jb ON j.id = jb.job_posting_id
+        AND jb.boost_status = 'ACTIVE'
+        AND jb.expires_at > CURRENT_TIMESTAMP
+        AND (jb.scheduled_start_at IS NULL OR jb.scheduled_start_at <= CURRENT_TIMESTAMP)
+        WHERE j.status = 'OPEN'
+        ORDER BY
+            CASE WHEN jb.id IS NOT NULL THEN 0 ELSE 1 END,
+            j.created_at DESC
+        """,
+        countQuery = "SELECT COUNT(*) FROM job_postings WHERE status = 'OPEN'",
+        nativeQuery = true)
+    Page<JobPosting> findOpenJobsPaged(Pageable pageable);
 }

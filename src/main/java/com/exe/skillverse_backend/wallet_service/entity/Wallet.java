@@ -109,6 +109,14 @@ public class Wallet {
     @Column(nullable = false, precision = 15, scale = 2)
     @Builder.Default
     private BigDecimal frozenCashBalance = BigDecimal.ZERO;
+
+    @Column(name = "escrow_balance", precision = 15, scale = 2)
+    @Builder.Default
+    private BigDecimal escrowBalance = BigDecimal.ZERO;
+
+    @Column(name = "pending_payout_balance", precision = 15, scale = 2)
+    @Builder.Default
+    private BigDecimal pendingPayoutBalance = BigDecimal.ZERO;
     
     /**
      * Thông tin tài khoản ngân hàng để rút tiền

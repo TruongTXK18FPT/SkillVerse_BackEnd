@@ -7,9 +7,13 @@ import com.exe.skillverse_backend.business_service.dto.response.JobPostingRespon
 import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
+import com.exe.skillverse_backend.business_service.repository.CandidateMatchScoreRepository;
 import com.exe.skillverse_backend.business_service.repository.JobApplicationRepository;
+import com.exe.skillverse_backend.business_service.repository.JobBoostRepository;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
+import com.exe.skillverse_backend.business_service.repository.RecruiterShortlistRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
+import com.exe.skillverse_backend.business_service.repository.RecruitmentSessionRepository;
 import com.exe.skillverse_backend.business_service.service.JobPostingService;
 import com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionService;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
@@ -25,23 +29,10 @@ import java.util.List;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collectors;
-
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
-
-import com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionService;
-import com.exe.skillverse_backend.wallet_service.service.WalletService;
-import java.math.BigDecimal;
-
-import com.exe.skillverse_backend.business_service.dto.request.ReopenJobRequest;
-import com.exe.skillverse_backend.business_service.repository.JobBoostRepository;
 
 @Service
 @Slf4j
@@ -52,6 +43,9 @@ public class JobPostingServiceImpl implements JobPostingService {
     private final RecruiterProfileRepository recruiterProfileRepository;
     private final JobApplicationRepository jobApplicationRepository;
     private final JobBoostRepository jobBoostRepository;
+    private final CandidateMatchScoreRepository candidateMatchScoreRepository;
+    private final RecruiterShortlistRepository recruiterShortlistRepository;
+    private final RecruitmentSessionRepository recruitmentSessionRepository;
     private final ObjectMapper objectMapper;
     private final RecruiterSubscriptionService recruiterSubscriptionService;
     private final WalletService walletService;
@@ -286,6 +280,13 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
+    public Page<JobPostingResponse> getPublicJobsPaged(Pageable pageable) {
+        log.info("Fetching public jobs paged (status = OPEN) with boost ranking");
+        Page<JobPosting> page = jobPostingRepository.findOpenJobsPaged(pageable);
+        return page.map(this::mapToResponse);
+    }
+
     /**
      * Get job details by ID
      * OPTIMIZED: Uses JOIN FETCH to prevent lazy loading of recruiter profile
@@ -315,9 +316,12 @@ public class JobPostingServiceImpl implements JobPostingService {
         JobPosting job = jobPostingRepository.findByIdAndRecruiterProfileUserId(jobId, userId)
                 .orElseThrow(() -> new NotFoundException("Job not found or you don't have permission to delete it"));
 
-        // Manual cleanup of applications before deleting job
-        // This is necessary if CascadeType.REMOVE is not set on the entity relationship
+        // Clean up all dependent records that still hold a FK to job_postings.
+        recruitmentSessionRepository.clearJobPostingContext(jobId);
+        recruiterShortlistRepository.deleteByJobPostingId(jobId);
+        candidateMatchScoreRepository.deleteByJobPostingId(jobId);
         jobApplicationRepository.deleteByJobPostingId(jobId);
+        jobBoostRepository.deleteByJobPostingId(jobId);
 
         jobPostingRepository.delete(job);
         log.info("Job deleted successfully: {}", jobId);

@@ -167,6 +167,13 @@ public class WalletTransaction {
         SEMINAR_PURCHASE("Mua vé hội thảo"), // Mua vé tham gia hội thảo
         SEMINAR_PAYOUT("Thu nhập từ hội thảo"), // Thu nhập của người tạo hội thảo
 
+        // Escrow / Short-term job transactions
+        ESCROW_FUND("Ký quỹ cho công việc"),
+        ESCROW_RELEASE("Giải phóng ký quỹ cho ứng viên"),
+        ESCROW_REFUND("Hoàn ký quỹ cho recruiter"),
+        JOB_PAYOUT("Thu nhập từ công việc ngắn hạn"),
+        PLATFORM_FEE("Phí nền tảng từ ký quỹ"),
+
         // Coin transactions
         EARN_COINS("Kiếm Coin"), // Kiếm Coin từ học tập
         SPEND_COINS("Chi tiêu Coin"), // Chi tiêu Coin
@@ -259,6 +266,8 @@ public class WalletTransaction {
         return transactionType == TransactionType.DEPOSIT_CASH ||
                 transactionType == TransactionType.MENTOR_BOOKING ||
                 transactionType == TransactionType.SEMINAR_PAYOUT ||
+                transactionType == TransactionType.JOB_PAYOUT ||
+                transactionType == TransactionType.ESCROW_REFUND ||
                 transactionType == TransactionType.EARN_COINS ||
                 transactionType == TransactionType.RECEIVE_TIP ||
                 transactionType == TransactionType.BONUS_COINS ||
