@@ -17,4 +17,43 @@ public interface JobEscrowRepository extends JpaRepository<JobEscrow, Long> {
     List<JobEscrow> findByRecruiterId(Long recruiterId);
     List<JobEscrow> findByStatus(EscrowStatus status);
     List<JobEscrow> findByStatusIn(List<EscrowStatus> statuses);
+
+    /**
+     * Get total platform fee earned from all fully released escrows
+     */
+    @Query("SELECT COALESCE(SUM(e.platformFee), 0) FROM JobEscrow e WHERE e.status = 'FULLY_RELEASED'")
+    java.math.BigDecimal getTotalPlatformFee();
+
+    /**
+     * Get total escrow amount from all funded/released escrows
+     */
+    @Query("SELECT COALESCE(SUM(e.totalAmount), 0) FROM JobEscrow e WHERE e.status IN ('FUNDED', 'PARTIALLY_RELEASED', 'FULLY_RELEASED')")
+    java.math.BigDecimal getTotalEscrowVolume();
+
+    /**
+     * Count escrows by status
+     */
+    long countByStatus(EscrowStatus status);
+
+    /**
+     * Get total platform fee from escrows released within a date range
+     */
+    @Query("SELECT COALESCE(SUM(e.platformFee), 0) FROM JobEscrow e " +
+           "WHERE e.status = 'FULLY_RELEASED' " +
+           "AND e.releasedAt >= :startDate AND e.releasedAt <= :endDate")
+    java.math.BigDecimal getPlatformFeeInRange(
+        @Param("startDate") java.time.LocalDateTime startDate,
+        @Param("endDate") java.time.LocalDateTime endDate
+    );
+
+    /**
+     * Get total escrow volume in a date range
+     */
+    @Query("SELECT COALESCE(SUM(e.totalAmount), 0) FROM JobEscrow e " +
+           "WHERE e.status IN ('FUNDED', 'PARTIALLY_RELEASED', 'FULLY_RELEASED') " +
+           "AND e.fundedAt >= :startDate AND e.fundedAt <= :endDate")
+    java.math.BigDecimal getEscrowVolumeInRange(
+        @Param("startDate") java.time.LocalDateTime startDate,
+        @Param("endDate") java.time.LocalDateTime endDate
+    );
 }

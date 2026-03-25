@@ -5,11 +5,13 @@ import com.exe.skillverse_backend.admin_service.dto.response.AdminJobStatsRespon
 import com.exe.skillverse_backend.admin_service.service.AdminShortTermJobService;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse;
 import com.exe.skillverse_backend.business_service.entity.Dispute;
+import com.exe.skillverse_backend.business_service.entity.JobEscrow;
 import com.exe.skillverse_backend.business_service.entity.JobStatusAuditLog;
 import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
 import com.exe.skillverse_backend.business_service.entity.ShortTermJobApplication;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
 import com.exe.skillverse_backend.business_service.repository.DisputeRepository;
+import com.exe.skillverse_backend.business_service.repository.JobEscrowRepository;
 import com.exe.skillverse_backend.business_service.repository.JobStatusAuditLogRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobApplicationRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
@@ -22,6 +24,7 @@ import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.EmailService;
+import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -48,6 +51,8 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
     private final DisputeService disputeService;
     private final ShortTermJobApplicationRepository applicationRepository;
     private final JobStatusAuditLogRepository auditLogRepository;
+    private final JobEscrowRepository jobEscrowRepository;
+    private final WalletTransactionRepository walletTransactionRepository;
     private final WalletService walletService;
     private final EscrowService escrowService;
     private final NotificationService notificationService;
@@ -494,6 +499,13 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
         byStatus.put("DISPUTE_INVESTIGATING", investigatingDisputes);
         byStatus.put("DISPUTE_AWAITING", awaitingDisputes);
 
+        // Earnings stats from escrow and wallet transactions
+        BigDecimal totalPlatformFee = jobEscrowRepository.getTotalPlatformFee();
+        BigDecimal totalEscrowVolume = jobEscrowRepository.getTotalEscrowVolume();
+        BigDecimal totalRecruiterEarnings = walletTransactionRepository.getTotalJobPayouts();
+        long activeEscrows = jobEscrowRepository.countByStatus(JobEscrow.EscrowStatus.FUNDED)
+                + jobEscrowRepository.countByStatus(JobEscrow.EscrowStatus.PARTIALLY_RELEASED);
+
         return AdminJobStatsResponse.builder()
                 .totalJobs(totalJobs)
                 .draftCount(draftCount)
@@ -508,6 +520,10 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                 .rejectedCount(rejectedCount)
                 .byStatus(byStatus)
                 .byUrgency(new HashMap<>())
+                .totalPlatformEarnings(totalPlatformFee != null ? totalPlatformFee.longValue() : 0L)
+                .totalRecruiterEarnings(totalRecruiterEarnings != null ? totalRecruiterEarnings.longValue() : 0L)
+                .totalEscrowVolume(totalEscrowVolume != null ? totalEscrowVolume.longValue() : 0L)
+                .activeEscrows(activeEscrows)
                 .build();
     }
 

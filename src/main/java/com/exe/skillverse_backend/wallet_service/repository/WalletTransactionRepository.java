@@ -194,7 +194,27 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
      * Admin: Get transactions by type ordered by date
      */
     Page<WalletTransaction> findByTransactionTypeOrderByCreatedAtDesc(
-        WalletTransaction.TransactionType transactionType, 
+        WalletTransaction.TransactionType transactionType,
         Pageable pageable
+    );
+
+    /**
+     * Get total recruiter earnings from JOB_PAYOUT transactions (all short-term job payouts)
+     */
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'JOB_PAYOUT' " +
+           "AND t.status = 'COMPLETED'")
+    BigDecimal getTotalJobPayouts();
+
+    /**
+     * Get recruiter JOB_PAYOUT amounts within a date range
+     */
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'JOB_PAYOUT' " +
+           "AND t.status = 'COMPLETED' " +
+           "AND t.createdAt BETWEEN :startDate AND :endDate")
+    BigDecimal getJobPayoutsInRange(
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
     );
 }

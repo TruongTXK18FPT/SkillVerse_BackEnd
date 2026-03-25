@@ -24,4 +24,8 @@ public class AdminJobStatsResponse {
     private long rejectedCount;
     private Map<String, Long> byStatus;
     private Map<String, Long> byUrgency;
+    private long totalPlatformEarnings;
+    private long totalRecruiterEarnings;
+    private long totalEscrowVolume;
+    private long activeEscrows;
 }
