@@ -173,7 +173,8 @@ public class DatabaseSchemaFixer {
         applyPatch("PATCH-027-notification-type-check-sync-with-enum",
             "Ensure notifications.type CHECK matches the current NotificationType enum",
             this::patchNotificationTypeCheckSyncWithEnum,
-            this::verifyNotificationTypeCheckSyncWithEnum);
+            this::verifyNotificationTypeCheckSyncWithEnum,
+            false /* not idempotent with respect to enum changes — must re-run every startup */);
 
         log.info("All PostgreSQL schema patches applied and verified successfully.");
     }
@@ -184,7 +185,17 @@ public class DatabaseSchemaFixer {
             Runnable patchLogic,
             BooleanSupplier verifier
     ) {
-        if (isPatchApplied(patchKey)) {
+        applyPatch(patchKey, description, patchLogic, verifier, true);
+    }
+
+    private void applyPatch(
+            String patchKey,
+            String description,
+            Runnable patchLogic,
+            BooleanSupplier verifier,
+            boolean useHistoryCheck
+    ) {
+        if (useHistoryCheck && isPatchApplied(patchKey)) {
             log.debug("Skipping already-applied patch {}", patchKey);
             return;
         }
@@ -196,7 +207,9 @@ public class DatabaseSchemaFixer {
             throw new IllegalStateException("Verification failed for patch " + patchKey);
         }
 
-        recordPatchSuccess(patchKey, description);
+        if (useHistoryCheck) {
+            recordPatchSuccess(patchKey, description);
+        }
         log.info("Patch {} applied successfully.", patchKey);
     }
 
@@ -2133,6 +2146,8 @@ public class DatabaseSchemaFixer {
             return false;
         }
 
+        // This is called every startup (useHistoryCheck=false for PATCH-027),
+        // so we always verify the constraint matches the current enum.
         return Arrays.stream(NotificationType.values())
                 .map(NotificationType::name)
                 .allMatch(definition::contains);

@@ -37,6 +37,9 @@ import com.exe.skillverse_backend.business_service.service.EscrowService;
 import com.exe.skillverse_backend.business_service.service.JobAuditService;
 import com.exe.skillverse_backend.business_service.service.TrustScoreService;
 import com.exe.skillverse_backend.business_service.service.ShortTermJobService;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionService;
@@ -85,6 +88,8 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     private final WalletService walletService;
     private final EscrowService escrowService;
     private final TrustScoreService trustScoreService;
+    private final NotificationService notificationService;
+    private final EmailService emailService;
 
     private static final BigDecimal SHORT_TERM_JOB_POSTING_FEE = new BigDecimal("30000");
 
@@ -400,6 +405,25 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         }
         shortTermJobRepository.save(job);
 
+        // Send confirmation email to candidate
+        String fullName = user.getFirstName() != null ? user.getFirstName() : user.getEmail();
+        String deadline = job.getDeadline() != null ? job.getDeadline().toLocalDate().toString() : "N/A";
+        String budget = job.getBudget() != null ? job.getBudget().toString() + " VND" : "Thỏa thuận";
+        String recruiterName = job.getRecruiterProfile() != null ? job.getRecruiterProfile().getCompanyName() : "Nhà tuyển dụng";
+        emailService.sendShortTermApplicationSubmitted(user.getEmail(), fullName, job.getTitle(), recruiterName, deadline, budget);
+
+        // In-app notification to recruiter
+        Long recruiterUserId = job.getRecruiterProfile() != null ? job.getRecruiterProfile().getUserId() : null;
+        if (recruiterUserId != null) {
+            notificationService.createNotification(
+                    recruiterUserId,
+                    "Ứng viên mới ứng tuyển",
+                    fullName + " đã ứng tuyển công việc \"" + job.getTitle() + "\"",
+                    NotificationType.SHORT_TERM_APPLICATION_SUBMITTED,
+                    job.getId().toString()
+            );
+        }
+
         log.info("Application created with ID: {}", application.getId());
         return mapToApplicationResponse(application);
     }
@@ -553,6 +577,15 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
             if (!other.getId().equals(applicationId)) {
                 other.setStatus(ShortTermApplicationStatus.REJECTED);
                 applicationRepository.save(other);
+
+                // Send rejection email to rejected candidates
+                User rejectedUser = other.getUser();
+                if (rejectedUser != null) {
+                    String rejectedName = rejectedUser.getFirstName() != null ? rejectedUser.getFirstName() : rejectedUser.getEmail();
+                    String recruiterName = job.getRecruiterProfile() != null ? job.getRecruiterProfile().getCompanyName() : "Nhà tuyển dụng";
+                    emailService.sendShortTermApplicationRejected(
+                            rejectedUser.getEmail(), rejectedName, job.getTitle(), recruiterName, null);
+                }
             }
         }
 
@@ -564,6 +597,24 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         auditService.logApplicationStatusChange(
                 applicationId, previousStatus, ShortTermApplicationStatus.ACCEPTED,
                 userId, JobStatusAuditLog.AuditRole.RECRUITER, "Candidate selected"
+        );
+
+        // Send acceptance email to selected candidate
+        User acceptedUser = application.getUser();
+        String acceptedName = acceptedUser.getFirstName() != null ? acceptedUser.getFirstName() : acceptedUser.getEmail();
+        String recruiterName = job.getRecruiterProfile() != null ? job.getRecruiterProfile().getCompanyName() : "Nhà tuyển dụng";
+        String deadline = job.getDeadline() != null ? job.getDeadline().toLocalDate().toString() : "N/A";
+        String budget = job.getBudget() != null ? job.getBudget().toString() + " VND" : "Thỏa thuận";
+        emailService.sendShortTermApplicationAccepted(
+                acceptedUser.getEmail(), acceptedName, job.getTitle(), recruiterName, budget, deadline);
+
+        // In-app notification to accepted candidate
+        notificationService.createNotification(
+                acceptedUser.getId(),
+                "Bạn đã được nhận!",
+                "Chúc mừng! Bạn đã được chọn cho công việc \"" + job.getTitle() + "\"",
+                NotificationType.SHORT_TERM_APPLICATION_ACCEPTED,
+                applicationId.toString()
         );
 
         return mapToApplicationResponse(application);
@@ -648,6 +699,26 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
                 userId, JobStatusAuditLog.AuditRole.CANDIDATE, "Deliverables submitted"
         );
 
+        // Notify recruiter that work has been submitted
+        User submitter = getUserById(userId);
+        String submitterName = submitter.getFirstName() != null ? submitter.getFirstName() : submitter.getEmail();
+        String recruiterName = job.getRecruiterProfile() != null ? job.getRecruiterProfile().getCompanyName() : "Nhà tuyển dụng";
+        if (job.getRecruiterProfile() != null && job.getRecruiterProfile().getUser() != null) {
+            emailService.sendShortTermWorkSubmitted(
+                    job.getRecruiterProfile().getUser().getEmail(), recruiterName, job.getTitle(), submitterName);
+        }
+
+        Long recruiterUserId = job.getRecruiterProfile() != null ? job.getRecruiterProfile().getUserId() : null;
+        if (recruiterUserId != null) {
+            notificationService.createNotification(
+                    recruiterUserId,
+                    "Sản phẩm đã được nộp",
+                    submitterName + " đã nộp sản phẩm cho công việc \"" + job.getTitle() + "\"",
+                    NotificationType.SHORT_TERM_WORK_SUBMITTED,
+                    request.getApplicationId().toString()
+            );
+        }
+
         return mapToApplicationResponse(application);
     }
 
@@ -685,6 +756,22 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
                 applicationId, previousStatus, ShortTermApplicationStatus.APPROVED,
                 userId, JobStatusAuditLog.AuditRole.RECRUITER, message
         );
+
+        // Notify worker that work has been approved
+        User worker = application.getUser();
+        if (worker != null) {
+            String workerName = worker.getFirstName() != null ? worker.getFirstName() : worker.getEmail();
+            String budget = job.getBudget() != null ? job.getBudget().toString() + " VND" : "Thỏa thuận";
+            emailService.sendShortTermWorkApproved(worker.getEmail(), workerName, job.getTitle(), budget);
+
+            notificationService.createNotification(
+                    worker.getId(),
+                    "Công việc đã được nghiệm thu!",
+                    "Nhà tuyển dụng đã nghiệm thu sản phẩm cho công việc \"" + job.getTitle() + "\"",
+                    NotificationType.SHORT_TERM_WORK_APPROVED,
+                    applicationId.toString()
+            );
+        }
 
         return mapToApplicationResponse(application);
     }

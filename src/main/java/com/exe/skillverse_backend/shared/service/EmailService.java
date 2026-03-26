@@ -22,6 +22,17 @@ public interface EmailService {
 
     void sendJobApplicationRejected(String email, String fullName, String jobTitle, String rejectionReason);
 
+    // Short-term job email notifications
+    void sendShortTermApplicationSubmitted(String email, String fullName, String jobTitle, String recruiterName, String deadline, String budget);
+
+    void sendShortTermApplicationAccepted(String email, String fullName, String jobTitle, String recruiterName, String budget, String deadline);
+
+    void sendShortTermApplicationRejected(String email, String fullName, String jobTitle, String recruiterName, String reason);
+
+    void sendShortTermWorkSubmitted(String email, String recruiterName, String jobTitle, String workerName);
+
+    void sendShortTermWorkApproved(String email, String workerName, String jobTitle, String budget);
+
     // Job approval/rejection notifications (to recruiter)
     void sendJobApprovalNotification(String email, String jobTitle, String message);
 

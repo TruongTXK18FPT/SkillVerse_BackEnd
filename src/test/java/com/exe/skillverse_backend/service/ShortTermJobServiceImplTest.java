@@ -13,6 +13,9 @@ import com.exe.skillverse_backend.business_service.repository.*;
 import com.exe.skillverse_backend.business_service.service.EscrowService;
 import com.exe.skillverse_backend.business_service.service.impl.ShortTermJobServiceImpl;
 import com.exe.skillverse_backend.business_service.service.JobAuditService;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
@@ -92,6 +95,12 @@ class ShortTermJobServiceImplTest {
 
     @Mock
     private JobEscrowRepository jobEscrowRepository;
+
+    @Mock
+    private NotificationService notificationService;
+
+    @Mock
+    private EmailService emailService;
 
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -457,6 +466,8 @@ class ShortTermJobServiceImplTest {
             });
             when(shortTermJobRepository.save(any())).thenReturn(mockJob);
             when(portfolioExtendedProfileRepository.findByUserId(anyLong())).thenReturn(Optional.empty());
+            doNothing().when(emailService).sendShortTermApplicationSubmitted(any(), any(), any(), any(), any(), any());
+            doNothing().when(notificationService).createNotification(anyLong(), any(), any(), any(), any());
 
             ShortTermApplicationResponse response = shortTermJobService.applyToJob(
                     mockApplicant.getId(), mockJob.getId(), request);
@@ -576,6 +587,8 @@ class ShortTermJobServiceImplTest {
             when(applicationRepository.save(any())).thenReturn(mockApplication);
             when(shortTermJobRepository.save(any())).thenReturn(mockJob);
             doNothing().when(auditService).logApplicationStatusChange(anyLong(), any(), any(), anyLong(), any(), anyString());
+            doNothing().when(emailService).sendShortTermApplicationAccepted(any(), any(), any(), any(), any(), any());
+            doNothing().when(notificationService).createNotification(anyLong(), any(), any(), any(), any());
 
             UpdateShortTermApplicationStatusRequest request = new UpdateShortTermApplicationStatusRequest();
             request.setStatus(ShortTermApplicationStatus.ACCEPTED);

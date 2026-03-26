@@ -456,25 +456,12 @@ public class EmailServiceImpl implements EmailService {
      */
     public void sendJobApplicationReviewed(String email, String fullName, String jobTitle) {
         try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail);
-            message.setTo(email);
-            message.setSubject("Your Job Application Has Been Reviewed - SkillVerse");
-            message.setText(buildJobApplicationReviewedContent(fullName, jobTitle));
-
-            mailSender.send(message);
-
-            log.info("👀 EMAIL SERVICE: Application reviewed email sent successfully to {} for job: {}", email,
-                    jobTitle);
-
+            String htmlContent = buildJobApplicationReviewedHtmlContent(fullName, jobTitle);
+            sendHtmlEmail(email, "Your Job Application Has Been Reviewed — SkillVerse", htmlContent);
+            log.info("👀 EMAIL SERVICE: Application reviewed HTML email sent successfully to {} for job: {}", email, jobTitle);
         } catch (Exception e) {
             log.error("❌ Failed to send application reviewed email to {}: {}", email, e.getMessage());
-            // Fallback to console logging
-            log.info("👀 [FALLBACK] EMAIL SERVICE: Sending application reviewed email to {} for job: {}", email,
-                    jobTitle);
-            log.info("📧 Subject: Your Job Application Has Been Reviewed - SkillVerse");
-            log.info("📝 Your application for '{}' has been reviewed by the recruiter", jobTitle);
-            log.info("✉️  [SIMULATED] Application reviewed email sent successfully to {}", email);
+            log.info("👀 [FALLBACK] EMAIL SERVICE: Application reviewed email to {}", email);
         }
     }
 
@@ -483,27 +470,12 @@ public class EmailServiceImpl implements EmailService {
      */
     public void sendJobApplicationAccepted(String email, String fullName, String jobTitle, String acceptanceMessage, String contactEmail) {
         try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail);
-            message.setTo(email);
-            message.setSubject("🎉 Congratulations! Your Job Application Has Been Accepted - SkillVerse");
-            message.setText(buildJobApplicationAcceptedContent(fullName, jobTitle, acceptanceMessage, contactEmail));
-
-            mailSender.send(message);
-
-            log.info("🎉 EMAIL SERVICE: Application accepted email sent successfully to {} for job: {}", email,
-                    jobTitle);
-
+            String htmlContent = buildJobApplicationAcceptedHtmlContent(fullName, jobTitle, acceptanceMessage, contactEmail);
+            sendHtmlEmail(email, "🎉 Congratulations! Your Job Application Has Been Accepted — SkillVerse", htmlContent);
+            log.info("🎉 EMAIL SERVICE: Application accepted HTML email sent successfully to {} for job: {}", email, jobTitle);
         } catch (Exception e) {
             log.error("❌ Failed to send application accepted email to {}: {}", email, e.getMessage());
-            // Fallback to console logging
-            log.info("🎉 [FALLBACK] EMAIL SERVICE: Sending application accepted email to {} for job: {}", email,
-                    jobTitle);
-            log.info("📧 Subject: Congratulations! Your Job Application Has Been Accepted - SkillVerse");
-            log.info("📝 Your application for '{}' has been accepted!", jobTitle);
-            log.info("💌 Message: {}", acceptanceMessage);
-            log.info("📧 Contact: {}", contactEmail);
-            log.info("✉️  [SIMULATED] Application accepted email sent successfully to {}", email);
+            log.info("🎉 [FALLBACK] EMAIL SERVICE: Application accepted email to {}", email);
         }
     }
 
@@ -512,106 +484,75 @@ public class EmailServiceImpl implements EmailService {
      */
     public void sendJobApplicationRejected(String email, String fullName, String jobTitle, String rejectionReason) {
         try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromEmail);
-            message.setTo(email);
-            message.setSubject("Job Application Update - SkillVerse");
-            message.setText(buildJobApplicationRejectedContent(fullName, jobTitle, rejectionReason));
-
-            mailSender.send(message);
-
-            log.info("📧 EMAIL SERVICE: Application rejected email sent successfully to {} for job: {}", email,
-                    jobTitle);
-
+            String htmlContent = buildJobApplicationRejectedHtmlContent(fullName, jobTitle, rejectionReason);
+            sendHtmlEmail(email, "Job Application Update — SkillVerse", htmlContent);
+            log.info("📧 EMAIL SERVICE: Application rejected HTML email sent successfully to {} for job: {}", email, jobTitle);
         } catch (Exception e) {
             log.error("❌ Failed to send application rejected email to {}: {}", email, e.getMessage());
-            // Fallback to console logging
-            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending application rejected email to {} for job: {}", email,
-                    jobTitle);
-            log.info("📧 Subject: Job Application Update - SkillVerse");
-            log.info("📝 Your application for '{}' has been reviewed", jobTitle);
-            log.info("✉️  [SIMULATED] Application rejected email sent successfully to {}", email);
+            log.info("📧 [FALLBACK] EMAIL SERVICE: Application rejected email to {}", email);
         }
     }
 
-    private String buildJobApplicationReviewedContent(String name, String jobTitle) {
-        return """
-                Dear %s,
+    // ==================== SHORT-TERM JOB EMAIL NOTIFICATIONS ====================
 
-                Thank you for your application on SkillVerse!
-
-                We're writing to let you know that the recruiter has reviewed your application for the position:
-
-                📋 Job: %s
-
-                Your application is now under consideration. The recruiter will reach out to you soon with further updates regarding the next steps in the hiring process.
-
-                You can check your application status anytime by logging into your SkillVerse account.
-
-                Thank you for your patience and interest in this opportunity!
-
-                Best regards,
-                The SkillVerse Team
-                """
-                .formatted(name, jobTitle);
+    @Override
+    public void sendShortTermApplicationSubmitted(String email, String fullName, String jobTitle, String recruiterName, String deadline, String budget) {
+        try {
+            String htmlContent = buildShortTermApplicationSubmittedHtmlContent(fullName, jobTitle, recruiterName, deadline, budget);
+            sendHtmlEmail(email, "Đơn ứng tuyển đã được gửi thành công — SkillVerse", htmlContent);
+            log.info("📋 EMAIL SERVICE: Short-term application submitted email sent to {} for job: {}", email, jobTitle);
+        } catch (Exception e) {
+            log.error("❌ Failed to send short-term application submitted email to {}: {}", email, e.getMessage());
+            log.info("📋 [FALLBACK] EMAIL SERVICE: Short-term application submitted email to {}", email);
+        }
     }
 
-    private String buildJobApplicationAcceptedContent(String name, String jobTitle, String acceptanceMessage, String contactEmail) {
-        return """
-                Dear %s,
-
-                Congratulations! 🎉
-
-                We're thrilled to inform you that your application for the following position has been ACCEPTED:
-
-                📋 Job: %s
-
-                The recruiter has sent you the following message:
-
-                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-                %s
-                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-                Please follow the instructions provided by the recruiter to proceed with the next steps.
-                
-                You can contact the recruiter directly at: %s
-
-                If you have any questions, feel free to reply to this email or contact the recruiter directly using the information provided in their message.
-
-                Congratulations once again, and we wish you all the best!
-
-                Best regards,
-                The SkillVerse Team
-                """
-                .formatted(name, jobTitle, acceptanceMessage, contactEmail);
+    @Override
+    public void sendShortTermApplicationAccepted(String email, String fullName, String jobTitle, String recruiterName, String budget, String deadline) {
+        try {
+            String htmlContent = buildShortTermApplicationAcceptedHtmlContent(fullName, jobTitle, recruiterName, budget, deadline);
+            sendHtmlEmail(email, "🎉 Bạn đã được nhận! Ứng tuyển thành công — SkillVerse", htmlContent);
+            log.info("🎉 EMAIL SERVICE: Short-term application accepted email sent to {} for job: {}", email, jobTitle);
+        } catch (Exception e) {
+            log.error("❌ Failed to send short-term application accepted email to {}: {}", email, e.getMessage());
+            log.info("🎉 [FALLBACK] EMAIL SERVICE: Short-term application accepted email to {}", email);
+        }
     }
 
-    private String buildJobApplicationRejectedContent(String name, String jobTitle, String rejectionReason) {
-        String reasonText = rejectionReason != null && !rejectionReason.trim().isEmpty()
-                ? "\n\nFeedback from recruiter:\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" + rejectionReason
-                        + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                : "";
+    @Override
+    public void sendShortTermApplicationRejected(String email, String fullName, String jobTitle, String recruiterName, String reason) {
+        try {
+            String htmlContent = buildShortTermApplicationRejectedHtmlContent(fullName, jobTitle, recruiterName, reason);
+            sendHtmlEmail(email, "Cập nhật trạng thái ứng tuyển — SkillVerse", htmlContent);
+            log.info("📧 EMAIL SERVICE: Short-term application rejected email sent to {} for job: {}", email, jobTitle);
+        } catch (Exception e) {
+            log.error("❌ Failed to send short-term application rejected email to {}: {}", email, e.getMessage());
+            log.info("📧 [FALLBACK] EMAIL SERVICE: Short-term application rejected email to {}", email);
+        }
+    }
 
-        return """
-                Dear %s,
+    @Override
+    public void sendShortTermWorkSubmitted(String email, String recruiterName, String jobTitle, String workerName) {
+        try {
+            String htmlContent = buildShortTermWorkSubmittedHtmlContent(recruiterName, jobTitle, workerName);
+            sendHtmlEmail(email, "📦 Công việc đã được nộp — SkillVerse", htmlContent);
+            log.info("📦 EMAIL SERVICE: Short-term work submitted email sent to {}", email);
+        } catch (Exception e) {
+            log.error("❌ Failed to send short-term work submitted email to {}: {}", email, e.getMessage());
+            log.info("📦 [FALLBACK] EMAIL SERVICE: Short-term work submitted email to {}", email);
+        }
+    }
 
-                Thank you for your interest and for applying to the following position on SkillVerse:
-
-                📋 Job: %s
-
-                After careful consideration, we regret to inform you that the recruiter has decided not to move forward with your application at this time.%s
-
-                This decision doesn't reflect on your qualifications or skills. We encourage you to:
-                • Continue building your profile on SkillVerse
-                • Apply to other job opportunities that match your expertise
-                • Connect with mentors to enhance your skills
-
-                We appreciate your interest and wish you the best of luck in your job search!
-
-                Best regards,
-                The SkillVerse Team
-                """
-                .formatted(name, jobTitle, reasonText);
+    @Override
+    public void sendShortTermWorkApproved(String email, String workerName, String jobTitle, String budget) {
+        try {
+            String htmlContent = buildShortTermWorkApprovedHtmlContent(workerName, jobTitle, budget);
+            sendHtmlEmail(email, "✅ Công việc đã được nghiệm thu — SkillVerse", htmlContent);
+            log.info("✅ EMAIL SERVICE: Short-term work approved email sent to {}", email);
+        } catch (Exception e) {
+            log.error("❌ Failed to send short-term work approved email to {}: {}", email, e.getMessage());
+            log.info("✅ [FALLBACK] EMAIL SERVICE: Short-term work approved email to {}", email);
+        }
     }
 
     // ==================== HTML EMAIL SUPPORT ====================
@@ -949,5 +890,584 @@ public class EmailServiceImpl implements EmailService {
                 Best regards,
                 The SkillVerse Team
                 """.formatted(jobTitle, reason);
+    }
+
+    // ==================== HTML EMAIL BUILDERS FOR JOB APPLICATIONS ====================
+
+    private String buildJobApplicationReviewedHtmlContent(String name, String jobTitle) {
+        return """
+                <!DOCTYPE html>
+                <html lang="vi">
+                <head>
+                  <meta charset="UTF-8"/>
+                  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                  <title>Đơn ứng tuyển đã được xem xét — SkillVerse</title>
+                  <style>
+                    body{margin:0;padding:0;background:#f5f7fb;font-family:Inter,Roboto,Helvetica,Arial,sans-serif;color:#1f2937}
+                    .container{max-width:600px;margin:24px auto;padding:0 16px}
+                    .card{background:#ffffff;border-radius:16px;box-shadow:0 8px 24px rgba(31,41,55,0.08);overflow:hidden}
+                    .header{background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 28px;text-align:center;color:#fff}
+                    .header img{display:block;margin:0 auto 12px;height:44px}
+                    .header h1{font-size:22px;font-weight:700;margin:0 0 6px}
+                    .badge{display:inline-block;margin-top:8px;padding:5px 14px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);border-radius:999px;font-size:13px}
+                    .body{padding:28px 28px}
+                    .greeting{font-size:16px;font-weight:600;color:#111827;margin:0 0 12px}
+                    p{line-height:1.7;margin:10px 0;color:#374151;font-size:14px}
+                    .job-card{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:18px;margin:18px 0}
+                    .job-card .job-title{font-size:15px;font-weight:600;color:#111827;margin:0 0 4px}
+                    .job-card .job-meta{font-size:13px;color:#6b7280;margin:4px 0 0}
+                    .divider{border:none;border-top:1px solid #e5e7eb;margin:20px 0}
+                    .hint{background:#eef2ff;border-left:4px solid #4f46e5;padding:12px 14px;border-radius:0 8px 8px 0;margin:16px 0;font-size:13px;color:#3730a3}
+                    .footer{padding:18px 28px 22px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center}
+                    .footer-text{font-size:12px;color:#6b7280;margin:0}
+                  </style>
+                </head>
+                <body>
+                  <div class="container">
+                    <div class="card">
+                      <div class="header">
+                        <img src="cid:skillverse-logo" alt="SkillVerse" style="height:44px;display:block;margin:0 auto 12px"/>
+                        <h1>Đơn ứng tuyển đã được xem xét</h1>
+                        <div class="badge">Cập nhật trạng thái</div>
+                      </div>
+                      <div class="body">
+                        <p class="greeting">Xin chào %s,</p>
+                        <p>Cảm ơn bạn đã ứng tuyển trên SkillVerse!</p>
+                        <p>Nhà tuyển dụng đã xem xét đơn ứng tuyển của bạn cho vị trí:</p>
+                        <div class="job-card">
+                          <div class="job-title">%s</div>
+                          <div class="job-meta">Trạng thái: Đang xem xét</div>
+                        </div>
+                        <p>Đơn của bạn đang được xem xét. Nhà tuyển dụng sẽ liên hệ với bạn sớm với các bước tiếp theo.</p>
+                        <div class="hint">
+                          <strong>💡 Mẹo:</strong> Cập nhật hồ sơ và portfolio thường xuyên để tăng cơ hội được nhận!
+                        </div>
+                        <p>Bạn có thể kiểm tra trạng thái đơn ứng tuyển bất kỳ lúc nào trên tài khoản SkillVerse của mình.</p>
+                        <hr class="divider"/>
+                        <p style="font-size:13px;color:#6b7280;text-align:center;margin:0">Cảm ơn sự quan tâm của bạn và chúc bạn may mắn!</p>
+                      </div>
+                      <div class="footer">
+                        <p class="footer-text">© SkillVerse — Cộng đồng học tập và nghề nghiệp.</p>
+                      </div>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(name, jobTitle);
+    }
+
+    private String buildJobApplicationAcceptedHtmlContent(String name, String jobTitle, String acceptanceMessage, String contactEmail) {
+        String messageBlock = acceptanceMessage != null && !acceptanceMessage.trim().isEmpty()
+                ? "<div class=\"msg-box\"><strong>Tin nhắn từ nhà tuyển dụng:</strong><br/>" + acceptanceMessage.replace("\n", "<br/>") + "</div>"
+                : "<div class=\"msg-box\" style=\"color:#6b7280;font-style:italic\">Không có tin nhắn kèm theo.</div>";
+        String contactBlock = contactEmail != null && !contactEmail.trim().isEmpty()
+                ? "<div class=\"contact\"><strong>Liên hệ:</strong> <a href=\"mailto:" + contactEmail + "\" style=\"color:#4f46e5\">" + contactEmail + "</a></div>"
+                : "";
+        return """
+                <!DOCTYPE html>
+                <html lang="vi">
+                <head>
+                  <meta charset="UTF-8"/>
+                  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                  <title>Chúc mừng bạn đã được nhận! — SkillVerse</title>
+                  <style>
+                    body{margin:0;padding:0;background:#f5f7fb;font-family:Inter,Roboto,Helvetica,Arial,sans-serif;color:#1f2937}
+                    .container{max-width:600px;margin:24px auto;padding:0 16px}
+                    .card{background:#ffffff;border-radius:16px;box-shadow:0 8px 24px rgba(31,41,55,0.08);overflow:hidden}
+                    .header{background:linear-gradient(135deg,#059669,#10b981);padding:32px 28px;text-align:center;color:#fff}
+                    .header img{display:block;margin:0 auto 12px;height:44px}
+                    .header h1{font-size:22px;font-weight:700;margin:0 0 6px}
+                    .emoji{font-size:48px;margin-bottom:8px}
+                    .badge{display:inline-block;margin-top:8px;padding:5px 14px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);border-radius:999px;font-size:13px}
+                    .body{padding:28px 28px}
+                    .greeting{font-size:16px;font-weight:600;color:#111827;margin:0 0 12px}
+                    p{line-height:1.7;margin:10px 0;color:#374151;font-size:14px}
+                    .job-card{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:18px;margin:18px 0}
+                    .job-card .job-title{font-size:15px;font-weight:600;color:#166534;margin:0 0 4px}
+                    .job-card .job-meta{font-size:13px;color:#16a34a;margin:4px 0 0}
+                    .job-card .job-meta span{background:#dcfce7;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600}
+                    .msg-box{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin:14px 0;font-size:14px;line-height:1.6}
+                    .contact{background:#eef2ff;border-left:4px solid #4f46e5;padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px}
+                    .divider{border:none;border-top:1px solid #e5e7eb;margin:20px 0}
+                    .footer{padding:18px 28px 22px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center}
+                    .footer-text{font-size:12px;color:#6b7280;margin:0}
+                  </style>
+                </head>
+                <body>
+                  <div class="container">
+                    <div class="card">
+                      <div class="header">
+                        <img src="cid:skillverse-logo" alt="SkillVerse" style="height:44px;display:block;margin:0 auto 12px"/>
+                        <div class="emoji">🎉</div>
+                        <h1>Chúc mừng bạn đã được nhận!</h1>
+                        <div class="badge">Ứng tuyển được chấp nhận</div>
+                      </div>
+                      <div class="body">
+                        <p class="greeting">Xin chào %s,</p>
+                        <p>Chúng tôi rất vui mừng thông báo rằng đơn ứng tuyển của bạn đã được <strong>CHẤP NHẬN</strong> cho vị trí:</p>
+                        <div class="job-card">
+                          <div class="job-title">%s</div>
+                          <div class="job-meta"><span>✓ Đã được nhận</span></div>
+                        </div>
+                        %s
+                        %s
+                        <div class="divider"></div>
+                        <p style="text-align:center;font-size:14px;margin:0">Hãy làm theo hướng dẫn của nhà tuyển dụng để tiến hành các bước tiếp theo. Nếu có thắc mắc, hãy liên hệ trực tiếp với nhà tuyển dụng.</p>
+                        <p style="text-align:center;margin:16px 0 0">Chúc mừng bạn một lần nữa và chúc bạn thành công!</p>
+                      </div>
+                      <div class="footer">
+                        <p class="footer-text">© SkillVerse — Cộng đồng học tập và nghề nghiệp.</p>
+                      </div>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(name, jobTitle, messageBlock, contactBlock);
+    }
+
+    private String buildJobApplicationRejectedHtmlContent(String name, String jobTitle, String rejectionReason) {
+        String reasonBlock = rejectionReason != null && !rejectionReason.trim().isEmpty()
+                ? "<div class=\"reason-box\"><strong>Phản hồi từ nhà tuyển dụng:</strong><br/>" + rejectionReason.replace("\n", "<br/>") + "</div>"
+                : "<p style=\"font-size:13px;color:#6b7280;font-style:italic\">Không có phản hồi kèm theo.</p>";
+        return """
+                <!DOCTYPE html>
+                <html lang="vi">
+                <head>
+                  <meta charset="UTF-8"/>
+                  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                  <title>Cập nhật trạng thái ứng tuyển — SkillVerse</title>
+                  <style>
+                    body{margin:0;padding:0;background:#f5f7fb;font-family:Inter,Roboto,Helvetica,Arial,sans-serif;color:#1f2937}
+                    .container{max-width:600px;margin:24px auto;padding:0 16px}
+                    .card{background:#ffffff;border-radius:16px;box-shadow:0 8px 24px rgba(31,41,55,0.08);overflow:hidden}
+                    .header{background:linear-gradient(135deg,#dc2626,#ef4444);padding:32px 28px;text-align:center;color:#fff}
+                    .header img{display:block;margin:0 auto 12px;height:44px}
+                    .header h1{font-size:22px;font-weight:700;margin:0 0 6px}
+                    .emoji{font-size:48px;margin-bottom:8px}
+                    .badge{display:inline-block;margin-top:8px;padding:5px 14px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);border-radius:999px;font-size:13px}
+                    .body{padding:28px 28px}
+                    .greeting{font-size:16px;font-weight:600;color:#111827;margin:0 0 12px}
+                    p{line-height:1.7;margin:10px 0;color:#374151;font-size:14px}
+                    .job-card{background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:18px;margin:18px 0}
+                    .job-card .job-title{font-size:15px;font-weight:600;color:#991b1b;margin:0 0 4px}
+                    .job-card .job-meta{font-size:13px;color:#dc2626;margin:4px 0 0}
+                    .reason-box{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin:14px 0;font-size:14px;line-height:1.6}
+                    .tips{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin:16px 0}
+                    .tips-title{font-size:14px;font-weight:600;color:#111827;margin:0 0 10px}
+                    .tips ul{margin:0;padding-left:18px;font-size:14px;line-height:1.8;color:#374151}
+                    .divider{border:none;border-top:1px solid #e5e7eb;margin:20px 0}
+                    .footer{padding:18px 28px 22px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center}
+                    .footer-text{font-size:12px;color:#6b7280;margin:0}
+                  </style>
+                </head>
+                <body>
+                  <div class="container">
+                    <div class="card">
+                      <div class="header">
+                        <img src="cid:skillverse-logo" alt="SkillVerse" style="height:44px;display:block;margin:0 auto 12px"/>
+                        <div class="emoji">📋</div>
+                        <h1>Cập nhật trạng thái ứng tuyển</h1>
+                        <div class="badge">Không tiến triển</div>
+                      </div>
+                      <div class="body">
+                        <p class="greeting">Xin chào %s,</p>
+                        <p>Cảm ơn bạn đã quan tâm và ứng tuyển vị trí trên SkillVerse:</p>
+                        <div class="job-card">
+                          <div class="job-title">%s</div>
+                          <div class="job-meta">Trạng thái: Không được chọn</div>
+                        </div>
+                        <p>Sau khi xem xét kỹ lưỡng, nhà tuyển dụng quyết định không tiếp tục với đơn ứng tuyển của bạn vào lúc này.</p>
+                        %s
+                        <div class="tips">
+                          <div class="tips-title">💡 Đừng nản lòng! Bạn có thể:</div>
+                          <ul>
+                            <li>Tiếp tục cập nhật hồ sơ và portfolio trên SkillVerse</li>
+                            <li>Ứng tuyển các cơ hội khác phù hợp với chuyên môn</li>
+                            <li>Kết nối với mentor để nâng cao kỹ năng</li>
+                          </ul>
+                        </div>
+                        <p>Chúng tôi trân trọng sự quan tâm của bạn và chúc bạn may mắn!</p>
+                        <hr class="divider"/>
+                        <p style="text-align:center;font-size:13px;color:#6b7280;margin:0">Quyết định này không phản ánh năng lực của bạn. Hãy tiếp tục cố gắng!</p>
+                      </div>
+                      <div class="footer">
+                        <p class="footer-text">© SkillVerse — Cộng đồng học tập và nghề nghiệp.</p>
+                      </div>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(name, jobTitle, reasonBlock);
+    }
+
+    // ==================== HTML EMAIL BUILDERS FOR SHORT-TERM JOBS ====================
+
+    private String buildShortTermApplicationSubmittedHtmlContent(String name, String jobTitle, String recruiterName, String deadline, String budget) {
+        return """
+                <!DOCTYPE html>
+                <html lang="vi">
+                <head>
+                  <meta charset="UTF-8"/>
+                  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                  <title>Đơn ứng tuyển đã được gửi — SkillVerse</title>
+                  <style>
+                    body{margin:0;padding:0;background:#f5f7fb;font-family:Inter,Roboto,Helvetica,Arial,sans-serif;color:#1f2937}
+                    .container{max-width:600px;margin:24px auto;padding:0 16px}
+                    .card{background:#ffffff;border-radius:16px;box-shadow:0 8px 24px rgba(31,41,55,0.08);overflow:hidden}
+                    .header{background:linear-gradient(135deg,#4f46e5,#6366f1);padding:32px 28px;text-align:center;color:#fff}
+                    .header img{display:block;margin:0 auto 12px;height:44px}
+                    .header h1{font-size:22px;font-weight:700;margin:0 0 6px}
+                    .emoji{font-size:48px;margin-bottom:8px}
+                    .badge{display:inline-block;margin-top:8px;padding:5px 14px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);border-radius:999px;font-size:13px}
+                    .body{padding:28px 28px}
+                    .greeting{font-size:16px;font-weight:600;color:#111827;margin:0 0 12px}
+                    p{line-height:1.7;margin:10px 0;color:#374151;font-size:14px}
+                    .job-card{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:18px;margin:18px 0}
+                    .job-card .job-title{font-size:15px;font-weight:600;color:#111827;margin:0 0 8px}
+                    .job-card .meta-row{display:flex;gap:12px;margin-top:8px}
+                    .job-card .meta-item{flex:1;background:#f3f4f6;border-radius:6px;padding:8px 10px}
+                    .job-card .meta-item .label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px}
+                    .job-card .meta-item .value{font-size:14px;font-weight:600;color:#111827;margin-top:2px}
+                    .divider{border:none;border-top:1px solid #e5e7eb;margin:20px 0}
+                    .footer{padding:18px 28px 22px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center}
+                    .footer-text{font-size:12px;color:#6b7280;margin:0}
+                  </style>
+                </head>
+                <body>
+                  <div class="container">
+                    <div class="card">
+                      <div class="header">
+                        <img src="cid:skillverse-logo" alt="SkillVerse" style="height:44px;display:block;margin:0 auto 12px"/>
+                        <div class="emoji">✉️</div>
+                        <h1>Đơn ứng tuyển đã được gửi!</h1>
+                        <div class="badge">Chờ nhà tuyển dụng xem xét</div>
+                      </div>
+                      <div class="body">
+                        <p class="greeting">Xin chào %s,</p>
+                        <p>Đơn ứng tuyển của bạn đã được gửi thành công! Dưới đây là thông tin công việc bạn đã ứng tuyển:</p>
+                        <div class="job-card">
+                          <div class="job-title">%s</div>
+                          <div style="font-size:13px;color:#6b7280;margin-top:4px">Nhà tuyển dụng: <strong>%s</strong></div>
+                          <div class="meta-row">
+                            <div class="meta-item">
+                              <div class="label">Ngân sách</div>
+                              <div class="value">%s</div>
+                            </div>
+                            <div class="meta-item">
+                              <div class="label">Hạn nộp</div>
+                              <div class="value">%s</div>
+                            </div>
+                          </div>
+                        </div>
+                        <p>Đơn của bạn đang ở trạng thái <strong>CHỜ XỬ LÝ</strong>. Nhà tuyển dụng sẽ xem xét và liên hệ với bạn sớm.</p>
+                        <hr class="divider"/>
+                        <p style="text-align:center;font-size:13px;color:#6b7280;margin:0">Cảm ơn bạn đã tin tưởng SkillVerse. Chúc bạn may mắn!</p>
+                      </div>
+                      <div class="footer">
+                        <p class="footer-text">© SkillVerse — Cộng đồng học tập và nghề nghiệp.</p>
+                      </div>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(name, jobTitle, recruiterName, budget != null ? budget : "Thỏa thuận", deadline != null ? deadline : "N/A");
+    }
+
+    private String buildShortTermApplicationAcceptedHtmlContent(String name, String jobTitle, String recruiterName, String budget, String deadline) {
+        return """
+                <!DOCTYPE html>
+                <html lang="vi">
+                <head>
+                  <meta charset="UTF-8"/>
+                  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                  <title>Bạn đã được nhận! — SkillVerse</title>
+                  <style>
+                    body{margin:0;padding:0;background:#f5f7fb;font-family:Inter,Roboto,Helvetica,Arial,sans-serif;color:#1f2937}
+                    .container{max-width:600px;margin:24px auto;padding:0 16px}
+                    .card{background:#ffffff;border-radius:16px;box-shadow:0 8px 24px rgba(31,41,55,0.08);overflow:hidden}
+                    .header{background:linear-gradient(135deg,#059669,#10b981);padding:32px 28px;text-align:center;color:#fff}
+                    .header img{display:block;margin:0 auto 12px;height:44px}
+                    .header h1{font-size:22px;font-weight:700;margin:0 0 6px}
+                    .emoji{font-size:56px;margin-bottom:8px}
+                    .badge{display:inline-block;margin-top:8px;padding:5px 14px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);border-radius:999px;font-size:13px}
+                    .body{padding:28px 28px}
+                    .greeting{font-size:16px;font-weight:600;color:#111827;margin:0 0 12px}
+                    p{line-height:1.7;margin:10px 0;color:#374151;font-size:14px}
+                    .job-card{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:18px;margin:18px 0}
+                    .job-card .job-title{font-size:15px;font-weight:600;color:#166534;margin:0 0 8px}
+                    .job-card .meta-row{display:flex;gap:12px;margin-top:8px}
+                    .job-card .meta-item{flex:1;background:#dcfce7;border-radius:6px;padding:8px 10px}
+                    .job-card .meta-item .label{font-size:11px;color:#15803d;text-transform:uppercase;letter-spacing:0.5px}
+                    .job-card .meta-item .value{font-size:14px;font-weight:600;color:#166534;margin-top:2px}
+                    .status-box{background:#fefce8;border:1px solid #fef08a;border-radius:10px;padding:14px 16px;margin:16px 0;text-align:center}
+                    .status-box .status-text{font-size:16px;font-weight:700;color:#854d0e;margin:0}
+                    .status-box .status-sub{font-size:13px;color:#a16207;margin:4px 0 0}
+                    .next-steps{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin:16px 0}
+                    .next-steps .title{font-size:14px;font-weight:600;color:#111827;margin:0 0 10px}
+                    .next-steps ul{margin:0;padding-left:18px;font-size:14px;line-height:1.8;color:#374151}
+                    .divider{border:none;border-top:1px solid #e5e7eb;margin:20px 0}
+                    .footer{padding:18px 28px 22px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center}
+                    .footer-text{font-size:12px;color:#6b7280;margin:0}
+                  </style>
+                </head>
+                <body>
+                  <div class="container">
+                    <div class="card">
+                      <div class="header">
+                        <img src="cid:skillverse-logo" alt="SkillVerse" style="height:44px;display:block;margin:0 auto 12px"/>
+                        <div class="emoji">🎉</div>
+                        <h1>Bạn đã được nhận!</h1>
+                        <div class="badge">Chúc mừng — Ứng viên được chọn</div>
+                      </div>
+                      <div class="body">
+                        <p class="greeting">Xin chào %s,</p>
+                        <p>Chúc mừng bạn! Nhà tuyển dụng <strong>%s</strong> đã chọn bạn cho công việc:</p>
+                        <div class="job-card">
+                          <div class="job-title">%s</div>
+                          <div class="meta-row">
+                            <div class="meta-item">
+                              <div class="label">Ngân sách</div>
+                              <div class="value">%s</div>
+                            </div>
+                            <div class="meta-item">
+                              <div class="label">Hạn hoàn thành</div>
+                              <div class="value">%s</div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="status-box">
+                          <div class="status-text">✓ Đơn được chấp nhận</div>
+                          <div class="status-sub">Bạn đã sẵn sàng để bắt đầu công việc!</div>
+                        </div>
+                        <div class="next-steps">
+                          <div class="title">📋 Các bước tiếp theo:</div>
+                          <ul>
+                            <li>Kiểm tra chi tiết công việc trên SkillVerse</li>
+                            <li>Liên hệ nhà tuyển dụng để xác nhận công việc</li>
+                            <li>Bắt đầu thực hiện và nộp sản phẩm đúng hạn</li>
+                          </ul>
+                        </div>
+                        <p style="text-align:center;margin:0">Chúc bạn hoàn thành công việc xuất sắc!</p>
+                      </div>
+                      <div class="footer">
+                        <p class="footer-text">© SkillVerse — Cộng đồng học tập và nghề nghiệp.</p>
+                      </div>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(name, recruiterName, jobTitle, budget != null ? budget : "Thỏa thuận", deadline != null ? deadline : "N/A");
+    }
+
+    private String buildShortTermApplicationRejectedHtmlContent(String name, String jobTitle, String recruiterName, String reason) {
+        String reasonBlock = reason != null && !reason.trim().isEmpty()
+                ? "<div class=\"reason-box\"><strong>Phản hồi:</strong><br/>" + reason.replace("\n", "<br/>") + "</div>"
+                : "<p style=\"font-size:13px;color:#6b7280;font-style:italic;margin:12px 0\">Không có phản hồi kèm theo từ nhà tuyển dụng.</p>";
+        return """
+                <!DOCTYPE html>
+                <html lang="vi">
+                <head>
+                  <meta charset="UTF-8"/>
+                  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                  <title>Cập nhật trạng thái ứng tuyển — SkillVerse</title>
+                  <style>
+                    body{margin:0;padding:0;background:#f5f7fb;font-family:Inter,Roboto,Helvetica,Arial,sans-serif;color:#1f2937}
+                    .container{max-width:600px;margin:24px auto;padding:0 16px}
+                    .card{background:#ffffff;border-radius:16px;box-shadow:0 8px 24px rgba(31,41,55,0.08);overflow:hidden}
+                    .header{background:linear-gradient(135deg,#dc2626,#ef4444);padding:32px 28px;text-align:center;color:#fff}
+                    .header img{display:block;margin:0 auto 12px;height:44px}
+                    .header h1{font-size:22px;font-weight:700;margin:0 0 6px}
+                    .emoji{font-size:48px;margin-bottom:8px}
+                    .badge{display:inline-block;margin-top:8px;padding:5px 14px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);border-radius:999px;font-size:13px}
+                    .body{padding:28px 28px}
+                    .greeting{font-size:16px;font-weight:600;color:#111827;margin:0 0 12px}
+                    p{line-height:1.7;margin:10px 0;color:#374151;font-size:14px}
+                    .job-card{background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:18px;margin:18px 0}
+                    .job-card .job-title{font-size:15px;font-weight:600;color:#991b1b;margin:0 0 4px}
+                    .job-card .recruiter{font-size:13px;color:#dc2626;margin:0}
+                    .reason-box{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;margin:14px 0;font-size:14px;line-height:1.6}
+                    .tips{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin:16px 0}
+                    .tips-title{font-size:14px;font-weight:600;color:#111827;margin:0 0 10px}
+                    .tips ul{margin:0;padding-left:18px;font-size:14px;line-height:1.8;color:#374151}
+                    .divider{border:none;border-top:1px solid #e5e7eb;margin:20px 0}
+                    .footer{padding:18px 28px 22px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center}
+                    .footer-text{font-size:12px;color:#6b7280;margin:0}
+                  </style>
+                </head>
+                <body>
+                  <div class="container">
+                    <div class="card">
+                      <div class="header">
+                        <img src="cid:skillverse-logo" alt="SkillVerse" style="height:44px;display:block;margin:0 auto 12px"/>
+                        <div class="emoji">📋</div>
+                        <h1>Cập nhật trạng thái ứng tuyển</h1>
+                        <div class="badge">Không được chọn</div>
+                      </div>
+                      <div class="body">
+                        <p class="greeting">Xin chào %s,</p>
+                        <p>Rất tiếc, nhà tuyển dụng <strong>%s</strong> đã chọn ứng viên khác cho công việc:</p>
+                        <div class="job-card">
+                          <div class="job-title">%s</div>
+                          <div class="recruiter">Nhà tuyển dụng: %s</div>
+                        </div>
+                        %s
+                        <div class="tips">
+                          <div class="tips-title">💡 Đừng nản lòng!</div>
+                          <ul>
+                            <li>Cập nhật portfolio để tăng sức hút</li>
+                            <li>Tiếp tục ứng tuyển các công việc phù hợp</li>
+                            <li>Kết nối với mentor để học hỏi thêm</li>
+                          </ul>
+                        </div>
+                        <p>Chúc bạn sớm tìm được công việc phù hợp!</p>
+                        <hr class="divider"/>
+                        <p style="text-align:center;font-size:13px;color:#6b7280;margin:0">Quyết định này không phản ánh năng lực của bạn.</p>
+                      </div>
+                      <div class="footer">
+                        <p class="footer-text">© SkillVerse — Cộng đồng học tập và nghề nghiệp.</p>
+                      </div>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(name, recruiterName, jobTitle, recruiterName, reasonBlock);
+    }
+
+    private String buildShortTermWorkSubmittedHtmlContent(String recruiterName, String jobTitle, String workerName) {
+        return """
+                <!DOCTYPE html>
+                <html lang="vi">
+                <head>
+                  <meta charset="UTF-8"/>
+                  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                  <title>Công việc đã được nộp — SkillVerse</title>
+                  <style>
+                    body{margin:0;padding:0;background:#f5f7fb;font-family:Inter,Roboto,Helvetica,Arial,sans-serif;color:#1f2937}
+                    .container{max-width:600px;margin:24px auto;padding:0 16px}
+                    .card{background:#ffffff;border-radius:16px;box-shadow:0 8px 24px rgba(31,41,55,0.08);overflow:hidden}
+                    .header{background:linear-gradient(135deg,#2563eb,#3b82f6);padding:32px 28px;text-align:center;color:#fff}
+                    .header img{display:block;margin:0 auto 12px;height:44px}
+                    .header h1{font-size:22px;font-weight:700;margin:0 0 6px}
+                    .emoji{font-size:48px;margin-bottom:8px}
+                    .badge{display:inline-block;margin-top:8px;padding:5px 14px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);border-radius:999px;font-size:13px}
+                    .body{padding:28px 28px}
+                    p{line-height:1.7;margin:10px 0;color:#374151;font-size:14px}
+                    .job-card{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:18px;margin:18px 0}
+                    .job-card .job-title{font-size:15px;font-weight:600;color:#1e40af;margin:0 0 4px}
+                    .job-card .worker{font-size:13px;color:#2563eb;margin:0}
+                    .action-box{background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:16px;margin:16px 0;text-align:center}
+                    .action-box p{margin:0;font-size:14px}
+                    .note{background:#fffbeb;border-left:4px solid #f59e0b;padding:12px 14px;border-radius:0 8px 8px 0;margin:16px 0;font-size:13px;color:#92400e}
+                    .divider{border:none;border-top:1px solid #e5e7eb;margin:20px 0}
+                    .footer{padding:18px 28px 22px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center}
+                    .footer-text{font-size:12px;color:#6b7280;margin:0}
+                  </style>
+                </head>
+                <body>
+                  <div class="container">
+                    <div class="card">
+                      <div class="header">
+                        <img src="cid:skillverse-logo" alt="SkillVerse" style="height:44px;display:block;margin:0 auto 12px"/>
+                        <div class="emoji">📦</div>
+                        <h1>Công việc đã được nộp!</h1>
+                        <div class="badge">Chờ bạn nghiệm thu</div>
+                      </div>
+                      <div class="body">
+                        <p>Xin chào <strong>%s</strong>,</p>
+                        <p><strong>%s</strong> đã nộp sản phẩm cho công việc:</p>
+                        <div class="job-card">
+                          <div class="job-title">%s</div>
+                          <div class="worker">Người thực hiện: %s</div>
+                        </div>
+                        <div class="action-box">
+                          <p>Vui lòng đăng nhập SkillVerse để kiểm tra và nghiệm thu sản phẩm.</p>
+                        </div>
+                        <div class="note">
+                          <strong>⏰ Lưu ý:</strong> Bạn có 72 giờ để nghiệm thu hoặc yêu cầu chỉnh sửa. Sau 72 giờ, hệ thống sẽ tự động nghiệm thu.
+                        </div>
+                      </div>
+                      <div class="footer">
+                        <p class="footer-text">© SkillVerse — Cộng đồng học tập và nghề nghiệp.</p>
+                      </div>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(recruiterName, workerName, jobTitle, workerName);
+    }
+
+    private String buildShortTermWorkApprovedHtmlContent(String workerName, String jobTitle, String budget) {
+        return """
+                <!DOCTYPE html>
+                <html lang="vi">
+                <head>
+                  <meta charset="UTF-8"/>
+                  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                  <title>Công việc đã được nghiệm thu — SkillVerse</title>
+                  <style>
+                    body{margin:0;padding:0;background:#f5f7fb;font-family:Inter,Roboto,Helvetica,Arial,sans-serif;color:#1f2937}
+                    .container{max-width:600px;margin:24px auto;padding:0 16px}
+                    .card{background:#ffffff;border-radius:16px;box-shadow:0 8px 24px rgba(31,41,55,0.08);overflow:hidden}
+                    .header{background:linear-gradient(135deg,#059669,#10b981);padding:32px 28px;text-align:center;color:#fff}
+                    .header img{display:block;margin:0 auto 12px;height:44px}
+                    .header h1{font-size:22px;font-weight:700;margin:0 0 6px}
+                    .emoji{font-size:56px;margin-bottom:8px}
+                    .badge{display:inline-block;margin-top:8px;padding:5px 14px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);border-radius:999px;font-size:13px}
+                    .body{padding:28px 28px}
+                    .greeting{font-size:16px;font-weight:600;color:#111827;margin:0 0 12px}
+                    p{line-height:1.7;margin:10px 0;color:#374151;font-size:14px}
+                    .job-card{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:18px;margin:18px 0}
+                    .job-card .job-title{font-size:15px;font-weight:600;color:#166534;margin:0 0 8px}
+                    .job-card .budget-row{display:flex;gap:12px;margin-top:8px}
+                    .job-card .budget-item{flex:1;background:#dcfce7;border-radius:6px;padding:8px 10px}
+                    .job-card .budget-item .label{font-size:11px;color:#15803d;text-transform:uppercase;letter-spacing:0.5px}
+                    .job-card .budget-item .value{font-size:16px;font-weight:700;color:#15803d;margin-top:2px}
+                    .success-box{background:#fefce8;border:1px solid #fef08a;border-radius:10px;padding:14px 16px;margin:16px 0;text-align:center}
+                    .success-box .success-text{font-size:16px;font-weight:700;color:#854d0e;margin:0}
+                    .success-box .success-sub{font-size:13px;color:#a16207;margin:4px 0 0}
+                    .thanks{text-align:center;margin:16px 0;font-size:14px}
+                    .footer{padding:18px 28px 22px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center}
+                    .footer-text{font-size:12px;color:#6b7280;margin:0}
+                  </style>
+                </head>
+                <body>
+                  <div class="container">
+                    <div class="card">
+                      <div class="header">
+                        <img src="cid:skillverse-logo" alt="SkillVerse" style="height:44px;display:block;margin:0 auto 12px"/>
+                        <div class="emoji">✅</div>
+                        <h1>Công việc đã được nghiệm thu!</h1>
+                        <div class="badge">Hoàn thành xuất sắc</div>
+                      </div>
+                      <div class="body">
+                        <p class="greeting">Xin chào <strong>%s</strong>,</p>
+                        <p>Tuyệt vời! Nhà tuyển dụng đã nghiệm thu và chấp nhận sản phẩm của bạn cho công việc:</p>
+                        <div class="job-card">
+                          <div class="job-title">%s</div>
+                          <div class="budget-row">
+                            <div class="budget-item">
+                              <div class="label">Thanh toán</div>
+                              <div class="value">%s</div>
+                            </div>
+                            <div class="budget-item">
+                              <div class="label">Trạng thái</div>
+                              <div class="value">✓ Hoàn thành</div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="success-box">
+                          <div class="success-text">🎉 Thanh toán sẽ được giải ngân sớm!</div>
+                          <div class="success-sub">Cảm ơn bạn đã hoàn thành công việc xuất sắc.</div>
+                        </div>
+                        <p class="thanks">Hãy để lại đánh giá cho nhà tuyển dụng để xây dựng uy tín trên SkillVerse nhé!</p>
+                      </div>
+                      <div class="footer">
+                        <p class="footer-text">© SkillVerse — Cộng đồng học tập và nghề nghiệp.</p>
+                      </div>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(workerName, jobTitle, budget != null ? budget : "Thỏa thuận");
     }
 }
