@@ -15,7 +15,10 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import java.time.LocalDateTime;
+import java.util.List;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
 import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
@@ -39,6 +42,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class BookingController {
 
     private final BookingService bookingService;
+    private final com.exe.skillverse_backend.mentor_booking_service.service.BookingDisputeService disputeService;
+    private final com.exe.skillverse_backend.mentor_booking_service.repository.BookingDisputeRepository disputeRepository;
     private final InvoiceService invoiceService;
     private final MentorProfileRepository mentorProfileRepository;
 
@@ -98,13 +103,24 @@ public class BookingController {
     }
 
     @PutMapping("/{id}/complete")
-    @Operation(summary = "Hoàn tất buổi học (mentor nhận 80%)")
+    @Operation(summary = "Mentor hoàn tất buổi học (chờ learner xác nhận)")
     public ResponseEntity<BookingResponse> complete(
             @PathVariable Long id,
             Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long mentorId = Long.valueOf(jwt.getClaimAsString("userId"));
         var booking = bookingService.complete(mentorId, id);
+        return ResponseEntity.ok(toResponse(booking));
+    }
+
+    @PutMapping("/{id}/confirm-complete")
+    @Operation(summary = "Learner xác nhận hoàn tất buổi học")
+    public ResponseEntity<BookingResponse> confirmComplete(
+            @PathVariable Long id,
+            Authentication authentication) {
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        Long learnerId = Long.valueOf(jwt.getClaimAsString("userId"));
+        var booking = bookingService.learnerConfirmComplete(learnerId, id);
         return ResponseEntity.ok(toResponse(booking));
     }
 
@@ -117,6 +133,16 @@ public class BookingController {
         Long learnerId = Long.valueOf(jwt.getClaimAsString("userId"));
         var booking = bookingService.cancelByLearner(learnerId, id);
         return ResponseEntity.ok(toResponse(booking));
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Lấy chi tiết một booking")
+    public ResponseEntity<BookingResponse> getBookingDetail(
+            @PathVariable Long id,
+            Authentication authentication) {
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+        return ResponseEntity.ok(bookingService.getBookingDetail(userId, id));
     }
 
     @PostMapping("/{id}/rating")
@@ -140,6 +166,15 @@ public class BookingController {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
         return ResponseEntity.ok(bookingService.getUserBookings(userId, mentorView, pageable));
+    }
+
+    @GetMapping("/mentor/{mentorId}/bookings")
+    @Operation(summary = "Lấy danh sách booking đang active của mentor (dùng để đánh dấu slot đã đặt)")
+    public ResponseEntity<List<BookingResponse>> getMentorActiveBookings(
+            @PathVariable Long mentorId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        return ResponseEntity.ok(bookingService.getMentorBookingsForDateRange(mentorId, from, to));
     }
 
     @GetMapping("/{id}/invoice")
@@ -193,6 +228,7 @@ public class BookingController {
                 .id(booking.getId())
                 .mentorId(booking.getMentor().getId())
                 .learnerId(booking.getLearner().getId())
+                .createdAt(booking.getCreatedAt())
                 .startTime(booking.getStartTime())
                 .endTime(booking.getEndTime())
                 .durationMinutes(booking.getDurationMinutes())
@@ -200,10 +236,14 @@ public class BookingController {
                 .priceVnd(booking.getPriceVnd())
                 .meetingLink(booking.getMeetingLink())
                 .paymentReference(booking.getPaymentReference())
+                .confirmedByLearner(booking.getConfirmedByLearner())
+                .mentorCompletedAt(booking.getMentorCompletedAt())
+                .learnerConfirmedAt(booking.getLearnerConfirmedAt())
                 .mentorName(mentorName)
                 .mentorAvatar(mentorAvatar)
                 .learnerName(booking.getLearner().getFullName())
                 .learnerAvatar(booking.getLearner().getAvatarUrl())
+                .disputeId(disputeRepository.findByBooking_Id(booking.getId()).map(d -> d.getId()).orElse(null))
                 .build();
     }
 }

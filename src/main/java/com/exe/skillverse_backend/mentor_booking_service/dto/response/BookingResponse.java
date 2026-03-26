@@ -16,6 +16,7 @@ public class BookingResponse {
     private Long id;
     private Long mentorId;
     private Long learnerId;
+    private LocalDateTime createdAt;
     private LocalDateTime startTime;
     private LocalDateTime endTime;
     private Integer durationMinutes;
@@ -23,11 +24,16 @@ public class BookingResponse {
     private BigDecimal priceVnd;
     private String meetingLink;
     private String paymentReference;
-    
+    private Boolean confirmedByLearner;
+    private LocalDateTime mentorCompletedAt;
+    private LocalDateTime learnerConfirmedAt;
+
     // Enhanced fields for UI
     private String mentorName;
     private String mentorAvatar;
     private String learnerName;
     private String learnerAvatar;
-}
 
+    // Dispute info
+    private Long disputeId;
+}

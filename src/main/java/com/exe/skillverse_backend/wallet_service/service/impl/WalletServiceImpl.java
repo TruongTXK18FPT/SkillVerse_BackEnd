@@ -706,7 +706,7 @@ public class WalletServiceImpl implements WalletService {
                                 .description(description)
                                 .status(WalletTransaction.TransactionStatus.COMPLETED)
                                 .referenceId(referenceId)
-                                .referenceType("SUBSCRIPTION_REFUND")
+                                .referenceType("BOOKING_REFUND")
                                 .build();
 
                 WalletTransaction savedTransaction = transactionRepository.save(transaction);

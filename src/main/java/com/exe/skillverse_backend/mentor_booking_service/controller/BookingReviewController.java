@@ -14,6 +14,7 @@ import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,7 +38,7 @@ public class BookingReviewController {
             @PathVariable Long bookingId,
             @RequestBody Map<String, Object> request,
             Authentication authentication) {
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = getUserId(authentication);
         Integer rating = (Integer) request.get("rating");
         String comment = (String) request.get("comment");
         boolean isAnonymous = request.containsKey("isAnonymous") ? (boolean) request.get("isAnonymous") : false;
@@ -53,7 +54,7 @@ public class BookingReviewController {
             @PathVariable Long reviewId,
             @RequestBody Map<String, String> request,
             Authentication authentication) {
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = getUserId(authentication);
         String reply = request.get("reply");
 
         BookingReviewDTO review = reviewService.replyToReview(userId, reviewId, reply);
@@ -64,7 +65,7 @@ public class BookingReviewController {
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get my reviews (Mentor)")
     public ResponseEntity<?> getMyReviews(Authentication authentication) {
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = getUserId(authentication);
         List<BookingReviewDTO> reviews = reviewService.getMentorReviews(userId);
         return ResponseEntity.ok(reviews);
     }
@@ -76,7 +77,7 @@ public class BookingReviewController {
             Authentication authentication,
             @RequestParam(required = false) Integer rating,
             @PageableDefault(size = 10) Pageable pageable) {
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = getUserId(authentication);
         Page<BookingReviewDTO> reviews = reviewService.getMentorReviews(userId, rating, pageable);
         return ResponseEntity.ok(reviews);
     }
@@ -85,7 +86,7 @@ public class BookingReviewController {
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get aggregate review stats for current mentor")
     public ResponseEntity<BookingReviewStatsDTO> getMyReviewStats(Authentication authentication) {
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = getUserId(authentication);
         BookingReviewStatsDTO stats = reviewService.getMentorReviewStats(userId);
         return ResponseEntity.ok(stats);
     }
@@ -101,7 +102,7 @@ public class BookingReviewController {
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get my reviews (Student)")
     public ResponseEntity<?> getMyStudentReviews(Authentication authentication) {
-        Long userId = Long.parseLong(authentication.getName());
+        Long userId = getUserId(authentication);
         List<BookingReviewDTO> reviews = reviewService.getStudentReviews(userId);
         return ResponseEntity.ok(reviews);
     }
@@ -120,5 +121,10 @@ public class BookingReviewController {
     public ResponseEntity<?> getReviewForBooking(@PathVariable Long bookingId) {
         BookingReviewDTO review = reviewService.getReviewByBookingId(bookingId);
         return ResponseEntity.ok(review);
+    }
+
+    private Long getUserId(Authentication authentication) {
+        Jwt jwt = (Jwt) authentication.getPrincipal();
+        return Long.valueOf(jwt.getClaimAsString("userId"));
     }
 }

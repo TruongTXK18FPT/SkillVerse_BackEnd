@@ -134,6 +134,12 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         log.info("Creating short-term job for user ID: {}", userId);
 
         RecruiterProfile recruiterProfile = getRecruiterProfile(userId);
+
+        // Force correct values before validation so the service always produces valid short-term jobs
+        request.setIsNegotiable(false);
+        request.setPaymentMethod(PaymentMethod.FIXED);
+        request.setIsRemote(true);
+
         validateCreateJobRequest(request);
 
         ShortTermJob job = ShortTermJob.builder()

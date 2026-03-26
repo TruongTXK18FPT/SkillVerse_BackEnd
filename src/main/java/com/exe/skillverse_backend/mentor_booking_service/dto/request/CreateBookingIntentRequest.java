@@ -5,7 +5,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -20,7 +20,7 @@ public class CreateBookingIntentRequest {
     private Long mentorId;
 
     @NotNull
-    private LocalDateTime startTime;
+    private ZonedDateTime startTime;
 
     @NotNull
     @Min(60)

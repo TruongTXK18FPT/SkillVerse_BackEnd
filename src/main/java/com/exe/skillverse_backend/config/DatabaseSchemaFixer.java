@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.config;
 
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,8 +14,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Collectors;
 
 /**
  * DatabaseSchemaFixer — runtime idempotent patches for PostgreSQL.
@@ -71,10 +74,6 @@ public class DatabaseSchemaFixer {
                 "Add courses.suspension_reason/suspended_at/suspended_by",
                 this::patchCourseSuspensionColumns,
                 this::verifyCourseSuspensionColumns);
-        applyPatch("PATCH-003-notification-type-constraint",
-                "Ensure notification type check includes course moderation events",
-                this::patchNotificationTypeConstraint,
-                this::verifyNotificationTypeConstraint);
         applyPatch("PATCH-004-assignment-criteria-passing-points",
                 "Backfill NULL passing_points and enforce NOT NULL DEFAULT 0",
                 this::patchAssignmentCriteriaPassingPoints,
@@ -163,6 +162,18 @@ public class DatabaseSchemaFixer {
             "Ensure notification type CHECK includes JOB_APPROVED, JOB_REJECTED",
             this::patchShortTermJobNotificationTypes,
             this::verifyShortTermJobNotificationTypes);
+        applyPatch("PATCH-025-mentor-booking-state-columns-and-status-check",
+            "Ensure mentor bookings support learner confirmation and dispute-related statuses",
+            this::patchMentorBookingStateColumnsAndStatusCheck,
+            this::verifyMentorBookingStateColumnsAndStatusCheck);
+        applyPatch("PATCH-026-booking-dispute-schema",
+            "Ensure booking dispute tables and financial resolution columns exist",
+            this::patchBookingDisputeSchema,
+            this::verifyBookingDisputeSchema);
+        applyPatch("PATCH-027-notification-type-check-sync-with-enum",
+            "Ensure notifications.type CHECK matches the current NotificationType enum",
+            this::patchNotificationTypeCheckSyncWithEnum,
+            this::verifyNotificationTypeCheckSyncWithEnum);
 
         log.info("All PostgreSQL schema patches applied and verified successfully.");
     }
@@ -359,42 +370,6 @@ public class DatabaseSchemaFixer {
         return hasColumn("courses", "suspension_reason")
                 && hasColumn("courses", "suspended_at")
                 && hasColumn("courses", "suspended_by");
-    }
-
-    private void patchNotificationTypeConstraint() {
-        jdbcTemplate.execute("""
-            DO $$
-            BEGIN
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.table_constraints
-                    WHERE table_schema = current_schema()
-                      AND table_name = 'notifications'
-                      AND constraint_name = 'notifications_type_check'
-                ) THEN
-                    ALTER TABLE notifications DROP CONSTRAINT notifications_type_check;
-                END IF;
-
-                ALTER TABLE notifications ADD CONSTRAINT notifications_type_check
-                CHECK (type IN (
-                    'LIKE','COMMENT','PREMIUM_PURCHASE','WALLET_DEPOSIT','COIN_PURCHASE',
-                    'WELCOME','PREMIUM_EXPIRATION','PREMIUM_CANCEL','SYSTEM','WARNING',
-                    'VIOLATION_REPORT','BOOKING_CREATED','BOOKING_CONFIRMED','BOOKING_REJECTED',
-                    'BOOKING_REMINDER','BOOKING_COMPLETED','BOOKING_CANCELLED','BOOKING_REFUND',
-                    'PRECHAT_MESSAGE','MENTOR_REVIEW_RECEIVED','WITHDRAWAL_APPROVED','WITHDRAWAL_REJECTED',
-                    'MENTOR_LEVEL_UP','MENTOR_BADGE_AWARDED','TASK_DEADLINE','TASK_OVERDUE','TASK_REVIEW',
-                    'ASSIGNMENT_SUBMITTED','ASSIGNMENT_GRADED','ASSIGNMENT_LATE',
-                    'COURSE_REJECTED','COURSE_SUSPENDED','COURSE_RESTORED'
-                ));
-            END $$;
-        """);
-    }
-
-    private boolean verifyNotificationTypeConstraint() {
-        String definition = getConstraintDefinition("notifications_type_check");
-        return definition != null
-                && definition.contains("COURSE_REJECTED")
-                && definition.contains("COURSE_SUSPENDED")
-                && definition.contains("COURSE_RESTORED");
     }
 
     private void patchAssignmentCriteriaPassingPoints() {
@@ -1985,7 +1960,7 @@ public class DatabaseSchemaFixer {
             "SELECT pg_get_constraintdef(oid) INTO current_check\n" +
             "FROM pg_constraint\n" +
             "WHERE conname = 'notifications_type_check';\n" +
-            "IF current_check IS NULL OR current_check NOT LIKE '%JOB_APPROVED%' THEN\n" +
+            "IF current_check IS NULL OR current_check NOT LIKE '%BOOKING_MENTOR_COMPLETED%' THEN\n" +
             "ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;\n" +
             "ALTER TABLE notifications ADD CONSTRAINT notifications_type_check\n" +
             "CHECK (type IN (\n" +
@@ -1993,13 +1968,15 @@ public class DatabaseSchemaFixer {
             "'WELCOME','PREMIUM_EXPIRATION','PREMIUM_CANCEL','SYSTEM','WARNING',\n" +
             "'VIOLATION_REPORT','BOOKING_CREATED','BOOKING_CONFIRMED','BOOKING_REJECTED',\n" +
             "'BOOKING_REMINDER','BOOKING_COMPLETED','BOOKING_CANCELLED','BOOKING_REFUND',\n" +
+            "'BOOKING_STARTED','BOOKING_MENTOR_COMPLETED',\n" +
             "'PRECHAT_MESSAGE','RECRUITMENT_MESSAGE','MENTOR_REVIEW_RECEIVED',\n" +
             "'WITHDRAWAL_APPROVED','WITHDRAWAL_REJECTED','MENTOR_LEVEL_UP',\n" +
             "'MENTOR_BADGE_AWARDED','TASK_DEADLINE','TASK_OVERDUE','TASK_REVIEW',\n" +
             "'ASSIGNMENT_SUBMITTED','ASSIGNMENT_GRADED','ASSIGNMENT_LATE',\n" +
             "'COURSE_REJECTED','COURSE_SUSPENDED','COURSE_RESTORED',\n" +
-            "'JOB_APPROVED','JOB_REJECTED',\n" +
-            "'ESCROW_FUNDED','ESCROW_RELEASED','ESCROW_REFUNDED'\n" +
+            "'JOB_APPROVED','JOB_REJECTED','JOB_DELETED','JOB_BANNED','JOB_UNBANNED',\n" +
+            "'ESCROW_FUNDED','ESCROW_RELEASED','ESCROW_REFUNDED',\n" +
+            "'DISPUTE_OPENED','DISPUTE_RESOLVED','REVIEW_WINDOW_EXPIRING'\n" +
             "));\n" +
             "END IF;\n" +
             "END;\n" +
@@ -2010,9 +1987,157 @@ public class DatabaseSchemaFixer {
     private boolean verifyShortTermJobNotificationTypes() {
         String definition = getConstraintDefinition("notifications_type_check");
         return definition != null
-                && definition.contains("JOB_APPROVED")
-                && definition.contains("JOB_REJECTED");
+                && definition.contains("BOOKING_STARTED")
+                && definition.contains("BOOKING_MENTOR_COMPLETED");
     }
+
+    private void patchMentorBookingStateColumnsAndStatusCheck() {
+        String sql = "DO $$\n" +
+            "DECLARE status_constraint_name TEXT;\n" +
+            "BEGIN\n" +
+            "IF EXISTS (\n" +
+            "    SELECT 1 FROM information_schema.tables\n" +
+            "    WHERE table_schema = current_schema() AND table_name = 'mentor_bookings'\n" +
+            ") THEN\n" +
+            "    ALTER TABLE mentor_bookings ADD COLUMN IF NOT EXISTS confirmed_by_learner BOOLEAN NOT NULL DEFAULT FALSE;\n" +
+            "    ALTER TABLE mentor_bookings ADD COLUMN IF NOT EXISTS mentor_completed_at TIMESTAMP;\n" +
+            "    ALTER TABLE mentor_bookings ADD COLUMN IF NOT EXISTS learner_confirmed_at TIMESTAMP;\n" +
+            "    FOR status_constraint_name IN\n" +
+            "        SELECT c.conname\n" +
+            "        FROM pg_constraint c\n" +
+            "        JOIN pg_class t ON t.oid = c.conrelid\n" +
+            "        JOIN pg_namespace n ON n.oid = t.relnamespace\n" +
+            "        WHERE n.nspname = current_schema()\n" +
+            "          AND t.relname = 'mentor_bookings'\n" +
+            "          AND c.contype = 'c'\n" +
+            "          AND pg_get_constraintdef(c.oid) ILIKE '%status%'\n" +
+            "    LOOP\n" +
+            "        EXECUTE format('ALTER TABLE mentor_bookings DROP CONSTRAINT IF EXISTS %I', status_constraint_name);\n" +
+            "    END LOOP;\n" +
+            "    ALTER TABLE mentor_bookings ADD CONSTRAINT mentor_bookings_status_check CHECK (\n" +
+            "        status IN ('PENDING','CONFIRMED','REJECTED','ONGOING','MENTOR_COMPLETED','COMPLETED','CANCELLED','DISPUTED','REFUNDED')\n" +
+            "    );\n" +
+            "END IF;\n" +
+            "END;\n" +
+            "$$ LANGUAGE plpgsql;";
+        jdbcTemplate.execute(sql);
+    }
+
+    private boolean verifyMentorBookingStateColumnsAndStatusCheck() {
+        String definition = getConstraintDefinition("mentor_bookings_status_check");
+        return hasColumn("mentor_bookings", "confirmed_by_learner")
+                && hasColumn("mentor_bookings", "mentor_completed_at")
+                && hasColumn("mentor_bookings", "learner_confirmed_at")
+                && definition != null
+                && definition.contains("MENTOR_COMPLETED")
+                && definition.contains("DISPUTED")
+                && definition.contains("REFUNDED");
+    }
+
+    private void patchBookingDisputeSchema() {
+        String sql = "DO $$\n" +
+            "BEGIN\n" +
+            "IF EXISTS (\n" +
+            "    SELECT 1 FROM information_schema.tables\n" +
+            "    WHERE table_schema = current_schema() AND table_name = 'mentor_bookings'\n" +
+            ") THEN\n" +
+            "    CREATE TABLE IF NOT EXISTS booking_disputes (\n" +
+            "        id BIGSERIAL PRIMARY KEY,\n" +
+            "        booking_id BIGINT NOT NULL UNIQUE REFERENCES mentor_bookings(id) ON DELETE CASCADE,\n" +
+            "        initiator_id BIGINT NOT NULL,\n" +
+            "        respondent_id BIGINT NOT NULL,\n" +
+            "        reason TEXT NOT NULL,\n" +
+            "        status VARCHAR(30) NOT NULL DEFAULT 'OPEN',\n" +
+            "        resolution VARCHAR(30),\n" +
+            "        resolution_notes TEXT,\n" +
+            "        refund_amount NUMERIC(12,2),\n" +
+            "        released_amount NUMERIC(12,2),\n" +
+            "        mentor_payout_amount NUMERIC(12,2),\n" +
+            "        admin_commission_amount NUMERIC(12,2),\n" +
+            "        resolved_by BIGINT,\n" +
+            "        resolved_at TIMESTAMP,\n" +
+            "        created_at TIMESTAMP NOT NULL DEFAULT NOW(),\n" +
+            "        updated_at TIMESTAMP NOT NULL DEFAULT NOW()\n" +
+            "    );\n" +
+            "    CREATE INDEX IF NOT EXISTS idx_booking_disputes_initiator_id ON booking_disputes(initiator_id);\n" +
+            "    CREATE INDEX IF NOT EXISTS idx_booking_disputes_respondent_id ON booking_disputes(respondent_id);\n" +
+            "    CREATE INDEX IF NOT EXISTS idx_booking_disputes_status ON booking_disputes(status);\n" +
+            "    ALTER TABLE booking_disputes ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(12,2);\n" +
+            "    ALTER TABLE booking_disputes ADD COLUMN IF NOT EXISTS released_amount NUMERIC(12,2);\n" +
+            "    ALTER TABLE booking_disputes ADD COLUMN IF NOT EXISTS mentor_payout_amount NUMERIC(12,2);\n" +
+            "    ALTER TABLE booking_disputes ADD COLUMN IF NOT EXISTS admin_commission_amount NUMERIC(12,2);\n" +
+            "    CREATE TABLE IF NOT EXISTS booking_dispute_evidence (\n" +
+            "        id BIGSERIAL PRIMARY KEY,\n" +
+            "        dispute_id BIGINT NOT NULL REFERENCES booking_disputes(id) ON DELETE CASCADE,\n" +
+            "        submitted_by BIGINT NOT NULL,\n" +
+            "        evidence_type VARCHAR(20) NOT NULL,\n" +
+            "        content TEXT,\n" +
+            "        file_url VARCHAR(500),\n" +
+            "        file_name VARCHAR(255),\n" +
+            "        description TEXT,\n" +
+            "        is_official BOOLEAN NOT NULL DEFAULT FALSE,\n" +
+            "        created_at TIMESTAMP NOT NULL DEFAULT NOW()\n" +
+            "    );\n" +
+            "    CREATE INDEX IF NOT EXISTS idx_booking_dispute_evidence_dispute_id ON booking_dispute_evidence(dispute_id);\n" +
+            "    CREATE TABLE IF NOT EXISTS booking_dispute_responses (\n" +
+            "        id BIGSERIAL PRIMARY KEY,\n" +
+            "        evidence_id BIGINT NOT NULL REFERENCES booking_dispute_evidence(id) ON DELETE CASCADE,\n" +
+            "        responded_by BIGINT NOT NULL,\n" +
+            "        responded_by_name VARCHAR(200),\n" +
+            "        content TEXT NOT NULL,\n" +
+            "        is_admin_response BOOLEAN NOT NULL DEFAULT FALSE,\n" +
+            "        created_at TIMESTAMP NOT NULL DEFAULT NOW()\n" +
+            "    );\n" +
+            "    CREATE INDEX IF NOT EXISTS idx_booking_dispute_responses_evidence_id ON booking_dispute_responses(evidence_id);\n" +
+            "END IF;\n" +
+            "END;\n" +
+            "$$ LANGUAGE plpgsql;";
+        jdbcTemplate.execute(sql);
+    }
+
+    private boolean verifyBookingDisputeSchema() {
+        return hasTable("booking_disputes")
+                && hasTable("booking_dispute_evidence")
+                && hasTable("booking_dispute_responses")
+                && hasColumn("booking_disputes", "refund_amount")
+                && hasColumn("booking_disputes", "released_amount")
+                && hasColumn("booking_disputes", "mentor_payout_amount")
+                && hasColumn("booking_disputes", "admin_commission_amount");
+    }
+
+    private void patchNotificationTypeCheckSyncWithEnum() {
+        if (!hasTable("notifications")) {
+            return;
+        }
+
+        String allowedTypes = Arrays.stream(NotificationType.values())
+                .map(NotificationType::name)
+                .map(type -> "'" + type + "'")
+                .collect(Collectors.joining(","));
+
+        String sql = "DO $$\n" +
+            "BEGIN\n" +
+            "ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check;\n" +
+            "ALTER TABLE notifications ADD CONSTRAINT notifications_type_check CHECK (type IN (" +
+            allowedTypes +
+            "));\n" +
+            "END;\n" +
+            "$$ LANGUAGE plpgsql;";
+
+        jdbcTemplate.execute(sql);
+    }
+
+    private boolean verifyNotificationTypeCheckSyncWithEnum() {
+        String definition = getConstraintDefinition("notifications_type_check");
+        if (definition == null) {
+            return false;
+        }
+
+        return Arrays.stream(NotificationType.values())
+                .map(NotificationType::name)
+                .allMatch(definition::contains);
+    }
+
 
     private void ensureCourseRevisioningColumns() {
         jdbcTemplate.execute("""

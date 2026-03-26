@@ -1,4 +1,4 @@
-package com.exe.skillverse_backend.mentor_booking_service.entity;
+  package com.exe.skillverse_backend.mentor_booking_service.entity;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 
@@ -13,6 +13,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PreUpdate;
@@ -70,6 +71,16 @@ public class Booking {
     @Column(name = "payment_reference", length = 50)
     private String paymentReference;
 
+    @Column(name = "confirmed_by_learner")
+    @Builder.Default
+    private Boolean confirmedByLearner = false;
+
+    @Column(name = "mentor_completed_at")
+    private LocalDateTime mentorCompletedAt;
+
+    @Column(name = "learner_confirmed_at")
+    private LocalDateTime learnerConfirmedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();
@@ -80,6 +91,12 @@ public class Booking {
 
     @PreUpdate
     void onUpdate() {
+        updatedAt = LocalDateTime.now();
+    }
+
+    @PrePersist
+    void onCreate() {
+        createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }
 }

@@ -5,7 +5,7 @@ import com.exe.skillverse_backend.mentor_booking_service.entity.MentorAvailabili
 import com.exe.skillverse_backend.mentor_booking_service.repository.MentorAvailabilityRepository;
 import com.exe.skillverse_backend.mentor_booking_service.service.MentorAvailabilityService;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,19 +22,24 @@ public class MentorAvailabilityServiceImpl implements MentorAvailabilityService 
     public List<MentorAvailability> addAvailability(Long mentorId, AvailabilityRequest request) {
         List<MentorAvailability> availabilities = new ArrayList<>();
 
-        // Convert request times to UTC LocalDateTime
-        LocalDateTime startUtc = request.getStartTime().withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
-        LocalDateTime endUtc = request.getEndTime().withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
-        LocalDateTime recurrenceEndUtc = request.getRecurrenceEndDate() != null
-                ? request.getRecurrenceEndDate().withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime()
+        // Convert request times to VN LocalDateTime (same timezone as bookings)
+        LocalDateTime startVn = request.getStartTime().withZoneSameInstant(ZoneId.of("Asia/Ho_Chi_Minh")).toLocalDateTime();
+        LocalDateTime endVn = request.getEndTime().withZoneSameInstant(ZoneId.of("Asia/Ho_Chi_Minh")).toLocalDateTime();
+        LocalDateTime recurrenceEndVn = request.getRecurrenceEndDate() != null
+                ? request.getRecurrenceEndDate().withZoneSameInstant(ZoneId.of("Asia/Ho_Chi_Minh")).toLocalDateTime()
                 : null;
 
         if (!request.isRecurring()) {
-            availabilities.add(createEntity(mentorId, startUtc, endUtc));
+            // Check for overlapping availability
+            List<MentorAvailability> overlapping = repository.findOverlapping(mentorId, startVn, endVn);
+            if (!overlapping.isEmpty()) {
+                throw new IllegalStateException("Lịch rảnh đã tồn tại trong khoảng thời gian này.");
+            }
+            availabilities.add(createEntity(mentorId, startVn, endVn));
         } else {
-            LocalDateTime currentStart = startUtc;
-            LocalDateTime currentEnd = endUtc;
-            LocalDateTime endDate = recurrenceEndUtc;
+            LocalDateTime currentStart = startVn;
+            LocalDateTime currentEnd = endVn;
+            LocalDateTime endDate = recurrenceEndVn;
 
             if (endDate == null) {
                 // Default to 3 months if not specified
@@ -42,7 +47,11 @@ public class MentorAvailabilityServiceImpl implements MentorAvailabilityService 
             }
 
             while (currentStart.isBefore(endDate)) {
-                availabilities.add(createEntity(mentorId, currentStart, currentEnd));
+                // Check for overlapping availability for each occurrence
+                List<MentorAvailability> overlapping = repository.findOverlapping(mentorId, currentStart, currentEnd);
+                if (overlapping.isEmpty()) {
+                    availabilities.add(createEntity(mentorId, currentStart, currentEnd));
+                }
 
                 switch (request.getRecurrenceType()) {
                     case DAILY:
@@ -62,6 +71,10 @@ public class MentorAvailabilityServiceImpl implements MentorAvailabilityService 
                         break;
                 }
             }
+        }
+
+        if (availabilities.isEmpty()) {
+            throw new IllegalStateException("Tất cả các lịch trong khoảng này đã bị trùng hoặc không hợp lệ.");
         }
 
         return repository.saveAll(availabilities);

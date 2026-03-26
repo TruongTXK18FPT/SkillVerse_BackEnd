@@ -19,4 +19,9 @@ public interface MentorAvailabilityRepository extends JpaRepository<MentorAvaila
                                                         @Param("to") LocalDateTime to);
 
     List<MentorAvailability> findByMentorId(Long mentorId);
+
+    @Query("SELECT m FROM MentorAvailability m WHERE m.mentorId = :mentorId AND m.startTime < :end AND m.endTime > :start")
+    List<MentorAvailability> findOverlapping(@Param("mentorId") Long mentorId,
+                                              @Param("start") LocalDateTime start,
+                                              @Param("end") LocalDateTime end);
 }

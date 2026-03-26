@@ -41,18 +41,27 @@ public class BookingReviewServiceImpl implements BookingReviewService {
             throw new RuntimeException("You can only review completed bookings");
         }
 
-        if (reviewRepository.existsByBookingId(bookingId)) {
+        if (!isValidRating(rating)) {
+            throw new RuntimeException("Rating must be between 1 and 5");
+        }
+
+        BookingReview existingReview = reviewRepository.findByBookingId(bookingId).orElse(null);
+        if (existingReview != null && hasRenderableReview(existingReview)) {
             throw new RuntimeException("You have already reviewed this booking");
         }
 
-        BookingReview review = BookingReview.builder()
+        BookingReview review = existingReview != null ? existingReview : BookingReview.builder()
                 .booking(booking)
                 .student(booking.getLearner())
                 .mentor(booking.getMentor())
-                .rating(rating)
-                .comment(comment)
-                .isAnonymous(isAnonymous)
                 .build();
+
+        review.setBooking(booking);
+        review.setStudent(booking.getLearner());
+        review.setMentor(booking.getMentor());
+        review.setRating(rating);
+        review.setComment(comment);
+        review.setIsAnonymous(isAnonymous);
 
         review = reviewRepository.save(review);
         return mapToDTO(review);
@@ -75,6 +84,7 @@ public class BookingReviewServiceImpl implements BookingReviewService {
     @Transactional(readOnly = true)
     public List<BookingReviewDTO> getMentorReviews(Long mentorId) {
         return reviewRepository.findByMentorIdOrderByCreatedAtDesc(mentorId).stream()
+                .filter(this::hasRenderableReview)
                 .map(this::mapToDTO)
                 .collect(Collectors.toList());
     }
@@ -106,15 +116,24 @@ public class BookingReviewServiceImpl implements BookingReviewService {
     @Transactional(readOnly = true)
     public List<BookingReviewDTO> getStudentReviews(Long studentId) {
         return reviewRepository.findByStudentIdOrderByCreatedAtDesc(studentId).stream()
+                .filter(this::hasRenderableReview)
                 .map(this::mapToDTO)
                 .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public BookingReviewDTO getReviewByBookingId(Long bookingId) {
-        return reviewRepository.findByBookingId(bookingId)
+        return reviewRepository.findValidByBookingId(bookingId)
                 .map(this::mapToDTO)
                 .orElse(null);
+    }
+
+    private boolean hasRenderableReview(BookingReview review) {
+        return isValidRating(review.getRating());
+    }
+
+    private boolean isValidRating(Integer rating) {
+        return rating != null && rating >= 1 && rating <= 5;
     }
 
     private BookingReviewDTO mapToDTO(BookingReview review) {

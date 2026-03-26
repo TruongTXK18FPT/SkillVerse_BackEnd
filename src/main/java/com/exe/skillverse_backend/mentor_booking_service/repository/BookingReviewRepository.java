@@ -30,5 +30,7 @@ public interface BookingReviewRepository extends JpaRepository<BookingReview, Lo
     Double averageRatingByMentorId(@Param("mentorId") Long mentorId);
 
     Optional<BookingReview> findByBookingId(Long bookingId);
+    @Query("SELECT r FROM BookingReview r WHERE r.booking.id = :bookingId AND r.rating BETWEEN 1 AND 5")
+    Optional<BookingReview> findValidByBookingId(@Param("bookingId") Long bookingId);
     boolean existsByBookingId(Long bookingId);
 }

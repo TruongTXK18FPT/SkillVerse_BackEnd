@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.business_service.dto.response.ShortTermApplica
 import com.exe.skillverse_backend.business_service.entity.*;
 import com.exe.skillverse_backend.business_service.entity.enums.*;
 import com.exe.skillverse_backend.business_service.repository.*;
+import com.exe.skillverse_backend.business_service.service.EscrowService;
 import com.exe.skillverse_backend.business_service.service.impl.ShortTermJobServiceImpl;
 import com.exe.skillverse_backend.business_service.service.JobAuditService;
 import com.exe.skillverse_backend.auth_service.entity.User;
@@ -85,6 +86,12 @@ class ShortTermJobServiceImplTest {
 
     @Mock
     private UserProfileRepository userProfileRepository;
+
+    @Mock
+    private EscrowService escrowService;
+
+    @Mock
+    private JobEscrowRepository jobEscrowRepository;
 
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -201,46 +208,64 @@ class ShortTermJobServiceImplTest {
         }
 
         @Test
-        @DisplayName("Should reject non-FIXED payment method")
-        void shouldRejectNonFixedPaymentMethod() {
+        @DisplayName("Should force FIXED payment method even if request sends non-FIXED")
+        void shouldForceFixedPaymentMethod() {
             CreateShortTermJobRequest request = createValidJobRequest();
             request.setPaymentMethod(PaymentMethod.HOURLY);
 
             when(recruiterProfileRepository.findByUserId(mockRecruiter.getId()))
                     .thenReturn(Optional.of(mockRecruiterProfile));
+            when(shortTermJobRepository.save(any())).thenAnswer(invocation -> {
+                ShortTermJob job = invocation.getArgument(0);
+                job.setId(1L);
+                return job;
+            });
 
-            assertThatThrownBy(() -> shortTermJobService.createJob(mockRecruiter.getId(), request))
-                    .isInstanceOf(BadRequestException.class)
-                    .hasMessageContaining("thanh toán trả một lần");
+            ShortTermJobResponse response = shortTermJobService.createJob(mockRecruiter.getId(), request);
+
+            assertThat(response).isNotNull();
+            assertThat(response.getPaymentMethod()).isEqualTo(PaymentMethod.FIXED);
         }
 
         @Test
-        @DisplayName("Should reject negotiable job")
-        void shouldRejectNegotiableJob() {
+        @DisplayName("Should force isNegotiable=false even if request sends true")
+        void shouldForceNonNegotiable() {
             CreateShortTermJobRequest request = createValidJobRequest();
             request.setIsNegotiable(true);
 
             when(recruiterProfileRepository.findByUserId(mockRecruiter.getId()))
                     .thenReturn(Optional.of(mockRecruiterProfile));
+            when(shortTermJobRepository.save(any())).thenAnswer(invocation -> {
+                ShortTermJob job = invocation.getArgument(0);
+                job.setId(1L);
+                return job;
+            });
 
-            assertThatThrownBy(() -> shortTermJobService.createJob(mockRecruiter.getId(), request))
-                    .isInstanceOf(BadRequestException.class)
-                    .hasMessageContaining("thương lượng giá cả");
+            ShortTermJobResponse response = shortTermJobService.createJob(mockRecruiter.getId(), request);
+
+            assertThat(response).isNotNull();
+            assertThat(response.getIsNegotiable()).isFalse();
         }
 
         @Test
-        @DisplayName("Should reject non-remote job")
-        void shouldRejectNonRemoteJob() {
+        @DisplayName("Should force isRemote=true even if request sends false")
+        void shouldForceRemote() {
             CreateShortTermJobRequest request = createValidJobRequest();
             request.setIsRemote(false);
             request.setLocation("Hanoi");
 
             when(recruiterProfileRepository.findByUserId(mockRecruiter.getId()))
                     .thenReturn(Optional.of(mockRecruiterProfile));
+            when(shortTermJobRepository.save(any())).thenAnswer(invocation -> {
+                ShortTermJob job = invocation.getArgument(0);
+                job.setId(1L);
+                return job;
+            });
 
-            assertThatThrownBy(() -> shortTermJobService.createJob(mockRecruiter.getId(), request))
-                    .isInstanceOf(BadRequestException.class)
-                    .hasMessageContaining("làm việc từ xa");
+            ShortTermJobResponse response = shortTermJobService.createJob(mockRecruiter.getId(), request);
+
+            assertThat(response).isNotNull();
+            assertThat(response.getIsRemote()).isTrue();
         }
     }
 
@@ -534,12 +559,20 @@ class ShortTermJobServiceImplTest {
         void shouldAllowUpdatingApplicationStatus() {
             mockApplication.setStatus(ShortTermApplicationStatus.PENDING);
 
+            JobEscrow mockEscrow = JobEscrow.builder()
+                    .id(1L)
+                    .job(mockJob)
+                    .build();
+
             when(applicationRepository.findById(mockApplication.getId()))
                     .thenReturn(Optional.of(mockApplication));
             when(shortTermJobRepository.findById(mockJob.getId()))
                     .thenReturn(Optional.of(mockJob));
             when(recruiterProfileRepository.findByUserId(mockRecruiter.getId()))
                     .thenReturn(Optional.of(mockRecruiterProfile));
+            when(escrowService.getEscrowByJobId(mockJob.getId())).thenReturn(mockEscrow);
+            when(jobEscrowRepository.save(any())).thenReturn(mockEscrow);
+            when(applicationRepository.findByShortTermJobIdAndStatus(anyLong(), any())).thenReturn(Collections.emptyList());
             when(applicationRepository.save(any())).thenReturn(mockApplication);
             when(shortTermJobRepository.save(any())).thenReturn(mockJob);
             doNothing().when(auditService).logApplicationStatusChange(anyLong(), any(), any(), anyLong(), any(), anyString());
