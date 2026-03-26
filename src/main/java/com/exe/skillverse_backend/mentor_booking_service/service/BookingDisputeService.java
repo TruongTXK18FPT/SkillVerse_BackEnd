@@ -28,5 +28,10 @@ public interface BookingDisputeService {
     BookingDispute resolveDispute(Long adminId, Long disputeId,
             BookingDispute.DisputeResolution resolution, String notes, BigDecimal partialAmount);
 
+    BookingDisputeEvidence reviewEvidenceAndResolve(Long adminId, Long disputeId, Long evidenceId,
+            BookingDisputeEvidence.EvidenceReviewStatus reviewStatus,
+            BookingDispute.DisputeResolution mappedResolution,
+            String notes);
+
     Page<BookingDispute> getAllDisputes(BookingDispute.DisputeStatus status, Pageable pageable);
 }

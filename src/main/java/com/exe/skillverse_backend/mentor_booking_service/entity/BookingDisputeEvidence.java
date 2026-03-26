@@ -1,7 +1,6 @@
 package com.exe.skillverse_backend.mentor_booking_service.entity;
 
 import com.fasterxml.jackson.annotation.JsonBackReference;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
 import lombok.*;
@@ -54,6 +53,20 @@ public class BookingDisputeEvidence {
     @Column(name = "is_official")
     private Boolean isOfficial = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "review_status", nullable = false, length = 20)
+    @Builder.Default
+    private EvidenceReviewStatus reviewStatus = EvidenceReviewStatus.PENDING;
+
+    @Column(name = "review_notes", columnDefinition = "TEXT")
+    private String reviewNotes;
+
+    @Column(name = "reviewed_by")
+    private Long reviewedBy;
+
+    @Column(name = "reviewed_at")
+    private LocalDateTime reviewedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -66,6 +79,10 @@ public class BookingDisputeEvidence {
 
     public Long getDisputeId() {
         return dispute != null ? dispute.getId() : null;
+    }
+
+    public enum EvidenceReviewStatus {
+        PENDING, UNDER_REVIEW, ACCEPTED, REJECTED
     }
 
     public enum EvidenceType {

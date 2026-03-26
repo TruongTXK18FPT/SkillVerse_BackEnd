@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.mentor_booking_service.service.impl;
 
-import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingDispute;
@@ -14,8 +13,6 @@ import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepos
 import com.exe.skillverse_backend.mentor_booking_service.service.BookingDisputeService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
-import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
-import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +37,6 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
     private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final WalletService walletService;
-    private final WalletTransactionRepository transactionRepository;
 
     @Override
     @Transactional
@@ -175,6 +171,13 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
         BookingDispute dispute = disputeRepository.findById(disputeId)
                 .orElseThrow(() -> new IllegalArgumentException("Dispute không tồn tại"));
 
+        if (dispute.getStatus() == BookingDispute.DisputeStatus.RESOLVED) {
+            throw new IllegalStateException("Dispute đã được giải quyết trước đó");
+        }
+        if (resolution == null) {
+            throw new IllegalArgumentException("Thiếu resolution");
+        }
+
         Booking booking = dispute.getBooking();
         BigDecimal bookingAmount = booking.getPriceVnd();
         BigDecimal refundAmount = BigDecimal.ZERO;
@@ -191,7 +194,6 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
         // Handle financial resolution
         switch (resolution) {
             case FULL_REFUND -> {
-                // Refund learner full amount (unfreeze)
                 walletService.unfreezeForBooking(
                         booking.getLearner().getId(),
                         bookingAmount,
@@ -201,7 +203,6 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
                 booking.setStatus(BookingStatus.REFUNDED);
             }
             case FULL_RELEASE -> {
-                // Release to mentor (normal completion flow)
                 walletService.chargeFrozenForBooking(
                         booking.getLearner().getId(),
                         bookingAmount,
@@ -216,30 +217,43 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
                 booking.setStatus(BookingStatus.COMPLETED);
             }
             case PARTIAL_REFUND -> {
-                // Split: partial refund to learner, rest to mentor
                 BigDecimal refundAmt = partialAmount != null ? partialAmount : bookingAmount.multiply(new BigDecimal("0.5"));
+                if (refundAmt.compareTo(BigDecimal.ZERO) <= 0 || refundAmt.compareTo(bookingAmount) > 0) {
+                    throw new IllegalArgumentException("partialAmount không hợp lệ");
+                }
                 BigDecimal releaseAmt = bookingAmount.subtract(refundAmt);
                 walletService.unfreezeForBooking(
                         booking.getLearner().getId(),
                         refundAmt,
                         booking.getId(),
                         "Dispute resolved: Partial refund");
-                walletService.chargeFrozenForBooking(booking.getLearner().getId(), releaseAmt, booking.getId());
+                if (releaseAmt.compareTo(BigDecimal.ZERO) > 0) {
+                    walletService.chargeFrozenForBooking(booking.getLearner().getId(), releaseAmt, booking.getId());
+                    mentorPayoutAmount = releaseAmt.multiply(new BigDecimal("0.80"));
+                    adminCommissionAmount = releaseAmt.subtract(mentorPayoutAmount);
+                    walletService.payMentorForBooking(
+                            booking.getMentor().getId(),
+                            mentorPayoutAmount,
+                            booking.getId());
+                }
                 refundAmount = refundAmt;
                 releasedAmount = releaseAmt;
-                mentorPayoutAmount = releaseAmt.multiply(new BigDecimal("0.80"));
-                adminCommissionAmount = releaseAmt.subtract(mentorPayoutAmount);
-                walletService.payMentorForBooking(
-                        booking.getMentor().getId(),
-                        mentorPayoutAmount,
-                        booking.getId());
                 booking.setStatus(BookingStatus.COMPLETED);
             }
             case PARTIAL_RELEASE -> {
-                // Partial to mentor, partial refund
                 BigDecimal releaseAmt = partialAmount != null ? partialAmount : bookingAmount.multiply(new BigDecimal("0.5"));
+                if (releaseAmt.compareTo(BigDecimal.ZERO) <= 0 || releaseAmt.compareTo(bookingAmount) > 0) {
+                    throw new IllegalArgumentException("partialAmount không hợp lệ");
+                }
                 BigDecimal refundAmt = bookingAmount.subtract(releaseAmt);
                 walletService.chargeFrozenForBooking(booking.getLearner().getId(), releaseAmt, booking.getId());
+                if (refundAmt.compareTo(BigDecimal.ZERO) > 0) {
+                    walletService.unfreezeForBooking(
+                            booking.getLearner().getId(),
+                            refundAmt,
+                            booking.getId(),
+                            "Dispute resolved: Partial refund");
+                }
                 refundAmount = refundAmt;
                 releasedAmount = releaseAmt;
                 mentorPayoutAmount = releaseAmt.multiply(new BigDecimal("0.80"));
@@ -248,11 +262,6 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
                         booking.getMentor().getId(),
                         mentorPayoutAmount,
                         booking.getId());
-                walletService.unfreezeForBooking(
-                        booking.getLearner().getId(),
-                        refundAmt,
-                        booking.getId(),
-                        "Dispute resolved: Partial refund");
                 booking.setStatus(BookingStatus.COMPLETED);
             }
         }
@@ -266,7 +275,6 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
         bookingRepository.save(booking);
         dispute = disputeRepository.save(dispute);
 
-        // Notify both parties
         notificationService.createNotification(
                 booking.getLearner().getId(),
                 "Dispute đã được giải quyết",
@@ -283,6 +291,48 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
                 adminId);
 
         return dispute;
+    }
+
+    @Override
+    @Transactional
+    public BookingDisputeEvidence reviewEvidenceAndResolve(Long adminId, Long disputeId, Long evidenceId,
+            BookingDisputeEvidence.EvidenceReviewStatus reviewStatus,
+            BookingDispute.DisputeResolution mappedResolution,
+            String notes) {
+        BookingDispute dispute = disputeRepository.findById(disputeId)
+                .orElseThrow(() -> new IllegalArgumentException("Dispute không tồn tại"));
+
+        BookingDisputeEvidence evidence = evidenceRepository.findById(evidenceId)
+                .orElseThrow(() -> new IllegalArgumentException("Evidence không tồn tại"));
+
+        if (!evidence.getDisputeId().equals(disputeId)) {
+            throw new IllegalArgumentException("Evidence không thuộc dispute này");
+        }
+        if (dispute.getStatus() == BookingDispute.DisputeStatus.RESOLVED) {
+            throw new IllegalStateException("Dispute đã được giải quyết trước đó");
+        }
+        if (reviewStatus == null) {
+            throw new IllegalArgumentException("Thiếu review status");
+        }
+
+        evidence.setReviewStatus(reviewStatus);
+        evidence.setReviewedBy(adminId);
+        evidence.setReviewedAt(LocalDateTime.now());
+        evidence.setReviewNotes(notes);
+        evidence.setIsOfficial(reviewStatus == BookingDisputeEvidence.EvidenceReviewStatus.ACCEPTED);
+        evidence = evidenceRepository.save(evidence);
+
+        if (reviewStatus == BookingDisputeEvidence.EvidenceReviewStatus.UNDER_REVIEW) {
+            dispute.setStatus(BookingDispute.DisputeStatus.UNDER_INVESTIGATION);
+            disputeRepository.save(dispute);
+            return evidence;
+        }
+
+        if (mappedResolution != null) {
+            resolveDispute(adminId, disputeId, mappedResolution, notes, null);
+        }
+
+        return evidence;
     }
 
     @Override
