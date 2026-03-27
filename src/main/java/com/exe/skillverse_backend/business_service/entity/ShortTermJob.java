@@ -104,7 +104,7 @@ public class ShortTermJob {
     
     @Builder.Default
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 30)
     private ShortTermJobStatus status = ShortTermJobStatus.DRAFT;
 
     @Builder.Default
@@ -152,6 +152,18 @@ public class ShortTermJob {
 
     @Column(name = "paid_at")
     private LocalDateTime paidAt;
+
+    // ==================== SLA / CANCELLATION FIELDS ====================
+
+    @Builder.Default
+    @Column(name = "cancellation_request_count", nullable = false)
+    private Integer cancellationRequestCount = 0;
+
+    @Column(name = "last_cancellation_request_at")
+    private LocalDateTime lastCancellationRequestAt;
+
+    @Column(name = "dispute_deadline_at")
+    private LocalDateTime disputeDeadlineAt;
 
     // ==================== ADMIN FLAG/BAN FIELDS ====================
 

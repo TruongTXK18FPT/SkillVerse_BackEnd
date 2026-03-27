@@ -179,7 +179,7 @@ public class DatabaseSchemaFixer {
             this::patchPremiumPricingGenericColumns,
             this::verifyPremiumPricingGenericColumns);
         applyPatch("PATCH-025-mentor-booking-state-columns-and-status-check",
-            "Ensure mentor bookings support learner confirmation and dispute-related statuses",
+            "Ensure mentor bookings status CHECK includes PENDING_COMPLETION, DISPUTED, REFUNDED and related state columns",
             this::patchMentorBookingStateColumnsAndStatusCheck,
             this::verifyMentorBookingStateColumnsAndStatusCheck);
         applyPatch("PATCH-026-booking-dispute-schema",
@@ -191,6 +191,14 @@ public class DatabaseSchemaFixer {
             this::patchNotificationTypeCheckSyncWithEnum,
             this::verifyNotificationTypeCheckSyncWithEnum,
             false /* not idempotent with respect to enum changes — must re-run every startup */);
+        applyPatch("PATCH-032-job-sla-status-column-width-and-check-constraints",
+            "Ensure short-term job/application status columns are wide enough and CHECK constraints match SLA-aware enum values",
+            this::patchJobSLAStatusCheckConstraints,
+            this::verifyJobSLAStatusCheckConstraints);
+        applyPatch("PATCH-029-job-sla-cancellation-dispute-columns",
+            "Add SLA deadline tracking, cancellation, and dispute eligibility columns to short_term_job_applications, short_term_jobs, and job_disputes",
+            this::patchJobSLACancellationDisputeColumns,
+            this::verifyJobSLACancellationDisputeColumns);
 
         log.info("All PostgreSQL schema patches applied and verified successfully.");
     }
@@ -211,7 +219,7 @@ public class DatabaseSchemaFixer {
             BooleanSupplier verifier,
             boolean useHistoryCheck
     ) {
-        if (useHistoryCheck && isPatchApplied(patchKey)) {
+        if (useHistoryCheck && isPatchApplied(patchKey, description)) {
             log.debug("Skipping already-applied patch {}", patchKey);
             return;
         }
@@ -241,23 +249,46 @@ public class DatabaseSchemaFixer {
         """);
     }
 
-    private boolean isPatchApplied(String patchKey) {
-        Boolean exists = jdbcTemplate.queryForObject("""
-            SELECT EXISTS (
-                SELECT 1
-                FROM schema_patch_history
-                WHERE patch_key = ?
-                  AND success = TRUE
-            )
-        """, Boolean.class, patchKey);
-        return Boolean.TRUE.equals(exists);
+    private boolean isPatchApplied(String patchKey, String description) {
+        String expectedChecksum = buildPatchChecksum(patchKey, description);
+        return jdbcTemplate.query("""
+            SELECT checksum
+            FROM schema_patch_history
+            WHERE patch_key = ?
+              AND success = TRUE
+        """, rs -> {
+            if (!rs.next()) {
+                return false;
+            }
+
+            String storedChecksum = rs.getString("checksum");
+            boolean checksumMatches = expectedChecksum.equals(storedChecksum);
+            if (!checksumMatches) {
+                log.info(
+                        "Re-applying patch {} because checksum changed (stored={}, expected={}).",
+                        patchKey,
+                        storedChecksum,
+                        expectedChecksum
+                );
+            }
+            return checksumMatches;
+        }, patchKey);
     }
 
     private void recordPatchSuccess(String patchKey, String description) {
         jdbcTemplate.update("""
             INSERT INTO schema_patch_history (patch_key, patch_description, checksum, success)
             VALUES (?, ?, ?, TRUE)
-        """, patchKey, description, sha256(patchKey + "|" + description));
+            ON CONFLICT (patch_key) DO UPDATE
+            SET patch_description = EXCLUDED.patch_description,
+                checksum = EXCLUDED.checksum,
+                applied_at = NOW(),
+                success = TRUE
+        """, patchKey, description, buildPatchChecksum(patchKey, description));
+    }
+
+    private String buildPatchChecksum(String patchKey, String description) {
+        return sha256(patchKey + "|" + description);
     }
 
     private void acquireAdvisoryLock() {
@@ -2158,9 +2189,11 @@ public class DatabaseSchemaFixer {
             "    SELECT 1 FROM information_schema.tables\n" +
             "    WHERE table_schema = current_schema() AND table_name = 'mentor_bookings'\n" +
             ") THEN\n" +
+            "    ALTER TABLE mentor_bookings ALTER COLUMN status TYPE VARCHAR(30);\n" +
             "    ALTER TABLE mentor_bookings ADD COLUMN IF NOT EXISTS confirmed_by_learner BOOLEAN NOT NULL DEFAULT FALSE;\n" +
             "    ALTER TABLE mentor_bookings ADD COLUMN IF NOT EXISTS mentor_completed_at TIMESTAMP;\n" +
             "    ALTER TABLE mentor_bookings ADD COLUMN IF NOT EXISTS learner_confirmed_at TIMESTAMP;\n" +
+            "    ALTER TABLE mentor_bookings ADD COLUMN IF NOT EXISTS learner_completed_at TIMESTAMP;\n" +
             "    FOR status_constraint_name IN\n" +
             "        SELECT c.conname\n" +
             "        FROM pg_constraint c\n" +
@@ -2173,8 +2206,11 @@ public class DatabaseSchemaFixer {
             "    LOOP\n" +
             "        EXECUTE format('ALTER TABLE mentor_bookings DROP CONSTRAINT IF EXISTS %I', status_constraint_name);\n" +
             "    END LOOP;\n" +
+            "    UPDATE mentor_bookings\n" +
+            "    SET status = 'PENDING_COMPLETION'\n" +
+            "    WHERE status = 'MENTOR_COMPLETED';\n" +
             "    ALTER TABLE mentor_bookings ADD CONSTRAINT mentor_bookings_status_check CHECK (\n" +
-            "        status IN ('PENDING','CONFIRMED','REJECTED','ONGOING','MENTOR_COMPLETED','COMPLETED','CANCELLED','DISPUTED','REFUNDED')\n" +
+            "        status IN ('PENDING','CONFIRMED','REJECTED','ONGOING','PENDING_COMPLETION','COMPLETED','CANCELLED','DISPUTED','REFUNDED')\n" +
             "    );\n" +
             "END IF;\n" +
             "END;\n" +
@@ -2187,8 +2223,9 @@ public class DatabaseSchemaFixer {
         return hasColumn("mentor_bookings", "confirmed_by_learner")
                 && hasColumn("mentor_bookings", "mentor_completed_at")
                 && hasColumn("mentor_bookings", "learner_confirmed_at")
+                && hasColumn("mentor_bookings", "learner_completed_at")
                 && definition != null
-                && definition.contains("MENTOR_COMPLETED")
+                && definition.contains("PENDING_COMPLETION")
                 && definition.contains("DISPUTED")
                 && definition.contains("REFUNDED");
     }
@@ -2297,6 +2334,123 @@ public class DatabaseSchemaFixer {
         return Arrays.stream(NotificationType.values())
                 .map(NotificationType::name)
                 .allMatch(definition::contains);
+    }
+
+    // ==================== PATCH-028: Job SLA Status Check Constraints ====================
+
+    private void patchJobSLAStatusCheckConstraints() {
+        // Fix urgency column width (VERY_URGENT is 12 chars, needs > 10)
+        fixColumnType("short_term_jobs", "urgency", "VARCHAR(20)");
+        fixColumnType("short_term_jobs", "status", "VARCHAR(30)");
+        fixColumnType("short_term_job_applications", "status", "VARCHAR(30)");
+
+        // short_term_job_applications: update status CHECK constraint
+        dropAndRecreateConstraint(
+            "short_term_job_applications",
+            "short_term_job_applications_status_check",
+            "CHECK (status IN ("
+                + "'PENDING','ACCEPTED','REJECTED','WORKING','SUBMITTED','SUBMITTED_OVERDUE',"
+                + "'REVISION_REQUIRED','REVISION_RESPONSE_OVERDUE','CANCELLATION_REQUESTED',"
+                + "'AUTO_CANCELLED','APPROVED','COMPLETED','DISPUTE_OPENED','CANCELLED','WITHDRAWN'))"
+        );
+
+        // short_term_jobs: update status CHECK constraint
+        dropAndRecreateConstraint(
+            "short_term_jobs",
+            "short_term_jobs_status_check",
+            "CHECK (status IN ("
+                + "'DRAFT','PENDING_APPROVAL','PUBLISHED','APPLIED','IN_PROGRESS','SUBMITTED','UNDER_REVIEW',"
+                + "'AUTO_APPROVED','CANCELLATION_REQUESTED','AUTO_CANCELLED','DISPUTED','ESCALATED',"
+                + "'APPROVED','REJECTED','COMPLETED','PAID','CANCELLED','CLOSED'))"
+        );
+    }
+
+    private void dropAndRecreateConstraint(String table, String constraintName, String checkDefinition) {
+        try {
+            String checkSql = String.format(
+                "SELECT 1 FROM information_schema.table_constraints "
+                + "WHERE constraint_name = '%s' AND table_name = '%s'",
+                constraintName, table
+            );
+            if (jdbcTemplate.queryForList(checkSql).size() > 0) {
+                jdbcTemplate.execute("ALTER TABLE " + table + " DROP CONSTRAINT " + constraintName);
+            }
+            jdbcTemplate.execute("ALTER TABLE " + table + " ADD CONSTRAINT " + constraintName + " " + checkDefinition);
+        } catch (Exception e) {
+            // Constraint may not exist — ignore
+        }
+    }
+
+    private boolean verifyJobSLAStatusCheckConstraints() {
+        String sql = "SELECT 1 FROM information_schema.table_constraints "
+            + "WHERE constraint_name = 'short_term_job_applications_status_check' "
+            + "AND table_name = 'short_term_job_applications'";
+        return !jdbcTemplate.queryForList(sql).isEmpty();
+    }
+
+    private void fixColumnType(String table, String column, String newType) {
+        try {
+            String currentColumnType = jdbcTemplate.queryForObject(
+                "SELECT CASE "
+                    + "WHEN data_type = 'character varying' AND character_maximum_length IS NOT NULL "
+                    + "THEN 'VARCHAR(' || character_maximum_length || ')' "
+                    + "ELSE UPPER(data_type) "
+                    + "END "
+                + "FROM information_schema.columns "
+                + "WHERE table_name = '" + table + "' AND column_name = '" + column + "'",
+                String.class);
+            if (currentColumnType != null && !currentColumnType.equalsIgnoreCase(newType)) {
+                jdbcTemplate.execute("ALTER TABLE " + table + " ALTER COLUMN " + column + " TYPE " + newType);
+            }
+        } catch (Exception e) {
+            // Column may not exist — ignore
+        }
+    }
+
+    private void patchJobSLACancellationDisputeColumns() {
+        // short_term_job_applications: SLA deadline + cancellation + dispute fields
+        jdbcTemplate.execute("""
+            ALTER TABLE short_term_job_applications
+                ADD COLUMN IF NOT EXISTS review_deadline_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS response_deadline_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS cancellation_requested_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS cancellation_requested_by BIGINT,
+                ADD COLUMN IF NOT EXISTS dispute_eligibility_unlocked BOOLEAN NOT NULL DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        """);
+
+        // short_term_jobs: cancellation + dispute deadline fields
+        jdbcTemplate.execute("""
+            ALTER TABLE short_term_jobs
+                ADD COLUMN IF NOT EXISTS cancellation_request_count INT NOT NULL DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS last_cancellation_request_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS dispute_deadline_at TIMESTAMP
+        """);
+
+        // job_disputes: SLA deadline + escalation fields
+        jdbcTemplate.execute("""
+            ALTER TABLE job_disputes
+                ADD COLUMN IF NOT EXISTS admin_resolution_deadline_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS escalation_level INT NOT NULL DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS priority VARCHAR(20) NOT NULL DEFAULT 'NORMAL',
+                ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMP
+        """);
+    }
+
+    private boolean verifyJobSLACancellationDisputeColumns() {
+        return columnExists("short_term_job_applications", "review_deadline_at")
+                && columnExists("short_term_job_applications", "dispute_eligibility_unlocked")
+                && columnExists("short_term_jobs", "cancellation_request_count")
+                && columnExists("job_disputes", "escalation_level");
+    }
+
+    private boolean columnExists(String table, String column) {
+        String sql = """
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = ? AND column_name = ?
+            LIMIT 1
+        """;
+        return jdbcTemplate.queryForList(sql, table, column).size() > 0;
     }
 
 

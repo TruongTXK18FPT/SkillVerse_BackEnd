@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.admin_service.dto.request.ResolveDisputeAdminR
 import com.exe.skillverse_backend.admin_service.dto.response.AdminJobStatsResponse;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse;
 import com.exe.skillverse_backend.business_service.entity.Dispute;
+import com.exe.skillverse_backend.business_service.entity.JobStatusAuditLog;
 import com.exe.skillverse_backend.business_service.entity.Dispute.DisputeStatus;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
 import java.util.List;
@@ -42,7 +43,7 @@ public interface AdminShortTermJobService {
     /**
      * Soft delete a job (set status to CANCELLED)
      */
-    ShortTermJobResponse deleteJob(Long adminId, Long jobId);
+    ShortTermJobResponse deleteJob(Long adminId, Long jobId, String reason);
 
     /**
      * Ban a job (admin action)
@@ -65,6 +66,11 @@ public interface AdminShortTermJobService {
      * Get dispute detail by ID
      */
     Dispute getDisputeDetail(Long disputeId);
+
+    /**
+     * Get audit trail relevant to a dispute.
+     */
+    List<JobStatusAuditLog> getDisputeAuditLogs(Long disputeId);
 
     /**
      * Resolve a dispute (admin action) - handles escrow accordingly

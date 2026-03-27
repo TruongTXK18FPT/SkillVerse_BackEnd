@@ -27,6 +27,8 @@ public class BookingResponse {
     private Boolean confirmedByLearner;
     private LocalDateTime mentorCompletedAt;
     private LocalDateTime learnerConfirmedAt;
+    private LocalDateTime learnerCompletedAt;
+    private LocalDateTime completionDeadline;
 
     // Enhanced fields for UI
     private String mentorName;

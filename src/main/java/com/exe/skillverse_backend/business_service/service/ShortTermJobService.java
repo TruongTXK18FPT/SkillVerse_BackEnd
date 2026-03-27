@@ -9,6 +9,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import com.exe.skillverse_backend.business_service.dto.request.ApplyShortTermJobRequest;
 import com.exe.skillverse_backend.business_service.dto.request.CreateShortTermJobRequest;
+import com.exe.skillverse_backend.business_service.dto.request.RequestCancellationReviewRequest;
 import com.exe.skillverse_backend.business_service.dto.request.RequestRevisionRequest;
 import com.exe.skillverse_backend.business_service.dto.request.SubmitDeliverableRequest;
 import com.exe.skillverse_backend.business_service.dto.request.UpdateShortTermApplicationStatusRequest;
@@ -139,6 +140,11 @@ public interface ShortTermJobService {
      */
     ShortTermApplicationResponse requestRevision(Long userId, RequestRevisionRequest request);
 
+    /**
+     * Recruiter requests admin review before cancelling after repeated revisions.
+     */
+    ShortTermApplicationResponse requestCancellationReview(Long userId, RequestCancellationReviewRequest request);
+
     // ==================== COMPLETION ====================
     
     /**
@@ -150,4 +156,11 @@ public interface ShortTermJobService {
      * Mark job as paid
      */
     ShortTermJobResponse markAsPaid(Long userId, Long jobId);
+
+    // ==================== CANCELLATION / DISPUTE (WORKER) ====================
+
+    /**
+     * Accept cancellation requested by recruiter (worker response within SLA window)
+     */
+    ShortTermApplicationResponse acceptCancellation(Long userId, Long applicationId);
 }

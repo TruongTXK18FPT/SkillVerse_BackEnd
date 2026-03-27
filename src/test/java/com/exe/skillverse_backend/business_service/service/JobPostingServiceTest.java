@@ -11,6 +11,7 @@ import com.exe.skillverse_backend.business_service.repository.JobPostingReposito
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.business_service.service.impl.JobPostingServiceImpl;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -174,8 +175,13 @@ public class JobPostingServiceTest {
         assertEquals("FULL_TIME", response.getJobType());
         assertEquals(5, response.getHiringQuantity());
         assertEquals("Free lunch", response.getBenefits());
-        verify(walletService).deductCash(eq(100L), eq(new BigDecimal("50000")), anyString(), eq("JOB_POSTING"),
-                anyString());
+        verify(walletService).deductCash(
+                eq(100L),
+                eq(new BigDecimal("50000")),
+                anyString(),
+                eq(WalletTransaction.TransactionType.JOB_POSTING_FEE),
+                eq("JOB_POSTING"),
+                eq("new"));
     }
 
     // 2. Case: Tạo tin thất bại do không đủ tiền
@@ -189,7 +195,13 @@ public class JobPostingServiceTest {
         when(jobPostingRepository.save(any(JobPosting.class))).thenReturn(savedJob);
 
         doThrow(new IllegalStateException("Insufficient funds"))
-                .when(walletService).deductCash(any(), any(), any(), any(), any());
+                .when(walletService).deductCash(
+                        anyLong(),
+                        any(BigDecimal.class),
+                        anyString(),
+                        any(WalletTransaction.TransactionType.class),
+                        anyString(),
+                        anyString());
 
         assertThrows(IllegalStateException.class, () -> jobPostingService.createJob(100L, createJobRequest));
     }
@@ -276,7 +288,13 @@ public class JobPostingServiceTest {
         when(jobPostingRepository.save(any(JobPosting.class))).thenReturn(savedJob);
 
         doThrow(new RuntimeException("Database error"))
-                .when(walletService).deductCash(any(), any(), any(), any(), any());
+                .when(walletService).deductCash(
+                        anyLong(),
+                        any(BigDecimal.class),
+                        anyString(),
+                        any(WalletTransaction.TransactionType.class),
+                        anyString(),
+                        anyString());
 
         assertThrows(IllegalStateException.class, () -> jobPostingService.createJob(100L, createJobRequest));
     }
@@ -568,8 +586,9 @@ public class JobPostingServiceTest {
                 eq(100L),
                 eq(new BigDecimal("20000")),
                 anyString(),
+                eq(WalletTransaction.TransactionType.JOB_REOPEN_FEE),
                 eq("JOB_REOPEN"),
-                anyString());
+                eq("1"));
         assertEquals(JobStatus.OPEN, existingJob.getStatus());
     }
 
@@ -595,7 +614,13 @@ public class JobPostingServiceTest {
         jobPostingService.reopenJob(100L, 1L, new ReopenJobRequest());
 
         // Verify NO wallet deduction
-        verify(walletService, never()).deductCash(any(), any(), any(), any(), any());
+        verify(walletService, never()).deductCash(
+                anyLong(),
+                any(BigDecimal.class),
+                anyString(),
+                any(WalletTransaction.TransactionType.class),
+                anyString(),
+                anyString());
         assertEquals(JobStatus.OPEN, existingJob.getStatus());
     }
 
@@ -773,8 +798,13 @@ public class JobPostingServiceTest {
         jobPostingService.reopenJob(userId, jobId, request);
 
         // Verify wallet was deducted (paid reopen)
-        verify(walletService, times(1)).deductCash(eq(userId), eq(new BigDecimal("20000")), anyString(),
-                eq("JOB_REOPEN"), anyString());
+        verify(walletService, times(1)).deductCash(
+                eq(userId),
+                eq(new BigDecimal("20000")),
+                anyString(),
+                eq(WalletTransaction.TransactionType.JOB_REOPEN_FEE),
+                eq("JOB_REOPEN"),
+                eq(String.valueOf(jobId)));
         assertEquals(JobStatus.OPEN, existingJob.getStatus());
     }
 
@@ -802,7 +832,13 @@ public class JobPostingServiceTest {
         jobPostingService.reopenJob(userId, jobId, request);
 
         // Verify wallet was NOT deducted (free reopen)
-        verify(walletService, never()).deductCash(any(), any(), any(), any(), any());
+        verify(walletService, never()).deductCash(
+                anyLong(),
+                any(BigDecimal.class),
+                anyString(),
+                any(WalletTransaction.TransactionType.class),
+                anyString(),
+                anyString());
         assertEquals(JobStatus.OPEN, existingJob.getStatus());
     }
 }

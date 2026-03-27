@@ -4,12 +4,14 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.business_service.dto.request.ApplyShortTermJobRequest;
 import com.exe.skillverse_backend.business_service.dto.request.CreateShortTermJobRequest;
+import com.exe.skillverse_backend.business_service.dto.request.RequestCancellationReviewRequest;
 import com.exe.skillverse_backend.business_service.dto.request.RequestRevisionRequest;
 import com.exe.skillverse_backend.business_service.dto.request.SubmitDeliverableRequest;
 import com.exe.skillverse_backend.business_service.dto.request.UpdateShortTermApplicationStatusRequest;
 import com.exe.skillverse_backend.business_service.dto.request.UpdateShortTermJobRequest;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermApplicationResponse;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse;
+import com.exe.skillverse_backend.business_service.entity.Dispute;
 import com.exe.skillverse_backend.business_service.entity.JobDeliverable;
 import com.exe.skillverse_backend.business_service.entity.JobEscrow;
 import com.exe.skillverse_backend.business_service.entity.JobEscrow.EscrowStatus;
@@ -30,6 +32,7 @@ import com.exe.skillverse_backend.business_service.repository.JobReviewRepositor
 import com.exe.skillverse_backend.business_service.repository.ReviewWindowRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.business_service.repository.RevisionNoteRepository;
+import com.exe.skillverse_backend.business_service.repository.DisputeRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobApplicationRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobMilestoneRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
@@ -51,6 +54,7 @@ import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -84,6 +88,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
     private final UserProfileRepository userProfileRepository;
     private final JobAuditService auditService;
+    private final DisputeRepository disputeRepository;
     private final ObjectMapper objectMapper;
     private final RecruiterSubscriptionService recruiterSubscriptionService;
     private final WalletService walletService;
@@ -109,13 +114,18 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
             ShortTermJobStatus.IN_PROGRESS, ShortTermJobStatus.CANCELLED
     );
     private static final List<ShortTermJobStatus> IN_PROGRESS_TRANSITIONS = Arrays.asList(
-            ShortTermJobStatus.SUBMITTED, ShortTermJobStatus.CANCELLED, ShortTermJobStatus.DISPUTED
+            ShortTermJobStatus.SUBMITTED, ShortTermJobStatus.CANCELLATION_REQUESTED
+            // NOTE: CANCELLED removed — recruiter cannot cancel directly from IN_PROGRESS
+            // Must go through revision flow (5 revisions → cancellation request)
     );
     private static final List<ShortTermJobStatus> SUBMITTED_TRANSITIONS = List.of(
-            ShortTermJobStatus.UNDER_REVIEW
+            ShortTermJobStatus.UNDER_REVIEW, ShortTermJobStatus.CANCELLATION_REQUESTED
     );
     private static final List<ShortTermJobStatus> UNDER_REVIEW_TRANSITIONS = Arrays.asList(
             ShortTermJobStatus.APPROVED, ShortTermJobStatus.REJECTED
+    );
+    private static final List<ShortTermJobStatus> CANCELLATION_REQUESTED_TRANSITIONS = List.of(
+            ShortTermJobStatus.CANCELLED, ShortTermJobStatus.DISPUTED
     );
     private static final List<ShortTermJobStatus> APPROVED_TRANSITIONS = List.of(
             ShortTermJobStatus.COMPLETED
@@ -276,6 +286,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
 
         // Handle escrow refund when job is cancelled with a selected candidate
         // Only refund if escrow has not been released yet (not FULLY_RELEASED)
+        // Note: recruiter cannot cancel IN_PROGRESS/SUBMITTED/UNDER_REVIEW directly — must go through revision flow
         if (newStatus == ShortTermJobStatus.CANCELLED && job.getSelectedApplicantId() != null) {
             try {
                 JobEscrow escrow = escrowService.getEscrowByJobId(jobId);
@@ -461,7 +472,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     @Override
     @Transactional(readOnly = true)
     public List<ShortTermApplicationResponse> getMyApplications(Long userId) {
-        return applicationRepository.findByUserIdOrderByAppliedAtDesc(userId)
+        return applicationRepository.findByUserIdOrderByAppliedAtDescWithRevisionNotes(userId)
                 .stream()
                 .map(this::mapToApplicationResponse)
                 .collect(Collectors.toList());
@@ -470,7 +481,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     @Override
     @Transactional(readOnly = true)
     public Page<ShortTermApplicationResponse> getMyApplicationsPaged(Long userId, Pageable pageable) {
-        return applicationRepository.findByUserId(userId, pageable)
+        return applicationRepository.findByUserIdWithRevisionNotes(userId, pageable)
                 .map(this::mapToApplicationResponse);
     }
 
@@ -634,8 +645,9 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
 
         if (application.getStatus() != ShortTermApplicationStatus.WORKING &&
                 application.getStatus() != ShortTermApplicationStatus.REVISION_REQUIRED &&
+                application.getStatus() != ShortTermApplicationStatus.REVISION_RESPONSE_OVERDUE &&
                 application.getStatus() != ShortTermApplicationStatus.ACCEPTED) {
-            throw new BadRequestException("Can only submit deliverables when ACCEPTED, WORKING or REVISION_REQUIRED");
+            throw new BadRequestException("Can only submit deliverables when ACCEPTED, WORKING, REVISION_REQUIRED, or REVISION_RESPONSE_OVERDUE");
         }
 
         // Validate milestones if payment method is MILESTONE
@@ -671,6 +683,8 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
 
         application.setWorkNote(request.getWorkNote());
         application.setSubmittedAt(LocalDateTime.now());
+        application.setReviewDeadlineAt(LocalDateTime.now().plusHours(48)); // 48h SLA
+        application.setLastActivityAt(LocalDateTime.now());
         if (application.getStartedAt() == null) {
             application.setStartedAt(LocalDateTime.now());
         }
@@ -683,7 +697,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         job.setStatus(ShortTermJobStatus.SUBMITTED);
         shortTermJobRepository.save(job);
 
-        // Create review window with 72-hour deadline
+        // Create review window with 72-hour deadline (for auto-approval)
         LocalDateTime reviewDeadline = LocalDateTime.now().plusHours(72);
         ReviewWindow reviewWindow = ReviewWindow.builder()
                 .applicationId(application.getId())
@@ -714,8 +728,8 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         if (recruiterUserId != null) {
             notificationService.createNotification(
                     recruiterUserId,
-                    "Sản phẩm đã được nộp",
-                    submitterName + " đã nộp sản phẩm cho công việc \"" + job.getTitle() + "\"",
+                    "Sản phẩm đã được nộp — SLA 48 giờ",
+                    submitterName + " đã nộp sản phẩm cho công việc \"" + job.getTitle() + "\". Bạn có 48 giờ để review.",
                     NotificationType.SHORT_TERM_WORK_SUBMITTED,
                     request.getApplicationId().toString()
             );
@@ -734,8 +748,9 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         ShortTermJob job = application.getShortTermJob();
         validateJobOwnership(job, userId);
 
-        if (application.getStatus() != ShortTermApplicationStatus.SUBMITTED) {
-            throw new BadRequestException("Can only approve SUBMITTED work");
+        if (application.getStatus() != ShortTermApplicationStatus.SUBMITTED &&
+                application.getStatus() != ShortTermApplicationStatus.SUBMITTED_OVERDUE) {
+            throw new BadRequestException("Can only approve SUBMITTED or SUBMITTED_OVERDUE work");
         }
 
         ShortTermApplicationStatus previousStatus = application.getStatus();
@@ -787,8 +802,15 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         ShortTermJob job = application.getShortTermJob();
         validateJobOwnership(job, userId);
 
-        if (application.getStatus() != ShortTermApplicationStatus.SUBMITTED) {
-            throw new BadRequestException("Can only request revision for SUBMITTED work");
+        if (application.getStatus() != ShortTermApplicationStatus.SUBMITTED &&
+                application.getStatus() != ShortTermApplicationStatus.SUBMITTED_OVERDUE) {
+            throw new BadRequestException("Can only request revision for SUBMITTED or SUBMITTED_OVERDUE work");
+        }
+
+        int currentRevisionCount = application.getRevisionCount() == null ? 0 : application.getRevisionCount();
+        if (currentRevisionCount >= 5) {
+            throw new BadRequestException(
+                    "Revision limit reached. Recruiter must request admin cancellation review instead of requesting more revisions");
         }
 
         // Create revision note
@@ -802,18 +824,139 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         revisionNoteRepository.save(revisionNote);
 
         ShortTermApplicationStatus previousStatus = application.getStatus();
+        int nextRevisionCount = currentRevisionCount + 1;
+        LocalDateTime now = LocalDateTime.now();
+
         application.setStatus(ShortTermApplicationStatus.REVISION_REQUIRED);
-        application.setRevisionCount(application.getRevisionCount() + 1);
+        application.setRevisionCount(nextRevisionCount);
+        application.setResponseDeadlineAt(now.plusHours(72));
+        application.setLastActivityAt(now);
+        application.setDisputeEligibilityUnlocked(nextRevisionCount >= 5);
+        application.setCancellationRequestedAt(null);
+        application.setCancellationRequestedBy(null);
         application = applicationRepository.save(application);
 
-        // Keep job status as IN_PROGRESS so candidate can continue working after revision
-        // Do NOT change job status to REJECTED - that would prevent candidate from submitting
-        log.info("Revision requested for application ID: {}, job ID: {} remains IN_PROGRESS for candidate to fix",
-                request.getApplicationId(), job.getId());
+        // Keep job status as IN_PROGRESS so candidate can continue working after revision.
+        job.setStatus(ShortTermJobStatus.IN_PROGRESS);
+        shortTermJobRepository.save(job);
+
+        log.info("Revision {} requested for application ID: {}, job ID: {} remains IN_PROGRESS for candidate to fix",
+                application.getRevisionCount(), request.getApplicationId(), job.getId());
 
         auditService.logApplicationStatusChange(
                 request.getApplicationId(), previousStatus, ShortTermApplicationStatus.REVISION_REQUIRED,
                 userId, JobStatusAuditLog.AuditRole.RECRUITER, request.getNote()
+        );
+
+        // Notify worker
+        User worker = application.getUser();
+        if (worker != null) {
+            if (nextRevisionCount >= 5) {
+                notificationService.createNotification(
+                        worker.getId(),
+                        "Đã đạt ngưỡng 5 lần sửa",
+                        "Công việc '" + job.getTitle() + "' đã chạm mốc 5 lần yêu cầu sửa. "
+                                + "Nhà tuyển dụng không được tự hủy; nếu phát sinh tranh chấp bạn có thể gửi dispute kèm bằng chứng để admin xem xét.",
+                        NotificationType.DISPUTE_ELIGIBILITY_UNLOCKED,
+                        application.getId().toString()
+                );
+            } else {
+                notificationService.createNotification(
+                        worker.getId(),
+                        "Nhà tuyển dụng yêu cầu sửa đổi — SLA 72 giờ",
+                        "Công việc '" + job.getTitle() + "' cần được sửa theo feedback. Bạn có 72 giờ để phản hồi.",
+                        NotificationType.WARNING,
+                        application.getId().toString()
+                );
+            }
+        }
+
+        return mapToApplicationResponse(application);
+    }
+
+    @Override
+    public ShortTermApplicationResponse requestCancellationReview(
+            Long userId,
+            RequestCancellationReviewRequest request) {
+        log.info("Recruiter {} requesting admin cancellation review for application {}", userId, request.getApplicationId());
+
+        ShortTermJobApplication application = getApplicationById(request.getApplicationId());
+        ShortTermJob job = application.getShortTermJob();
+        validateJobOwnership(job, userId);
+
+        int revisionCount = application.getRevisionCount() == null ? 0 : application.getRevisionCount();
+        if (revisionCount < 5) {
+            throw new BadRequestException("Cancellation review is only available after 5 revision requests");
+        }
+
+        if (application.getStatus() != ShortTermApplicationStatus.REVISION_REQUIRED
+                && application.getStatus() != ShortTermApplicationStatus.SUBMITTED
+                && application.getStatus() != ShortTermApplicationStatus.SUBMITTED_OVERDUE) {
+            throw new BadRequestException(
+                    "Can only request admin cancellation review when the application is awaiting rework or freshly submitted");
+        }
+
+        disputeRepository.findByJobId(job.getId())
+                .filter(dispute -> dispute.getStatus() != Dispute.DisputeStatus.RESOLVED
+                        && dispute.getStatus() != Dispute.DisputeStatus.DISMISSED)
+                .ifPresent(dispute -> {
+                    throw new BadRequestException("This job already has an active admin review/dispute");
+                });
+
+        ShortTermApplicationStatus previousApplicationStatus = application.getStatus();
+        ShortTermJobStatus previousJobStatus = job.getStatus();
+        LocalDateTime now = LocalDateTime.now();
+
+        application.setStatus(ShortTermApplicationStatus.CANCELLATION_REQUESTED);
+        application.setCancellationRequestedAt(now);
+        application.setCancellationRequestedBy(userId);
+        application.setDisputeEligibilityUnlocked(true);
+        application.setResponseDeadlineAt(null);
+        application.setLastActivityAt(now);
+        application = applicationRepository.save(application);
+
+        job.setStatus(ShortTermJobStatus.CANCELLATION_REQUESTED);
+        job.setCancellationRequestCount((job.getCancellationRequestCount() == null ? 0 : job.getCancellationRequestCount()) + 1);
+        job.setLastCancellationRequestAt(now);
+        shortTermJobRepository.save(job);
+
+        Dispute dispute = Dispute.builder()
+                .jobId(job.getId())
+                .applicationId(application.getId())
+                .initiatorId(userId)
+                .respondentId(application.getUser().getId())
+                .disputeType(Dispute.DisputeType.CANCELLATION_REVIEW)
+                .reason(request.getReason())
+                .status(Dispute.DisputeStatus.OPEN)
+                .createdAt(now)
+                .adminResolutionDeadlineAt(now.plusDays(5))
+                .build();
+        disputeRepository.save(dispute);
+
+        auditService.logApplicationStatusChange(
+                application.getId(),
+                previousApplicationStatus,
+                ShortTermApplicationStatus.CANCELLATION_REQUESTED,
+                userId,
+                JobStatusAuditLog.AuditRole.RECRUITER,
+                request.getReason()
+        );
+        auditService.logShortTermJobStatusChange(
+                job.getId(),
+                previousJobStatus,
+                ShortTermJobStatus.CANCELLATION_REQUESTED,
+                userId,
+                JobStatusAuditLog.AuditRole.RECRUITER,
+                "Recruiter requested admin cancellation review after 5 revisions"
+        );
+
+        notificationService.createNotification(
+                application.getUser().getId(),
+                "Nhà tuyển dụng yêu cầu admin xem xét hủy job",
+                "Nhà tuyển dụng đã gửi yêu cầu hủy cho công việc \"" + job.getTitle()
+                        + "\". Admin sẽ xem audit log và bằng chứng trước khi quyết định. Bạn có thể bổ sung dispute/evidence nếu cần.",
+                NotificationType.WORKER_CANCELLATION_REQUESTED,
+                String.valueOf(dispute.getId())
         );
 
         return mapToApplicationResponse(application);
@@ -905,6 +1048,15 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         return mapToResponse(job);
     }
 
+    // ==================== CANCELLATION / DISPUTE (WORKER) ====================
+
+    @Override
+    public ShortTermApplicationResponse acceptCancellation(Long userId, Long applicationId) {
+        log.info("User {} attempted to accept cancellation for application {}", userId, applicationId);
+        throw new BadRequestException(
+                "Cancellation requests are now reviewed by admin. Please submit dispute evidence if you disagree, or wait for admin's decision.");
+    }
+
     // ==================== VALIDATION HELPERS ====================
 
     private void validateCreateJobRequest(CreateShortTermJobRequest request) {
@@ -949,11 +1101,15 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
             case IN_PROGRESS: allowed = IN_PROGRESS_TRANSITIONS; break;
             case SUBMITTED: allowed = SUBMITTED_TRANSITIONS; break;
             case UNDER_REVIEW: allowed = UNDER_REVIEW_TRANSITIONS; break;
+            case AUTO_APPROVED: allowed = APPROVED_TRANSITIONS; break;
+            case CANCELLATION_REQUESTED: allowed = CANCELLATION_REQUESTED_TRANSITIONS; break;
+            case AUTO_CANCELLED: allowed = List.of(); break;
+            case DISPUTED: allowed = DISPUTED_TRANSITIONS; break;
+            case ESCALATED: allowed = DISPUTED_TRANSITIONS; break;
             case APPROVED: allowed = APPROVED_TRANSITIONS; break;
             case REJECTED: allowed = REJECTED_TRANSITIONS; break;
             case COMPLETED: allowed = COMPLETED_TRANSITIONS; break;
             case PAID: allowed = PAID_TRANSITIONS; break;
-            case DISPUTED: allowed = DISPUTED_TRANSITIONS; break;
             case CLOSED: allowed = List.of(); break;
             default: allowed = List.of();
         }
@@ -966,7 +1122,6 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
     }
 
     private void validateApplicationStatusTransition(ShortTermApplicationStatus current, ShortTermApplicationStatus target) {
-        // Basic transition validation
         boolean valid = switch (current) {
             case PENDING -> target == ShortTermApplicationStatus.ACCEPTED ||
                     target == ShortTermApplicationStatus.REJECTED ||
@@ -974,10 +1129,15 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
             case ACCEPTED -> target == ShortTermApplicationStatus.WORKING;
             case WORKING -> target == ShortTermApplicationStatus.SUBMITTED ||
                     target == ShortTermApplicationStatus.CANCELLED;
-            case SUBMITTED -> target == ShortTermApplicationStatus.REVISION_REQUIRED ||
+            case SUBMITTED, SUBMITTED_OVERDUE -> target == ShortTermApplicationStatus.REVISION_REQUIRED ||
                     target == ShortTermApplicationStatus.APPROVED;
-            case REVISION_REQUIRED -> target == ShortTermApplicationStatus.SUBMITTED;
+            case REVISION_REQUIRED, REVISION_RESPONSE_OVERDUE -> target == ShortTermApplicationStatus.SUBMITTED;
+            case CANCELLATION_REQUESTED -> target == ShortTermApplicationStatus.CANCELLED ||
+                    target == ShortTermApplicationStatus.DISPUTE_OPENED;
             case APPROVED -> target == ShortTermApplicationStatus.COMPLETED;
+            case DISPUTE_OPENED -> target == ShortTermApplicationStatus.COMPLETED ||
+                    target == ShortTermApplicationStatus.CANCELLED;
+            case AUTO_CANCELLED, CANCELLED, WITHDRAWN, COMPLETED, REJECTED -> false;
             default -> false;
         };
 
@@ -1187,6 +1347,28 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
                 .deliverables(deliverables)
                 .workNote(app.getWorkNote())
                 .revisionCount(app.getRevisionCount())
+                .revisionNotes(app.getRevisionNotes() != null ? app.getRevisionNotes().stream()
+                        .map(n -> {
+                            List<String> issues = null;
+                            if (n.getSpecificIssues() != null && !n.getSpecificIssues().isBlank()) {
+                                try {
+                                    issues = objectMapper.readValue(n.getSpecificIssues(), new TypeReference<List<String>>() {});
+                                } catch (JsonProcessingException ignored) {}
+                            }
+                            return ShortTermApplicationResponse.RevisionNoteResponse.builder()
+                                    .id(n.getId())
+                                    .note(n.getNote())
+                                    .specificIssues(issues)
+                                    .requestedById(n.getRequestedBy().getId())
+                                    .requestedByName(getDisplayName(n.getRequestedBy()))
+                                    .requestedAt(n.getRequestedAt())
+                                    .resolvedAt(n.getResolvedAt())
+                                    .build();
+                        })
+                        .collect(java.util.stream.Collectors.toList()) : null)
+                .reviewDeadlineAt(app.getReviewDeadlineAt())
+                .responseDeadlineAt(app.getResponseDeadlineAt())
+                .disputeEligibilityUnlocked(app.getDisputeEligibilityUnlocked())
                 .jobDetails(ShortTermApplicationResponse.JobInfo.builder()
                         .title(job.getTitle())
                         .budget(job.getBudget())

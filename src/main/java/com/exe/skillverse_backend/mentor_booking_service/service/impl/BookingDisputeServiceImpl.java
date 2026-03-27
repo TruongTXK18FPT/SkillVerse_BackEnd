@@ -52,7 +52,7 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
         // Can only dispute when mentor has completed or when session time has passed
         BookingStatus status = booking.getStatus();
         boolean sessionEnded = LocalDateTime.now().isAfter(booking.getEndTime());
-        boolean canDispute = status == BookingStatus.MENTOR_COMPLETED
+        boolean canDispute = status == BookingStatus.PENDING_COMPLETION
                 || ((status == BookingStatus.ONGOING || status == BookingStatus.CONFIRMED) && sessionEnded);
         if (!canDispute) {
             throw new IllegalStateException("Không thể mở dispute ở trạng thái này");

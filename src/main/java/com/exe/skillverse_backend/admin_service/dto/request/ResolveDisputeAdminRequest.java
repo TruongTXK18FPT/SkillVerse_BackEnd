@@ -15,4 +15,9 @@ public class ResolveDisputeAdminRequest {
     private DisputeResolution resolution;
     private BigDecimal partialRefundPct;
     private String resolutionNotes;
+
+    // Additional resolution details
+    private String winner; // "WORKER" or "RECRUITER" for clarity
+    private Boolean escrowReleasedToWorker;
+    private Boolean escrowRefundedToRecruiter;
 }

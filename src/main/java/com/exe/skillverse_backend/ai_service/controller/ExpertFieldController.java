@@ -6,9 +6,11 @@ import com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigReposi
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -37,15 +39,18 @@ public class ExpertFieldController {
     @Operation(summary = "Get all expert fields", 
                description = "Returns all available domains, industries, and job roles for expert mode selection")
     public ResponseEntity<List<ExpertFieldResponse>> getAllExpertFields() {
-        List<ExpertPromptConfig> allConfigs = expertPromptConfigRepository.findAll();
+        List<ExpertPromptConfig> allConfigs = expertPromptConfigRepository.findByIsActiveTrueOrderByDomainAscIndustryAscJobRoleAsc();
         
         // Group by domain -> industry -> roles
         Map<String, Map<String, List<ExpertPromptConfig>>> groupedData = allConfigs.stream()
+            .filter(config -> config.getDomain() != null && !config.getDomain().isBlank())
+            .filter(config -> config.getIndustry() != null && !config.getIndustry().isBlank())
+            .filter(config -> config.getJobRole() != null && !config.getJobRole().isBlank())
             .collect(Collectors.groupingBy(
-                config -> config.getDomain() != null ? config.getDomain() : "General",
+                ExpertPromptConfig::getDomain,
                 LinkedHashMap::new,
                 Collectors.groupingBy(
-                    config -> config.getIndustry() != null ? config.getIndustry() : "General",
+                    ExpertPromptConfig::getIndustry,
                     LinkedHashMap::new,
                     Collectors.toList()
                 )
@@ -61,6 +66,15 @@ public class ExpertFieldController {
             for (Map.Entry<String, List<ExpertPromptConfig>> industryEntry : domainEntry.getValue().entrySet()) {
                 String industry = industryEntry.getKey();
                 List<ExpertFieldResponse.RoleInfo> roles = industryEntry.getValue().stream()
+                    .filter(config -> config.getJobRole() != null && !config.getJobRole().isBlank())
+                    .collect(Collectors.toMap(
+                        ExpertPromptConfig::getJobRole,
+                        config -> config,
+                        (existing, replacement) -> existing,
+                        LinkedHashMap::new
+                    ))
+                    .values().stream()
+                    .sorted(Comparator.comparing(ExpertPromptConfig::getJobRole, String.CASE_INSENSITIVE_ORDER))
                     .map(config -> ExpertFieldResponse.RoleInfo.builder()
                         .jobRole(config.getJobRole())
                         .keywords(config.getKeywords())
@@ -68,11 +82,19 @@ public class ExpertFieldController {
                         .isActive(config.isActive())
                         .build())
                     .collect(Collectors.toList());
+
+                if (roles.isEmpty()) {
+                    continue;
+                }
                 
                 industries.add(ExpertFieldResponse.IndustryInfo.builder()
                     .industry(industry)
                     .roles(roles)
                     .build());
+            }
+
+            if (industries.isEmpty()) {
+                continue;
             }
             
             response.add(ExpertFieldResponse.builder()
@@ -113,8 +135,11 @@ public class ExpertFieldController {
     @Operation(summary = "Get all domains", 
                description = "Returns a list of all available domains")
     public ResponseEntity<List<String>> getAllDomains() {
-        List<String> domains = expertPromptConfigRepository.findAll().stream()
-            .map(config -> config.getDomain() != null ? config.getDomain() : "General")
+        List<String> domains = expertPromptConfigRepository.findByIsActiveTrueOrderByDomainAscIndustryAscJobRoleAsc().stream()
+            .map(ExpertPromptConfig::getDomain)
+            .filter(Objects::nonNull)
+            .map(String::trim)
+            .filter(domain -> !domain.isBlank())
             .distinct()
             .sorted()
             .collect(Collectors.toList());
@@ -131,8 +156,11 @@ public class ExpertFieldController {
     @Operation(summary = "Get all industries", 
                description = "Returns a list of all available industries")
     public ResponseEntity<List<String>> getAllIndustries() {
-        List<String> industries = expertPromptConfigRepository.findAll().stream()
-            .map(config -> config.getIndustry() != null ? config.getIndustry() : "General")
+        List<String> industries = expertPromptConfigRepository.findByIsActiveTrueOrderByDomainAscIndustryAscJobRoleAsc().stream()
+            .map(ExpertPromptConfig::getIndustry)
+            .filter(Objects::nonNull)
+            .map(String::trim)
+            .filter(industry -> !industry.isBlank())
             .distinct()
             .sorted()
             .collect(Collectors.toList());

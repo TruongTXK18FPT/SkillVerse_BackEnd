@@ -109,9 +109,31 @@ public class ShortTermJobApplication {
     @Builder.Default
     private List<RevisionNote> revisionNotes = new ArrayList<>();
 
+    // ==================== SLA / CANCELLATION / DISPUTE FIELDS ====================
+
+    @Column(name = "review_deadline_at")
+    private LocalDateTime reviewDeadlineAt;
+
+    @Column(name = "response_deadline_at")
+    private LocalDateTime responseDeadlineAt;
+
+    @Column(name = "cancellation_requested_at")
+    private LocalDateTime cancellationRequestedAt;
+
+    @Column(name = "cancellation_requested_by")
+    private Long cancellationRequestedBy;
+
+    @Column(name = "dispute_eligibility_unlocked", nullable = false)
+    @Builder.Default
+    private Boolean disputeEligibilityUnlocked = false;
+
+    @Column(name = "last_activity_at")
+    private LocalDateTime lastActivityAt;
+
     @PrePersist
     protected void onCreate() {
         appliedAt = LocalDateTime.now();
+        lastActivityAt = LocalDateTime.now();
     }
 
     // ==================== HELPER METHODS ====================

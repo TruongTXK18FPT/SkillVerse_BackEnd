@@ -152,7 +152,12 @@ public class AdminJobServiceTest {
 
         assertNotNull(response);
         assertEquals(JobStatus.REJECTED, job.getStatus());
-        verify(walletService).processRefund(eq(100L), eq(new BigDecimal("50000")), contains("Hoàn tiền"), eq("1"));
+        verify(walletService).processRefund(
+                eq(100L),
+                eq(new BigDecimal("50000")),
+                contains("Hoàn tiền"),
+                eq("JOB_POSTING_REFUND"),
+                eq("1"));
         verify(jobPostingRepository).save(job);
     }
 
@@ -162,7 +167,9 @@ public class AdminJobServiceTest {
     @Test
     void rejectJob_WalletError() {
         when(jobPostingRepository.findByIdWithRecruiter(1L)).thenReturn(Optional.of(job));
-        doThrow(new RuntimeException("Refund failed")).when(walletService).processRefund(any(), any(), any(), any());
+        doThrow(new RuntimeException("Refund failed"))
+                .when(walletService)
+                .processRefund(anyLong(), any(BigDecimal.class), anyString(), anyString(), anyString());
 
         assertThrows(IllegalStateException.class, () -> adminJobService.rejectJob(1L, "Violation"));
     }

@@ -10,6 +10,8 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface ExpertPromptConfigRepository extends JpaRepository<ExpertPromptConfig, Long> {
+
+    List<ExpertPromptConfig> findByIsActiveTrueOrderByDomainAscIndustryAscJobRoleAsc();
     
     // Find active config matching the exact hierarchy
     Optional<ExpertPromptConfig> findByDomainAndIndustryAndJobRoleAndIsActiveTrue(String domain, String industry, String jobRole);

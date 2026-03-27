@@ -27,5 +27,6 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     boolean existsByPaymentReference(String paymentReference);
     Optional<Booking> findByPaymentReference(String paymentReference);
     List<Booking> findByStatusAndMentorCompletedAtBefore(BookingStatus status, LocalDateTime deadline);
+    List<Booking> findByStatusAndCompletionDeadlineBefore(BookingStatus status, LocalDateTime deadline);
     List<Booking> findByMentorAndStatusInAndStartTimeBetween(User mentor, List<BookingStatus> statuses, LocalDateTime from, LocalDateTime to);
 }

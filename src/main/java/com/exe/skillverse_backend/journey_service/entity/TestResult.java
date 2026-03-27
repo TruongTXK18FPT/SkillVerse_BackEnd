@@ -88,6 +88,19 @@ public class TestResult {
     private String evaluationSummary;
 
     /**
+     * Detailed markdown feedback for the learner.
+     */
+    @Column(name = "detailed_feedback", columnDefinition = "TEXT")
+    private String detailedFeedback;
+
+    /**
+     * JSON array of highlight keywords for the frontend.
+     */
+    @Column(name = "highlight_keywords_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String highlightKeywordsJson;
+
+    /**
      * JSON array of user answers for reference
      */
     @Column(name = "user_answers_json", columnDefinition = "jsonb")

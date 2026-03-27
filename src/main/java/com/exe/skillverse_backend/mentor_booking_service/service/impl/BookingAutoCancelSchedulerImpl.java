@@ -107,16 +107,17 @@ public class BookingAutoCancelSchedulerImpl {
     }
 
     /**
-     * Part 6: Auto-complete MENTOR_COMPLETED bookings after 1 day past booking end time.
-     * If learner doesn't confirm and there's no dispute, auto-complete + release payment.
+     * Part 6: Auto-complete PENDING_COMPLETION bookings when completionDeadline has passed.
+     * If neither party confirmed within 24h and there's no dispute, auto-complete + release payment.
+     * Uses completionDeadline field (set when first completion request was made).
      * Runs every 10 minutes.
      */
     @Scheduled(cron = "0 */10 * * * *")
     @Transactional
     public void autoCompleteOldMentorCompleted() {
-        LocalDateTime deadline = LocalDateTime.now().minusDays(1);
+        LocalDateTime now = LocalDateTime.now();
         List<Booking> expired = bookingRepository
-                .findByStatusAndMentorCompletedAtBefore(BookingStatus.MENTOR_COMPLETED, deadline);
+                .findByStatusAndCompletionDeadlineBefore(BookingStatus.PENDING_COMPLETION, now);
         for (Booking booking : expired) {
             // Skip if dispute exists
             if (disputeRepository.existsByBooking_Id(booking.getId())) {

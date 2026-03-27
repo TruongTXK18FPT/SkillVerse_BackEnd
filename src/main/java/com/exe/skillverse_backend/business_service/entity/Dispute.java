@@ -74,6 +74,22 @@ public class Dispute {
     private LocalDateTime resolvedAt;
     private LocalDateTime createdAt;
 
+    // ==================== SLA / ESCALATION FIELDS ====================
+
+    @Column(name = "admin_resolution_deadline_at")
+    private LocalDateTime adminResolutionDeadlineAt;
+
+    @Column(name = "escalation_level")
+    @Builder.Default
+    private Integer escalationLevel = 0;
+
+    @Column(name = "priority", length = 20)
+    @Builder.Default
+    private String priority = "NORMAL";
+
+    @Column(name = "escalated_at")
+    private LocalDateTime escalatedAt;
+
     @OneToMany(mappedBy = "dispute", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonManagedReference("dispute-evidence")
     @Builder.Default
@@ -88,16 +104,19 @@ public class Dispute {
         COMMUNICATION_FAILURE,
         SCOPE_CHANGE,
         SCAM_REPORT,
-        OTHER
+        OTHER,
+        WORKER_PROTECTION,
+        RECRUITER_ABUSE,
+        CANCELLATION_REVIEW
     }
 
     public enum DisputeStatus {
         OPEN,
         UNDER_INVESTIGATION,
         AWAITING_RESPONSE,
+        ESCALATED,
         RESOLVED,
-        DISMISSED,
-        ESCALATED
+        DISMISSED
     }
 
     public enum DisputeResolution {
@@ -106,6 +125,11 @@ public class Dispute {
         PARTIAL_REFUND,
         PARTIAL_RELEASE,
         RESUBMIT_REQUIRED,
-        NO_ACTION
+        NO_ACTION,
+        CANCEL_JOB,
+        RECRUITER_WARNING,
+        WORKER_WINS,
+        WORKER_PARTIAL,
+        RECRUITER_WINS
     }
 }

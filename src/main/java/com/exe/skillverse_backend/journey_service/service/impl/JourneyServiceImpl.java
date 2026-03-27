@@ -156,6 +156,7 @@ public class JourneyServiceImpl implements JourneyService {
                 .domain(request.getDomain())
                 .title(buildJourneyTitle(request))
                 .subCategory(request.getSubCategory())
+                .industry(request.getIndustry())
                 .jobRole(request.getJobRole())
                 .goal(request.getGoal())
                 .status(Journey.JourneyStatus.ASSESSMENT_PENDING)
@@ -542,6 +543,11 @@ public class JourneyServiceImpl implements JourneyService {
         );
 
         String aiSummary = null;
+        String aiDetailedFeedback = null;
+        List<Map<String, Object>> aiSkillGaps = Collections.emptyList();
+        List<Map<String, Object>> aiStrengths = Collections.emptyList();
+        List<String> aiHighlightKeywords = Collections.emptyList();
+        List<String> aiRecommendations = Collections.emptyList();
         try {
             List<QuestionInfo> questionInfos = questions.stream()
                     .map(q -> new QuestionInfo(
@@ -581,18 +587,47 @@ public class JourneyServiceImpl implements JourneyService {
             String jsonStr = extractJsonFromResponse(aiResponse);
             Map<String, Object> evaluation = objectMapper.readValue(jsonStr, Map.class);
             aiSummary = toText(evaluation.get("evaluationSummary"));
+            aiDetailedFeedback = toText(evaluation.get("detailedFeedback"));
+            aiSkillGaps = extractInsightList(evaluation.get("skillGaps"), true);
+            aiStrengths = extractInsightList(evaluation.get("strengths"), false);
+            aiHighlightKeywords = extractStringList(evaluation.get("highlightKeywords"));
+            aiRecommendations = extractStringList(evaluation.get("recommendations"));
         } catch (Exception e) {
             log.warn("AI evaluation enrichment failed for journey {}. Fallback to deterministic summary.", journeyId, e);
         }
 
-        String finalSummary = combineSummaries(deterministicSummary, aiSummary);
+        List<Map<String, Object>> finalSkillGaps = mergeSkillGapInsights(derivedSkillGaps, aiSkillGaps);
+        List<Map<String, Object>> finalStrengths = mergeStrengthInsights(derivedStrengths, aiStrengths);
+        String finalSummary = aiSummary != null && !aiSummary.isBlank()
+                ? aiSummary.trim()
+                : deterministicSummary;
+        String deterministicDetailedFeedback = buildDeterministicDetailedFeedback(
+                domain,
+                scorePercentage,
+                evaluatedLevel,
+                snapshot,
+                finalSkillGaps,
+                finalStrengths,
+                aiRecommendations
+        );
+        String finalDetailedFeedback = combineDetailedFeedback(deterministicDetailedFeedback, aiDetailedFeedback);
+        List<String> finalHighlightKeywords = buildHighlightKeywords(
+                aiHighlightKeywords,
+                finalSkillGaps,
+                finalStrengths,
+                domain,
+                evaluatedLevel,
+                snapshot.recommendationMode
+        );
 
         String skillGapsJson;
         String strengthsJson;
+        String highlightKeywordsJson;
         String userAnswersJson;
         try {
-            skillGapsJson = objectMapper.writeValueAsString(derivedSkillGaps);
-            strengthsJson = objectMapper.writeValueAsString(derivedStrengths);
+            skillGapsJson = objectMapper.writeValueAsString(finalSkillGaps);
+            strengthsJson = objectMapper.writeValueAsString(finalStrengths);
+            highlightKeywordsJson = objectMapper.writeValueAsString(finalHighlightKeywords);
             userAnswersJson = objectMapper.writeValueAsString(normalizedUserAnswers);
         } catch (Exception e) {
             throw new RuntimeException("Failed to serialize evaluation result", e);
@@ -607,6 +642,8 @@ public class JourneyServiceImpl implements JourneyService {
                 .skillGapsJson(skillGapsJson)
                 .strengthsJson(strengthsJson)
                 .evaluationSummary(finalSummary)
+                .detailedFeedback(finalDetailedFeedback)
+                .highlightKeywordsJson(highlightKeywordsJson)
                 .userAnswersJson(userAnswersJson)
                 .correctAnswersJson(test.getQuestionsJson())
                 .evaluatedAt(Instant.now())
@@ -1790,6 +1827,8 @@ public class JourneyServiceImpl implements JourneyService {
                 .skillGapsJson(result.getSkillGapsJson())
                 .strengthsJson(result.getStrengthsJson())
                 .evaluationSummary(result.getEvaluationSummary())
+                .detailedFeedback(result.getDetailedFeedback())
+                .highlightKeywordsJson(result.getHighlightKeywordsJson())
                 .userAnswersJson(result.getUserAnswersJson())
                 .correctAnswersJson(result.getCorrectAnswersJson())
                 .evaluatedAt(result.getEvaluatedAt())
@@ -2020,6 +2059,389 @@ public class JourneyServiceImpl implements JourneyService {
                         LinkedHashMap::new,
                         Collectors.toList()
                 ));
+    }
+
+    private List<Map<String, Object>> extractInsightList(Object rawValue, boolean skillGap) {
+        if (!(rawValue instanceof List<?> rawList) || rawList.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Map<String, Object>> insights = new ArrayList<>();
+        for (Object item : rawList) {
+            if (item instanceof Map<?, ?> rawMap) {
+                Map<String, Object> insight = new LinkedHashMap<>();
+                String skill = Optional.ofNullable(toText(rawMap.get("skill"))).orElse("").trim();
+                if (skill.isBlank()) {
+                    continue;
+                }
+
+                insight.put("skill", skill);
+                putIfPresent(insight, "description", Optional.ofNullable(toText(rawMap.get("description"))).orElse("").trim());
+                if (skillGap) {
+                    putIfPresent(insight, "priority", Optional.ofNullable(toText(rawMap.get("priority"))).orElse("").trim());
+                    putIfPresent(insight, "howToImprove", Optional.ofNullable(toText(rawMap.get("howToImprove"))).orElse("").trim());
+                } else {
+                    putIfPresent(insight, "level", Optional.ofNullable(toText(rawMap.get("level"))).orElse("").trim());
+                }
+                insights.add(insight);
+                continue;
+            }
+
+            String text = Optional.ofNullable(toText(item)).orElse("").trim();
+            if (!text.isBlank()) {
+                Map<String, Object> insight = new LinkedHashMap<>();
+                insight.put("skill", text);
+                insight.put("description", text);
+                insights.add(insight);
+            }
+        }
+
+        return insights;
+    }
+
+    private List<Map<String, Object>> mergeSkillGapInsights(List<Map<String, Object>> deterministic,
+                                                            List<Map<String, Object>> aiGenerated) {
+        return mergeInsightLists(deterministic, aiGenerated, true);
+    }
+
+    private List<Map<String, Object>> mergeStrengthInsights(List<Map<String, Object>> deterministic,
+                                                            List<Map<String, Object>> aiGenerated) {
+        return mergeInsightLists(deterministic, aiGenerated, false);
+    }
+
+    private List<Map<String, Object>> mergeInsightLists(List<Map<String, Object>> deterministic,
+                                                        List<Map<String, Object>> aiGenerated,
+                                                        boolean skillGap) {
+        LinkedHashMap<String, Map<String, Object>> merged = new LinkedHashMap<>();
+
+        for (Map<String, Object> item : Optional.ofNullable(deterministic).orElse(Collections.emptyList())) {
+            Map<String, Object> normalized = normalizeInsightMap(item, skillGap);
+            if (!normalized.isEmpty()) {
+                merged.put(normalizeInsightKey(normalized), normalized);
+            }
+        }
+
+        for (Map<String, Object> item : Optional.ofNullable(aiGenerated).orElse(Collections.emptyList())) {
+            Map<String, Object> normalized = normalizeInsightMap(item, skillGap);
+            if (normalized.isEmpty()) {
+                continue;
+            }
+
+            String key = normalizeInsightKey(normalized);
+            Map<String, Object> existing = merged.get(key);
+            if (existing == null) {
+                merged.put(key, normalized);
+                continue;
+            }
+
+            putIfPresent(existing, "description", firstNonBlankText(normalized, "description"));
+            if (skillGap) {
+                putIfPresent(existing, "priority", firstNonBlankText(normalized, "priority"));
+                putIfPresent(existing, "howToImprove", firstNonBlankText(normalized, "howToImprove"));
+            } else {
+                putIfPresent(existing, "level", firstNonBlankText(normalized, "level"));
+            }
+        }
+
+        return new ArrayList<>(merged.values());
+    }
+
+    private Map<String, Object> normalizeInsightMap(Map<String, Object> source, boolean skillGap) {
+        if (source == null || source.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        String skill = firstNonBlankText(source, "skill");
+        if (skill == null || skill.isBlank()) {
+            return Collections.emptyMap();
+        }
+
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        normalized.put("skill", skill.trim());
+        putIfPresent(normalized, "description", firstNonBlankText(source, "description"));
+        if (skillGap) {
+            putIfPresent(normalized, "priority", firstNonBlankText(source, "priority"));
+            putIfPresent(normalized, "howToImprove", firstNonBlankText(source, "howToImprove"));
+        } else {
+            putIfPresent(normalized, "level", firstNonBlankText(source, "level"));
+        }
+        return normalized;
+    }
+
+    private String normalizeInsightKey(Map<String, Object> item) {
+        return firstNonBlankText(item, "skill")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private String firstNonBlankText(Map<String, Object> source, String... keys) {
+        if (source == null || source.isEmpty() || keys == null) {
+            return null;
+        }
+
+        for (String key : keys) {
+            String value = Optional.ofNullable(toText(source.get(key))).orElse("").trim();
+            if (!value.isBlank()) {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private void putIfPresent(Map<String, Object> target, String key, String value) {
+        if (target == null || key == null || value == null || value.isBlank()) {
+            return;
+        }
+        target.put(key, value.trim());
+    }
+
+    private List<String> extractStringList(Object rawValue) {
+        if (!(rawValue instanceof List<?> rawList) || rawList.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        LinkedHashSet<String> values = new LinkedHashSet<>();
+        for (Object item : rawList) {
+            String text = Optional.ofNullable(toText(item)).orElse("").trim();
+            if (!text.isBlank()) {
+                values.add(text);
+            }
+        }
+        return new ArrayList<>(values);
+    }
+
+    private String buildDeterministicDetailedFeedback(String domain,
+                                                      int scorePercentage,
+                                                      Journey.SkillLevel evaluatedLevel,
+                                                      EvaluationSnapshot snapshot,
+                                                      List<Map<String, Object>> skillGaps,
+                                                      List<Map<String, Object>> strengths,
+                                                      List<String> recommendations) {
+        String domainText = domain != null && !domain.isBlank() ? domain : "lĩnh vực đã chọn";
+        StringBuilder feedback = new StringBuilder();
+
+        feedback.append("## Bức tranh hiện tại\n");
+        feedback.append(String.format("- Bạn đang ở mức **%s** trong nhóm năng lực **%s**.\n",
+                toSkillLevelLabel(evaluatedLevel),
+                domainText));
+        feedback.append(String.format("- Kết quả hiện tại là **%d%%** với **%d/%d câu đúng**.\n",
+                scorePercentage,
+                snapshot.correctAnswers,
+                Math.max(snapshot.totalQuestions, 1)));
+        feedback.append(String.format("- Hướng học phù hợp lúc này là **%s**.\n",
+                toRecommendationModeLabel(snapshot.recommendationMode)));
+        if (snapshot.reassessmentRecommended) {
+            feedback.append("- Hệ thống khuyến nghị bạn làm lại quiz sau vòng học nền tảng đầu tiên để đo lại tiến bộ.\n");
+        }
+
+        feedback.append("\n## Điểm mạnh nổi bật\n");
+        appendInsightSection(
+                feedback,
+                strengths,
+                false,
+                "- Chưa có nhóm điểm mạnh nào đủ nổi bật. Hãy tiếp tục luyện thêm để hệ thống nhận diện rõ hơn.\n");
+
+        feedback.append("\n## Kỹ năng cần ưu tiên\n");
+        appendInsightSection(
+                feedback,
+                skillGaps,
+                true,
+                "- Chưa xác định được lỗ hổng quá lớn, nhưng bạn vẫn nên tiếp tục luyện đều để củng cố nền tảng.\n");
+
+        feedback.append("\n## Hành động đề xuất\n");
+        LinkedHashSet<String> actions = new LinkedHashSet<>();
+        for (Map<String, Object> skillGap : Optional.ofNullable(skillGaps).orElse(Collections.emptyList())) {
+            String action = firstNonBlankText(skillGap, "howToImprove");
+            if (action != null && !action.isBlank()) {
+                actions.add(action);
+            }
+        }
+        actions.addAll(Optional.ofNullable(recommendations).orElse(Collections.emptyList()));
+
+        if (actions.isEmpty()) {
+            actions.add("Chọn một kỹ năng yếu nhất và dành 30-45 phút mỗi ngày để ôn lại phần nền tảng.");
+            actions.add("Làm thêm bài tập tình huống tương tự để tăng khả năng áp dụng thực tế.");
+            actions.add("Sau 1-2 tuần, hãy quay lại quiz để đo đúng mức tiến bộ của bạn.");
+        }
+
+        int actionCount = 0;
+        for (String action : actions) {
+            if (action == null || action.isBlank()) {
+                continue;
+            }
+            feedback.append("- ").append(action.trim()).append("\n");
+            actionCount++;
+            if (actionCount >= 5) {
+                break;
+            }
+        }
+
+        feedback.append("\n## Lời nhắn từ Meowl\n");
+        if (scorePercentage >= 80) {
+            feedback.append("Bạn đang đi rất đúng hướng. Chỉ cần tiếp tục giữ nhịp học và đào sâu đúng chủ điểm, tốc độ tiến bộ sẽ rất rõ.");
+        } else if (scorePercentage >= 50) {
+            feedback.append("Bạn đã có nền tảng để bứt lên. Hãy tập trung đúng điểm yếu và duy trì nhịp học đều tay, kết quả sẽ cải thiện nhanh.");
+        } else {
+            feedback.append("Đừng nản. Kết quả này rất hữu ích vì nó chỉ ra chính xác điểm bắt đầu để bạn xây một roadmap hiệu quả hơn.");
+        }
+
+        return feedback.toString().trim();
+    }
+
+    private void appendInsightSection(StringBuilder builder,
+                                      List<Map<String, Object>> insights,
+                                      boolean skillGap,
+                                      String emptyMessage) {
+        List<Map<String, Object>> items = Optional.ofNullable(insights).orElse(Collections.emptyList());
+        if (items.isEmpty()) {
+            builder.append(emptyMessage);
+            return;
+        }
+
+        int count = 0;
+        for (Map<String, Object> item : items) {
+            String skill = firstNonBlankText(item, "skill");
+            if (skill == null || skill.isBlank()) {
+                continue;
+            }
+
+            builder.append("- **").append(skill.trim()).append("**");
+            String description = firstNonBlankText(item, "description");
+            if (description != null && !description.isBlank()) {
+                builder.append(": ").append(description.trim());
+            }
+
+            if (skillGap) {
+                String priority = firstNonBlankText(item, "priority");
+                if (priority != null && !priority.isBlank()) {
+                    builder.append(" _(ưu tiên ").append(toPriorityLabel(priority)).append(")_");
+                }
+            } else {
+                String level = firstNonBlankText(item, "level");
+                if (level != null && !level.isBlank()) {
+                    builder.append(" _(mức ").append(toStrengthLevelLabel(level)).append(")_");
+                }
+            }
+
+            builder.append("\n");
+            count++;
+            if (count >= 5) {
+                break;
+            }
+        }
+    }
+
+    private List<String> buildHighlightKeywords(List<String> aiKeywords,
+                                                List<Map<String, Object>> skillGaps,
+                                                List<Map<String, Object>> strengths,
+                                                String domain,
+                                                Journey.SkillLevel evaluatedLevel,
+                                                String recommendationMode) {
+        LinkedHashSet<String> keywords = new LinkedHashSet<>();
+
+        keywords.addAll(Optional.ofNullable(aiKeywords).orElse(Collections.emptyList()).stream()
+                .map(item -> item == null ? "" : item.trim())
+                .filter(item -> !item.isBlank())
+                .collect(Collectors.toList()));
+
+        if (domain != null && !domain.isBlank()) {
+            keywords.add(domain.trim());
+        }
+        keywords.add(toSkillLevelLabel(evaluatedLevel));
+        keywords.add(toRecommendationModeLabel(recommendationMode));
+
+        for (Map<String, Object> item : Optional.ofNullable(strengths).orElse(Collections.emptyList())) {
+            String skill = firstNonBlankText(item, "skill");
+            if (skill != null && !skill.isBlank()) {
+                keywords.add(skill.trim());
+            }
+            if (keywords.size() >= 12) {
+                break;
+            }
+        }
+
+        for (Map<String, Object> item : Optional.ofNullable(skillGaps).orElse(Collections.emptyList())) {
+            String skill = firstNonBlankText(item, "skill");
+            if (skill != null && !skill.isBlank()) {
+                keywords.add(skill.trim());
+            }
+            if (keywords.size() >= 12) {
+                break;
+            }
+        }
+
+        return keywords.stream().limit(12).collect(Collectors.toList());
+    }
+
+    private String combineDetailedFeedback(String deterministicFeedback, String aiDetailedFeedback) {
+        if (aiDetailedFeedback == null || aiDetailedFeedback.isBlank()) {
+            return deterministicFeedback;
+        }
+
+        String normalizedAi = aiDetailedFeedback.trim();
+        if (normalizedAi.equalsIgnoreCase(deterministicFeedback.trim())) {
+            return deterministicFeedback;
+        }
+
+        if (normalizedAi.contains("## ")) {
+            return normalizedAi;
+        }
+
+        return deterministicFeedback + "\n\n## Góc nhìn bổ sung từ AI\n" + normalizedAi;
+    }
+
+    private String toSkillLevelLabel(Journey.SkillLevel level) {
+        if (level == null) {
+            return "Chưa xác định";
+        }
+        return switch (level) {
+            case BEGINNER -> "Mới bắt đầu";
+            case ELEMENTARY -> "Sơ cấp";
+            case INTERMEDIATE -> "Trung cấp";
+            case ADVANCED -> "Nâng cao";
+            case EXPERT -> "Chuyên sâu";
+        };
+    }
+
+    private String toRecommendationModeLabel(String recommendationMode) {
+        if (recommendationMode == null || recommendationMode.isBlank()) {
+            return "Lộ trình tiêu chuẩn";
+        }
+
+        return switch (recommendationMode) {
+            case "FROM_ZERO" -> "Lộ trình từ zero";
+            case "FOUNDATION" -> "Lộ trình nền tảng";
+            case "STANDARD" -> "Lộ trình tiêu chuẩn";
+            case "ADVANCED" -> "Lộ trình nâng cao";
+            case "FAST_TRACK" -> "Lộ trình tăng tốc";
+            default -> "Lộ trình tiêu chuẩn";
+        };
+    }
+
+    private String toPriorityLabel(String priority) {
+        if (priority == null || priority.isBlank()) {
+            return "vừa";
+        }
+
+        return switch (priority.toLowerCase(Locale.ROOT)) {
+            case "high" -> "cao";
+            case "low" -> "thấp";
+            default -> "vừa";
+        };
+    }
+
+    private String toStrengthLevelLabel(String level) {
+        if (level == null || level.isBlank()) {
+            return "ổn";
+        }
+
+        return switch (level.toLowerCase(Locale.ROOT)) {
+            case "vung" -> "vững";
+            case "can_cung_co" -> "cần tiếp tục duy trì";
+            default -> "ổn";
+        };
     }
 
     private String buildDeterministicSummary(String domain, int scorePercentage, Journey.SkillLevel evaluatedLevel,
@@ -2588,6 +3010,7 @@ public class JourneyServiceImpl implements JourneyService {
         }
         return switch (level) {
             case BEGINNER -> "beginner";
+            case ELEMENTARY -> "beginner";
             case INTERMEDIATE -> "intermediate";
             case ADVANCED -> "advanced";
             case EXPERT -> "expert";
@@ -2620,7 +3043,7 @@ public class JourneyServiceImpl implements JourneyService {
             return "JUNIOR";
         }
         return switch (level) {
-            case BEGINNER -> "INTERN";
+            case BEGINNER, ELEMENTARY -> "INTERN";
             case INTERMEDIATE -> "JUNIOR";
             case ADVANCED, EXPERT -> "FREELANCER";
         };
@@ -2677,7 +3100,7 @@ public class JourneyServiceImpl implements JourneyService {
             return "NONE";
         }
         return switch (level) {
-            case BEGINNER -> "NONE";
+            case BEGINNER, ELEMENTARY -> "NONE";
             case INTERMEDIATE, ADVANCED, EXPERT -> "RELATED";
         };
     }
@@ -2685,7 +3108,7 @@ public class JourneyServiceImpl implements JourneyService {
     private String mapSkillCurrentLevel(Journey.SkillLevel level, String fallbackLevel) {
         if (level != null) {
             return switch (level) {
-                case BEGINNER -> "BASIC";
+                case BEGINNER, ELEMENTARY -> "BASIC";
                 case INTERMEDIATE, ADVANCED, EXPERT -> "INTERMEDIATE";
             };
         }

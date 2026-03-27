@@ -376,6 +376,7 @@ public class BookingServiceImpl implements BookingService {
 
     /**
      * Mentor marks session as complete.
+     * Always goes to PENDING_COMPLETION + sets 24h deadline.
      * If learner already confirmed -> COMPLETED + release payment.
      * Otherwise -> notify learner to confirm.
      */
@@ -386,7 +387,8 @@ public class BookingServiceImpl implements BookingService {
         if (!booking.getMentor().getId().equals(mentorId)) {
             throw new IllegalArgumentException("Không có quyền hoàn tất buổi học này");
         }
-        if (booking.getStatus() != BookingStatus.ONGOING && booking.getStatus() != BookingStatus.CONFIRMED) {
+        if (booking.getStatus() != BookingStatus.ONGOING && booking.getStatus() != BookingStatus.CONFIRMED
+                && !(booking.getStatus() == BookingStatus.PENDING_COMPLETION && booking.getMentorCompletedAt() == null)) {
             throw new IllegalStateException("Chỉ hoàn tất từ trạng thái ongoing hoặc confirmed");
         }
         // Only allow completion if session has ended
@@ -394,6 +396,12 @@ public class BookingServiceImpl implements BookingService {
         if (LocalDateTime.now().isBefore(sessionEnd)) {
             throw new IllegalStateException("Buổi học chưa kết thúc");
         }
+
+        // Set deadline if not already set (first completion request)
+        if (booking.getCompletionDeadline() == null) {
+            booking.setCompletionDeadline(LocalDateTime.now().plusHours(24));
+        }
+
         booking.setMentorCompletedAt(LocalDateTime.now());
         Booking saved = bookingRepository.save(booking);
 
@@ -402,8 +410,8 @@ public class BookingServiceImpl implements BookingService {
             return finalizeSessionCompletion(saved);
         }
 
-        // Otherwise stay at MENTOR_COMPLETED, notify learner
-        booking.setStatus(BookingStatus.MENTOR_COMPLETED);
+        // Otherwise stay at PENDING_COMPLETION, notify learner
+        booking.setStatus(BookingStatus.PENDING_COMPLETION);
         saved = bookingRepository.save(booking);
         notificationService.createNotification(
                 saved.getLearner().getId(),
@@ -425,7 +433,8 @@ public class BookingServiceImpl implements BookingService {
     /**
      * Learner confirms session completion.
      * If mentor already completed -> COMPLETED + release payment.
-     * Otherwise -> notify mentor to confirm.
+     * Otherwise -> goes to PENDING_COMPLETION + 24h deadline, notifies mentor to confirm.
+     * Either party can initiate — both must confirm for final completion.
      */
     @Transactional
     public Booking learnerConfirmComplete(Long learnerId, Long bookingId) {
@@ -435,7 +444,7 @@ public class BookingServiceImpl implements BookingService {
             throw new IllegalArgumentException("Không có quyền xác nhận buổi học này");
         }
         if (booking.getStatus() != BookingStatus.ONGOING && booking.getStatus() != BookingStatus.CONFIRMED
-                && booking.getStatus() != BookingStatus.MENTOR_COMPLETED) {
+                && booking.getStatus() != BookingStatus.PENDING_COMPLETION) {
             throw new IllegalStateException("Không thể xác nhận từ trạng thái hiện tại");
         }
         // Only allow confirmation if session has ended (or if mentor already completed it)
@@ -445,7 +454,14 @@ public class BookingServiceImpl implements BookingService {
                 throw new IllegalStateException("Buổi học chưa kết thúc");
             }
         }
+
+        // Set deadline if not already set (first completion request)
+        if (booking.getCompletionDeadline() == null) {
+            booking.setCompletionDeadline(LocalDateTime.now().plusHours(24));
+        }
+
         booking.setConfirmedByLearner(true);
+        booking.setLearnerCompletedAt(LocalDateTime.now());
         booking.setLearnerConfirmedAt(LocalDateTime.now());
         Booking saved = bookingRepository.save(booking);
 
@@ -454,18 +470,25 @@ public class BookingServiceImpl implements BookingService {
             return finalizeSessionCompletion(saved);
         }
 
-        // Otherwise stay at current status, notify mentor
-        if (booking.getStatus() != BookingStatus.MENTOR_COMPLETED) {
-            booking.setStatus(BookingStatus.MENTOR_COMPLETED);
+        // Otherwise go to PENDING_COMPLETION, notify mentor
+        if (booking.getStatus() != BookingStatus.PENDING_COMPLETION) {
+            booking.setStatus(BookingStatus.PENDING_COMPLETION);
             saved = bookingRepository.save(booking);
         }
         notificationService.createNotification(
                 saved.getMentor().getId(),
-                "Học viên đã xác nhận hoàn tất",
+                "Học viên đã hoàn tất buổi học",
                 "Vui lòng xác nhận để hoàn tất buổi học",
                 NotificationType.BOOKING_MENTOR_COMPLETED,
                 saved.getId().toString(),
                 learnerId);
+        try {
+            String subject = "Học viên đã hoàn tất — Cần xác nhận của bạn";
+            String html = buildLearnerCompletedHtml(saved);
+            emailService.sendHtmlEmail(booking.getMentor().getEmail(), subject, html);
+        } catch (Exception e) {
+            log.warn("Failed to send learner-completed email for booking {}: {}", saved.getId(), e.getMessage());
+        }
         return saved;
     }
 
@@ -878,8 +901,61 @@ public class BookingServiceImpl implements BookingService {
             "</div><div class=\"footer\">&copy; 2025 SkillVerse</div></div></body></html>";
     }
 
-
-
+    // EMAIL TEMPLATE 7: Learner hoàn thành buổi học — gửi cho mentor
+    private String buildLearnerCompletedHtml(Booking booking) {
+        String mentorName = getDisplayName(booking.getMentor());
+        String learnerName = getDisplayName(booking.getLearner());
+        String time = formatTimeVN(booking.getStartTime());
+        String deadline = booking.getCompletionDeadline() != null
+                ? booking.getCompletionDeadline()
+                        .atZone(ZoneId.of("Asia/Ho_Chi_Minh"))
+                        .format(DateTimeFormatter.ofPattern("HH:mm, dd/MM/yyyy"))
+                : booking.getStartTime()
+                        .plusDays(1)
+                        .atZone(ZoneId.of("Asia/Ho_Chi_Minh"))
+                        .format(DateTimeFormatter.ofPattern("HH:mm, dd/MM/yyyy"));
+        return
+            "<html><head><meta charset=\"UTF-8\" /><style>" +
+            "body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;padding:0}" +
+            ".container{max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(2,6,23,0.08);overflow:hidden}" +
+            ".header{background:linear-gradient(135deg,#0ea5e9,#0284c7);padding:24px;text-align:center}" +
+            ".logo{width:44px;height:44px;border-radius:10px;overflow:hidden;margin:0 auto}" +
+            ".content{padding:24px;color:#111827}" +
+            ".pill{display:inline-block;background:#e0f2fe;color:#0284c7;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:700;margin-bottom:12px}" +
+            ".card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:12px 0}" +
+            ".row{display:flex;justify-content:space-between;margin:6px 0}" +
+            ".label{color:#6b7280}.value{font-weight:600}" +
+            ".deadline{background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:12px 16px;margin:12px 0}" +
+            ".deadline-label{color:#d97706;font-size:12px;font-weight:700;margin-bottom:4px}" +
+            ".deadline-time{color:#92400e;font-size:14px;font-weight:600}" +
+            ".warning{background:#f3f4f6;border:1px solid #d1d5db;border-radius:10px;padding:12px 16px;margin:12px 0}" +
+            ".warning-label{color:#374151;font-size:12px;font-weight:700;margin-bottom:4px}" +
+            ".cta{margin-top:20px}" +
+            ".button{display:inline-block;background:#0ea5e9;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700}" +
+            ".footer{padding:16px;text-align:center;color:#6b7280;font-size:12px}" +
+            "</style></head>" +
+            "<body><div class=\"container\">" +
+            "<div class=\"header\"><img class=\"logo\" src=\"cid:skillverse-logo\" /></div>" +
+            "<div class=\"content\">" +
+            "<div class=\"pill\">Cần xác nhận</div>" +
+            "<h2 style=\"margin:0 0 4px\">Học viên đã hoàn tất buổi học</h2>" +
+            "<p style=\"color:#6b7280;margin:0 0 16px\"><strong>" + learnerName + "</strong> đã đánh dấu buổi học là đã hoàn tất. Bạn vui lòng xác nhận để hoàn tất thanh toán.</p>" +
+            "<div class=\"card\">" +
+            "<div class=\"row\"><div class=\"label\">Học viên</div><div class=\"value\">" + learnerName + "</div></div>" +
+            "<div class=\"row\"><div class=\"label\">Thời gian</div><div class=\"value\">" + time + "</div></div>" +
+            "<div class=\"row\"><div class=\"label\">Số tiền</div><div class=\"value\">" + formatVnd(booking.getPriceVnd()) + "</div></div>" +
+            "</div>" +
+            "<div class=\"deadline\">" +
+            "<div class=\"deadline-label\">Hạn xác nhận</div>" +
+            "<div class=\"deadline-time\">Trước " + deadline + "</div>" +
+            "</div>" +
+            "<div class=\"warning\">" +
+            "<div class=\"warning-label\">Lưu ý</div>" +
+            "<p style=\"margin:0;font-size:13px;color:#374151\">Nếu bạn không xác nhận trong 24h, hệ thống sẽ tự động hoàn tất. Nếu có sự cố, bạn có thể mở tranh chấp.</p>" +
+            "</div>" +
+            "<div class=\"cta\"><a class=\"button\" href=\"https://skillverse.vn/bookings/" + booking.getId() + "\">Xác nhận hoàn tất</a></div>" +
+            "</div><div class=\"footer\">&copy; 2025 SkillVerse</div></div></body></html>";
+    }
     @Transactional
     public Booking cancelByLearner(Long learnerId, Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
@@ -1024,7 +1100,7 @@ public class BookingServiceImpl implements BookingService {
     public List<BookingResponse> getMentorBookingsForDateRange(Long mentorId, LocalDateTime from, LocalDateTime to) {
         List<BookingStatus> activeStatuses = List.of(
                 BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ONGOING,
-                BookingStatus.MENTOR_COMPLETED);
+                BookingStatus.PENDING_COMPLETION);
         User mentor = userRepository.findById(mentorId)
                 .orElseThrow(() -> new IllegalArgumentException("Mentor không tồn tại"));
         List<Booking> bookings = bookingRepository.findByMentorAndStatusInAndStartTimeBetween(
@@ -1100,6 +1176,8 @@ public class BookingServiceImpl implements BookingService {
                 .confirmedByLearner(booking.getConfirmedByLearner())
                 .mentorCompletedAt(booking.getMentorCompletedAt())
                 .learnerConfirmedAt(booking.getLearnerConfirmedAt())
+                .learnerCompletedAt(booking.getLearnerCompletedAt())
+                .completionDeadline(booking.getCompletionDeadline())
                 .mentorName(mentorName)
                 .mentorAvatar(mentorAvatar)
                 .learnerName(learnerName)

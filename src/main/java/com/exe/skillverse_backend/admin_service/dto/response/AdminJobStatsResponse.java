@@ -20,6 +20,7 @@ public class AdminJobStatsResponse {
     private long paidCount;
     private long cancelledCount;
     private long disputedCount;
+    private long escalatedCount;
     private long closedCount;
     private long rejectedCount;
     private Map<String, Long> byStatus;

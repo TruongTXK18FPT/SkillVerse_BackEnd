@@ -81,6 +81,17 @@ public class Booking {
     @Column(name = "learner_confirmed_at")
     private LocalDateTime learnerConfirmedAt;
 
+    @Column(name = "learner_completed_at")
+    private LocalDateTime learnerCompletedAt;
+
+    /**
+     * 24h deadline for mutual confirmation.
+     * Set when either mentor or learner first requests completion.
+     * Used for auto-complete if neither party confirms within 24h.
+     */
+    @Column(name = "completion_deadline")
+    private LocalDateTime completionDeadline;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();

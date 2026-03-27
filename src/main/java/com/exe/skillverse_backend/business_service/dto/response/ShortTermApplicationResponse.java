@@ -54,6 +54,11 @@ public class ShortTermApplicationResponse {
     private Integer revisionCount;
     private List<RevisionNoteResponse> revisionNotes;
 
+    // SLA / Cancellation / Dispute fields
+    private LocalDateTime reviewDeadlineAt;
+    private LocalDateTime responseDeadlineAt;
+    private Boolean disputeEligibilityUnlocked;
+
     // Job info (optional, for candidate view)
     private JobInfo jobDetails;
 

@@ -105,7 +105,7 @@ public class AdminBookingManagementServiceImpl implements AdminBookingManagement
         long pendingBookings = statusCounts.getOrDefault(BookingStatus.PENDING, 0L);
         long activeBookings = statusCounts.getOrDefault(BookingStatus.CONFIRMED, 0L)
                 + statusCounts.getOrDefault(BookingStatus.ONGOING, 0L)
-                + statusCounts.getOrDefault(BookingStatus.MENTOR_COMPLETED, 0L);
+                + statusCounts.getOrDefault(BookingStatus.PENDING_COMPLETION, 0L);
         long completedBookings = statusCounts.getOrDefault(BookingStatus.COMPLETED, 0L);
         long disputedBookings = statusCounts.getOrDefault(BookingStatus.DISPUTED, 0L);
         long refundedBookings = statusCounts.getOrDefault(BookingStatus.REFUNDED, 0L)
@@ -220,7 +220,7 @@ public class AdminBookingManagementServiceImpl implements AdminBookingManagement
         if (status == BookingStatus.PENDING
                 || status == BookingStatus.CONFIRMED
                 || status == BookingStatus.ONGOING
-                || status == BookingStatus.MENTOR_COMPLETED
+                || status == BookingStatus.PENDING_COMPLETION
                 || status == BookingStatus.DISPUTED) {
             return new RevenueSlice(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, price);
         }
@@ -289,6 +289,8 @@ public class AdminBookingManagementServiceImpl implements AdminBookingManagement
                 .confirmedByLearner(booking.getConfirmedByLearner())
                 .mentorCompletedAt(booking.getMentorCompletedAt())
                 .learnerConfirmedAt(booking.getLearnerConfirmedAt())
+                .learnerCompletedAt(booking.getLearnerCompletedAt())
+                .completionDeadline(booking.getCompletionDeadline())
                 .mentorName(mentorName)
                 .mentorAvatar(mentorAvatar)
                 .learnerName(learnerName)

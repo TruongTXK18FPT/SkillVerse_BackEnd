@@ -5,7 +5,7 @@ public enum BookingStatus {
     CONFIRMED,
     REJECTED,
     ONGOING,
-    MENTOR_COMPLETED,  // mentor done, waiting for learner confirm
+    PENDING_COMPLETION,  // one party clicked, waiting for the other to confirm
     COMPLETED,
     CANCELLED,
     DISPUTED,

@@ -22,7 +22,14 @@ public interface ShortTermJobApplicationRepository extends JpaRepository<ShortTe
     // Find by user
     List<ShortTermJobApplication> findByUserIdOrderByAppliedAtDesc(Long userId);
 
+    @Query("SELECT DISTINCT a FROM ShortTermJobApplication a LEFT JOIN FETCH a.revisionNotes WHERE a.user.id = :userId ORDER BY a.appliedAt DESC")
+    List<ShortTermJobApplication> findByUserIdOrderByAppliedAtDescWithRevisionNotes(@Param("userId") Long userId);
+
     Page<ShortTermJobApplication> findByUserId(Long userId, Pageable pageable);
+
+    @Query(value = "SELECT DISTINCT a FROM ShortTermJobApplication a LEFT JOIN FETCH a.revisionNotes WHERE a.user.id = :userId",
+           countQuery = "SELECT COUNT(DISTINCT a) FROM ShortTermJobApplication a WHERE a.user.id = :userId")
+    Page<ShortTermJobApplication> findByUserIdWithRevisionNotes(@Param("userId") Long userId, Pageable pageable);
 
     // Find by status
     List<ShortTermJobApplication> findByStatus(ShortTermApplicationStatus status);
@@ -33,6 +40,10 @@ public interface ShortTermJobApplicationRepository extends JpaRepository<ShortTe
     boolean existsByShortTermJobIdAndUserId(Long jobId, Long userId);
 
     Optional<ShortTermJobApplication> findByShortTermJobIdAndUserId(Long jobId, Long userId);
+
+    // Find application by job ID and user ID (used in dispute flow)
+    @Query("SELECT a FROM ShortTermJobApplication a WHERE a.shortTermJob.id = :jobId AND a.user.id = :userId")
+    Optional<ShortTermJobApplication> findByJobIdAndUserId(@Param("jobId") Long jobId, @Param("userId") Long userId);
 
     // Find accepted application for a job
     @Query("SELECT a FROM ShortTermJobApplication a WHERE a.shortTermJob.id = :jobId AND a.status = 'ACCEPTED'")
@@ -68,4 +79,14 @@ public interface ShortTermJobApplicationRepository extends JpaRepository<ShortTe
     // Find with revision notes
     @Query("SELECT DISTINCT a FROM ShortTermJobApplication a LEFT JOIN FETCH a.revisionNotes WHERE a.id = :id")
     Optional<ShortTermJobApplication> findByIdWithRevisionNotes(@Param("id") Long id);
+
+    // ==================== SLA / OVERDUE QUERIES ====================
+
+    // Find applications where recruiter has exceeded 48h review SLA (SUBMITTED + deadline passed)
+    @Query("SELECT a FROM ShortTermJobApplication a WHERE a.status = 'SUBMITTED' AND a.reviewDeadlineAt < :now")
+    List<ShortTermJobApplication> findOverdueReviewApplications(@Param("now") java.time.LocalDateTime now);
+
+    // Find applications where user has exceeded 72h response SLA for cancellation
+    @Query("SELECT a FROM ShortTermJobApplication a WHERE a.status = 'CANCELLATION_REQUESTED' AND a.responseDeadlineAt < :now")
+    List<ShortTermJobApplication> findOverdueCancellationResponse(@Param("now") java.time.LocalDateTime now);
 }

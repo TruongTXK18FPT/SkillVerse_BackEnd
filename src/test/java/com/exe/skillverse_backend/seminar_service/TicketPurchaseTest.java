@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.seminar_service.repository.SeminarRepository;
 import com.exe.skillverse_backend.seminar_service.repository.SeminarTicketRepository;
 import com.exe.skillverse_backend.seminar_service.service.impl.SeminarServiceImpl;
 import com.exe.skillverse_backend.seminar_service.validation.SeminarValidator;
+import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
@@ -100,8 +101,13 @@ class TicketPurchaseTest {
         SeminarTicketResponse response = seminarService.buyTicket(SEMINAR_ID, BUYER_ID);
 
         assertNotNull(response);
-        verify(walletService).deductCash(eq(Long.parseLong(BUYER_ID)), eq(PRICE), anyString(), anyString(),
-                anyString());
+        verify(walletService).deductCash(
+                eq(Long.parseLong(BUYER_ID)),
+                eq(PRICE),
+                anyString(),
+                eq(WalletTransaction.TransactionType.SEMINAR_PURCHASE),
+                eq(WalletTransaction.TransactionType.SEMINAR_PURCHASE.name()),
+                eq("SEMINAR_" + SEMINAR_ID));
         verify(walletService).payRecruiterForSeminar(eq(Long.parseLong(RECRUITER_ID)), any(BigDecimal.class),
                 eq(SEMINAR_ID));
         verify(ticketRepository).save(any(SeminarTicket.class));
@@ -119,7 +125,13 @@ class TicketPurchaseTest {
         SeminarTicketResponse response = seminarService.buyTicket(SEMINAR_ID, BUYER_ID);
 
         assertNotNull(response);
-        verify(walletService, never()).deductCash(anyLong(), any(), anyString(), anyString(), anyString());
+        verify(walletService, never()).deductCash(
+                anyLong(),
+                any(BigDecimal.class),
+                anyString(),
+                any(WalletTransaction.TransactionType.class),
+                anyString(),
+                anyString());
         verify(ticketRepository).save(any(SeminarTicket.class));
     }
 
@@ -148,7 +160,13 @@ class TicketPurchaseTest {
 
         assertThrows(IllegalArgumentException.class, () -> seminarService.buyTicket(SEMINAR_ID, RECRUITER_ID));
 
-        verify(walletService, never()).deductCash(anyLong(), any(), anyString(), anyString(), anyString());
+        verify(walletService, never()).deductCash(
+                anyLong(),
+                any(BigDecimal.class),
+                anyString(),
+                any(WalletTransaction.TransactionType.class),
+                anyString(),
+                anyString());
         verify(ticketRepository, never()).save(any());
     }
 
@@ -222,7 +240,13 @@ class TicketPurchaseTest {
 
         assertThrows(IllegalStateException.class, () -> seminarService.buyTicket(SEMINAR_ID, BUYER_ID));
 
-        verify(walletService, never()).deductCash(anyLong(), any(), anyString(), anyString(), anyString());
+        verify(walletService, never()).deductCash(
+                anyLong(),
+                any(BigDecimal.class),
+                anyString(),
+                any(WalletTransaction.TransactionType.class),
+                anyString(),
+                anyString());
     }
 
     @Test
@@ -306,7 +330,14 @@ class TicketPurchaseTest {
         when(ticketRepository.findByUserIdAndSeminarId(BUYER_ID, SEMINAR_ID)).thenReturn(Optional.empty());
         when(seminarRepository.incrementTicketsSoldIfAvailable(SEMINAR_ID)).thenReturn(1);
         doThrow(new RuntimeException("Payment failed"))
-                .when(walletService).deductCash(anyLong(), any(), anyString(), anyString(), anyString());
+                .when(walletService)
+                .deductCash(
+                        anyLong(),
+                        any(BigDecimal.class),
+                        anyString(),
+                        any(WalletTransaction.TransactionType.class),
+                        anyString(),
+                        anyString());
 
         assertThrows(RuntimeException.class, () -> seminarService.buyTicket(SEMINAR_ID, BUYER_ID));
 

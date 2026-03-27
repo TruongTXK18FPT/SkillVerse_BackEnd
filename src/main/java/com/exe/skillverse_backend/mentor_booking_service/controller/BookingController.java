@@ -227,6 +227,8 @@ public class BookingController {
                 .confirmedByLearner(booking.getConfirmedByLearner())
                 .mentorCompletedAt(booking.getMentorCompletedAt())
                 .learnerConfirmedAt(booking.getLearnerConfirmedAt())
+                .learnerCompletedAt(booking.getLearnerCompletedAt())
+                .completionDeadline(booking.getCompletionDeadline())
                 .mentorName(mentorName)
                 .mentorAvatar(mentorAvatar)
                 .learnerName(booking.getLearner().getFullName())

@@ -17,6 +17,7 @@ import com.exe.skillverse_backend.business_service.repository.ShortTermJobApplic
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
 import com.exe.skillverse_backend.business_service.service.DisputeService;
 import com.exe.skillverse_backend.business_service.service.EscrowService;
+import com.exe.skillverse_backend.business_service.service.JobAuditService;
 import com.exe.skillverse_backend.business_service.service.ShortTermJobService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
@@ -28,7 +29,9 @@ import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRep
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +54,7 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
     private final DisputeService disputeService;
     private final ShortTermJobApplicationRepository applicationRepository;
     private final JobStatusAuditLogRepository auditLogRepository;
+    private final JobAuditService auditService;
     private final JobEscrowRepository jobEscrowRepository;
     private final WalletTransactionRepository walletTransactionRepository;
     private final WalletService walletService;
@@ -200,7 +204,7 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
 
     @Override
     @Transactional
-    public ShortTermJobResponse deleteJob(Long adminId, Long jobId) {
+    public ShortTermJobResponse deleteJob(Long adminId, Long jobId, String reason) {
         log.info("Admin {} deleting short-term job ID: {}", adminId, jobId);
 
         ShortTermJob job = shortTermJobRepository.findById(jobId)
@@ -214,10 +218,13 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
         ShortTermJobStatus oldStatus = job.getStatus();
         job.setStatus(ShortTermJobStatus.CANCELLED);
         ShortTermJob savedJob = shortTermJobRepository.save(job);
+        String normalizedReason = reason != null && !reason.isBlank()
+                ? reason.trim()
+                : "Admin deleted job";
 
         // Create audit log
         createAuditLog(savedJob, oldStatus, ShortTermJobStatus.CANCELLED, adminId,
-                "ADMIN", "Admin deleted job");
+                "ADMIN", normalizedReason);
 
         // Notify recruiter
         Long recruiterId = job.getRecruiterProfile().getUser().getId();
@@ -365,6 +372,24 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<JobStatusAuditLog> getDisputeAuditLogs(Long disputeId) {
+        Dispute dispute = disputeRepository.findById(disputeId)
+                .orElseThrow(() -> new NotFoundException("Dispute not found with ID: " + disputeId));
+
+        List<JobStatusAuditLog> logs = new ArrayList<>();
+        if (dispute.getApplicationId() != null) {
+            logs.addAll(auditLogRepository.findByApplicationIdOrderByCreatedAtDesc(dispute.getApplicationId()));
+        }
+        if (dispute.getJobId() != null) {
+            logs.addAll(auditLogRepository.findByShortTermJobIdOrderByCreatedAtDesc(dispute.getJobId()));
+        }
+
+        logs.sort(Comparator.comparing(JobStatusAuditLog::getCreatedAt).reversed());
+        return logs;
+    }
+
+    @Override
     @Transactional
     public Dispute resolveDispute(Long adminId, Long disputeId, ResolveDisputeAdminRequest request) {
         log.info("Admin {} resolving dispute ID: {} with resolution: {}", adminId, disputeId, request.getResolution());
@@ -377,51 +402,123 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
             throw new BadRequestException("Dispute is already resolved or dismissed");
         }
 
-        // Set resolution fields
+        if (request.getResolution() == null) {
+            throw new BadRequestException("Resolution is required");
+        }
+
         dispute.setResolution(request.getResolution());
         dispute.setResolutionNotes(request.getResolutionNotes());
         dispute.setPartialRefundPct(request.getPartialRefundPct());
         dispute.setResolvedBy(adminId);
         dispute.setResolvedAt(LocalDateTime.now());
-        dispute.setStatus(Dispute.DisputeStatus.RESOLVED);
+        dispute.setStatus(request.getResolution() == Dispute.DisputeResolution.NO_ACTION
+                ? Dispute.DisputeStatus.DISMISSED
+                : Dispute.DisputeStatus.RESOLVED);
 
-        // Handle escrow based on resolution
-        Long jobId = dispute.getJobId();
+        ShortTermJob job = shortTermJobRepository.findById(dispute.getJobId())
+                .orElseThrow(() -> new NotFoundException("Short-term job not found with ID: " + dispute.getJobId()));
+        ShortTermJobApplication application = null;
+        if (dispute.getApplicationId() != null) {
+            application = applicationRepository.findById(dispute.getApplicationId())
+                    .orElseThrow(() -> new NotFoundException("Application not found with ID: " + dispute.getApplicationId()));
+        }
+
+        ShortTermJobStatus previousJobStatus = job.getStatus();
+        ShortTermJobStatus nextJobStatus = previousJobStatus;
+        com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus previousApplicationStatus =
+                application != null ? application.getStatus() : null;
+        com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus nextApplicationStatus =
+                previousApplicationStatus;
+
         try {
             switch (request.getResolution()) {
-                case FULL_REFUND -> {
-                    escrowService.refundEscrow(jobId, adminId, "Admin resolved dispute: Full refund - " + request.getResolutionNotes());
-                    log.info("Admin resolved dispute {} with FULL_REFUND for job {}", disputeId, jobId);
+                case CANCEL_JOB, FULL_REFUND, RECRUITER_WINS -> {
+                    nextJobStatus = ShortTermJobStatus.CANCELLED;
+                    if (application != null) {
+                        nextApplicationStatus =
+                                com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus.CANCELLED;
+                    }
+                    escrowService.refundEscrow(
+                            job.getId(),
+                            job.getRecruiterProfile().getUserId(),
+                            "Admin approved cancellation: " + request.getResolutionNotes()
+                    );
                 }
-                case FULL_RELEASE -> {
-                    escrowService.releaseEscrow(jobId, adminId, "Admin resolved dispute: Full release - " + request.getResolutionNotes());
-                    log.info("Admin resolved dispute {} with FULL_RELEASE for job {}", disputeId, jobId);
+                case FULL_RELEASE, WORKER_WINS -> {
+                    nextJobStatus = ShortTermJobStatus.PAID;
+                    job.setCompletedAt(LocalDateTime.now());
+                    job.setPaidAt(LocalDateTime.now());
+                    if (application != null) {
+                        nextApplicationStatus =
+                                com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus.COMPLETED;
+                        application.setCompletedAt(LocalDateTime.now());
+                    }
+                    escrowService.releaseEscrow(
+                            job.getId(),
+                            job.getRecruiterProfile().getUserId(),
+                            "Admin released full payment to worker: " + request.getResolutionNotes()
+                    );
                 }
-                case PARTIAL_REFUND, PARTIAL_RELEASE -> {
-                    // For partial refund/release, we need a partial release method
-                    // For now, log and handle in escrow service
-                    log.info("Admin resolved dispute {} with {} for job {}. Partial pct: {}",
-                            disputeId, request.getResolution(), jobId, request.getPartialRefundPct());
-                    // TODO: Implement partial release/refund in escrow service if needed
+                case RECRUITER_WARNING -> {
+                    nextJobStatus = ShortTermJobStatus.SUBMITTED;
+                    if (application != null) {
+                        nextApplicationStatus =
+                                com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus.SUBMITTED;
+                        application.setReviewDeadlineAt(LocalDateTime.now().plusHours(48));
+                        application.setLastActivityAt(LocalDateTime.now());
+                    }
+                    notificationService.createNotification(
+                            dispute.getRespondentId(),
+                            "Cảnh báo từ admin về luồng revision",
+                            "Admin đã cảnh báo hành vi yêu cầu sửa/hủy với công việc \"" + job.getTitle()
+                                    + "\". Hồ sơ đã được đưa lại trạng thái chờ review.",
+                            NotificationType.WARNING,
+                            String.valueOf(job.getId())
+                    );
                 }
-                case RESUBMIT_REQUIRED -> {
-                    // Change job status back to IN_PROGRESS
-                    ShortTermJob job = shortTermJobRepository.findById(jobId).orElse(null);
-                    if (job != null) {
-                        job.setStatus(ShortTermJobStatus.IN_PROGRESS);
-                        shortTermJobRepository.save(job);
-                        log.info("Admin resolved dispute {} with RESUBMIT_REQUIRED, job {} status reverted to IN_PROGRESS", disputeId, jobId);
+                case RESUBMIT_REQUIRED, NO_ACTION -> {
+                    nextJobStatus = ShortTermJobStatus.IN_PROGRESS;
+                    if (application != null) {
+                        nextApplicationStatus =
+                                com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus.REVISION_REQUIRED;
+                        application.setLastActivityAt(LocalDateTime.now());
                     }
                 }
-                case NO_ACTION -> {
-                    dispute.setStatus(Dispute.DisputeStatus.DISMISSED);
-                    log.info("Admin dismissed dispute {} with NO_ACTION for job {}", disputeId, jobId);
+                case PARTIAL_REFUND, PARTIAL_RELEASE, WORKER_PARTIAL -> {
+                    log.info("Dispute {} resolved with {}. Partial handling remains unchanged. pct={}",
+                            disputeId, request.getResolution(), request.getPartialRefundPct());
                 }
                 default -> log.warn("Unknown resolution type for dispute {}: {}", disputeId, request.getResolution());
             }
         } catch (Exception e) {
             log.error("Failed to process escrow for dispute {}: {}", disputeId, e.getMessage());
-            // Continue - dispute is still resolved even if escrow fails
+            throw new BadRequestException("Failed to process dispute resolution: " + e.getMessage());
+        }
+
+        if (application != null && nextApplicationStatus != null && nextApplicationStatus != previousApplicationStatus) {
+            application.setStatus(nextApplicationStatus);
+            applicationRepository.save(application);
+            auditService.logApplicationStatusChange(
+                    application.getId(),
+                    previousApplicationStatus,
+                    nextApplicationStatus,
+                    adminId,
+                    JobStatusAuditLog.AuditRole.ADMIN,
+                    request.getResolutionNotes()
+            );
+        }
+
+        if (nextJobStatus != previousJobStatus) {
+            job.setStatus(nextJobStatus);
+            shortTermJobRepository.save(job);
+            auditService.logShortTermJobStatusChange(
+                    job.getId(),
+                    previousJobStatus,
+                    nextJobStatus,
+                    adminId,
+                    JobStatusAuditLog.AuditRole.ADMIN,
+                    request.getResolutionNotes()
+            );
         }
 
         Dispute savedDispute = disputeRepository.save(dispute);
@@ -433,14 +530,14 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                     "Khiếu nại đã được giải quyết",
                     "Khiếu nại cho công việc đã được admin giải quyết. Xem chi tiết trong hệ thống.",
                     NotificationType.DISPUTE_RESOLVED,
-                    String.valueOf(jobId)
+                    String.valueOf(job.getId())
             );
             notificationService.createNotification(
                     dispute.getRespondentId(),
                     "Khiếu nại đã được giải quyết",
                     "Khiếu nại cho công việc đã được admin giải quyết. Xem chi tiết trong hệ thống.",
                     NotificationType.DISPUTE_RESOLVED,
-                    String.valueOf(jobId)
+                    String.valueOf(job.getId())
             );
         } catch (Exception e) {
             log.warn("Failed to send dispute resolution notifications for dispute {}: {}", disputeId, e.getMessage());
@@ -469,12 +566,13 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
         long paidCount = shortTermJobRepository.countByStatus(ShortTermJobStatus.PAID);
         long cancelledCount = shortTermJobRepository.countByStatus(ShortTermJobStatus.CANCELLED);
         long disputedCount = shortTermJobRepository.countByStatus(ShortTermJobStatus.DISPUTED);
+        long escalatedCount = shortTermJobRepository.countByStatus(ShortTermJobStatus.ESCALATED);
         long closedCount = shortTermJobRepository.countByStatus(ShortTermJobStatus.CLOSED);
         long rejectedCount = shortTermJobRepository.countByStatus(ShortTermJobStatus.REJECTED);
 
         long totalJobs = draftCount + pendingCount + publishedCount + appliedCount + inProgressCount
                 + submittedCount + underReviewCount + approvedCount + completedCount + paidCount
-                + cancelledCount + disputedCount + closedCount + rejectedCount;
+                + cancelledCount + disputedCount + escalatedCount + closedCount + rejectedCount;
 
         Map<String, Long> byStatus = new HashMap<>();
         byStatus.put("DRAFT", draftCount);
@@ -489,6 +587,7 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
         byStatus.put("PAID", paidCount);
         byStatus.put("CANCELLED", cancelledCount);
         byStatus.put("DISPUTED", disputedCount);
+        byStatus.put("ESCALATED", escalatedCount);
         byStatus.put("CLOSED", closedCount);
         byStatus.put("REJECTED", rejectedCount);
 
@@ -496,9 +595,11 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
         long openDisputes = disputeRepository.countByStatus(Dispute.DisputeStatus.OPEN);
         long investigatingDisputes = disputeRepository.countByStatus(Dispute.DisputeStatus.UNDER_INVESTIGATION);
         long awaitingDisputes = disputeRepository.countByStatus(Dispute.DisputeStatus.AWAITING_RESPONSE);
+        long escalatedDisputes = disputeRepository.countByStatus(Dispute.DisputeStatus.ESCALATED);
         byStatus.put("DISPUTE_OPEN", openDisputes);
         byStatus.put("DISPUTE_INVESTIGATING", investigatingDisputes);
         byStatus.put("DISPUTE_AWAITING", awaitingDisputes);
+        byStatus.put("DISPUTE_ESCALATED", escalatedDisputes);
 
         // Earnings stats from escrow and wallet transactions
         BigDecimal totalPlatformFee = jobEscrowRepository.getTotalPlatformFee();
@@ -516,7 +617,8 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                 .completedCount(completedCount)
                 .paidCount(paidCount)
                 .cancelledCount(cancelledCount)
-                .disputedCount(disputedCount + openDisputes + investigatingDisputes + awaitingDisputes)
+                .disputedCount(disputedCount + openDisputes + investigatingDisputes + awaitingDisputes + escalatedDisputes)
+                .escalatedCount(escalatedCount)
                 .closedCount(closedCount)
                 .rejectedCount(rejectedCount)
                 .byStatus(byStatus)
@@ -533,16 +635,14 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
     private void createAuditLog(ShortTermJob job, ShortTermJobStatus previousStatus,
                                 ShortTermJobStatus newStatus, Long adminId, String role, String reason) {
         try {
-            JobStatusAuditLog auditLog = JobStatusAuditLog.builder()
-                    .shortTermJobId(job.getId())
-                    .previousStatus(previousStatus.name())
-                    .newStatus(newStatus.name())
-                    .changedBy(null) // Admin entity not available here
-                    .changedByRole(JobStatusAuditLog.AuditRole.ADMIN)
-                    .reason(reason)
-                    .metadata("{\"adminId\":" + adminId + "}")
-                    .build();
-            auditLogRepository.save(auditLog);
+            auditService.logShortTermJobStatusChange(
+                    job.getId(),
+                    previousStatus,
+                    newStatus,
+                    adminId,
+                    JobStatusAuditLog.AuditRole.ADMIN,
+                    reason
+            );
         } catch (Exception e) {
             log.warn("Failed to create audit log for job {} status change: {}", job.getId(), e.getMessage());
         }

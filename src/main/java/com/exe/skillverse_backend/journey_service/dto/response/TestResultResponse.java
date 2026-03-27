@@ -24,6 +24,8 @@ public class TestResultResponse {
     private String skillGapsJson;
     private String strengthsJson;
     private String evaluationSummary;
+    private String detailedFeedback;
+    private String highlightKeywordsJson;
     private String userAnswersJson;
     private String correctAnswersJson;
     private Instant evaluatedAt;

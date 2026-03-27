@@ -84,6 +84,12 @@ public class Journey {
     private String subCategory;
 
     /**
+     * Industry name matching ExpertPromptConfig.industry (e.g., "Software Development", "Marketing")
+     */
+    @Column(name = "industry", length = 255)
+    private String industry;
+
+    /**
      * Job role for career type (e.g., "FRONTEND", "BACKEND")
      */
     @Column(name = "job_role", length = 100)
@@ -193,6 +199,7 @@ public class Journey {
      */
     public enum SkillLevel {
         BEGINNER,
+        ELEMENTARY,
         INTERMEDIATE,
         ADVANCED,
         EXPERT

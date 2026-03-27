@@ -560,49 +560,57 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
 
     private String buildEvaluationPrompt(String domain, TestSubmissionInfo submissionInfo) {
         StringBuilder prompt = new StringBuilder();
-        prompt.append("Ban la chuyen gia danh gia ky nang. Hay danh gia bai lam cua ung vien.\n\n");
-        prompt.append("Nganh: ").append(domain).append("\n");
-        prompt.append("Vi tri: ").append(submissionInfo.role() != null ? submissionInfo.role() : submissionInfo.targetField()).append("\n\n");
+        prompt.append("Bạn là chuyên gia đánh giá năng lực học tập và định hướng lộ trình kỹ năng.\n");
+        prompt.append("Hãy phân tích bài làm bằng TIẾNG VIỆT tự nhiên, rõ ràng, giàu thông tin, giọng văn khích lệ nhưng không sáo rỗng.\n");
+        prompt.append("Mục tiêu là giúp người học hiểu mình đang ở đâu, mạnh ở đâu và cần làm gì tiếp theo.\n\n");
 
-        prompt.append("## THONG TIN BAI KIEM TRA:\n");
-        prompt.append("- Tieu de: ").append(submissionInfo.testTitle()).append("\n");
-        prompt.append("- Linh vuc: ").append(submissionInfo.targetField()).append("\n\n");
+        prompt.append("Ngành: ").append(domain).append("\n");
+        prompt.append("Vị trí / trọng tâm: ")
+                .append(submissionInfo.role() != null ? submissionInfo.role() : submissionInfo.targetField())
+                .append("\n\n");
 
-        prompt.append("## CAU HOI VA DAP AN DUNG:\n");
+        prompt.append("## THÔNG TIN BÀI KIỂM TRA:\n");
+        prompt.append("- Tiêu đề: ").append(submissionInfo.testTitle()).append("\n");
+        prompt.append("- Lĩnh vực: ").append(submissionInfo.targetField()).append("\n\n");
+
+        prompt.append("## CÂU HỎI VÀ ĐÁP ÁN ĐÚNG:\n");
         for (QuestionInfo q : submissionInfo.questions()) {
             prompt.append("Q").append(q.questionId()).append(": ").append(q.question()).append("\n");
-            prompt.append("   Dap an dung: ").append(q.correctAnswer()).append("\n");
-            prompt.append("   Giai thich: ").append(q.explanation()).append("\n");
-            prompt.append("   Ky nang: ").append(q.skillArea()).append("\n");
-            prompt.append("   Do kho: ").append(q.difficulty()).append("\n\n");
+            prompt.append("   Đáp án đúng: ").append(q.correctAnswer()).append("\n");
+            prompt.append("   Giải thích: ").append(q.explanation()).append("\n");
+            prompt.append("   Kỹ năng: ").append(q.skillArea()).append("\n");
+            prompt.append("   Độ khó: ").append(q.difficulty()).append("\n\n");
         }
 
-        prompt.append("\n## CAU TRA LOI CUA NGUOI DUNG:\n");
+        prompt.append("\n## CÂU TRẢ LỜI CỦA NGƯỜI DÙNG:\n");
         for (var entry : submissionInfo.userAnswers().entrySet()) {
             prompt.append("Q").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
         }
 
-        prompt.append("\n## YEU CAU DANH GIA:\n\n");
-        prompt.append("Hay phan tich va dua ra:\n");
-        prompt.append("1. Diem so (0-100%): Tinh theo ty le cau dung\n");
-        prompt.append("2. Cap do danh gia: BEGINNER / INTERMEDIATE / ADVANCED / EXPERT\n");
-        prompt.append("   - BEGINNER (0-40%): Hieu co ban, can nhieu\n");
-        prompt.append("   - INTERMEDIATE (41-70%): Co nen tang, can thuc hanh them\n");
-        prompt.append("   - ADVANCED (71-85%): Kha tot, can nang cao chuyen sau\n");
-        prompt.append("   - EXPERT (86-100%): Xuat sac, co the mentor nguoi khac\n");
-        prompt.append("3. Ky nang con thieu (Skill Gaps): Nhung ky nang can phat trien\n");
-        prompt.append("4. Diem manh (Strengths): Nhung ky nang da vung\n");
-        prompt.append("5. Danh gia chi tiet: Nhan xet cu the ve tung ky nang\n");
-        prompt.append("6. Khuyen nghi: De xuat lich hoc tap cu the\n\n");
-        prompt.append("Dinh dang JSON:\n");
+        prompt.append("\n## YÊU CẦU ĐÁNH GIÁ:\n");
+        prompt.append("1. Chấm điểm dựa trên tỷ lệ đúng.\n");
+        prompt.append("2. Trả cấp độ: BEGINNER / INTERMEDIATE / ADVANCED / EXPERT.\n");
+        prompt.append("3. Xác định điểm mạnh và lỗ hổng kỹ năng thật cụ thể.\n");
+        prompt.append("4. Viết đánh giá tổng quan ngắn gọn nhưng giàu ý.\n");
+        prompt.append("5. Viết phản hồi chi tiết dưới dạng MARKDOWN rõ cấu trúc.\n");
+        prompt.append("6. Trong phản hồi chi tiết, hãy dùng **bold** cho các keyword quan trọng và nhắc tới mã câu hỏi như Q3, Q8 khi cần.\n");
+        prompt.append("7. Đề xuất hành động ưu tiên theo hướng thực tế, dễ bắt đầu.\n");
+        prompt.append("8. Giọng văn phải chuẩn tiếng Việt, hấp dẫn, mang tính khích lệ và định hướng.\n\n");
+
+        prompt.append("## CẤU TRÚC MARKDOWN CHO detailedFeedback:\n");
+        prompt.append("- Có các phần theo thứ tự: `## Bức tranh hiện tại`, `## Điểm mạnh nổi bật`, `## Kỹ năng cần ưu tiên`, `## Hành động đề xuất`, `## Lời nhắn từ Meowl`.\n");
+        prompt.append("- Mỗi phần nên có 2-5 bullet hoặc đoạn ngắn, tránh lan man.\n");
+        prompt.append("- Ưu tiên nêu đủ ngữ cảnh, tác động và bước hành động tiếp theo.\n\n");
+
+        prompt.append("Định dạng JSON:\n");
         prompt.append("{\n");
         prompt.append("  \"scorePercentage\": diem_so,\n");
         prompt.append("  \"evaluatedLevel\": \"BEGINNER/INTERMEDIATE/ADVANCED/EXPERT\",\n");
         prompt.append("  \"skillGaps\": [\n");
-        prompt.append("    {\"skill\": \"ten ky nang\", \"description\": \"mo ta chi tiet thieu hut\", \"priority\": \"high/medium/low\", \"howToImprove\": \"cach cai thien cu the\"}\n");
+        prompt.append("    {\"skill\": \"tên kỹ năng\", \"description\": \"mô tả thiếu hụt rõ ràng, có thể nhắc Qx\", \"priority\": \"high/medium/low\", \"howToImprove\": \"cách cải thiện cụ thể\"}\n");
         prompt.append("  ],\n");
         prompt.append("  \"strengths\": [\n");
-        prompt.append("    {\"skill\": \"ten ky nang\", \"description\": \"mo ta diem manh\", \"level\": \"vung/can cung co\"}\n");
+        prompt.append("    {\"skill\": \"tên kỹ năng\", \"description\": \"mô tả điểm mạnh rõ ràng, có thể nhắc Qx\", \"level\": \"vung/can_cung_co\"}\n");
         prompt.append("  ],\n");
         prompt.append("  \"detailedEvaluation\": {\n");
         prompt.append("    \"knowledgeScore\": diem_ly_thuyet,\n");
@@ -610,14 +618,16 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
         prompt.append("    \"problemSolvingScore\": diem_xu_ly_tinh_huong,\n");
         prompt.append("    \"analysisScore\": diem_tu_duy_phan_tich\n");
         prompt.append("  },\n");
-        prompt.append("  \"evaluationSummary\": \"Tom tat danh gia tong quan (2-3 cau)\",\n");
+        prompt.append("  \"evaluationSummary\": \"markdown ngắn 2-4 bullet hoặc 1 đoạn ngắn, có thể dùng **bold**\",\n");
+        prompt.append("  \"detailedFeedback\": \"markdown đầy đủ theo cấu trúc yêu cầu ở trên\",\n");
+        prompt.append("  \"highlightKeywords\": [\"keyword 1\", \"keyword 2\", \"keyword 3\"],\n");
         prompt.append("  \"recommendations\": [\n");
-        prompt.append("    \"Khuyen nghi 1 cu the\",\n");
-        prompt.append("    \"Khuyen nghi 2 cu the\",\n");
-        prompt.append("    \"Khuyen nghi 3 cu the\"\n");
+        prompt.append("    \"khuyến nghị 1 cụ thể\",\n");
+        prompt.append("    \"khuyến nghị 2 cụ thể\",\n");
+        prompt.append("    \"khuyến nghị 3 cụ thể\"\n");
         prompt.append("  ]\n");
         prompt.append("}\n\n");
-        prompt.append("Chi tra ve JSON hop le, khong co text khac.\n");
+        prompt.append("Chỉ trả về JSON hợp lệ, không kèm code block, không kèm giải thích ngoài JSON.\n");
 
         return prompt.toString();
     }

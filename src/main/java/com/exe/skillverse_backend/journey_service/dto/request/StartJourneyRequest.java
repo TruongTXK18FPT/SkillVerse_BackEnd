@@ -63,6 +63,12 @@ public class StartJourneyRequest {
     private String subCategory;
 
     /**
+     * Industry name matching ExpertPromptConfig.industry (e.g., "Software Development", "Marketing")
+     * Sent from frontend after mapping subCategory → industry display name
+     */
+    private String industry;
+
+    /**
      * Skills the user already knows (for tailoring the test)
      * Empty list means "I don't know anything yet"
      */

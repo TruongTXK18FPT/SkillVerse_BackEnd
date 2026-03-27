@@ -34,4 +34,10 @@ public interface DisputeRepository extends JpaRepository<Dispute, Long> {
 
     @Query("SELECT d FROM Dispute d WHERE d.status IN :statuses")
     Page<Dispute> findByStatusInPaginated(@Param("statuses") List<DisputeStatus> statuses, Pageable pageable);
+
+    // ==================== SLA / ESCALATION QUERIES ====================
+
+    // Find disputes where admin exceeded 5-day resolution SLA
+    @Query("SELECT d FROM Dispute d WHERE d.status IN ('OPEN','UNDER_INVESTIGATION','AWAITING_RESPONSE') AND d.adminResolutionDeadlineAt < :now AND d.status != 'ESCALATED'")
+    List<Dispute> findOverdueDisputes(@Param("now") java.time.LocalDateTime now);
 }

@@ -75,6 +75,7 @@ public class JobStatusAuditLog {
     public enum AuditRole {
         RECRUITER,
         CANDIDATE,
+        USER,
         ADMIN,
         SYSTEM
     }

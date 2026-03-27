@@ -10,13 +10,17 @@ public enum ShortTermJobStatus {
     PUBLISHED,          // Đã đăng, chờ ứng viên apply
     APPLIED,         // Có ứng viên đã apply
     IN_PROGRESS,     // Ứng viên đang làm việc
-    SUBMITTED,       // Ứng viên đã nộp bài (bàn giao)
-    UNDER_REVIEW,    // Recruiter đang review
-    APPROVED,        // Công việc được approve
+    SUBMITTED,            // Ứng viên đã nộp bài (bàn giao)
+    UNDER_REVIEW,         // Recruiter đang review
+    AUTO_APPROVED,        // Tự động duyệt (recruiter quá hạn 48h)
+    CANCELLATION_REQUESTED, // Recruiter yêu cầu hủy (≥5 revision)
+    AUTO_CANCELLED,        // System auto-cancel
+    DISPUTED,             // Đang tranh chấp
+    ESCALATED,            // Dispute/escalate lên super-admin
+    APPROVED,             // Công việc được approve
     REJECTED,        // Công việc bị reject, cần làm lại
     COMPLETED,       // Hoàn thành
     PAID,            // Đã thanh toán
     CANCELLED,       // Đã hủy
-    DISPUTED,        // Đang tranh chấp
     CLOSED           // Đã đóng (recruiter chủ động đóng job)
 }
