@@ -195,7 +195,7 @@ public class DatabaseSchemaFixer {
             "Ensure short-term job/application status columns are wide enough and CHECK constraints match SLA-aware enum values",
             this::patchJobSLAStatusCheckConstraints,
             this::verifyJobSLAStatusCheckConstraints);
-        applyPatch("PATCH-029-job-sla-cancellation-dispute-columns",
+        applyPatch("PATCH-029B-job-sla-cancellation-dispute-columns",
             "Add SLA deadline tracking, cancellation, and dispute eligibility columns to short_term_job_applications, short_term_jobs, and job_disputes",
             this::patchJobSLACancellationDisputeColumns,
             this::verifyJobSLACancellationDisputeColumns);
@@ -2410,47 +2410,83 @@ public class DatabaseSchemaFixer {
     private void patchJobSLACancellationDisputeColumns() {
         // short_term_job_applications: SLA deadline + cancellation + dispute fields
         jdbcTemplate.execute("""
-            ALTER TABLE short_term_job_applications
-                ADD COLUMN IF NOT EXISTS review_deadline_at TIMESTAMP,
-                ADD COLUMN IF NOT EXISTS response_deadline_at TIMESTAMP,
-                ADD COLUMN IF NOT EXISTS cancellation_requested_at TIMESTAMP,
-                ADD COLUMN IF NOT EXISTS cancellation_requested_by BIGINT,
-                ADD COLUMN IF NOT EXISTS dispute_eligibility_unlocked BOOLEAN NOT NULL DEFAULT FALSE,
-                ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'short_term_job_applications' AND column_name = 'review_deadline_at') THEN
+                    ALTER TABLE short_term_job_applications ADD COLUMN review_deadline_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'short_term_job_applications' AND column_name = 'response_deadline_at') THEN
+                    ALTER TABLE short_term_job_applications ADD COLUMN response_deadline_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'short_term_job_applications' AND column_name = 'cancellation_requested_at') THEN
+                    ALTER TABLE short_term_job_applications ADD COLUMN cancellation_requested_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'short_term_job_applications' AND column_name = 'cancellation_requested_by') THEN
+                    ALTER TABLE short_term_job_applications ADD COLUMN cancellation_requested_by BIGINT;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'short_term_job_applications' AND column_name = 'dispute_eligibility_unlocked') THEN
+                    ALTER TABLE short_term_job_applications ADD COLUMN dispute_eligibility_unlocked BOOLEAN NOT NULL DEFAULT FALSE;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'short_term_job_applications' AND column_name = 'last_activity_at') THEN
+                    ALTER TABLE short_term_job_applications ADD COLUMN last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+                END IF;
+            END $$;
         """);
 
         // short_term_jobs: cancellation + dispute deadline fields
         jdbcTemplate.execute("""
-            ALTER TABLE short_term_jobs
-                ADD COLUMN IF NOT EXISTS cancellation_request_count INT NOT NULL DEFAULT 0,
-                ADD COLUMN IF NOT EXISTS last_cancellation_request_at TIMESTAMP,
-                ADD COLUMN IF NOT EXISTS dispute_deadline_at TIMESTAMP
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'short_term_jobs' AND column_name = 'cancellation_request_count') THEN
+                    ALTER TABLE short_term_jobs ADD COLUMN cancellation_request_count INT NOT NULL DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'short_term_jobs' AND column_name = 'last_cancellation_request_at') THEN
+                    ALTER TABLE short_term_jobs ADD COLUMN last_cancellation_request_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'short_term_jobs' AND column_name = 'dispute_deadline_at') THEN
+                    ALTER TABLE short_term_jobs ADD COLUMN dispute_deadline_at TIMESTAMP;
+                END IF;
+            END $$;
         """);
 
         // job_disputes: SLA deadline + escalation fields
         jdbcTemplate.execute("""
-            ALTER TABLE job_disputes
-                ADD COLUMN IF NOT EXISTS admin_resolution_deadline_at TIMESTAMP,
-                ADD COLUMN IF NOT EXISTS escalation_level INT NOT NULL DEFAULT 0,
-                ADD COLUMN IF NOT EXISTS priority VARCHAR(20) NOT NULL DEFAULT 'NORMAL',
-                ADD COLUMN IF NOT EXISTS escalated_at TIMESTAMP
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'job_disputes' AND column_name = 'admin_resolution_deadline_at') THEN
+                    ALTER TABLE job_disputes ADD COLUMN admin_resolution_deadline_at TIMESTAMP;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'job_disputes' AND column_name = 'escalation_level') THEN
+                    ALTER TABLE job_disputes ADD COLUMN escalation_level INT NOT NULL DEFAULT 0;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'job_disputes' AND column_name = 'priority') THEN
+                    ALTER TABLE job_disputes ADD COLUMN priority VARCHAR(20) NOT NULL DEFAULT 'NORMAL';
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND table_name = 'job_disputes' AND column_name = 'escalated_at') THEN
+                    ALTER TABLE job_disputes ADD COLUMN escalated_at TIMESTAMP;
+                END IF;
+            END $$;
         """);
     }
 
     private boolean verifyJobSLACancellationDisputeColumns() {
-        return columnExists("short_term_job_applications", "review_deadline_at")
-                && columnExists("short_term_job_applications", "dispute_eligibility_unlocked")
-                && columnExists("short_term_jobs", "cancellation_request_count")
-                && columnExists("job_disputes", "escalation_level");
-    }
-
-    private boolean columnExists(String table, String column) {
-        String sql = """
-            SELECT 1 FROM information_schema.columns
-            WHERE table_name = ? AND column_name = ?
-            LIMIT 1
-        """;
-        return jdbcTemplate.queryForList(sql, table, column).size() > 0;
+        return hasColumn("short_term_job_applications", "review_deadline_at")
+                && hasColumn("short_term_job_applications", "dispute_eligibility_unlocked")
+                && hasColumn("short_term_jobs", "cancellation_request_count")
+                && hasColumn("job_disputes", "escalation_level");
     }
 
 
