@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.wallet_service.service;
 
-import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -12,13 +11,6 @@ public interface CoinService {
                         Long userId,
                         Long coinAmount,
                         String packageId);
-
-        CreatePaymentResponse purchaseCoinsWithPayOS(
-                        Long userId,
-                        Long coinAmount,
-                        String packageId,
-                        String returnUrl,
-                        String cancelUrl);
 
         void handleCoinPurchaseCallback(
                         Long userId,

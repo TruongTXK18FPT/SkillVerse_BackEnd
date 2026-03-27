@@ -53,6 +53,7 @@ public class BookingAutoCancelSchedulerImpl {
                         booking.getLearner().getId(),
                         booking.getPriceVnd(),
                         "Hoàn tiền do mentor không phản hồi",
+                    "BOOKING_REFUND",
                         "BOOKING_" + booking.getId());
             }
 

@@ -3,12 +3,14 @@ package com.exe.skillverse_backend.premium_service.repository;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
+import jakarta.persistence.LockModeType;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -50,6 +52,26 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
                 END
         """)
         Optional<UserSubscription> findCurrentActiveSubscription(@Param("user") User user);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @Query("""
+                SELECT s FROM UserSubscription s 
+                JOIN FETCH s.plan p
+                WHERE s.user = :user 
+                AND s.isActive = true 
+                AND s.status = 'ACTIVE'
+                AND s.startDate <= CURRENT_TIMESTAMP 
+                AND s.endDate > CURRENT_TIMESTAMP
+                ORDER BY CASE p.planType 
+                    WHEN 'PREMIUM_PLUS' THEN 1 
+                    WHEN 'PREMIUM_BASIC' THEN 2 
+                    WHEN 'RECRUITER_PRO' THEN 2 
+                    WHEN 'STUDENT_PACK' THEN 3 
+                    WHEN 'FREE_TIER' THEN 4 
+                    ELSE 5 
+                END
+        """)
+        Optional<UserSubscription> findCurrentActiveSubscriptionForUpdate(@Param("user") User user);
 
         /**
          * Check if user has an active RECRUITER_PRO subscription
@@ -159,11 +181,84 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
          */
         @Query("SELECT s FROM UserSubscription s WHERE s.autoRenew = true " +
                         "AND s.isActive = true AND s.status = :status " +
-                        "AND s.endDate BETWEEN :now AND :renewalWindow")
+                        "AND s.endDate <= :now")
         List<UserSubscription> findSubscriptionsForAutoRenewal(
                         @Param("now") LocalDateTime now,
-                        @Param("renewalWindow") LocalDateTime renewalWindow,
                         @Param("status") UserSubscription.SubscriptionStatus status);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @Query("SELECT s FROM UserSubscription s JOIN FETCH s.plan WHERE s.autoRenew = true " +
+                        "AND s.isActive = true AND s.status = :status " +
+                        "AND s.endDate <= :now")
+        List<UserSubscription> findSubscriptionsForAutoRenewalForUpdate(
+                        @Param("now") LocalDateTime now,
+                        @Param("status") UserSubscription.SubscriptionStatus status);
+
+        /**
+         * Find pending scheduled downgrades for a specific user.
+         */
+        @Query("SELECT s FROM UserSubscription s JOIN FETCH s.plan WHERE s.user = :user " +
+                        "AND s.status = 'PENDING' AND s.isActive = false " +
+                        "AND s.cancellationReason LIKE 'SCHEDULED_DOWNGRADE:%' " +
+                        "ORDER BY s.createdAt DESC")
+        List<UserSubscription> findPendingScheduledDowngrades(@Param("user") User user);
+
+        @Query("SELECT CASE WHEN COUNT(s) > 0 THEN true ELSE false END FROM UserSubscription s " +
+                        "WHERE s.user = :user AND s.status = 'PENDING' AND s.isActive = false " +
+                        "AND s.cancellationReason LIKE 'SCHEDULED_DOWNGRADE:%'")
+        Boolean hasPendingScheduledDowngrade(@Param("user") User user);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @Query("SELECT s FROM UserSubscription s JOIN FETCH s.plan WHERE s.user = :user " +
+                        "AND s.status = 'PENDING' AND s.isActive = false " +
+                        "AND s.cancellationReason LIKE 'SCHEDULED_DOWNGRADE:%' " +
+                        "ORDER BY s.createdAt DESC")
+        List<UserSubscription> findPendingScheduledDowngradesForUpdate(@Param("user") User user);
+
+        /**
+         * Find scheduled downgrade subscriptions that should become active now.
+         */
+        @Query("SELECT s FROM UserSubscription s JOIN FETCH s.user JOIN FETCH s.plan " +
+                        "WHERE s.status = 'PENDING' AND s.isActive = false " +
+                        "AND s.startDate <= :now " +
+                        "AND s.cancellationReason LIKE 'SCHEDULED_DOWNGRADE:%'")
+        List<UserSubscription> findDueScheduledDowngrades(@Param("now") LocalDateTime now);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @Query("SELECT s FROM UserSubscription s JOIN FETCH s.user JOIN FETCH s.plan " +
+                        "WHERE s.status = 'PENDING' AND s.isActive = false " +
+                        "AND s.startDate <= :now " +
+                        "AND s.cancellationReason LIKE 'SCHEDULED_DOWNGRADE:%'")
+        List<UserSubscription> findDueScheduledDowngradesForUpdate(@Param("now") LocalDateTime now);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @Query("SELECT s FROM UserSubscription s JOIN FETCH s.user JOIN FETCH s.plan " +
+                        "WHERE s.user = :user AND s.status = 'PENDING' AND s.isActive = false " +
+                        "AND s.startDate <= :now " +
+                        "AND s.cancellationReason LIKE 'SCHEDULED_DOWNGRADE:%' " +
+                        "ORDER BY s.startDate ASC")
+        List<UserSubscription> findDueScheduledDowngradesForUserForUpdate(
+                        @Param("user") User user,
+                        @Param("now") LocalDateTime now);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @Query("SELECT s FROM UserSubscription s JOIN FETCH s.plan " +
+                        "WHERE s.user = :user AND s.autoRenew = true " +
+                        "AND s.isActive = true AND s.status = 'ACTIVE' " +
+                        "AND s.endDate <= :now " +
+                        "ORDER BY s.endDate DESC")
+        List<UserSubscription> findDueAutoRenewSubscriptionsForUserForUpdate(
+                        @Param("user") User user,
+                        @Param("now") LocalDateTime now);
+
+        @Lock(LockModeType.PESSIMISTIC_WRITE)
+        @Query("SELECT s FROM UserSubscription s JOIN FETCH s.plan " +
+                        "WHERE s.user = :user AND s.isActive = true AND s.status = 'ACTIVE' " +
+                        "AND s.endDate <= :now " +
+                        "ORDER BY s.endDate DESC")
+        List<UserSubscription> findExpiredActiveSubscriptionsForUserForUpdate(
+                        @Param("user") User user,
+                        @Param("now") LocalDateTime now);
 
         /**
          * Find student subscriptions

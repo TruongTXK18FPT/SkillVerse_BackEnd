@@ -16,6 +16,4 @@ public class CoursePurchaseRequestDTO {
     private BigDecimal price; // Optional, price is fetched from DB
     private String currency;
     private String couponCode;
-    private String returnUrl;
-    private String cancelUrl;
 }

@@ -1,13 +1,12 @@
 package com.exe.skillverse_backend.premium_service.controller;
 
-import com.exe.skillverse_backend.premium_service.dto.request.CreateSubscriptionRequest;
 import com.exe.skillverse_backend.premium_service.dto.response.PremiumPlanResponse;
+import com.exe.skillverse_backend.premium_service.dto.response.SubscriptionCheckoutPreviewResponse;
 import com.exe.skillverse_backend.premium_service.dto.response.UserSubscriptionResponse;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,7 +20,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -70,19 +68,26 @@ public class PremiumController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    @PostMapping("/subscribe")
-    @Operation(summary = "Create premium subscription")
-    public ResponseEntity<UserSubscriptionResponse> createSubscription(
-            @Valid @RequestBody CreateSubscriptionRequest request,
+    @GetMapping("/subscription/checkout-preview")
+    @Operation(summary = "Xem trước số tiền cần thanh toán cho gói Premium")
+    public ResponseEntity<SubscriptionCheckoutPreviewResponse> getCheckoutPreview(
+            @RequestParam Long planId,
+            @Parameter(description = "Legacy compatibility flag. The backend ignores this value because pricing is resolved by backend policy.")
+            @RequestParam(required = false, defaultValue = "false") Boolean applyStudentDiscount,
+            @RequestParam(required = false) Long targetUserId,
             Authentication authentication) {
 
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
 
-        log.info("Creating subscription for user: {}", userId);
-        UserSubscriptionResponse response = premiumService.createSubscription(userId, request);
+        log.info("Generating checkout preview for user {} and plan {} (targetUserId: {})",
+                userId, planId, targetUserId);
 
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(premiumService.getCheckoutPreview(
+                userId,
+                planId,
+                applyStudentDiscount != null && applyStudentDiscount,
+                targetUserId));
     }
 
     @GetMapping("/subscription/current")
@@ -128,7 +133,7 @@ public class PremiumController {
     }
 
     @PutMapping("/subscription/cancel")
-    @Operation(summary = "Cancel subscription")
+    @Operation(summary = "Hủy gói Premium hiện tại")
     public ResponseEntity<String> cancelSubscription(
             @RequestParam(required = false) String reason,
             Authentication authentication) {
@@ -139,11 +144,11 @@ public class PremiumController {
         log.info("Cancelling subscription for user: {}", userId);
         premiumService.cancelSubscription(userId, reason != null ? reason : "User requested cancellation");
 
-        return ResponseEntity.ok("Subscription cancelled successfully");
+        return ResponseEntity.ok("Đã hủy gói Premium thành công.");
     }
 
     @GetMapping("/status")
-    @Operation(summary = "Check premium status")
+    @Operation(summary = "Kiểm tra trạng thái Premium")
     public ResponseEntity<Boolean> checkPremiumStatus(Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
@@ -155,9 +160,10 @@ public class PremiumController {
     }
 
     @PostMapping("/purchase-with-wallet")
-    @Operation(summary = "Purchase premium subscription with wallet cash")
+    @Operation(summary = "Thanh toán gói Premium bằng ví")
     public ResponseEntity<UserSubscriptionResponse> purchaseWithWallet(
             @RequestParam Long planId,
+            @Parameter(description = "Legacy compatibility flag. The backend ignores this value because pricing is resolved by backend policy.")
             @RequestParam(required = false, defaultValue = "false") Boolean applyStudentDiscount,
             @RequestParam(required = false) Long targetUserId,
             Authentication authentication) {
@@ -183,7 +189,7 @@ public class PremiumController {
     }
 
     @PostMapping("/subscription/enable-auto-renewal")
-    @Operation(summary = "Enable auto-renewal for subscription")
+    @Operation(summary = "Bật gia hạn tự động cho gói Premium")
     public ResponseEntity<?> enableAutoRenewal(Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
@@ -194,7 +200,7 @@ public class PremiumController {
             premiumService.enableAutoRenewal(userId);
             return ResponseEntity.ok(Map.of(
                 "success", true,
-                "message", "Auto-renewal enabled successfully. Your subscription will be automatically renewed."
+                "message", "Đã bật gia hạn tự động thành công. Hệ thống sẽ tự động xử lý kỳ gia hạn tiếp theo theo chính sách giá hiện hành."
             ));
         } catch (RuntimeException e) {
             log.error("Failed to enable auto-renewal: {}", e.getMessage());
@@ -206,7 +212,7 @@ public class PremiumController {
     }
 
     @PostMapping("/subscription/cancel-auto-renewal")
-    @Operation(summary = "Cancel auto-renewal (no refund, subscription continues until end date)")
+    @Operation(summary = "Tắt gia hạn tự động, gói hiện tại vẫn tiếp tục đến hết kỳ")
     public ResponseEntity<?> cancelAutoRenewal(Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
@@ -217,7 +223,7 @@ public class PremiumController {
             premiumService.cancelAutoRenewal(userId);
             return ResponseEntity.ok(Map.of(
                 "success", true,
-                "message", "Auto-renewal cancelled successfully. Your subscription will remain active until the end date."
+                "message", "Đã hủy gia hạn tự động thành công. Gói của bạn vẫn có hiệu lực đến hết kỳ hiện tại."
             ));
         } catch (RuntimeException e) {
             log.error("Failed to cancel auto-renewal: {}", e.getMessage());
@@ -229,7 +235,7 @@ public class PremiumController {
     }
 
     @PostMapping("/subscription/cancel-with-refund")
-    @Operation(summary = "Cancel subscription with refund (24h=100%, 1-3days=50%, >3days=0%)")
+    @Operation(summary = "Hủy gói Premium và áp dụng chính sách hoàn tiền hiện hành")
     public ResponseEntity<?> cancelSubscriptionWithRefund(
             @RequestParam(required = false) String reason,
             Authentication authentication) {
@@ -243,8 +249,8 @@ public class PremiumController {
             double refundAmount = premiumService.cancelSubscriptionWithRefund(userId, reason);
             
             String message = refundAmount > 0 
-                ? "Subscription cancelled successfully. Refund amount: " + refundAmount + " VND"
-                : "Auto-renewal cancelled. No refund available (over 3 days).";
+                ? "Đã hủy gói Premium thành công. Số tiền hoàn lại: " + refundAmount + " VND"
+                : "Đã hủy gia hạn tự động thành công. Quá 72 giờ nên không được hoàn tiền.";
             
             return ResponseEntity.ok(new RefundResponse(
                 true,
@@ -262,7 +268,7 @@ public class PremiumController {
     }
 
     @GetMapping("/subscription/refund-eligibility")
-    @Operation(summary = "Get refund eligibility details (percentage and amount)")
+    @Operation(summary = "Kiểm tra điều kiện hoàn tiền của gói Premium")
     public ResponseEntity<PremiumService.RefundEligibility> checkRefundEligibility(Authentication authentication) {
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long userId = Long.valueOf(jwt.getClaimAsString("userId"));

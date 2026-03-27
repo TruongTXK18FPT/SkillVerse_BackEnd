@@ -100,7 +100,12 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                 .currency("VND")
                 .planType(request.getPlanType())
                 .targetRole(targetRole)
-                .studentDiscountPercent(request.getStudentDiscountPercent())
+                .discountPercent(resolveRequestedDiscountPercent(
+                        request.getDiscountPercent(),
+                        request.getStudentDiscountPercent()))
+                .studentDiscountPercent(resolveRequestedDiscountPercent(
+                        request.getDiscountPercent(),
+                        request.getStudentDiscountPercent()))
                 .features(request.getFeatures())
                 .isActive(request.getIsActive())
                 .maxSubscribers(request.getMaxSubscribers())
@@ -153,7 +158,12 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
         plan.setDescription(request.getDescription());
         plan.setDurationMonths(request.getDurationMonths());
         plan.setPrice(request.getPrice());
-        plan.setStudentDiscountPercent(request.getStudentDiscountPercent());
+        plan.setDiscountPercent(resolveRequestedDiscountPercent(
+                request.getDiscountPercent(),
+                request.getStudentDiscountPercent()));
+        plan.setStudentDiscountPercent(resolveRequestedDiscountPercent(
+                request.getDiscountPercent(),
+                request.getStudentDiscountPercent()));
         plan.setFeatures(request.getFeatures());
         plan.setMaxSubscribers(request.getMaxSubscribers());
 
@@ -290,8 +300,10 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                 .currency(plan.getCurrency())
                 .planType(plan.getPlanType())
                 .targetRole(normalizeLegacyTargetRole(plan.getTargetRole()))
-                .studentDiscountPercent(plan.getStudentDiscountPercent())
-                .studentPrice(plan.getStudentPrice())
+                .discountPercent(plan.getDiscountPercent())
+                .discountedPrice(plan.getDiscountedPrice())
+                .studentDiscountPercent(plan.getDiscountPercent())
+                .studentPrice(plan.getDiscountedPrice())
                 .features(featuresList)
                 .isActive(plan.getIsActive())
                 .maxSubscribers(plan.getMaxSubscribers())
@@ -303,6 +315,16 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                 .updatedAt(plan.getUpdatedAt())
                 .featureLimits(featureLimits)
                 .build();
+    }
+
+    private BigDecimal resolveRequestedDiscountPercent(BigDecimal discountPercent, BigDecimal legacyDiscountPercent) {
+        if (discountPercent != null) {
+            return discountPercent;
+        }
+        if (legacyDiscountPercent != null) {
+            return legacyDiscountPercent;
+        }
+        return BigDecimal.ZERO;
     }
 
     private PremiumPlan.TargetRole normalizeLegacyTargetRole(PremiumPlan.TargetRole targetRole) {

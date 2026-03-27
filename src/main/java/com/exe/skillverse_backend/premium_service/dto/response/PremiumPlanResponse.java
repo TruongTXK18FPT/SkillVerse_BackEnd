@@ -47,10 +47,16 @@ public class PremiumPlanResponse {
     @Schema(description = "Target role for this plan (LEARNER, RECRUITER, PARENT)", example = "LEARNER")
     private PremiumPlan.TargetRole targetRole;
 
-    @Schema(description = "Student discount percentage", example = "50")
+    @Schema(description = "Discount percentage for the plan's configured target role", example = "15")
+    private BigDecimal discountPercent;
+
+    @Schema(description = "Discounted price for the plan's configured target role", example = "67150")
+    private BigDecimal discountedPrice;
+
+    @Schema(description = "Legacy alias for discountPercent, retained for backward compatibility", example = "50")
     private BigDecimal studentDiscountPercent;
 
-    @Schema(description = "Student price after discount", example = "39500")
+    @Schema(description = "Legacy alias for discountedPrice, retained for backward compatibility", example = "39500")
     private BigDecimal studentPrice;
 
     @Schema(description = "Plan features list")

@@ -13,8 +13,9 @@ import com.exe.skillverse_backend.parent_service.entity.enums.LinkStatus;
 import com.exe.skillverse_backend.parent_service.repository.ParentStudentLinkRepository;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.repository.PaymentTransactionRepository;
-import com.exe.skillverse_backend.premium_service.dto.request.CreateSubscriptionRequest;
+import com.exe.skillverse_backend.premium_service.constants.PremiumConstants;
 import com.exe.skillverse_backend.premium_service.dto.response.PremiumPlanResponse;
+import com.exe.skillverse_backend.premium_service.dto.response.SubscriptionCheckoutPreviewResponse;
 import com.exe.skillverse_backend.premium_service.dto.response.UserSubscriptionResponse;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.entity.SubscriptionCancellation;
@@ -26,12 +27,14 @@ import com.exe.skillverse_backend.premium_service.service.PremiumEmailService;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
+import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -52,6 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 @RequiredArgsConstructor
 public class PremiumServiceImpl implements PremiumService {
+        private static final DateTimeFormatter VIETNAMESE_DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
         private final PremiumPlanRepository premiumPlanRepository;
         private final UserSubscriptionRepository userSubscriptionRepository;
@@ -67,6 +71,11 @@ public class PremiumServiceImpl implements PremiumService {
 
         private static final List<String> STUDENT_EMAIL_DOMAINS = List.of(
                         ".edu", ".edu.vn", ".ac.uk", "university.", "student.", ".edu.au");
+        private static final Map<PremiumPlan.PlanType, Integer> LEARNER_PLAN_ORDER = Map.of(
+                        PremiumPlan.PlanType.FREE_TIER, 0,
+                        PremiumPlan.PlanType.STUDENT_PACK, 1,
+                        PremiumPlan.PlanType.PREMIUM_BASIC, 2,
+                        PremiumPlan.PlanType.PREMIUM_PLUS, 3);
 
         @Override
         @Transactional(readOnly = true)
@@ -147,74 +156,14 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         @Override
-        @Transactional
-        public UserSubscriptionResponse createSubscription(Long userId, CreateSubscriptionRequest request) {
-                log.info("Creating subscription for user {} with plan {}", userId, request.getPlanId());
-
-                User user = userRepository.findById(userId)
-                                .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
-
-                if (request.getTargetUserId() != null) {
-                        Long targetId = request.getTargetUserId();
-                        log.info("Parent {} is buying for child {}", userId, targetId);
-                        
-                        ParentStudentLink link = parentStudentLinkRepository.findByParentIdAndStudentId(userId, targetId)
-                                .orElseThrow(() -> new RuntimeException("No link found between parent and student"));
-                                
-                        if (link.getStatus() != LinkStatus.ACTIVE) {
-                                throw new RuntimeException("Link is not active");
-                        }
-                        
-                        user = userRepository.findById(targetId)
-                                .orElseThrow(() -> new RuntimeException("Target student not found"));
-                }
-
-                PremiumPlan plan = premiumPlanRepository.findById(request.getPlanId())
-                                .filter(p -> p.getIsActive())
-                                .orElseThrow(() -> new RuntimeException(
-                                                "Premium plan not found: " + request.getPlanId()));
-
-                validatePlanEligibility(user, plan);
-
-                Optional<UserSubscription> existingSubscription = userSubscriptionRepository
-                                .findCurrentActiveSubscription(user);
-
-                if (existingSubscription.isPresent()) {
-                        PremiumPlan existingPlan = existingSubscription.get().getPlan();
-                        if (existingPlan.getPlanType() != PremiumPlan.PlanType.FREE_TIER) {
-                                throw new RuntimeException("User already has an active subscription");
-                        }
-                        // SUSPEND (not cancel) FREE_TIER - will reactivate when premium expires
-                        UserSubscription freeTierSub = existingSubscription.get();
-                        freeTierSub.suspend("Upgrading to Premium - will reactivate when premium expires");
-                        userSubscriptionRepository.save(freeTierSub);
-                }
-
-                boolean isStudentEligible = request.getApplyStudentDiscount() &&
-                                isValidStudentEmail(user.getEmail());
-
-                LocalDateTime startDate = LocalDateTime.now();
-                // Use plan's actual duration (will be recalculated on activation)
-                int durationMonths = plan.getDurationMonths() != null && plan.getDurationMonths() > 0
-                                ? plan.getDurationMonths() : 1;
-                LocalDateTime endDate = startDate.plusMonths(durationMonths);
-
-                // Active FREE_TIER (if any) was cancelled above; proceed to create pending paid
-                // subscription
-
-                UserSubscription subscription = UserSubscription.builder()
-                                .user(user)
-                                .plan(plan)
-                                .startDate(startDate)
-                                .endDate(endDate)
-                                .isActive(false)
-                                .status(UserSubscription.SubscriptionStatus.PENDING)
-                                .isStudentSubscription(isStudentEligible)
-                                .autoRenew(request.getAutoRenew())
-                                .build();
-
-                subscription = userSubscriptionRepository.save(subscription);
-                return convertToUserSubscriptionResponse(subscription);
+        @Transactional(readOnly = true)
+        public SubscriptionCheckoutPreviewResponse getCheckoutPreview(
+                        Long buyerUserId,
+                        Long planId,
+                        boolean applyStudentDiscount,
+                        Long targetUserId) {
+                return convertToCheckoutPreviewResponse(
+                                buildCheckoutPreview(buyerUserId, planId, applyStudentDiscount, targetUserId));
         }
 
         @Override
@@ -222,9 +171,15 @@ public class PremiumServiceImpl implements PremiumService {
         public Optional<UserSubscriptionResponse> getCurrentSubscription(Long userId) {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
+                reconcileCurrentSubscriptionState(user, "request:current-subscription");
                 Optional<UserSubscription> activeSub = userSubscriptionRepository.findCurrentActiveSubscription(user);
                 if (activeSub.isPresent()) {
-                        return activeSub.map(this::convertToUserSubscriptionResponse);
+                        UserSubscription scheduledDowngrade = userSubscriptionRepository
+                                        .findPendingScheduledDowngrades(user)
+                                        .stream()
+                                        .findFirst()
+                                        .orElse(null);
+                        return activeSub.map(subscription -> convertToUserSubscriptionResponse(subscription, scheduledDowngrade));
                 }
 
                 // Auto-recovery: try to activate PENDING subscriptions with completed payments
@@ -259,6 +214,7 @@ public class PremiumServiceImpl implements PremiumService {
                                 .orElseThrow(() -> new RuntimeException("No active subscription found"));
                 subscription.cancel(reason);
                 userSubscriptionRepository.save(subscription);
+                assignFreeTierIfMissing(userId);
         }
 
         @Override
@@ -290,16 +246,39 @@ public class PremiumServiceImpl implements PremiumService {
                         }
                 }
 
-                // Recalculate dates from activation time to give user full duration
                 LocalDateTime activationTime = LocalDateTime.now();
                 PremiumPlan plan = subscription.getPlan();
-                int durationMonths = (plan != null && plan.getDurationMonths() != null && plan.getDurationMonths() > 0)
-                                ? plan.getDurationMonths() : 1;
+                UserSubscription upgradeSource = resolveUpgradeSourceSubscription(subscription, paymentTransaction);
+                LocalDateTime targetEndDate = null;
+                Boolean inheritedAutoRenew = null;
+
+                if (upgradeSource != null) {
+                        LocalDateTime previousRenewalDate = upgradeSource.getEndDate();
+                        inheritedAutoRenew = upgradeSource.getAutoRenew();
+                        upgradeSource.cancel("Upgraded to " + plan.getDisplayName());
+                        upgradeSource.setEndDate(activationTime);
+                        userSubscriptionRepository.save(upgradeSource);
+                        if (shouldResetUpgradeCycle(paymentTransaction, subscription.getUser(), upgradeSource.getPlan(), plan)) {
+                                targetEndDate = calculateEndDate(activationTime, plan.getDurationMonths());
+                        } else {
+                                targetEndDate = previousRenewalDate != null && previousRenewalDate.isAfter(activationTime)
+                                                ? previousRenewalDate
+                                                : calculateEndDate(activationTime, plan.getDurationMonths());
+                        }
+                } else {
+                        targetEndDate = calculateEndDate(activationTime, plan.getDurationMonths());
+                }
+
                 subscription.setStartDate(activationTime);
-                subscription.setEndDate(activationTime.plusMonths(durationMonths));
+                subscription.setEndDate(targetEndDate);
                 subscription.setIsActive(true);
                 subscription.setStatus(UserSubscription.SubscriptionStatus.ACTIVE);
                 subscription.setPaymentTransaction(paymentTransaction);
+                if (inheritedAutoRenew != null) {
+                        subscription.setAutoRenew(inheritedAutoRenew);
+                }
+                captureCurrentCyclePaidAmount(subscription, paymentTransaction.getAmount());
+                ensureRenewalSnapshot(subscription);
 
                 UserSubscription savedSubscription = userSubscriptionRepository.save(subscription);
 
@@ -314,14 +293,17 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         @Override
+        @Transactional
         public boolean hasActivePremiumSubscription(Long userId) {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
+                reconcileCurrentSubscriptionState(user, "request:premium-status");
                 // Premium means active non-free subscription
                 return userSubscriptionRepository.hasActiveNonFreeSubscription(user, LocalDateTime.now());
         }
 
         @Override
+        @Deprecated
         public boolean isValidStudentEmail(String email) {
                 if (email == null || email.isEmpty()) {
                         return false;
@@ -335,33 +317,56 @@ public class PremiumServiceImpl implements PremiumService {
         @Transactional
         public void notifyExpiringSubscriptions() {
                 LocalDateTime now = LocalDateTime.now();
-                LocalDateTime start = now.plusDays(3).withHour(0).withMinute(0).withSecond(0);
-                LocalDateTime end = now.plusDays(3).withHour(23).withMinute(59).withSecond(59);
+                LocalDateTime start = now.plusDays(PremiumConstants.EXPIRY_NOTIFICATION_DAYS)
+                                .withHour(0).withMinute(0).withSecond(0);
+                LocalDateTime end = now.plusDays(PremiumConstants.EXPIRY_NOTIFICATION_DAYS)
+                                .withHour(23).withMinute(59).withSecond(59);
 
                 List<UserSubscription> expiring = userSubscriptionRepository.findSubscriptionsExpiringSoon(start, end);
 
                 for (UserSubscription sub : expiring) {
+                        BigDecimal renewalAmount = resolveRenewalAmount(sub);
+                        if (Boolean.TRUE.equals(sub.getAutoRenew())) {
+                                boolean hasEnoughForRenewal = walletService.hasAvailableCash(
+                                                sub.getUser().getId(),
+                                                renewalAmount);
+                                if (!hasEnoughForRenewal) {
+                                        notificationService.createNotification(
+                                                        sub.getUser().getId(),
+                                                        "Số dư ví chưa đủ để gia hạn tự động",
+                                                        "Gói Premium của bạn sẽ hết hạn vào ngày "
+                                                                        + sub.getEndDate().toLocalDate()
+                                                                        + ". Hiện số dư ví chưa đủ cho khoản gia hạn "
+                                                                        + renewalAmount.toPlainString()
+                                                                        + " VND. Vui lòng nạp thêm để gia hạn tự động không bị gián đoạn.",
+                                                        NotificationType.WARNING,
+                                                        String.valueOf(sub.getId()));
+                                }
+                                continue;
+                        }
+
+                        String message = "Gói Premium của bạn sẽ hết hạn vào ngày "
+                                        + sub.getEndDate().toLocalDate()
+                                        + ". Hãy gia hạn để không bị gián đoạn.";
                         notificationService.createNotification(
                                         sub.getUser().getId(),
                                         "Gói Premium sắp hết hạn",
-                                        "Gói Premium của bạn sẽ hết hạn vào ngày " + sub.getEndDate().toLocalDate()
-                                                        + ". Hãy gia hạn để không bị gián đoạn.",
+                                        message,
                                         NotificationType.PREMIUM_EXPIRATION,
                                         String.valueOf(sub.getId()));
                 }
         }
 
         @Override
-        @Scheduled(cron = "0 0 2 * * ?") // Run at 2 AM daily
+        @Scheduled(cron = "0 * * * * ?") // Run every minute
         @Transactional
         public void processAutoRenewals() {
                 log.info("🔄 Starting auto-renewal process...");
 
                 LocalDateTime now = LocalDateTime.now();
-                LocalDateTime renewalWindow = now.plusDays(3); // Renew 3 days before expiry
 
                 List<UserSubscription> subscriptionsToRenew = userSubscriptionRepository
-                                .findSubscriptionsForAutoRenewal(now, renewalWindow, UserSubscription.SubscriptionStatus.ACTIVE);
+                                .findSubscriptionsForAutoRenewalForUpdate(now, UserSubscription.SubscriptionStatus.ACTIVE);
 
                 log.info("Found {} subscriptions eligible for auto-renewal", subscriptionsToRenew.size());
 
@@ -370,7 +375,7 @@ public class PremiumServiceImpl implements PremiumService {
 
                 for (UserSubscription subscription : subscriptionsToRenew) {
                         try {
-                                processAutoRenewal(subscription);
+                                processAutoRenewal(subscription, "cron:auto-renewal");
                                 successCount++;
                         } catch (Exception e) {
                                 log.error("Failed to auto-renew subscription {} for user {}: {}",
@@ -385,23 +390,42 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         private void processAutoRenewal(UserSubscription subscription) {
-                log.info("Processing auto-renewal for subscription {} (user: {})",
+                processAutoRenewal(subscription, "internal:auto-renewal");
+        }
+
+        private void processAutoRenewal(UserSubscription subscription, String trigger) {
+                log.info("Processing auto-renewal for subscription {} (user: {}) via {}",
                                 subscription.getId(),
-                                subscription.getUser().getId());
+                                subscription.getUser().getId(),
+                                trigger);
 
                 User user = subscription.getUser();
                 PremiumPlan currentPlan = subscription.getPlan();
 
-                // Calculate price with student discount if applicable
-                BigDecimal price = currentPlan.getPrice();
-                if (subscription.getIsStudentSubscription()) {
-                        price = price.multiply(BigDecimal.valueOf(0.8)); // 20% student discount
+                if (Boolean.TRUE.equals(userSubscriptionRepository.hasPendingScheduledDowngrade(user))) {
+                        subscription.setAutoRenew(false);
+                        userSubscriptionRepository.save(subscription);
+                        log.info("Skipping auto-renewal for subscription {} via {} because a scheduled downgrade is pending",
+                                        subscription.getId(),
+                                        trigger);
+                        return;
+                }
+
+                BigDecimal price = resolveRenewalAmount(subscription);
+
+                if (!walletService.hasAvailableCash(user.getId(), price)) {
+                        handleAutoRenewalInsufficientBalance(
+                                        subscription,
+                                        price,
+                                        "Wallet balance is not enough for auto-renewal");
+                        return;
                 }
 
                 // Try to deduct from wallet
                 try {
                         walletService.deductCash(user.getId(), price,
                                         "Gia hạn tự động gói " + currentPlan.getDisplayName(),
+                                        WalletTransaction.TransactionType.PURCHASE_PREMIUM,
                                         "AUTO_RENEWAL",
                                         subscription.getId().toString());
 
@@ -414,30 +438,132 @@ public class PremiumServiceImpl implements PremiumService {
                         subscription.setEndDate(newEndDate);
                         subscription.setIsActive(true);
                         subscription.setStatus(UserSubscription.SubscriptionStatus.ACTIVE);
+                        relockRenewalSnapshot(subscription, LocalDateTime.now());
+                        captureCurrentCyclePaidAmount(subscription, price);
                         // Keep autoRenew = true for next cycle
 
                         userSubscriptionRepository.save(subscription);
 
-                        log.info("✅ Auto-renewed subscription {} until {}",
+                        log.info("✅ Auto-renewed subscription {} until {} via {}",
                                         subscription.getId(),
-                                        newEndDate);
+                                        newEndDate,
+                                        trigger);
+
+                        notificationService.createNotification(
+                                        user.getId(),
+                                        "Gia hạn Premium thành công",
+                                        "Gói " + currentPlan.getDisplayName() + " của bạn đã được gia hạn thành công với số tiền "
+                                                        + price.toPlainString()
+                                                        + " VND. Kỳ hiện tại có hiệu lực đến ngày "
+                                                        + newEndDate.toLocalDate() + ".",
+                                        NotificationType.PREMIUM_PURCHASE,
+                                        String.valueOf(subscription.getId()));
 
                         // Send auto-renewal success email
                         premiumEmailService.sendAutoRenewalSuccessEmail(user, subscription, price);
 
-                } catch (Exception e) {
-                        log.error("❌ Auto-renewal failed for subscription {}: Insufficient balance. Disabling auto-renewal.",
-                                        subscription.getId());
+                } catch (RuntimeException e) {
+                        if (isInsufficientBalanceError(e)) {
+                                handleAutoRenewalInsufficientBalance(subscription, price, e.getMessage());
+                                return;
+                        }
 
-                        // Disable auto-renewal if payment fails
-                        subscription.setAutoRenew(false);
-                        userSubscriptionRepository.save(subscription);
+                        log.error("❌ Auto-renewal encountered an operational error for subscription {} via {}. Keeping auto-renewal enabled. Error: {}",
+                                        subscription.getId(),
+                                        trigger,
+                                        e.getMessage(),
+                                        e);
+                        throw e;
+                }
+        }
 
-                        // TODO: Send notification to user about failed auto-renewal
+        private void handleAutoRenewalInsufficientBalance(
+                        UserSubscription subscription,
+                        BigDecimal renewalAmount,
+                        String reason) {
+                User user = subscription.getUser();
+                PremiumPlan plan = subscription.getPlan();
+
+                log.warn("⚠️ Auto-renewal failed for subscription {} due to insufficient wallet balance. userId={}, amount={}, reason={}",
+                                subscription.getId(),
+                                user.getId(),
+                                renewalAmount,
+                                reason);
+
+                subscription.setAutoRenew(false);
+                userSubscriptionRepository.save(subscription);
+
+                notificationService.createNotification(
+                                user.getId(),
+                                "Gia hạn tự động thất bại",
+                                "Không thể gia hạn tự động gói " + plan.getDisplayName()
+                                                + " vì ví không đủ số dư cho khoản "
+                                                + renewalAmount.toPlainString()
+                                                + " VND. Hãy nạp thêm tiền trước ngày "
+                                                + subscription.getEndDate().toLocalDate()
+                                                + " nếu bạn muốn tiếp tục sử dụng gói này.",
+                                NotificationType.WARNING,
+                                String.valueOf(subscription.getId()));
+
+                premiumEmailService.sendAutoRenewalFailedEmail(user, subscription, renewalAmount);
+        }
+
+        private boolean isInsufficientBalanceError(RuntimeException error) {
+                if (error.getMessage() == null) {
+                        return false;
+                }
+
+                String normalized = error.getMessage().toLowerCase();
+                return normalized.contains("số dư")
+                                || normalized.contains("khả dụng không đủ")
+                                || normalized.contains("insufficient");
+        }
+
+        private void reconcileCurrentSubscriptionState(User user, String trigger) {
+                if (user == null) {
+                        return;
+                }
+
+                LocalDateTime now = LocalDateTime.now();
+
+                List<UserSubscription> dueScheduled = userSubscriptionRepository
+                                .findDueScheduledDowngradesForUserForUpdate(user, now);
+                if (!dueScheduled.isEmpty()) {
+                        activateScheduledDowngrade(dueScheduled.get(0), now, trigger);
+                        return;
+                }
+
+                List<UserSubscription> dueAutoRenew = userSubscriptionRepository
+                                .findDueAutoRenewSubscriptionsForUserForUpdate(user, now);
+                if (!dueAutoRenew.isEmpty()) {
+                        log.info("Reconciling due auto-renewal for user {} via {}", user.getId(), trigger);
+                        processAutoRenewal(dueAutoRenew.get(0), trigger);
+                        return;
+                }
+
+                List<UserSubscription> expiredActive = userSubscriptionRepository
+                                .findExpiredActiveSubscriptionsForUserForUpdate(user, now);
+                if (!expiredActive.isEmpty()) {
+                        log.info("Reconciling expired subscription state for user {} via {}", user.getId(), trigger);
+                        for (UserSubscription subscription : expiredActive) {
+                                subscription.expire();
+                                userSubscriptionRepository.save(subscription);
+                        }
+                        assignFreeTierIfMissing(user.getId());
                 }
         }
 
         private static final int BATCH_SIZE = 500;
+
+        @Scheduled(cron = "0 * * * * ?")
+        @Transactional
+        public void processScheduledDowngradeActivations() {
+                LocalDateTime now = LocalDateTime.now();
+                int activatedScheduledDowngrades = activateDueScheduledDowngrades(now);
+                if (activatedScheduledDowngrades == 0) {
+                        log.debug("No scheduled downgrades activated at {}", now);
+                }
+        }
 
         @Override
         @Scheduled(cron = "0 0 * * * ?")
@@ -452,7 +578,7 @@ public class PremiumServiceImpl implements PremiumService {
                 
                 // Step 2: Early exit if nothing expired - skip unnecessary processing
                 if (expiredCount == 0) {
-                        log.debug("No subscriptions expired this hour, skipping Free Tier reactivation");
+                        log.debug("No subscriptions expired this hour");
                         return;
                 }
                 
@@ -514,6 +640,64 @@ public class PremiumServiceImpl implements PremiumService {
                                 expiredCount, totalReactivated, totalCreated, now);
         }
 
+        private int activateDueScheduledDowngrades(LocalDateTime now) {
+                List<UserSubscription> dueScheduled = userSubscriptionRepository.findDueScheduledDowngradesForUpdate(now);
+                if (dueScheduled.isEmpty()) {
+                        return 0;
+                }
+
+                int activatedCount = 0;
+                for (UserSubscription scheduled : dueScheduled) {
+                        if (activateScheduledDowngrade(scheduled, now, "cron:scheduled-downgrade")) {
+                                activatedCount++;
+                        }
+                }
+
+                if (activatedCount > 0) {
+                        log.info("Activated {} scheduled downgrade subscriptions", activatedCount);
+                }
+                return activatedCount;
+        }
+
+        private boolean activateScheduledDowngrade(
+                        UserSubscription scheduled,
+                        LocalDateTime now,
+                        String trigger) {
+                User recipient = scheduled.getUser();
+
+                Boolean hasActiveNonFree = userSubscriptionRepository.hasActiveNonFreeSubscription(recipient, now);
+                if (Boolean.TRUE.equals(hasActiveNonFree)) {
+                        return false;
+                }
+
+                if (!Boolean.TRUE.equals(scheduled.getPlan().getIsActive())) {
+                        log.warn("Skipping scheduled downgrade activation for subscription {} because target plan is inactive",
+                                        scheduled.getId());
+                        return false;
+                }
+
+                scheduled.setIsActive(true);
+                scheduled.setStatus(UserSubscription.SubscriptionStatus.ACTIVE);
+                scheduled.setCancellationReason(null);
+                if (scheduled.getCurrentCyclePaidAmountSnapshot() == null) {
+                        captureCurrentCyclePaidAmount(scheduled, BigDecimal.ZERO);
+                }
+                ensureRenewalSnapshot(scheduled);
+                userSubscriptionRepository.save(scheduled);
+
+                log.info("Activated scheduled downgrade {} for user {} via {}",
+                                scheduled.getId(), recipient.getId(), trigger);
+
+                notificationService.createNotification(
+                                recipient.getId(),
+                                "Gói Premium mới đã có hiệu lực",
+                                "Gói " + scheduled.getPlan().getDisplayName()
+                                                + " đã được kích hoạt theo lịch chuyển gói.",
+                                NotificationType.PREMIUM_PURCHASE,
+                                String.valueOf(scheduled.getId()));
+                return true;
+        }
+
         /**
          * Create new FREE_TIER subscription using reference only (no full entity load)
          */
@@ -528,8 +712,11 @@ public class PremiumServiceImpl implements PremiumService {
                         .endDate(endDate)
                         .isActive(true)
                         .status(UserSubscription.SubscriptionStatus.ACTIVE)
+                        .discountedPricing(false)
+                        .isStudentSubscription(false)
                         .autoRenew(false)
                         .build();
+                captureCurrentCyclePaidAmount(freeSub, BigDecimal.ZERO);
                 
                 userSubscriptionRepository.save(freeSub);
         }
@@ -551,6 +738,9 @@ public class PremiumServiceImpl implements PremiumService {
                                 freeSub.setStatus(UserSubscription.SubscriptionStatus.ACTIVE);
                                 freeSub.setStartDate(now);
                                 freeSub.setEndDate(now.plusYears(100));
+                                freeSub.setDiscountedPricing(false);
+                                freeSub.setIsStudentSubscription(false);
+                                captureCurrentCyclePaidAmount(freeSub, BigDecimal.ZERO);
                                 userSubscriptionRepository.save(freeSub);
                                 log.debug("Reactivated Free Tier for user {}", userId);
                         }
@@ -569,8 +759,11 @@ public class PremiumServiceImpl implements PremiumService {
                                 .endDate(now.plusYears(100))
                                 .isActive(true)
                                 .status(UserSubscription.SubscriptionStatus.ACTIVE)
+                                .discountedPricing(false)
+                                .isStudentSubscription(false)
                                 .autoRenew(false)
                                 .build();
+                captureCurrentCyclePaidAmount(freeSub, BigDecimal.ZERO);
                 
                 userSubscriptionRepository.save(freeSub);
                 log.debug("Created new Free Tier for user {}", userId);
@@ -603,6 +796,7 @@ public class PremiumServiceImpl implements PremiumService {
         public UserSubscriptionResponse ensureActiveSubscriptionOrFree(Long userId) {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
+                reconcileCurrentSubscriptionState(user, "request:ensure-active-or-free");
 
                 return userSubscriptionRepository.findCurrentActiveSubscription(user)
                                 .map(this::convertToUserSubscriptionResponse)
@@ -629,8 +823,10 @@ public class PremiumServiceImpl implements PremiumService {
                                 .currency(plan.getCurrency())
                                 .planType(plan.getPlanType())
                                 .targetRole(plan.getTargetRole())
-                                .studentPrice(plan.getStudentPrice())
-                                .studentDiscountPercent(plan.getStudentDiscountPercent())
+                                .discountPercent(plan.getDiscountPercent())
+                                .discountedPrice(plan.getDiscountedPrice())
+                                .studentPrice(plan.getDiscountedPrice())
+                                .studentDiscountPercent(plan.getDiscountPercent())
                                 .features(parsePlanFeatures(plan.getFeatures()))
                                 .isActive(plan.getIsActive())
                                 .maxSubscribers(plan.getMaxSubscribers())
@@ -640,7 +836,525 @@ public class PremiumServiceImpl implements PremiumService {
                                 .build();
         }
 
+        private SubscriptionCheckoutPreviewResponse convertToCheckoutPreviewResponse(
+                        CheckoutPreviewDetails checkoutPreview) {
+                return SubscriptionCheckoutPreviewResponse.builder()
+                                .eligible(checkoutPreview.eligible())
+                                .upgrade(checkoutPreview.upgrade())
+                                .samePlan(checkoutPreview.samePlan())
+                                .downgrade(checkoutPreview.downgrade())
+                                .buyerUserId(checkoutPreview.buyer().getId())
+                                .targetUserId(checkoutPreview.recipient().getId())
+                                .currentSubscriptionId(checkoutPreview.currentActiveSubscription()
+                                                .map(UserSubscription::getId)
+                                                .orElse(null))
+                                .currentPlan(checkoutPreview.currentActiveSubscription()
+                                                .map(UserSubscription::getPlan)
+                                                .map(this::convertToPremiumPlanResponse)
+                                                .orElse(null))
+                                .targetPlan(convertToPremiumPlanResponse(checkoutPreview.targetPlan()))
+                                .fullPrice(scaleCurrency(checkoutPreview.targetPlan().getPrice()))
+                                .effectivePrice(checkoutPreview.effectivePrice())
+                                .amountDue(checkoutPreview.amountDue())
+                                .currentPlanCredit(checkoutPreview.currentPlanCredit())
+                                .proratedTargetPrice(checkoutPreview.proratedTargetPrice())
+                                .remainingDays(checkoutPreview.remainingDays())
+                                .nextRenewalDate(checkoutPreview.nextRenewalDate())
+                                .currency(checkoutPreview.targetPlan().getCurrency())
+                                .pricingMode(checkoutPreview.pricingMode())
+                                .message(checkoutPreview.message())
+                                .build();
+        }
+
+        private CheckoutPreviewDetails buildCheckoutPreview(
+                        Long buyerUserId,
+                        Long planId,
+                        boolean legacyApplyStudentDiscount,
+                        Long targetUserId) {
+                if (legacyApplyStudentDiscount) {
+                        log.debug(
+                                        "Ignoring legacy applyStudentDiscount=true for buyer {} and plan {} because pricing is resolved by backend policy.",
+                                        buyerUserId,
+                                        planId);
+                }
+                User buyer = userRepository.findById(buyerUserId)
+                                .orElseThrow(() -> new RuntimeException("Buyer not found with ID: " + buyerUserId));
+                User recipient = resolveRecipientForPurchase(buyer, targetUserId);
+                PremiumPlan targetPlan = premiumPlanRepository.findById(planId)
+                                .filter(PremiumPlan::getIsActive)
+                                .orElseThrow(() -> new RuntimeException("Premium plan not found: " + planId));
+
+                validatePlanEligibility(recipient, targetPlan);
+
+                Optional<UserSubscription> currentActiveSubscription = userSubscriptionRepository
+                                .findCurrentActiveSubscription(recipient)
+                                .filter(subscription -> Boolean.TRUE.equals(subscription.getIsActive()))
+                                .filter(subscription -> subscription.getStatus() == UserSubscription.SubscriptionStatus.ACTIVE);
+
+                boolean discountApplied = isConfiguredDiscountEligible(targetPlan, recipient);
+                BigDecimal effectivePrice = resolveEffectivePlanPrice(targetPlan, recipient);
+
+                if (currentActiveSubscription.isEmpty()
+                                || currentActiveSubscription.get().getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
+                        return new CheckoutPreviewDetails(
+                                        true,
+                                        false,
+                                        false,
+                                        false,
+                                        buyer,
+                                        recipient,
+                                        targetPlan,
+                                        currentActiveSubscription,
+                                        discountApplied,
+                                        effectivePrice,
+                                        effectivePrice,
+                                        BigDecimal.ZERO,
+                                        BigDecimal.ZERO,
+                                        0L,
+                                        null,
+                                        SubscriptionCheckoutPreviewResponse.PricingMode.FULL_PURCHASE,
+                                        "Thanh toán toàn bộ gói Premium.");
+                }
+
+                UserSubscription currentSubscription = currentActiveSubscription.get();
+                PremiumPlan currentPlan = currentSubscription.getPlan();
+                BigDecimal currentEffectivePrice = resolvePlanCyclePrice(
+                                currentPlan,
+                                resolveDiscountApplied(currentSubscription));
+
+                if (currentPlan.getId().equals(targetPlan.getId())) {
+                        return new CheckoutPreviewDetails(
+                                        false,
+                                        false,
+                                        true,
+                                        false,
+                                        buyer,
+                                        recipient,
+                                        targetPlan,
+                                        currentActiveSubscription,
+                                        discountApplied,
+                                        effectivePrice,
+                                        BigDecimal.ZERO,
+                                        BigDecimal.ZERO,
+                                        BigDecimal.ZERO,
+                                        currentSubscription.getDaysRemaining(),
+                                        currentSubscription.getEndDate(),
+                                        SubscriptionCheckoutPreviewResponse.PricingMode.CURRENT_PLAN,
+                                        "Bạn đang ở đúng gói này rồi.");
+                }
+
+                int planDirection = comparePlanProgression(currentPlan, targetPlan);
+                if (planDirection <= 0) {
+                        if (planDirection < 0) {
+                                return new CheckoutPreviewDetails(
+                                                true,
+                                                false,
+                                                false,
+                                                true,
+                                                buyer,
+                                                recipient,
+                                                targetPlan,
+                                                currentActiveSubscription,
+                                                discountApplied,
+                                                effectivePrice,
+                                                BigDecimal.ZERO,
+                                                BigDecimal.ZERO,
+                                                effectivePrice,
+                                                currentSubscription.getDaysRemaining(),
+                                                currentSubscription.getEndDate(),
+                                                SubscriptionCheckoutPreviewResponse.PricingMode.DOWNGRADE_SCHEDULED,
+                                                "Gói thấp hơn sẽ được đặt lịch và chỉ có hiệu lực khi gói hiện tại kết thúc.");
+                        }
+
+                        return new CheckoutPreviewDetails(
+                                        false,
+                                        false,
+                                        false,
+                                        true,
+                                        buyer,
+                                        recipient,
+                                        targetPlan,
+                                        currentActiveSubscription,
+                                        discountApplied,
+                                        effectivePrice,
+                                        BigDecimal.ZERO,
+                                        BigDecimal.ZERO,
+                                        BigDecimal.ZERO,
+                                        currentSubscription.getDaysRemaining(),
+                                        currentSubscription.getEndDate(),
+                                        SubscriptionCheckoutPreviewResponse.PricingMode.DOWNGRADE_NOT_ALLOWED,
+                                        "Hiện chỉ hỗ trợ nâng cấp lên gói có giá trị cao hơn.");
+                }
+
+                LocalDateTime now = LocalDateTime.now();
+                long remainingDays = calculateRemainingDays(now, currentSubscription.getEndDate());
+                if (!supportsImmediateLearnerUpgrade(recipient, currentPlan, targetPlan)) {
+                        return new CheckoutPreviewDetails(
+                                        false,
+                                        true,
+                                        false,
+                                        false,
+                                        buyer,
+                                        recipient,
+                                        targetPlan,
+                                        currentActiveSubscription,
+                                        discountApplied,
+                                        effectivePrice,
+                                        BigDecimal.ZERO,
+                                        BigDecimal.ZERO,
+                                        effectivePrice,
+                                        remainingDays,
+                                        currentSubscription.getEndDate(),
+                                        SubscriptionCheckoutPreviewResponse.PricingMode.UPGRADE_NOT_ALLOWED,
+                                        "Tài khoản này không hỗ trợ nâng cấp trực tiếp.");
+                }
+
+                if (!isWithinUpgradeGraceWindow(currentSubscription)) {
+                        LocalDateTime nextRenewalDate = calculateEndDate(now, targetPlan.getDurationMonths());
+                        return new CheckoutPreviewDetails(
+                                        true,
+                                        true,
+                                        false,
+                                        false,
+                                        buyer,
+                                        recipient,
+                                        targetPlan,
+                                        currentActiveSubscription,
+                                        discountApplied,
+                                        effectivePrice,
+                                        effectivePrice,
+                                        BigDecimal.ZERO,
+                                        effectivePrice,
+                                        remainingDays,
+                                        nextRenewalDate,
+                                        SubscriptionCheckoutPreviewResponse.PricingMode.UPGRADE_FULL_PRICE,
+                                        "Ưu đãi 72 giờ đã hết. Gói mới sẽ tính giá đầy đủ và bắt đầu lại từ hôm nay.");
+                }
+
+                BigDecimal currentPlanCredit = resolveCurrentCyclePaidAmount(currentSubscription, currentEffectivePrice);
+                BigDecimal amountDue = scaleCurrency(effectivePrice.subtract(currentPlanCredit).max(BigDecimal.ZERO));
+                LocalDateTime nextRenewalDate = calculateEndDate(now, targetPlan.getDurationMonths());
+
+                return new CheckoutPreviewDetails(
+                                true,
+                                true,
+                                false,
+                                false,
+                                buyer,
+                                recipient,
+                                targetPlan,
+                                currentActiveSubscription,
+                                discountApplied,
+                                effectivePrice,
+                                amountDue,
+                                currentPlanCredit,
+                                effectivePrice,
+                                remainingDays,
+                                nextRenewalDate,
+                                SubscriptionCheckoutPreviewResponse.PricingMode.UPGRADE_GRACE_WINDOW,
+                                "Thanh toán phần chênh lệch trong 72 giờ đầu để reset toàn bộ thời hạn và quyền lợi của gói mới.");
+        }
+
+        private User resolveRecipientForPurchase(User buyer, Long targetUserId) {
+                if (targetUserId == null || targetUserId.equals(buyer.getId())) {
+                        return buyer;
+                }
+
+                ParentStudentLink link = parentStudentLinkRepository.findByParentIdAndStudentId(buyer.getId(), targetUserId)
+                                .orElseThrow(() -> new RuntimeException(
+                                                "Không tìm thấy liên kết giữa phụ huynh và học sinh. Vui lòng kết nối trước khi mua."));
+
+                if (link.getStatus() != LinkStatus.ACTIVE) {
+                        throw new RuntimeException("Liên kết chưa được kích hoạt. Học sinh cần chấp nhận lời mời kết nối.");
+                }
+
+                return userRepository.findById(targetUserId)
+                                .orElseThrow(() -> new RuntimeException("Không tìm thấy học sinh với ID: " + targetUserId));
+        }
+
+        private UserSubscription resolveUpgradeSourceSubscription(
+                        UserSubscription newSubscription,
+                        PaymentTransaction paymentTransaction) {
+                Optional<Long> sourceSubscriptionId = extractLongFieldFromMetadata(
+                                paymentTransaction.getMetadata(), "currentSubscriptionId");
+                if (sourceSubscriptionId.isPresent()) {
+                        return userSubscriptionRepository.findById(sourceSubscriptionId.get())
+                                        .filter(existing -> existing.getUser().getId().equals(newSubscription.getUser().getId()))
+                                        .filter(existing -> Boolean.TRUE.equals(existing.getIsActive()))
+                                        .filter(existing -> existing.getStatus() == UserSubscription.SubscriptionStatus.ACTIVE)
+                                        .filter(existing -> existing.getPlan().getPlanType() != PremiumPlan.PlanType.FREE_TIER)
+                                        .orElse(null);
+                }
+
+                return userSubscriptionRepository.findCurrentActiveSubscription(newSubscription.getUser())
+                                .filter(existing -> !existing.getId().equals(newSubscription.getId()))
+                                .filter(existing -> existing.getPlan().getPlanType() != PremiumPlan.PlanType.FREE_TIER)
+                                .filter(existing -> comparePlanProgression(existing.getPlan(), newSubscription.getPlan()) > 0)
+                                .orElse(null);
+        }
+
+        private int comparePlanProgression(PremiumPlan currentPlan, PremiumPlan targetPlan) {
+                if (currentPlan == null || targetPlan == null) {
+                        return 0;
+                }
+
+                int currentOrder = resolvePlanOrder(currentPlan);
+                int targetOrder = resolvePlanOrder(targetPlan);
+
+                if (currentOrder != targetOrder) {
+                        return Integer.compare(targetOrder, currentOrder);
+                }
+
+                BigDecimal currentPrice = scaleCurrency(currentPlan.getPrice());
+                BigDecimal targetPrice = scaleCurrency(targetPlan.getPrice());
+                return targetPrice.compareTo(currentPrice);
+        }
+
+        private int resolvePlanOrder(PremiumPlan plan) {
+                if (plan == null || plan.getPlanType() == null) {
+                        return 0;
+                }
+
+                PremiumPlan.TargetRole targetRole = resolvePlanTargetRole(plan);
+                if (targetRole == PremiumPlan.TargetRole.LEARNER || targetRole == PremiumPlan.TargetRole.PARENT) {
+                        return LEARNER_PLAN_ORDER.getOrDefault(plan.getPlanType(), 0);
+                }
+
+                if (targetRole == PremiumPlan.TargetRole.RECRUITER) {
+                        return 100;
+                }
+
+                return LEARNER_PLAN_ORDER.getOrDefault(plan.getPlanType(), 0);
+        }
+
+        private boolean supportsImmediateLearnerUpgrade(
+                        User recipient,
+                        PremiumPlan currentPlan,
+                        PremiumPlan targetPlan) {
+                if (recipient == null || currentPlan == null || targetPlan == null) {
+                        return false;
+                }
+
+                if (recipient.getPrimaryRole() != PrimaryRole.USER) {
+                        return false;
+                }
+
+                if (resolvePlanTargetRole(currentPlan) != PremiumPlan.TargetRole.LEARNER
+                                || resolvePlanTargetRole(targetPlan) != PremiumPlan.TargetRole.LEARNER) {
+                        return false;
+                }
+
+                return true;
+        }
+
+        private boolean shouldResetUpgradeCycle(
+                        PaymentTransaction paymentTransaction,
+                        User recipient,
+                        PremiumPlan currentPlan,
+                        PremiumPlan targetPlan) {
+                Optional<String> pricingMode = extractTextFieldFromMetadata(paymentTransaction.getMetadata(), "pricingMode");
+                if (pricingMode.isPresent()) {
+                        return pricingMode.get().equals(SubscriptionCheckoutPreviewResponse.PricingMode.UPGRADE_GRACE_WINDOW.name())
+                                        || pricingMode.get().equals(SubscriptionCheckoutPreviewResponse.PricingMode.UPGRADE_FULL_PRICE.name());
+                }
+
+                return supportsImmediateLearnerUpgrade(recipient, currentPlan, targetPlan)
+                                && paymentTransaction.getType() == PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION;
+        }
+
+        private boolean isWithinUpgradeGraceWindow(UserSubscription subscription) {
+                if (subscription == null || subscription.getStartDate() == null) {
+                        return false;
+                }
+
+                long hoursSinceStart = Duration.between(subscription.getStartDate(), LocalDateTime.now()).toHours();
+                return hoursSinceStart >= 0 && hoursSinceStart <= PremiumConstants.UPGRADE_GRACE_WINDOW_HOURS;
+        }
+
+        private BigDecimal resolveCurrentCyclePaidAmount(UserSubscription subscription, BigDecimal fallbackAmount) {
+                if (subscription != null && subscription.getCurrentCyclePaidAmountSnapshot() != null) {
+                        return scaleCurrency(subscription.getCurrentCyclePaidAmountSnapshot());
+                }
+                if (subscription != null && subscription.getPaymentTransaction() != null
+                                && subscription.getPaymentTransaction().getAmount() != null
+                                && subscription.getPaymentTransaction()
+                                                .getStatus() == PaymentTransaction.PaymentStatus.COMPLETED) {
+                        return scaleCurrency(subscription.getPaymentTransaction().getAmount());
+                }
+                return scaleCurrency(fallbackAmount);
+        }
+
+        private BigDecimal resolveRefundBaseAmount(UserSubscription subscription) {
+                if (subscription == null) {
+                        return BigDecimal.ZERO;
+                }
+                return resolveCurrentCyclePaidAmount(
+                                subscription,
+                                resolvePlanCyclePrice(subscription.getPlan(), resolveDiscountApplied(subscription)));
+        }
+
+        private BigDecimal resolvePlanCyclePrice(PremiumPlan plan, Boolean discountApplied) {
+                if (plan == null) {
+                        return BigDecimal.ZERO;
+                }
+
+                BigDecimal effectivePrice = Boolean.TRUE.equals(discountApplied)
+                                ? plan.getDiscountedPrice()
+                                : plan.getPrice();
+                return scaleCurrency(effectivePrice);
+        }
+
+        private boolean isConfiguredDiscountEligible(PremiumPlan plan, User recipient) {
+                if (plan == null || recipient == null) {
+                        return false;
+                }
+
+                if (plan.getDiscountPercent() == null || plan.getDiscountPercent().compareTo(BigDecimal.ZERO) <= 0) {
+                        return false;
+                }
+
+                PremiumPlan.TargetRole recipientRole = resolveTargetRoleByPrimaryRole(recipient.getPrimaryRole());
+                return isPlanPurchasableForRole(plan, recipientRole);
+        }
+
+        private BigDecimal resolveEffectivePlanPrice(PremiumPlan plan, User recipient) {
+                if (plan == null) {
+                        return BigDecimal.ZERO;
+                }
+                return resolvePlanCyclePrice(plan, isConfiguredDiscountEligible(plan, recipient));
+        }
+
+        private BigDecimal resolveRenewalAmount(UserSubscription subscription) {
+                if (subscription == null) {
+                        return BigDecimal.ZERO;
+                }
+                if (subscription.getRenewalPriceSnapshot() != null) {
+                        return scaleCurrency(subscription.getRenewalPriceSnapshot());
+                }
+                return resolvePlanCyclePrice(subscription.getPlan(), resolveDiscountApplied(subscription));
+        }
+
+        private LocalDateTime resolveRenewalAttemptDate(UserSubscription subscription) {
+                if (subscription == null || subscription.getEndDate() == null) {
+                        return null;
+                }
+                LocalDateTime endDate = subscription.getEndDate();
+                int intervalMinutes = PremiumConstants.AUTO_RENEWAL_INTERVAL_MINUTES;
+
+                if (intervalMinutes <= 0) {
+                        return endDate;
+                }
+
+                if (endDate.getSecond() == 0 && endDate.getNano() == 0
+                                && endDate.getMinute() % intervalMinutes == 0) {
+                        return endDate;
+                }
+
+                LocalDateTime normalizedEndDate = endDate.truncatedTo(ChronoUnit.MINUTES);
+                int minuteRemainder = normalizedEndDate.getMinute() % intervalMinutes;
+                int minutesUntilNextRun = minuteRemainder == 0
+                                ? intervalMinutes
+                                : intervalMinutes - minuteRemainder;
+
+                return normalizedEndDate.plusMinutes(minutesUntilNextRun);
+        }
+
+        private void ensureRenewalSnapshot(UserSubscription subscription) {
+                if (subscription == null) {
+                        return;
+                }
+
+                if (subscription.getRenewalPriceSnapshot() == null || subscription.getRenewalPriceLockedAt() == null) {
+                        relockRenewalSnapshot(subscription, LocalDateTime.now());
+                }
+        }
+
+        private void relockRenewalSnapshot(UserSubscription subscription, LocalDateTime lockedAt) {
+                if (subscription == null) {
+                        return;
+                }
+
+                subscription.setRenewalPriceSnapshot(
+                                resolvePlanCyclePrice(subscription.getPlan(), resolveDiscountApplied(subscription)));
+                subscription.setRenewalPriceLockedAt(lockedAt != null ? lockedAt : LocalDateTime.now());
+        }
+
+        private void captureCurrentCyclePaidAmount(UserSubscription subscription, BigDecimal amount) {
+                if (subscription == null) {
+                        return;
+                }
+
+                BigDecimal normalizedAmount = amount == null ? BigDecimal.ZERO : amount;
+                if (normalizedAmount.compareTo(BigDecimal.ZERO) < 0) {
+                        normalizedAmount = BigDecimal.ZERO;
+                }
+
+                subscription.setCurrentCyclePaidAmountSnapshot(scaleCurrency(normalizedAmount));
+        }
+
+        private boolean resolveDiscountApplied(UserSubscription subscription) {
+                return subscription != null && subscription.isDiscountedPricingApplied();
+        }
+
+        private BigDecimal calculateProratedAmount(
+                        BigDecimal fullPrice,
+                        LocalDateTime billingStart,
+                        LocalDateTime billingEnd,
+                        LocalDateTime usageStart,
+                        LocalDateTime usageEnd) {
+                long totalMinutes = Math.max(1L, Duration.between(billingStart, billingEnd).toMinutes());
+                long usageMinutes = Math.max(0L, Duration.between(usageStart, usageEnd).toMinutes());
+                if (usageMinutes == 0L) {
+                        return BigDecimal.ZERO;
+                }
+
+                return fullPrice
+                                .multiply(BigDecimal.valueOf(usageMinutes))
+                                .divide(BigDecimal.valueOf(totalMinutes), 0, RoundingMode.HALF_UP);
+        }
+
+        private long calculateRemainingDays(LocalDateTime now, LocalDateTime endDate) {
+                long remainingMinutes = Math.max(0L, Duration.between(now, endDate).toMinutes());
+                if (remainingMinutes == 0L) {
+                        return 0L;
+                }
+                return Math.max(1L, (remainingMinutes + 1_439L) / 1_440L);
+        }
+
+        private BigDecimal scaleCurrency(BigDecimal value) {
+                if (value == null) {
+                        return BigDecimal.ZERO;
+                }
+                return value.setScale(0, RoundingMode.HALF_UP);
+        }
+
+        private record CheckoutPreviewDetails(
+                        boolean eligible,
+                        boolean upgrade,
+                        boolean samePlan,
+                        boolean downgrade,
+                        User buyer,
+                        User recipient,
+                        PremiumPlan targetPlan,
+                        Optional<UserSubscription> currentActiveSubscription,
+                        boolean discountApplied,
+                        BigDecimal effectivePrice,
+                        BigDecimal amountDue,
+                        BigDecimal currentPlanCredit,
+                        BigDecimal proratedTargetPrice,
+                        long remainingDays,
+                        LocalDateTime nextRenewalDate,
+                        SubscriptionCheckoutPreviewResponse.PricingMode pricingMode,
+                        String message) {
+        }
+
         private UserSubscriptionResponse convertToUserSubscriptionResponse(UserSubscription subscription) {
+                return convertToUserSubscriptionResponse(subscription, null);
+        }
+
+        private UserSubscriptionResponse convertToUserSubscriptionResponse(
+                        UserSubscription subscription,
+                        UserSubscription scheduledDowngrade) {
                 User user = subscription.getUser();
                 String fullName = (user.getFirstName() != null ? user.getFirstName() : "") +
                                 " " +
@@ -657,8 +1371,24 @@ public class PremiumServiceImpl implements PremiumService {
                                 .endDate(subscription.getEndDate())
                                 .isActive(subscription.getIsActive())
                                 .status(subscription.getStatus())
-                                .isStudentSubscription(subscription.getIsStudentSubscription())
+                                .isStudentSubscription(resolveDiscountApplied(subscription))
+                                .isDiscountedSubscription(resolveDiscountApplied(subscription))
                                 .autoRenew(subscription.getAutoRenew())
+                                .renewalPrice(resolveRenewalAmount(subscription))
+                                .renewalAttemptDate(resolveRenewalAttemptDate(subscription))
+                                .renewalPriceLockedAt(subscription.getRenewalPriceLockedAt())
+                                .scheduledChangePlan(
+                                                scheduledDowngrade != null
+                                                                ? convertToPremiumPlanResponse(scheduledDowngrade.getPlan())
+                                                                : null)
+                                .scheduledChangeEffectiveDate(
+                                                scheduledDowngrade != null ? scheduledDowngrade.getStartDate() : null)
+                                .scheduledChangeAutoRenew(
+                                                scheduledDowngrade != null ? scheduledDowngrade.getAutoRenew() : null)
+                                .scheduledChangeRenewalPrice(
+                                                scheduledDowngrade != null ? resolveRenewalAmount(scheduledDowngrade) : null)
+                                .scheduledChangeRenewalAttemptDate(
+                                                scheduledDowngrade != null ? resolveRenewalAttemptDate(scheduledDowngrade) : null)
                                 .paymentTransactionId(
                                                 subscription.getPaymentTransaction() != null
                                                                 ? subscription.getPaymentTransaction().getId()
@@ -668,6 +1398,7 @@ public class PremiumServiceImpl implements PremiumService {
                                 .cancellationReason(subscription.getCancellationReason())
                                 .cancelledAt(subscription.getCancelledAt())
                                 .createdAt(subscription.getCreatedAt())
+                                .updatedAt(subscription.getUpdatedAt())
                                 .build();
         }
 
@@ -682,76 +1413,150 @@ public class PremiumServiceImpl implements PremiumService {
         @Transactional
         public UserSubscriptionResponse purchaseWithWalletCash(Long buyerId, Long planId, boolean applyStudentDiscount, Long targetUserId) {
                 log.info("💰 User {} purchasing premium plan {} with wallet cash (target: {})", buyerId, planId, targetUserId);
+                CheckoutPreviewDetails checkoutPreview = buildCheckoutPreview(
+                                buyerId, planId, applyStudentDiscount, targetUserId);
 
-                // 1. Validate buyer
-                User buyer = userRepository.findById(buyerId)
-                                .orElseThrow(() -> new RuntimeException("Buyer not found with ID: " + buyerId));
-
-                // 2. Determine the actual recipient
-                User recipient;
-                if (targetUserId != null && !targetUserId.equals(buyerId)) {
-                        // This is a gift purchase - validate the link
-                        log.info("🎁 Parent {} is gifting premium to child {}", buyerId, targetUserId);
-                        
-                        ParentStudentLink link = parentStudentLinkRepository.findByParentIdAndStudentId(buyerId, targetUserId)
-                                .orElseThrow(() -> new RuntimeException("Không tìm thấy liên kết giữa phụ huynh và học sinh. Vui lòng kết nối trước khi mua."));
-                                
-                        if (link.getStatus() != LinkStatus.ACTIVE) {
-                                throw new RuntimeException("Liên kết chưa được kích hoạt. Học sinh cần chấp nhận lời mời kết nối.");
-                        }
-                        
-                        recipient = userRepository.findById(targetUserId)
-                                .orElseThrow(() -> new RuntimeException("Không tìm thấy học sinh với ID: " + targetUserId));
-                } else {
-                        // Self-purchase
-                        recipient = buyer;
+                if (!checkoutPreview.eligible()) {
+                        throw new RuntimeException(checkoutPreview.message());
                 }
 
-                // 2. Validate plan
-                PremiumPlan plan = premiumPlanRepository.findById(planId)
-                                .filter(p -> p.getIsActive())
-                                .orElseThrow(() -> new RuntimeException("Premium plan not found: " + planId));
+                User buyer = checkoutPreview.buyer();
+                User recipient = checkoutPreview.recipient();
+                PremiumPlan plan = checkoutPreview.targetPlan();
+                Optional<UserSubscription> existingSubscription = checkoutPreview.currentActiveSubscription();
 
-                validatePlanEligibility(recipient, plan);
-
-                // 3. Check existing subscription for RECIPIENT
-                Optional<UserSubscription> existingSubscription = userSubscriptionRepository
-                                .findCurrentActiveSubscription(recipient);
-
-                if (existingSubscription.isPresent()) {
-                        PremiumPlan existingPlan = existingSubscription.get().getPlan();
-                        if (existingPlan.getPlanType() != PremiumPlan.PlanType.FREE_TIER) {
-                                throw new RuntimeException("Người nhận đã có gói Premium đang hoạt động");
-                        }
-                        // SUSPEND (not cancel) FREE_TIER - will reactivate when premium expires
+                if (existingSubscription.isPresent() &&
+                                existingSubscription.get().getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
                         UserSubscription freeTierSub = existingSubscription.get();
-                        freeTierSub.suspend("Upgrading to Premium via Wallet" + (targetUserId != null ? " (Gift from " + buyerId + ")" : "") + " - will reactivate when premium expires");
+                        freeTierSub.suspend("Upgrading to Premium via Wallet"
+                                        + (targetUserId != null ? " (Gift from " + buyerId + ")" : "")
+                                        + " - will reactivate when premium expires");
                         userSubscriptionRepository.save(freeTierSub);
                 }
 
-                // 4. Calculate price (with student discount if applicable - based on RECIPIENT's email)
-                boolean isStudentEligible = applyStudentDiscount && isValidStudentEmail(recipient.getEmail());
-                BigDecimal finalPrice = isStudentEligible ? plan.getStudentPrice() : plan.getPrice();
+                boolean isScheduledDowngrade = checkoutPreview.pricingMode() == SubscriptionCheckoutPreviewResponse.PricingMode.DOWNGRADE_SCHEDULED;
+                BigDecimal finalPrice = isScheduledDowngrade ? BigDecimal.ZERO : checkoutPreview.amountDue();
 
-                log.info("💵 Plan price: {} VND (student discount: {})", finalPrice, isStudentEligible);
+                log.info("💵 Checkout amount due: {} VND (upgrade: {}, role discount applied: {})",
+                                finalPrice, checkoutPreview.upgrade(), checkoutPreview.discountApplied());
 
-                // 5. Deduct cash from BUYER's wallet
-                String purchaseDescription = targetUserId != null 
-                        ? String.format("Mua gói Premium: %s cho %s %s", plan.getDisplayName(), recipient.getFirstName(), recipient.getLastName())
-                        : String.format("Mua gói Premium: %s", plan.getDisplayName());
-                try {
-                        walletService.deductCash(buyerId, finalPrice, purchaseDescription,
-                                        "PREMIUM_SUBSCRIPTION", planId.toString());
-                } catch (Exception e) {
-                        log.error("Failed to deduct wallet balance: {}", e.getMessage());
-                        throw new RuntimeException("Số dư ví không đủ hoặc thanh toán thất bại: " + e.getMessage());
+                if (finalPrice.compareTo(BigDecimal.ZERO) > 0) {
+                        String purchaseDescription = targetUserId != null
+                                        ? String.format("Mua gói Premium: %s cho %s %s", plan.getDisplayName(), recipient.getFirstName(), recipient.getLastName())
+                                        : String.format("Mua gói Premium: %s", plan.getDisplayName());
+                        try {
+                                walletService.deductCash(buyerId, finalPrice, purchaseDescription,
+                                                WalletTransaction.TransactionType.PURCHASE_PREMIUM,
+                                                "PREMIUM_SUBSCRIPTION", planId.toString());
+                        } catch (Exception e) {
+                                log.error("Failed to deduct wallet balance: {}", e.getMessage());
+                                throw new RuntimeException("Số dư ví không đủ hoặc thanh toán thất bại: " + e.getMessage());
+                        }
+
+                        log.info("💳 Wallet payment processed successfully");
                 }
 
-                log.info("💳 Wallet payment processed successfully");
+                LocalDateTime preservedRenewalDate = null;
+                Boolean inheritedAutoRenew = null;
+                boolean resetCycleUpgrade = checkoutPreview.pricingMode() == SubscriptionCheckoutPreviewResponse.PricingMode.UPGRADE_GRACE_WINDOW
+                                || checkoutPreview.pricingMode() == SubscriptionCheckoutPreviewResponse.PricingMode.UPGRADE_FULL_PRICE;
+                if (checkoutPreview.upgrade() && existingSubscription.isPresent()) {
+                        UserSubscription oldSubscription = existingSubscription.get();
+                        preservedRenewalDate = oldSubscription.getEndDate();
+                        inheritedAutoRenew = oldSubscription.getAutoRenew();
+                        oldSubscription.cancel("Upgraded to " + plan.getDisplayName() + " via wallet");
+                        oldSubscription.setEndDate(LocalDateTime.now());
+                        userSubscriptionRepository.save(oldSubscription);
+                }
 
-                // 8. Create and activate subscription for RECIPIENT
+                if (isScheduledDowngrade && existingSubscription.isPresent()) {
+                        UserSubscription currentSubscription = userSubscriptionRepository
+                                        .findCurrentActiveSubscriptionForUpdate(recipient)
+                                        .orElseThrow(() -> new RuntimeException("Không tìm thấy gói hiện tại để lên lịch chuyển gói"));
+                        LocalDateTime scheduledStartDate = currentSubscription.getEndDate();
+                        LocalDateTime scheduledEndDate = calculateEndDate(scheduledStartDate, plan.getDurationMonths());
+
+                        List<UserSubscription> pendingScheduled = userSubscriptionRepository
+                                        .findPendingScheduledDowngradesForUpdate(recipient);
+
+                        UserSubscription scheduledSubscription;
+                        boolean scheduleAlreadyExists = false;
+                        boolean scheduleUpdated = false;
+                        boolean inheritedAutoRenewPreference = Boolean.TRUE.equals(currentSubscription.getAutoRenew());
+                        if (!pendingScheduled.isEmpty()) {
+                                scheduledSubscription = pendingScheduled.get(0);
+                                boolean existingScheduledAutoRenew = Boolean.TRUE.equals(scheduledSubscription.getAutoRenew());
+                                boolean sameTargetPlan = scheduledSubscription.getPlan() != null
+                                                && scheduledSubscription.getPlan().getId().equals(plan.getId());
+                                boolean sameEffectiveDate = scheduledStartDate.equals(scheduledSubscription.getStartDate());
+                                if (sameTargetPlan && sameEffectiveDate) {
+                                        scheduleAlreadyExists = true;
+                                }
+                                scheduledSubscription.setPlan(plan);
+                                scheduledSubscription.setStartDate(scheduledStartDate);
+                                scheduledSubscription.setEndDate(scheduledEndDate);
+                                scheduledSubscription.setDiscountedPricing(checkoutPreview.discountApplied());
+                                scheduledSubscription.setIsStudentSubscription(checkoutPreview.discountApplied());
+                                scheduledSubscription.setAutoRenew(inheritedAutoRenewPreference || existingScheduledAutoRenew);
+                                scheduledSubscription.setStatus(UserSubscription.SubscriptionStatus.PENDING);
+                                scheduledSubscription.setIsActive(false);
+                                scheduleUpdated = !scheduleAlreadyExists;
+                        } else {
+                                scheduledSubscription = UserSubscription.builder()
+                                                .user(recipient)
+                                                .plan(plan)
+                                                .startDate(scheduledStartDate)
+                                                .endDate(scheduledEndDate)
+                                                .isActive(false)
+                                                .status(UserSubscription.SubscriptionStatus.PENDING)
+                                                .discountedPricing(checkoutPreview.discountApplied())
+                                                .isStudentSubscription(checkoutPreview.discountApplied())
+                                                .autoRenew(inheritedAutoRenewPreference)
+                                                .build();
+                        }
+
+                        if (inheritedAutoRenewPreference) {
+                                currentSubscription.setAutoRenew(false);
+                                userSubscriptionRepository.save(currentSubscription);
+                        }
+
+                        scheduledSubscription.setCancellationReason("SCHEDULED_DOWNGRADE:" + currentSubscription.getId());
+                        captureCurrentCyclePaidAmount(scheduledSubscription, BigDecimal.ZERO);
+                        relockRenewalSnapshot(scheduledSubscription, scheduledStartDate);
+                        scheduledSubscription = userSubscriptionRepository.save(scheduledSubscription);
+
+                        if (!scheduleAlreadyExists) {
+                                notificationService.createNotification(
+                                                recipient.getId(),
+                                                scheduleUpdated ? "Đã cập nhật lịch chuyển gói Premium"
+                                                                : "Đã lên lịch chuyển gói Premium",
+                                                "Gói " + plan.getDisplayName() + " sẽ tự động có hiệu lực từ ngày "
+                                                                + scheduledStartDate.toLocalDate()
+                                                                + " sau khi gói hiện tại kết thúc.",
+                                                NotificationType.PREMIUM_PURCHASE,
+                                                String.valueOf(scheduledSubscription.getId()));
+
+                                if (targetUserId != null && !targetUserId.equals(buyerId)) {
+                                        notificationService.createNotification(
+                                                        buyerId,
+                                                        scheduleUpdated ? "Đã cập nhật lịch chuyển gói cho học sinh"
+                                                                        : "Đã lên lịch chuyển gói cho học sinh",
+                                                        "Hệ thống đã lên lịch chuyển sang gói " + plan.getDisplayName()
+                                                                        + " cho " + recipient.getFirstName() + " " + recipient.getLastName()
+                                                                        + " từ ngày " + scheduledStartDate.toLocalDate() + ".",
+                                                        NotificationType.PREMIUM_PURCHASE,
+                                                        String.valueOf(scheduledSubscription.getId()));
+                                }
+                        }
+
+                        return convertToUserSubscriptionResponse(scheduledSubscription);
+                }
+
                 LocalDateTime startDate = LocalDateTime.now();
-                LocalDateTime endDate = startDate.plusMonths(plan.getDurationMonths());
+                LocalDateTime endDate = checkoutPreview.upgrade() && !resetCycleUpgrade && preservedRenewalDate != null
+                                && preservedRenewalDate.isAfter(startDate)
+                                ? preservedRenewalDate
+                                : calculateEndDate(startDate, plan.getDurationMonths());
 
                 UserSubscription subscription = UserSubscription.builder()
                                 .user(recipient)
@@ -760,9 +1565,12 @@ public class PremiumServiceImpl implements PremiumService {
                                 .endDate(endDate)
                                 .isActive(true) // Activate immediately since payment is done
                                 .status(UserSubscription.SubscriptionStatus.ACTIVE)
-                                .isStudentSubscription(isStudentEligible)
-                                .autoRenew(false)
+                                .discountedPricing(checkoutPreview.discountApplied())
+                                .isStudentSubscription(checkoutPreview.discountApplied())
+                                .autoRenew(Boolean.TRUE.equals(inheritedAutoRenew))
                                 .build();
+                captureCurrentCyclePaidAmount(subscription, finalPrice);
+                relockRenewalSnapshot(subscription, startDate);
 
                 subscription = userSubscriptionRepository.save(subscription);
 
@@ -812,24 +1620,54 @@ public class PremiumServiceImpl implements PremiumService {
                 User user = userRepository.findById(userId)
                                 .orElseThrow(() -> new RuntimeException("User not found"));
 
-                var subscriptionOpt = userSubscriptionRepository.findCurrentActiveSubscription(user);
+                var subscriptionOpt = userSubscriptionRepository.findCurrentActiveSubscriptionForUpdate(user);
                 if (subscriptionOpt.isEmpty()) {
-                        throw new RuntimeException("No active subscription found");
+                        throw new RuntimeException(PremiumConstants.MSG_NO_ACTIVE_SUBSCRIPTION);
                 }
 
                 UserSubscription subscription = subscriptionOpt.get();
+                List<UserSubscription> pendingScheduled = userSubscriptionRepository.findPendingScheduledDowngradesForUpdate(user);
+                UserSubscription renewalTarget = pendingScheduled.isEmpty() ? subscription : pendingScheduled.get(0);
 
-                // Check if already enabled
-                if (subscription.getAutoRenew()) {
-                        throw new RuntimeException("Auto-renewal is already enabled");
+                if (renewalTarget.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
+                        throw new RuntimeException(PremiumConstants.MSG_FREE_TIER_NO_AUTO_RENEW);
                 }
 
-                // Enable auto-renewal
-                subscription.setAutoRenew(true);
-                userSubscriptionRepository.save(subscription);
+                // Check if already enabled
+                if (renewalTarget.getAutoRenew()) {
+                        throw new RuntimeException(PremiumConstants.MSG_AUTO_RENEW_ALREADY_ENABLED);
+                }
+
+                if (!pendingScheduled.isEmpty()) {
+                        subscription.setAutoRenew(false);
+                        userSubscriptionRepository.save(subscription);
+                }
+
+                renewalTarget.setAutoRenew(true);
+                ensureRenewalSnapshot(renewalTarget);
+                userSubscriptionRepository.save(renewalTarget);
+
+                BigDecimal renewalAmount = resolveRenewalAmount(renewalTarget);
+                LocalDateTime renewalAttemptDate = resolveRenewalAttemptDate(renewalTarget);
 
                 log.info("✅ Auto-renewal enabled for user {}. Next renewal before {}",
-                                userId, subscription.getEndDate());
+                                userId, renewalTarget.getEndDate());
+
+                notificationService.createNotification(
+                                userId,
+                                "Bật gia hạn tự động",
+                                "Bạn đã bật gia hạn tự động cho gói "
+                                                + renewalTarget.getPlan().getDisplayName()
+                                                + (!pendingScheduled.isEmpty() ? " sau khi chuyển gói. " : ". ")
+                                                + "Hệ thống sẽ thử trừ "
+                                                + renewalAmount.toPlainString()
+                                                + " VND từ ví vào khoảng "
+                                                + renewalAttemptDate.format(VIETNAMESE_DATE_TIME_FORMATTER)
+                                                + ". Hệ thống xử lý theo chu kỳ tối đa "
+                                                + PremiumConstants.AUTO_RENEWAL_INTERVAL_MINUTES
+                                                + " phút sau khi gói hết hạn. Mức phí này đã được khóa cho kỳ gia hạn kế tiếp.",
+                                NotificationType.PREMIUM_PURCHASE,
+                                String.valueOf(renewalTarget.getId()));
         }
 
         @Override
@@ -841,17 +1679,22 @@ public class PremiumServiceImpl implements PremiumService {
                                 .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
 
                 UserSubscription subscription = userSubscriptionRepository
-                                .findCurrentActiveSubscription(user)
+                                .findCurrentActiveSubscriptionForUpdate(user)
                                 .orElseThrow(() -> new RuntimeException(
-                                                "No active subscription found for user: " + userId));
+                                                PremiumConstants.MSG_NO_ACTIVE_SUBSCRIPTION));
 
-                if (subscription.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
-                        throw new RuntimeException("Free tier does not have auto-renewal");
+                List<UserSubscription> pendingScheduled = userSubscriptionRepository.findPendingScheduledDowngradesForUpdate(user);
+                UserSubscription renewalTarget = pendingScheduled.isEmpty() ? subscription : pendingScheduled.get(0);
+
+                if (renewalTarget.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
+                        throw new RuntimeException(PremiumConstants.MSG_FREE_TIER_NO_AUTO_RENEW);
                 }
 
-                // Just turn off auto-renewal, keep subscription active until end date
                 subscription.setAutoRenew(false);
                 userSubscriptionRepository.save(subscription);
+
+                renewalTarget.setAutoRenew(false);
+                userSubscriptionRepository.save(renewalTarget);
 
                 log.info("✅ Auto-renewal cancelled for user {}. Subscription remains active until {}",
                                 userId, subscription.getEndDate());
@@ -859,10 +1702,13 @@ public class PremiumServiceImpl implements PremiumService {
                 notificationService.createNotification(
                                 userId,
                                 "Hủy gia hạn tự động",
-                                "Bạn đã hủy gia hạn tự động gói Premium thành công. Gói của bạn vẫn có hiệu lực đến "
-                                                + subscription.getEndDate().toLocalDate(),
+                                !pendingScheduled.isEmpty()
+                                                ? "Bạn đã tắt gia hạn tự động cho gói sẽ áp dụng sau khi chuyển. Gói hiện tại vẫn có hiệu lực đến "
+                                                                + subscription.getEndDate().toLocalDate()
+                                                : "Bạn đã hủy gia hạn tự động gói Premium thành công. Gói của bạn vẫn có hiệu lực đến "
+                                                                + subscription.getEndDate().toLocalDate(),
                                 NotificationType.PREMIUM_CANCEL,
-                                String.valueOf(subscription.getId()));
+                                String.valueOf(renewalTarget.getId()));
         }
 
         @Override
@@ -877,11 +1723,11 @@ public class PremiumServiceImpl implements PremiumService {
                 UserSubscription subscription = userSubscriptionRepository
                                 .findCurrentActiveSubscription(user)
                                 .orElseThrow(() -> new RuntimeException(
-                                                "No active subscription found for user: " + userId));
+                                                PremiumConstants.MSG_NO_ACTIVE_SUBSCRIPTION));
 
                 // 2. Check if Free tier (cannot cancel/refund)
                 if (subscription.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
-                        throw new RuntimeException("Cannot cancel Free tier subscription");
+                        throw new RuntimeException(PremiumConstants.MSG_FREE_TIER_NO_REFUND);
                 }
 
                 // 2.5. Check cancellation limit (max 1 time per month)
@@ -890,7 +1736,7 @@ public class PremiumServiceImpl implements PremiumService {
                                 currentMonth);
                 if (cancellationsThisMonth >= 1) {
                         throw new RuntimeException(
-                                        "Bạn đã hủy gói Premium trong tháng này. Chỉ được phép hủy 1 lần/tháng. Vui lòng thử lại vào tháng sau.");
+                                        PremiumConstants.MSG_CANCELLATION_LIMIT + " Vui lòng thử lại vào tháng sau.");
                 }
 
                 // 3. Calculate days since purchase
@@ -901,19 +1747,16 @@ public class PremiumServiceImpl implements PremiumService {
 
                 // 4. Calculate refund percentage based on usage time
                 int refundPercentage;
-                if (hoursSincePurchase <= 24) {
+                if (hoursSincePurchase <= PremiumConstants.FULL_REFUND_HOURS) {
                         refundPercentage = 100; // Within 24h: 100% refund
-                } else if (daysSincePurchase <= 3) {
-                        refundPercentage = 50; // 1-3 days: 50% refund
+                } else if (hoursSincePurchase <= PremiumConstants.PARTIAL_REFUND_HOURS) {
+                        refundPercentage = PremiumConstants.PARTIAL_REFUND_PERCENTAGE; // 24h-72h: 50% refund
                 } else {
-                        refundPercentage = 0; // Over 3 days: No refund, just cancel auto-renewal
+                        refundPercentage = 0; // Over 72h: No refund, just cancel auto-renewal
                 }
 
                 // 5. Calculate actual refund amount
-                BigDecimal originalPrice = subscription.getPlan().getPrice();
-                if (subscription.getIsStudentSubscription()) {
-                        originalPrice = originalPrice.multiply(BigDecimal.valueOf(0.8)); // 20% student discount
-                }
+                BigDecimal originalPrice = resolveRefundBaseAmount(subscription);
 
                 BigDecimal refundAmount = originalPrice.multiply(BigDecimal.valueOf(refundPercentage))
                                 .divide(BigDecimal.valueOf(100));
@@ -933,7 +1776,8 @@ public class PremiumServiceImpl implements PremiumService {
                                         reason != null ? reason : "Không hài lòng");
                         String referenceId = "SUB_REFUND_" + subscription.getId() + "_" + System.currentTimeMillis();
 
-                        walletService.processRefund(userId, refundAmount, refundDescription, referenceId);
+                        walletService.processRefund(userId, refundAmount, refundDescription,
+                                        "SUBSCRIPTION_REFUND", referenceId);
 
                         // Assign Free tier back
                         assignFreeTierIfMissing(userId);
@@ -985,18 +1829,18 @@ public class PremiumServiceImpl implements PremiumService {
 
                 User user = userRepository.findById(userId).orElse(null);
                 if (user == null) {
-                        return new RefundEligibility(false, 0, 0.0, 0, "User not found");
+                        return new RefundEligibility(false, 0, 0.0, 0, PremiumConstants.MSG_USER_NOT_FOUND);
                 }
 
                 var subscriptionOpt = userSubscriptionRepository.findCurrentActiveSubscription(user);
                 if (subscriptionOpt.isEmpty()) {
-                        return new RefundEligibility(false, 0, 0.0, 0, "No active subscription");
+                        return new RefundEligibility(false, 0, 0.0, 0, PremiumConstants.MSG_NO_ACTIVE_SUBSCRIPTION);
                 }
 
                 UserSubscription subscription = subscriptionOpt.get();
 
                 if (subscription.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
-                        return new RefundEligibility(false, 0, 0.0, 0, "Free tier cannot be refunded");
+                        return new RefundEligibility(false, 0, 0.0, 0, PremiumConstants.MSG_FREE_TIER_NO_REFUND);
                 }
 
                 // CHECK CANCELLATION LIMIT FIRST
@@ -1004,8 +1848,12 @@ public class PremiumServiceImpl implements PremiumService {
                 Long cancellationsThisMonth = cancellationRepository.countByUserAndCancellationMonth(user,
                                 currentMonth);
                 if (cancellationsThisMonth >= 1) {
-                        throw new RuntimeException(
-                                        "Bạn đã hủy gói Premium trong tháng này. Chỉ được phép hủy 1 lần/tháng. Vui lòng thử lại vào tháng sau.");
+                        return new RefundEligibility(
+                                        false,
+                                        0,
+                                        0.0,
+                                        0,
+                                        PremiumConstants.MSG_CANCELLATION_LIMIT + " Vui lòng thử lại vào tháng sau.");
                 }
 
                 // Calculate time since purchase
@@ -1017,22 +1865,19 @@ public class PremiumServiceImpl implements PremiumService {
                 // Determine refund percentage
                 int refundPercentage;
                 String message;
-                if (hoursSincePurchase <= 24) {
+                if (hoursSincePurchase <= PremiumConstants.FULL_REFUND_HOURS) {
                         refundPercentage = 100;
-                        message = "Eligible for 100% refund (within 24 hours)";
-                } else if (daysSincePurchase <= 3) {
-                        refundPercentage = 50;
-                        message = "Eligible for 50% refund (1-3 days)";
+                        message = PremiumConstants.MSG_REFUND_FULL;
+                } else if (hoursSincePurchase <= PremiumConstants.PARTIAL_REFUND_HOURS) {
+                        refundPercentage = PremiumConstants.PARTIAL_REFUND_PERCENTAGE;
+                        message = PremiumConstants.MSG_REFUND_PARTIAL;
                 } else {
                         refundPercentage = 0;
-                        message = "No refund available (over 3 days). Can only cancel auto-renewal.";
+                        message = PremiumConstants.MSG_REFUND_EXPIRED;
                 }
 
                 // Calculate refund amount
-                BigDecimal originalPrice = subscription.getPlan().getPrice();
-                if (subscription.getIsStudentSubscription()) {
-                        originalPrice = originalPrice.multiply(BigDecimal.valueOf(0.8));
-                }
+                BigDecimal originalPrice = resolveRefundBaseAmount(subscription);
 
                 double refundAmount = originalPrice.multiply(BigDecimal.valueOf(refundPercentage))
                                 .divide(BigDecimal.valueOf(100))
@@ -1197,46 +2042,117 @@ public class PremiumServiceImpl implements PremiumService {
                                 .toList();
 
                 if (completedPayments.isEmpty()) {
-                        log.info("No COMPLETED premium payments found for user {}", userId);
-                        return false;
+                        log.info("No direct COMPLETED premium payments found for user {}. Checking gift/parent payments...", userId);
+                        completedPayments = paymentTransactionRepository.findByTypeAndStatus(
+                                        PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION,
+                                        PaymentTransaction.PaymentStatus.COMPLETED);
+                        if (completedPayments.isEmpty()) {
+                                log.info("No COMPLETED premium payments found in system for recovery of user {}", userId);
+                                return false;
+                        }
                 }
 
                 // Try to match pending subscriptions with completed payments via metadata
                 for (PaymentTransaction payment : completedPayments) {
-                        String metadata = payment.getMetadata();
-                        if (metadata == null || metadata.isEmpty()) continue;
+                        Optional<Long> subscriptionIdOpt = extractSubscriptionIdFromMetadata(payment.getMetadata());
+                        if (subscriptionIdOpt.isEmpty()) {
+                                continue;
+                        }
 
-                        try {
-                                JsonNode node = objectMapper.readTree(metadata);
-                                JsonNode subIdNode = node.get("subscriptionId");
-                                if (subIdNode == null || subIdNode.isNull()) continue;
+                        Long subscriptionId = subscriptionIdOpt.get();
 
-                                Long subscriptionId = subIdNode.asLong();
-
-                                // Check if this subscription ID is in our pending list
-                                for (UserSubscription pendingSub : allPending) {
-                                        if (pendingSub.getId().equals(subscriptionId)) {
-                                                log.info("Found matching PENDING subscription {} with COMPLETED payment {}. Activating...",
-                                                                subscriptionId, payment.getInternalReference());
-                                                try {
-                                                        activateSubscription(subscriptionId, payment.getInternalReference());
-                                                        log.info("Successfully auto-recovered subscription {} for user {}",
-                                                                        subscriptionId, userId);
-                                                        return true;
-                                                } catch (Exception e) {
-                                                        log.error("Failed to auto-recover subscription {}: {}",
-                                                                        subscriptionId, e.getMessage());
-                                                }
+                        // Check if this subscription ID is in our pending list
+                        for (UserSubscription pendingSub : allPending) {
+                                if (pendingSub.getId().equals(subscriptionId)) {
+                                        log.info("Found matching PENDING subscription {} with COMPLETED payment {}. Activating...",
+                                                        subscriptionId, payment.getInternalReference());
+                                        try {
+                                                activateSubscription(subscriptionId, payment.getInternalReference());
+                                                log.info("Successfully auto-recovered subscription {} for user {}",
+                                                                subscriptionId, userId);
+                                                return true;
+                                        } catch (Exception e) {
+                                                log.error("Failed to auto-recover subscription {}: {}",
+                                                                subscriptionId, e.getMessage());
                                         }
                                 }
-                        } catch (Exception e) {
-                                log.warn("Failed to parse metadata for payment {}: {}",
-                                                payment.getInternalReference(), e.getMessage());
                         }
                 }
 
                 log.info("No recoverable subscriptions found for user {}", userId);
                 return false;
+        }
+
+        @Override
+        @Transactional
+        public void rollbackPendingSubscriptionPayment(String paymentMetadata, String reason) {
+                Optional<Long> subscriptionIdOpt = extractSubscriptionIdFromMetadata(paymentMetadata);
+                if (subscriptionIdOpt.isEmpty()) {
+                        log.debug("No subscriptionId found in payment metadata, skipping pending subscription rollback");
+                        return;
+                }
+
+                Long subscriptionId = subscriptionIdOpt.get();
+                UserSubscription subscription = userSubscriptionRepository.findById(subscriptionId)
+                                .orElseThrow(() -> new RuntimeException("Subscription not found: " + subscriptionId));
+
+                if (subscription.getStatus() != UserSubscription.SubscriptionStatus.PENDING) {
+                        log.info("Skipping rollback for subscription {} because status is {}", subscriptionId,
+                                        subscription.getStatus());
+                        return;
+                }
+
+                log.info("Rolling back pending premium subscription {} due to payment failure/cancellation", subscriptionId);
+
+                subscription.cancel(reason != null ? reason : "Payment cancelled or failed before activation");
+                userSubscriptionRepository.save(subscription);
+
+                try {
+                        assignFreeTierIfMissing(subscription.getUser().getId());
+                } catch (Exception e) {
+                        log.error("Failed to restore fallback subscription for user {} after rollback of subscription {}: {}",
+                                        subscription.getUser().getId(), subscriptionId, e.getMessage());
+                }
+        }
+
+        private Optional<Long> extractSubscriptionIdFromMetadata(String metadata) {
+                return extractLongFieldFromMetadata(metadata, "subscriptionId");
+        }
+
+        private Optional<String> extractTextFieldFromMetadata(String metadata, String fieldName) {
+                if (metadata == null || metadata.isBlank()) {
+                        return Optional.empty();
+                }
+
+                try {
+                        JsonNode node = objectMapper.readTree(metadata);
+                        JsonNode fieldNode = node.get(fieldName);
+                        if (fieldNode == null || fieldNode.isNull()) {
+                                return Optional.empty();
+                        }
+                        return Optional.of(fieldNode.asText());
+                } catch (Exception e) {
+                        log.warn("Failed to parse {} from metadata: {}", fieldName, metadata);
+                        return Optional.empty();
+                }
+        }
+
+        private Optional<Long> extractLongFieldFromMetadata(String metadata, String fieldName) {
+                if (metadata == null || metadata.isBlank()) {
+                        return Optional.empty();
+                }
+
+                try {
+                        JsonNode node = objectMapper.readTree(metadata);
+                        JsonNode fieldNode = node.get(fieldName);
+                        if (fieldNode == null || fieldNode.isNull()) {
+                                return Optional.empty();
+                        }
+                        return Optional.of(fieldNode.asLong());
+                } catch (Exception e) {
+                        log.warn("Failed to parse {} from metadata: {}", fieldName, metadata);
+                        return Optional.empty();
+                }
         }
 
         private void validatePlanEligibility(User recipient, PremiumPlan plan) {

@@ -162,6 +162,22 @@ public class DatabaseSchemaFixer {
             "Ensure notification type CHECK includes JOB_APPROVED, JOB_REJECTED",
             this::patchShortTermJobNotificationTypes,
             this::verifyShortTermJobNotificationTypes);
+        applyPatch("PATCH-028-user-subscription-renewal-snapshot-columns",
+            "Ensure user_subscriptions has renewal snapshot columns for premium auto-renewal",
+            this::patchUserSubscriptionRenewalSnapshotColumns,
+            this::verifyUserSubscriptionRenewalSnapshotColumns);
+        applyPatch("PATCH-029-wallet-transaction-type-check-job-fees",
+            "Ensure wallet transaction_type CHECK includes JOB_POSTING_FEE and JOB_REOPEN_FEE",
+            this::patchWalletTransactionTypeCheckJobFees,
+            this::verifyWalletTransactionTypeCheckJobFees);
+        applyPatch("PATCH-030-user-subscription-current-cycle-paid-amount-snapshot",
+            "Ensure user_subscriptions stores the actual amount charged for the current premium cycle",
+            this::patchUserSubscriptionCurrentCyclePaidAmountSnapshot,
+            this::verifyUserSubscriptionCurrentCyclePaidAmountSnapshot);
+        applyPatch("PATCH-031-premium-pricing-generic-columns",
+            "Ensure premium pricing has generic discount columns and backfill legacy values",
+            this::patchPremiumPricingGenericColumns,
+            this::verifyPremiumPricingGenericColumns);
         applyPatch("PATCH-025-mentor-booking-state-columns-and-status-check",
             "Ensure mentor bookings support learner confirmation and dispute-related statuses",
             this::patchMentorBookingStateColumnsAndStatusCheck,
@@ -1845,6 +1861,99 @@ public class DatabaseSchemaFixer {
         return remainingInvalidSnapshots == null || remainingInvalidSnapshots == 0;
     }
 
+    private void patchUserSubscriptionRenewalSnapshotColumns() {
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'user_subscriptions'
+                      AND column_name = 'renewal_price_snapshot'
+                ) THEN
+                    ALTER TABLE user_subscriptions
+                    ADD COLUMN renewal_price_snapshot NUMERIC(12, 2);
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'user_subscriptions'
+                      AND column_name = 'renewal_price_locked_at'
+                ) THEN
+                    ALTER TABLE user_subscriptions
+                    ADD COLUMN renewal_price_locked_at TIMESTAMP;
+                END IF;
+            END $$;
+        """);
+    }
+
+    private boolean verifyUserSubscriptionRenewalSnapshotColumns() {
+        return hasColumn("user_subscriptions", "renewal_price_snapshot")
+                && hasColumn("user_subscriptions", "renewal_price_locked_at");
+    }
+
+    private void patchUserSubscriptionCurrentCyclePaidAmountSnapshot() {
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'user_subscriptions'
+                      AND column_name = 'current_cycle_paid_amount_snapshot'
+                ) THEN
+                    ALTER TABLE user_subscriptions
+                    ADD COLUMN current_cycle_paid_amount_snapshot NUMERIC(12, 2);
+                END IF;
+            END $$;
+        """);
+    }
+
+    private boolean verifyUserSubscriptionCurrentCyclePaidAmountSnapshot() {
+        return hasColumn("user_subscriptions", "current_cycle_paid_amount_snapshot");
+    }
+
+    private void patchPremiumPricingGenericColumns() {
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'premium_plans'
+                      AND column_name = 'discount_percent'
+                ) THEN
+                    ALTER TABLE premium_plans
+                    ADD COLUMN discount_percent NUMERIC(5, 2);
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'user_subscriptions'
+                      AND column_name = 'is_discounted_pricing'
+                ) THEN
+                    ALTER TABLE user_subscriptions
+                    ADD COLUMN is_discounted_pricing BOOLEAN;
+                END IF;
+
+                UPDATE premium_plans
+                SET discount_percent = student_discount_percent
+                WHERE discount_percent IS NULL;
+
+                UPDATE user_subscriptions
+                SET is_discounted_pricing = is_student_subscription
+                WHERE is_discounted_pricing IS NULL;
+            END $$;
+        """);
+    }
+
+    private boolean verifyPremiumPricingGenericColumns() {
+        return hasColumn("premium_plans", "discount_percent")
+                && hasColumn("user_subscriptions", "is_discounted_pricing");
+    }
+
     private boolean hasTable(String tableName) {
         Boolean exists = jdbcTemplate.queryForObject("""
             SELECT EXISTS (
@@ -1960,6 +2069,43 @@ public class DatabaseSchemaFixer {
         String definition = getConstraintDefinition("wallet_transactions_transaction_type_check");
         return definition != null
                 && definition.contains("JOB_PAYOUT")
+                && definition.contains("PLATFORM_FEE")
+                && definition.contains("ESCROW_FUND")
+                && definition.contains("ESCROW_RELEASE")
+                && definition.contains("ESCROW_REFUND");
+    }
+
+    private void patchWalletTransactionTypeCheckJobFees() {
+        String sql = "DO $$\nBEGIN\n" +
+            "IF EXISTS (\n" +
+            "SELECT 1 FROM information_schema.table_constraints\n" +
+            "WHERE table_schema = current_schema()\n" +
+            "AND table_name = 'wallet_transactions'\n" +
+            "AND constraint_name = 'wallet_transactions_transaction_type_check'\n" +
+            ") THEN\n" +
+            "ALTER TABLE wallet_transactions DROP CONSTRAINT wallet_transactions_transaction_type_check;\n" +
+            "END IF;\n" +
+            "ALTER TABLE wallet_transactions ADD CONSTRAINT wallet_transactions_transaction_type_check\n" +
+            "CHECK (transaction_type IN (\n" +
+            "'DEPOSIT_CASH','WITHDRAWAL_CASH','PURCHASE_COINS','REFUND_CASH',\n" +
+            "'MENTOR_BOOKING','SEMINAR_PURCHASE','SEMINAR_PAYOUT',\n" +
+            "'ESCROW_FUND','ESCROW_RELEASE','ESCROW_REFUND','JOB_PAYOUT','JOB_POSTING_FEE','JOB_REOPEN_FEE','PLATFORM_FEE',\n" +
+            "'EARN_COINS','SPEND_COINS','PURCHASE_COURSE','PURCHASE_PREMIUM',\n" +
+            "'TIP_MENTOR','RECEIVE_TIP','BONUS_COINS','REWARD_ACHIEVEMENT',\n" +
+            "'DAILY_LOGIN_BONUS','REFUND_COINS',\n" +
+            "'ADMIN_ADJUSTMENT','SYSTEM_CORRECTION'\n" +
+            "));\n" +
+            "END;\n" +
+            "$$ LANGUAGE plpgsql;";
+        jdbcTemplate.execute(sql);
+    }
+
+    private boolean verifyWalletTransactionTypeCheckJobFees() {
+        String definition = getConstraintDefinition("wallet_transactions_transaction_type_check");
+        return definition != null
+                && definition.contains("JOB_PAYOUT")
+                && definition.contains("JOB_POSTING_FEE")
+                && definition.contains("JOB_REOPEN_FEE")
                 && definition.contains("PLATFORM_FEE")
                 && definition.contains("ESCROW_FUND")
                 && definition.contains("ESCROW_RELEASE")

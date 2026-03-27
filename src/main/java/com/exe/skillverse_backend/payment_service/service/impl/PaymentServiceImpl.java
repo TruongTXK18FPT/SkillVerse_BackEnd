@@ -57,6 +57,9 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class PaymentServiceImpl implements PaymentService {
 
+    private static final String PAYOS_TOPUP_ONLY_MESSAGE =
+            "PayOS chi duoc phep dung cho nap tien vao vi. Vui long nap vi va thanh toan bang so du vi.";
+
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final UserRepository userRepository;
     private final PayOSGatewayService payOSGatewayService;
@@ -80,6 +83,11 @@ public class PaymentServiceImpl implements PaymentService {
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found with ID: " + userId));
+
+        if (request.getPaymentMethod() == PaymentTransaction.PaymentMethod.PAYOS
+                && request.getType() != PaymentTransaction.PaymentType.WALLET_TOPUP) {
+            throw new IllegalArgumentException(PAYOS_TOPUP_ONLY_MESSAGE);
+        }
 
         PaymentTransaction transaction = PaymentTransaction.builder()
                 .user(user)
@@ -161,25 +169,8 @@ public class PaymentServiceImpl implements PaymentService {
                 PaymentTransaction.PaymentStatus gatewayStatus = payOSGatewayService.verifyPayment(tx.getReferenceId());
                 if (gatewayStatus != PaymentTransaction.PaymentStatus.PENDING
                         && gatewayStatus != tx.getStatus()) {
-                    tx.setStatus(gatewayStatus);
-                    paymentTransactionRepository.save(tx);
-
-                    // Auto-activate subscription on success
-                    if (gatewayStatus == PaymentTransaction.PaymentStatus.COMPLETED
-                            && tx.getType() == PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION) {
-                        try {
-                            String subscriptionIdStr = extractSubscriptionIdFromMetadata(
-                                    tx.getMetadata() != null ? tx.getMetadata() : "");
-                            if (subscriptionIdStr != null) {
-                                Long subscriptionId = Long.parseLong(subscriptionIdStr);
-                                premiumService.activateSubscription(subscriptionId, tx.getInternalReference());
-                                log.info("Auto-activated subscription {} for payment {} via verify",
-                                        subscriptionId, tx.getInternalReference());
-                            }
-                        } catch (Exception e) {
-                            log.warn("Failed to auto-activate after verify: {}", e.getMessage());
-                        }
-                    }
+                    processPaymentCallback(tx.getReferenceId(), gatewayStatus.name(), null);
+                    tx = paymentTransactionRepository.findById(tx.getId()).orElse(tx);
                 }
             } catch (Exception e) {
                 log.warn("Gateway verify failed for {}: {}", tx.getReferenceId(), e.getMessage());
@@ -263,6 +254,10 @@ public class PaymentServiceImpl implements PaymentService {
 
         PaymentTransaction savedTransaction = paymentTransactionRepository.save(transaction);
 
+        if (transaction.getType() == PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION) {
+            logPremiumPaymentTransition(transaction, newStatus);
+        }
+
         // Auto-activate subscription if payment is completed and it's a premium
         // subscription
         if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED &&
@@ -295,6 +290,12 @@ public class PaymentServiceImpl implements PaymentService {
             }
         }
 
+        if ((newStatus == PaymentTransaction.PaymentStatus.CANCELLED ||
+                newStatus == PaymentTransaction.PaymentStatus.FAILED) &&
+                transaction.getType() == PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION) {
+            rollbackPendingPremiumSubscription(transaction, newStatus);
+        }
+
         // Create mentor booking if payment completed
         if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED &&
                 transaction.getType() == PaymentTransaction.PaymentType.MENTOR_BOOKING) {
@@ -311,6 +312,16 @@ public class PaymentServiceImpl implements PaymentService {
 
         if (newStatus == PaymentTransaction.PaymentStatus.COMPLETED &&
                 transaction.getType() == PaymentTransaction.PaymentType.COURSE_PURCHASE) {
+
+            if (transaction.getPaymentMethod() != PaymentTransaction.PaymentMethod.PAYOS) {
+                log.warn(
+                        "Ignoring non-PayOS COURSE_PURCHASE callback to keep wallet-first policy. internalRef={}, method={}",
+                        transaction.getInternalReference(), transaction.getPaymentMethod());
+                return savedTransaction;
+            }
+
+            log.warn("Processing legacy in-flight COURSE_PURCHASE callback via payment domain: internalRef={}",
+                    transaction.getInternalReference());
 
             try {
                 Map<String, String> courseMetadata = extractCourseMetadataFromJson(transaction.getMetadata());
@@ -506,6 +517,52 @@ public class PaymentServiceImpl implements PaymentService {
         return null;
     }
 
+    private String extractLongFieldFromMetadata(String metadata, String fieldName) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode node = mapper.readTree(metadata);
+            JsonNode idNode = node.get(fieldName);
+            if (idNode != null && !idNode.isNull()) {
+                return idNode.asText();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse {} from metadata JSON: {}", fieldName, metadata);
+        }
+        return null;
+    }
+
+    private void logPremiumPaymentTransition(
+            PaymentTransaction transaction,
+            PaymentTransaction.PaymentStatus newStatus) {
+        String metadata = transaction.getMetadata();
+        String subscriptionId = extractLongFieldFromMetadata(metadata, "subscriptionId");
+        String currentSubscriptionId = extractLongFieldFromMetadata(metadata, "currentSubscriptionId");
+        String targetUserId = extractLongFieldFromMetadata(metadata, "targetUserId");
+
+        log.info(
+                "Premium payment state updated. internalReference={}, gatewayReference={}, status={}, subscriptionId={}, currentSubscriptionId={}, buyerUserId={}, targetUserId={}",
+                transaction.getInternalReference(),
+                transaction.getReferenceId(),
+                newStatus,
+                subscriptionId,
+                currentSubscriptionId,
+                transaction.getUser() != null ? transaction.getUser().getId() : null,
+                targetUserId);
+    }
+
+    private void rollbackPendingPremiumSubscription(
+            PaymentTransaction transaction,
+            PaymentTransaction.PaymentStatus paymentStatus) {
+        try {
+            premiumService.rollbackPendingSubscriptionPayment(
+                    transaction.getMetadata(),
+                    "Payment " + paymentStatus.name().toLowerCase() + " before activation");
+        } catch (Exception e) {
+            log.error("Failed to roll back pending premium subscription for payment {}: {}",
+                    transaction.getInternalReference(), e.getMessage(), e);
+        }
+    }
+
     private Map<String, String> extractCoinMetadataFromJson(String metadata) {
         Map<String, String> result = new HashMap<>();
         if (metadata == null || metadata.isEmpty()) {
@@ -699,6 +756,11 @@ public class PaymentServiceImpl implements PaymentService {
         transaction.setStatus(PaymentTransaction.PaymentStatus.CANCELLED);
         transaction.setFailureReason(reason);
         paymentTransactionRepository.save(transaction);
+
+        if (transaction.getType() == PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION) {
+            rollbackPendingPremiumSubscription(transaction, PaymentTransaction.PaymentStatus.CANCELLED);
+        }
+
         log.info("✅ Payment {} cancelled successfully", internalReference);
     }
 
@@ -765,9 +827,12 @@ public class PaymentServiceImpl implements PaymentService {
                     return true;
                 } else if (gatewayStatus == PaymentTransaction.PaymentStatus.CANCELLED ||
                         gatewayStatus == PaymentTransaction.PaymentStatus.FAILED) {
-                    // Update status if cancelled or failed
-                    transaction.setStatus(gatewayStatus);
-                    paymentTransactionRepository.save(transaction);
+                    if (transaction.getStatus() == PaymentTransaction.PaymentStatus.PENDING) {
+                        processPaymentCallback(transaction.getReferenceId(), gatewayStatus.name(), null);
+                    } else if (transaction.getStatus() != gatewayStatus) {
+                        transaction.setStatus(gatewayStatus);
+                        paymentTransactionRepository.save(transaction);
+                    }
                     log.info("⚠️ Payment status updated to: {}", gatewayStatus);
                     return false;
                 }

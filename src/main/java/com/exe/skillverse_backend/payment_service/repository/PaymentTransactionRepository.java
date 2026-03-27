@@ -55,6 +55,14 @@ public interface PaymentTransactionRepository extends JpaRepository<PaymentTrans
     List<PaymentTransaction> findByUserAndType(User user, PaymentTransaction.PaymentType type);
 
     /**
+     * Find transactions by type and status.
+     */
+    List<PaymentTransaction> findByTypeAndStatus(
+            PaymentTransaction.PaymentType type,
+            PaymentTransaction.PaymentStatus status
+    );
+
+    /**
      * Find transactions by status
      */
     List<PaymentTransaction> findByStatus(PaymentTransaction.PaymentStatus status);

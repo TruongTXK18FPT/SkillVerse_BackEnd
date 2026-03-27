@@ -25,6 +25,7 @@ import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -96,12 +97,35 @@ public class UserSubscription {
     @Builder.Default
     private Boolean isStudentSubscription = false;
 
+    @Column(name = "is_discounted_pricing")
+    private Boolean discountedPricing;
+
     /**
      * Auto-renewal flag
      */
     @Column(name = "auto_renew", nullable = false)
     @Builder.Default
     private Boolean autoRenew = false;
+
+    /**
+     * Locked renewal amount for the upcoming billing cycle.
+     * Falls back to the live plan price when null for legacy subscriptions.
+     */
+    @Column(name = "renewal_price_snapshot", precision = 12, scale = 2)
+    private BigDecimal renewalPriceSnapshot;
+
+    /**
+     * When the current renewal snapshot was locked in.
+     */
+    @Column(name = "renewal_price_locked_at")
+    private LocalDateTime renewalPriceLockedAt;
+
+    /**
+     * Actual amount charged for the current subscription cycle.
+     * Used for refund and upgrade-credit calculations instead of live plan price.
+     */
+    @Column(name = "current_cycle_paid_amount_snapshot", precision = 12, scale = 2)
+    private BigDecimal currentCyclePaidAmountSnapshot;
 
     /**
      * Cancellation reason if cancelled
@@ -161,6 +185,13 @@ public class UserSubscription {
             return 0;
         }
         return Duration.between(now, endDate).toDays();
+    }
+
+    public boolean isDiscountedPricingApplied() {
+        if (discountedPricing != null) {
+            return discountedPricing;
+        }
+        return Boolean.TRUE.equals(isStudentSubscription);
     }
 
     /**

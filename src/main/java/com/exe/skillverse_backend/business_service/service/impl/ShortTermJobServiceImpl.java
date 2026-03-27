@@ -48,6 +48,7 @@ import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.user_service.entity.UserProfile;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
+import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -242,6 +243,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
                         userId,
                         SHORT_TERM_JOB_POSTING_FEE,
                         "Phí đăng tin tuyển dụng ngắn hạn",
+                    WalletTransaction.TransactionType.JOB_POSTING_FEE,
                         "JOB_POSTING",
                         String.valueOf(jobId)
                 );

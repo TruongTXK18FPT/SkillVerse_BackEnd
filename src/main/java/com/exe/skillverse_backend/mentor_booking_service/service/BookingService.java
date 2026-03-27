@@ -3,7 +3,6 @@ package com.exe.skillverse_backend.mentor_booking_service.service;
 import com.exe.skillverse_backend.mentor_booking_service.dto.request.CreateBookingIntentRequest;
 import com.exe.skillverse_backend.mentor_booking_service.dto.response.BookingResponse;
 import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
-import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.event.PaymentSuccessEvent;
 import java.time.LocalDateTime;
@@ -13,7 +12,6 @@ import org.springframework.data.domain.Pageable;
 
 public interface BookingService {
     void handlePaymentSuccess(PaymentSuccessEvent event);
-    CreatePaymentResponse createBookingIntent(Long learnerId, CreateBookingIntentRequest request);
     Booking createBookingWithWallet(Long learnerId, CreateBookingIntentRequest request);
     Booking getBookingIfParticipant(Long userId, Long bookingId);
     BookingResponse getBookingDetail(Long userId, Long bookingId);

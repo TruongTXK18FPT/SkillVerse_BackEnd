@@ -49,6 +49,9 @@ public interface WalletService {
     WalletTransaction deductCash(Long userId, BigDecimal cashAmount, String description, String referenceType,
             String referenceId);
 
+    WalletTransaction deductCash(Long userId, BigDecimal cashAmount, String description,
+            WalletTransaction.TransactionType transactionType, String referenceType, String referenceId);
+
     WalletTransaction freezeCashForBooking(Long userId, BigDecimal amount, Long bookingId);
 
     WalletTransaction freezeCashForBooking(Long userId, BigDecimal amount, Long bookingId, String description);
@@ -63,9 +66,14 @@ public interface WalletService {
 
     WalletTransaction processRefund(Long userId, BigDecimal cashAmount, String description, String referenceId);
 
+    WalletTransaction processRefund(Long userId, BigDecimal cashAmount, String description, String referenceType,
+            String referenceId);
+
     WalletTransaction payMentorForBooking(Long mentorId, BigDecimal amount, Long bookingId);
 
     WalletTransaction payMentorForCourse(Long mentorId, BigDecimal amount, Long courseId);
+
+        WalletTransaction payMentorForCourse(Long mentorId, BigDecimal amount, Long courseId, String payoutReferenceId);
 
     WalletTransaction payMentorForJobPayout(Long mentorId, BigDecimal amount, Long jobId);
 

@@ -12,8 +12,6 @@ import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
-import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
-import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.event.PaymentSuccessEvent;
 import com.exe.skillverse_backend.payment_service.service.InvoiceService;
@@ -63,7 +61,6 @@ public class BookingServiceImpl implements BookingService {
     private final WalletTransactionRepository transactionRepository;
     private final BookingDisputeRepository disputeRepository;
     private final UserRepository userRepository;
-    private final PaymentService paymentService;
     private final NotificationService notificationService;
     private final WalletService walletService;
     private final MentorProfileRepository mentorProfileRepository;
@@ -84,28 +81,6 @@ public class BookingServiceImpl implements BookingService {
                     transaction.getInternalReference());
             createPendingFromPayment(transaction);
         }
-    }
-
-    @Transactional
-    public CreatePaymentResponse createBookingIntent(Long learnerId, CreateBookingIntentRequest request) {
-        validateBookingRequest(learnerId, request);
-
-        String metadata = buildMetadataJson(request);
-
-        CreatePaymentRequest paymentRequest = CreatePaymentRequest.builder()
-                .amount(request.getPriceVnd())
-                .currency("VND")
-                .type(PaymentTransaction.PaymentType.MENTOR_BOOKING)
-                .paymentMethod("PAYOS".equalsIgnoreCase(request.getPaymentMethod())
-                        ? PaymentTransaction.PaymentMethod.PAYOS
-                        : PaymentTransaction.PaymentMethod.BANK_TRANSFER)
-                .description("Mentor booking")
-                .metadata(metadata)
-                .successUrl(request.getSuccessUrl())
-                .cancelUrl(request.getCancelUrl())
-                .build();
-
-        return paymentService.createPayment(learnerId, paymentRequest);
     }
 
     @Transactional

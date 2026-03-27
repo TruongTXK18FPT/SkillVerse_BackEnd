@@ -1,7 +1,6 @@
 package com.exe.skillverse_backend.shared.config;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Set;
 
@@ -20,20 +19,6 @@ import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.exe.skillverse_backend.auth_service.entity.AuthProvider;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.repository.PremiumPlanRepository;
-import com.exe.skillverse_backend.user_service.service.UserProfileService;
-import com.exe.skillverse_backend.course_service.entity.Assignment;
-import com.exe.skillverse_backend.course_service.entity.Course;
-import com.exe.skillverse_backend.course_service.entity.Lesson;
-import com.exe.skillverse_backend.course_service.entity.Module;
-import com.exe.skillverse_backend.course_service.entity.Quiz;
-import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
-import com.exe.skillverse_backend.course_service.entity.enums.LessonType;
-import com.exe.skillverse_backend.course_service.entity.enums.SubmissionType;
-import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
-import com.exe.skillverse_backend.course_service.repository.CourseRepository;
-import com.exe.skillverse_backend.course_service.repository.LessonRepository;
-import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
-import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,12 +33,6 @@ public class DataInitializer implements CommandLineRunner {
         private final UserRepository userRepository;
         private final PasswordEncoder passwordEncoder;
         private final PremiumPlanRepository premiumPlanRepository;
-        private final CourseRepository courseRepository;
-        private final ModuleRepository moduleRepository;
-        private final LessonRepository lessonRepository;
-        private final QuizRepository quizRepository;
-        private final AssignmentRepository assignmentRepository;
-        private final UserProfileService userProfileService;
         private final JdbcTemplate jdbcTemplate;
 
         @Override
@@ -61,9 +40,8 @@ public class DataInitializer implements CommandLineRunner {
                 log.info("🚀 [ORDER 1] DataInitializer starting...");
                 fixDatabaseConstraints();
                 initializeRoles();
-                initializeUsers();
+                log.info("⏭️ Skipping user seed for production-ready startup");
                 initializePremiumPlans();
-                initializeCourses();
                 log.info("✅ [ORDER 1] DataInitializer completed");
                 // initializeProfiles(); // Temporarily disabled - profiles can be created via
                 // API
@@ -359,6 +337,7 @@ public class DataInitializer implements CommandLineRunner {
                                         .currency("VND")
                                         .planType(planType)
                                         .targetRole(targetRole)
+                                        .discountPercent(studentDiscountPercent)
                                         .studentDiscountPercent(studentDiscountPercent)
                                         .features(features)
                                         .isActive(true)
@@ -379,6 +358,7 @@ public class DataInitializer implements CommandLineRunner {
                         plan.setCurrency("VND");
                         plan.setPlanType(planType);
                         plan.setTargetRole(targetRole);
+                        plan.setDiscountPercent(studentDiscountPercent);
                         plan.setStudentDiscountPercent(studentDiscountPercent);
                         plan.setFeatures(features);
                         plan.setIsActive(true);
@@ -411,234 +391,6 @@ public class DataInitializer implements CommandLineRunner {
                 }
         }
 
-        private void initializeCourses() {
-                try {
-                        // Get mentor user as course author
-                        User mentor = userRepository.findByEmail("exementor@gmail.com")
-                                        .orElseThrow(() -> new RuntimeException("Mentor user not found"));
-
-                        cleanupDeprecatedMockCourses();
-
-                        // Course 1: Java Programming Fundamentals
-                        createCourseIfNotExists(
-                                        "Lập trình Java cơ bản",
-                                        "Khóa học toàn diện về Java dành cho người mới bắt đầu. Học các khái niệm cơ bản, OOP, và xây dựng ứng dụng thực tế.",
-                                        "BEGINNER",
-                                        CourseStatus.PUBLIC,
-                                        new BigDecimal("299000"),
-                                        "VND",
-                                        mentor,
-                                        new String[][] {
-                                                        { "Giới thiệu về Java",
-                                                                        "Tìm hiểu về lịch sử Java, cài đặt JDK và viết chương trình đầu tiên" },
-                                                        { "Cú pháp cơ bản và Kiểu dữ liệu",
-                                                                        "Học về biến, kiểu dữ liệu, toán tử và cấu trúc điều khiển" },
-                                                        { "Lập trình Hướng đối tượng",
-                                                                        "Hiểu về classes, objects, inheritance và polymorphism" },
-                                                        { "Collections và Streams",
-                                                                        "Làm việc với List, Set, Map và Stream API" },
-                                                        { "Exception Handling", "Xử lý lỗi và ngoại lệ trong Java" }
-                                        });
-
-                        // Course 2: Web Development with Spring Boot
-                        createCourseIfNotExists(
-                                        "Phát triển Web với Spring Boot",
-                                        "Xây dựng ứng dụng web hiện đại với Spring Boot, REST API, và microservices. Thực hành với các dự án thực tế.",
-                                        "INTERMEDIATE",
-                                        CourseStatus.PUBLIC,
-                                        new BigDecimal("599000"),
-                                        "VND",
-                                        mentor,
-                                        new String[][] {
-                                                        { "Spring Boot Basics",
-                                                                        "Tìm hiểu về Spring Framework và tạo ứng dụng Spring Boot đầu tiên" },
-                                                        { "RESTful API Development",
-                                                                        "Thiết kế và xây dựng REST API với Spring MVC" },
-                                                        { "Database Integration",
-                                                                        "Làm việc với JPA, Hibernate và Spring Data" },
-                                                        { "Security và Authentication",
-                                                                        "Triển khai bảo mật với Spring Security và JWT" },
-                                                        { "Microservices Architecture",
-                                                                        "Xây dựng và deploy microservices với Spring Cloud" }
-                                        });
-
-                        // Course 3: Frontend Development với React
-                        createCourseIfNotExists(
-                                        "Phát triển Frontend với React",
-                                        "Khóa học toàn diện về React.js để xây dựng giao diện người dùng hiện đại, tương tác. Học React hooks, state management, và best practices.",
-                                        "INTERMEDIATE",
-                                        CourseStatus.PUBLIC,
-                                        new BigDecimal("499000"),
-                                        "VND",
-                                        mentor,
-                                        new String[][] {
-                                                        { "React Fundamentals",
-                                                                        "Components, JSX, Props và State cơ bản" },
-                                                        { "React Hooks", "useState, useEffect, useContext và custom hooks" },
-                                                        { "State Management", "Context API, Redux và Zustand" },
-                                                        { "Routing và Navigation", "React Router và dynamic routing" },
-                                                        { "Performance Optimization",
-                                                                        "Lazy loading, memoization và code splitting" }
-                                        });
-
-                        log.info("🎉 All sample courses initialized successfully");
-
-                } catch (Exception e) {
-                        log.error("❌ Error initializing courses: {}", e.getMessage(), e);
-                        throw new RuntimeException("Failed to initialize courses", e);
-                }
-        }
-
-        private void cleanupDeprecatedMockCourses() {
-                deleteCourseByTitleIfExists("Thiết kế Database và SQL");
-                deleteCourseByTitleIfExists("DevOps và CI/CD Pipeline");
-        }
-
-        private void deleteCourseByTitleIfExists(String title) {
-                courseRepository.findByTitle(title).ifPresent(course -> {
-                        try {
-                                courseRepository.delete(course);
-                                log.info("🧹 Removed deprecated mock course: {}", title);
-                        } catch (Exception ex) {
-                                log.warn("⚠️ Cannot remove deprecated mock course '{}': {}", title, ex.getMessage());
-                        }
-                });
-        }
-
-        private void createCourseIfNotExists(String title, String description, String level,
-                        CourseStatus status, BigDecimal price, String currency, User author, String[][] modulesData) {
-
-                if (courseRepository.findByTitle(title).isPresent()) {
-                        log.info("✅ Course already exists: {}", title);
-                        return;
-                }
-
-                Instant now = Instant.now();
-
-                Course course = Course.builder()
-                                .title(title)
-                                .description(description)
-                                .level(level)
-                                .status(status)
-                                .price(price)
-                                .currency(currency)
-                                .author(author)
-                                .createdAt(now)
-                                .updatedAt(now)
-                                .submittedAt(status == CourseStatus.PENDING || status == CourseStatus.PUBLIC
-                                                ? now.minusSeconds(86400)
-                                                : null) // 1 day ago if pending/public
-                                .publishedAt(status == CourseStatus.PUBLIC ? now : null)
-                                .build();
-
-                course = courseRepository.save(course);
-                log.info("✅ Created course: {}", title);
-
-                // Create modules with lessons, quizzes and assignments
-                for (int i = 0; i < modulesData.length; i++) {
-                        String moduleTitle = modulesData[i][0];
-                        String moduleDesc = modulesData[i][1];
-
-                        Module module = Module.builder()
-                                        .course(course)
-                                        .title(moduleTitle)
-                                        .description(moduleDesc)
-                                        .orderIndex(i + 1)
-                                        .createdAt(now)
-                                        .updatedAt(now)
-                                        .build();
-
-                        module = moduleRepository.save(module);
-                        log.info("  ✅ Created module {}: {}", i + 1, moduleTitle);
-
-                        // Create 3 lessons per module
-                        createLessonsForModule(module, i + 1);
-
-                        // Create 1 quiz per module
-                        createQuizForModule(module, i + 1);
-
-                        // Create 1 assignment per module
-                        createAssignmentForModule(module, i + 1);
-                }
-        }
-
-        private void createLessonsForModule(Module module,
-                        int moduleIndex) {
-                Instant now = Instant.now();
-
-                String[] lessonTitles = {
-                                "Bài giảng video",
-                                "Tài liệu đọc",
-                                "Thực hành"
-                };
-
-                LessonType[] lessonTypes = {
-                                LessonType.VIDEO,
-                                LessonType.READING,
-                                LessonType.CODELAB
-                };
-
-                String[] lessonContents = {
-                                "Video bài giảng chi tiết với ví dụ thực tế và demo code. Thời lượng 30-45 phút.",
-                                "Tài liệu đọc bổ sung với các khái niệm chi tiết, best practices và tips. Khoảng 15-20 trang.",
-                                "Bài thực hành với code starter và hướng dẫn chi tiết. Thời gian hoàn thành: 1-2 giờ."
-                };
-
-                for (int i = 0; i < 3; i++) {
-                        Lesson lesson = Lesson.builder()
-                                        .module(module)
-                                        .title(lessonTitles[i] + " - Module " + moduleIndex)
-                                        .type(lessonTypes[i])
-                                        .contentText(lessonContents[i])
-                                        .orderIndex(i + 1)
-                                        .durationSec(lessonTypes[i] == LessonType.VIDEO ? 2400
-                                                        : (lessonTypes[i] == LessonType.READING ? 1200 : 5400)) // in
-                                                                                                                // seconds
-                                        .videoUrl(lessonTypes[i] == LessonType.VIDEO
-                                                        ? "https://example.com/video" + (i + 1)
-                                                        : null)
-                                        .createdAt(now)
-                                        .updatedAt(now)
-                                        .build();
-
-                        lessonRepository.save(lesson);
-                }
-        }
-
-        private void createQuizForModule(Module module,
-                        int moduleIndex) {
-                Instant now = Instant.now();
-
-                Quiz quiz = Quiz.builder()
-                                .module(module)
-                                .title("Kiểm tra kiến thức Module " + moduleIndex)
-                                .description("Bài kiểm tra trắc nghiệm với 10 câu hỏi để đánh giá kiến thức của bạn")
-                                .passScore(70)
-                                .createdAt(now)
-                                .updatedAt(now)
-                                .build();
-
-                quizRepository.save(quiz);
-        }
-
-        private void createAssignmentForModule(Module module,
-                        int moduleIndex) {
-                Instant now = Instant.now();
-
-                Assignment assignment = Assignment.builder()
-                                .module(module)
-                                .title("Bài tập lớn Module " + moduleIndex)
-                                .description("Bài tập thực hành lớn để áp dụng các kiến thức đã học. Yêu cầu hoàn thành project nhỏ và submit code.")
-                                .submissionType(SubmissionType.FILE)
-                                .maxScore(new BigDecimal("100"))
-                                .dueAt(now.plusSeconds(604800)) // Due in 7 days
-                                .createdAt(now)
-                                .updatedAt(now)
-                                .build();
-
-                assignmentRepository.save(assignment);
-        }
-
         private void createGoogleStudentIfNotExists(String email, Role userRole, LocalDateTime createdDate,
                         String fullName) {
                 if (!userRepository.existsByEmail(email)) {
@@ -657,13 +409,6 @@ public class DataInitializer implements CommandLineRunner {
 
                         userRepository.save(user);
                         log.info("✅ Created Google student with email: {}", email);
-                        try {
-                                userProfileService.createCompleteProfile(user.getId(), fullName, null, null, null, null,
-                                                null, null, null);
-                                log.info("✅ Created basic profile for: {}", email);
-                        } catch (Exception e) {
-                                log.warn("⚠️ Failed to create profile for {}: {}", email, e.getMessage());
-                        }
                 } else {
                         log.info("✅ Google student already exists: {}", email);
                 }

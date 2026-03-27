@@ -172,6 +172,8 @@ public class WalletTransaction {
         ESCROW_RELEASE("Giải phóng ký quỹ cho ứng viên"),
         ESCROW_REFUND("Hoàn ký quỹ cho recruiter"),
         JOB_PAYOUT("Thu nhập từ công việc ngắn hạn"),
+        JOB_POSTING_FEE("Phí đăng tin tuyển dụng"),
+        JOB_REOPEN_FEE("Phí mở lại tin tuyển dụng"),
         PLATFORM_FEE("Phí nền tảng từ ký quỹ"),
 
         // Coin transactions

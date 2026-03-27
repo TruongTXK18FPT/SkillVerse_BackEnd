@@ -17,6 +17,7 @@ import com.exe.skillverse_backend.business_service.repository.RecruitmentSession
 import com.exe.skillverse_backend.business_service.service.JobPostingService;
 import com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionService;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -69,7 +70,8 @@ public class JobPostingServiceImpl implements JobPostingService {
             try {
                 log.info("No subscription — deducting {} VND from wallet for user {}", JOB_POSTING_FEE, userId);
                 walletService.deductCash(userId, JOB_POSTING_FEE,
-                        "Phí đăng tin tuyển dụng full-time", "JOB_POSTING", "new");
+                    "Phí đăng tin tuyển dụng full-time", WalletTransaction.TransactionType.JOB_POSTING_FEE,
+                    "JOB_POSTING", "new");
             } catch (IllegalStateException ex) {
                 throw ex; // keep insufficient funds as-is
             } catch (Exception ex) {
@@ -360,7 +362,8 @@ public class JobPostingServiceImpl implements JobPostingService {
             try {
                 log.info("No subscription and outside grace period — deducting {} VND from wallet for reopen, user {}", JOB_REOPEN_FEE, userId);
                 walletService.deductCash(userId, JOB_REOPEN_FEE,
-                        "Phí mở lại tin tuyển dụng", "JOB_REOPEN", String.valueOf(jobId));
+                    "Phí mở lại tin tuyển dụng", WalletTransaction.TransactionType.JOB_REOPEN_FEE,
+                    "JOB_REOPEN", String.valueOf(jobId));
             } catch (Exception ex) {
                 throw new IllegalStateException("Wallet deduction failed", ex);
             }

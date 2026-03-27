@@ -42,10 +42,21 @@ public interface PremiumPlanRepository extends JpaRepository<PremiumPlan, Long> 
                         BigDecimal minPrice, BigDecimal maxPrice);
 
         /**
-         * Find plans with student discounts
+         * Find plans with active role-based discount pricing.
          */
-        @Query("SELECT p FROM PremiumPlan p WHERE p.isActive = true AND p.studentDiscountPercent > 0")
-        List<PremiumPlan> findPlansWithStudentDiscount();
+        @Query("""
+                        SELECT p FROM PremiumPlan p
+                        WHERE p.isActive = true
+                          AND COALESCE(p.discountPercent, p.studentDiscountPercent, 0) > 0
+                        """)
+        List<PremiumPlan> findPlansWithDiscountPricing();
+
+        /**
+         * Backward-compatible alias for older student-specific callers.
+         */
+        default List<PremiumPlan> findPlansWithStudentDiscount() {
+                return findPlansWithDiscountPricing();
+        }
 
         /**
          * Find plans by duration

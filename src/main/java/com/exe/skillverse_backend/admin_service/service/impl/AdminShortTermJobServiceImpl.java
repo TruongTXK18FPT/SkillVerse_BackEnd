@@ -137,6 +137,7 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                     recruiterId,
                     SHORT_TERM_JOB_POSTING_FEE,
                     "Hoàn tiền phí đăng tin ngắn hạn bị từ chối",
+                    "JOB_POSTING_REFUND",
                     String.valueOf(jobId)
             );
             log.info("Refunded 30,000 VND to recruiter user ID: {} for rejected short-term job ID: {}", recruiterId, jobId);

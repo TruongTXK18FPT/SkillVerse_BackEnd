@@ -30,10 +30,9 @@ public class PurchaseCoinsRequest {
     /**
      * Phương thức thanh toán
      * - WALLET_CASH: Dùng tiền trong ví Cash
-     * - PAYOS: Thanh toán trực tiếp qua PayOS
      */
     @NotBlank(message = "Phương thức thanh toán không được để trống")
-    @Pattern(regexp = "WALLET_CASH|PAYOS", message = "Phương thức thanh toán không hợp lệ")
+    @Pattern(regexp = "WALLET_CASH", message = "Phương thức thanh toán không hợp lệ")
     private String paymentMethod;
     
     /**
@@ -41,14 +40,4 @@ public class PurchaseCoinsRequest {
      * Ví dụ: "popular", "premium", "mega"
      */
     private String packageId;
-    
-    /**
-     * URL trả về sau khi thanh toán (nếu dùng PayOS)
-     */
-    private String returnUrl;
-    
-    /**
-     * URL trả về khi hủy (nếu dùng PayOS)
-     */
-    private String cancelUrl;
 }

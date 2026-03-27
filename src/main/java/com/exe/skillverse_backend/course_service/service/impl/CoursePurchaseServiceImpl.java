@@ -16,14 +16,9 @@ import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.service.CoursePurchaseService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
-import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
-import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.event.PaymentSuccessEvent;
 import com.exe.skillverse_backend.payment_service.service.InvoiceService;
-import com.exe.skillverse_backend.payment_service.service.PaymentService;
-import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
-import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
@@ -37,7 +32,6 @@ import java.time.Instant;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -56,51 +50,12 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
     private final CoursePurchaseRepository coursePurchaseRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
     private final UserRepository userRepository;
-    private final PaymentService paymentService;
     private final WalletService walletService;
     private final NotificationService notificationService;
     private final UserProfileService userProfileService;
     private final EmailService emailService;
     private final InvoiceService invoiceService;
     private final WalletTransactionRepository walletTransactionRepository;
-
-    @Value("${payment.course-purchase.success-url:http://localhost:5173/payment/success}")
-    private String defaultSuccessUrl;
-
-    @Value("${payment.course-purchase.cancel-url:http://localhost:5173/payment/cancel}")
-    private String defaultCancelUrl;
-
-    @Override
-    @Transactional
-    public CreatePaymentResponse createPurchaseIntent(Long userId, CoursePurchaseRequestDTO request) {
-        Course course = courseRepository.findById(request.getCourseId())
-                .orElseThrow(() -> new NotFoundException("Course not found"));
-
-        if (coursePurchaseRepository.existsByUserIdAndCourseIdAndStatus(userId, request.getCourseId(),
-                PurchaseStatus.PAID)) {
-            throw new IllegalStateException("You have already purchased this course");
-        }
-
-        String metadata = String.format("{\"courseId\":%d,\"userId\":%d}", course.getId(), userId);
-
-        String successUrl = request.getReturnUrl() != null ? request.getReturnUrl()
-                : defaultSuccessUrl;
-        String cancelUrl = request.getCancelUrl() != null ? request.getCancelUrl()
-                : defaultCancelUrl;
-
-        CreatePaymentRequest paymentRequest = CreatePaymentRequest.builder()
-                .amount(course.getPrice())
-                .currency("VND")
-                .type(PaymentTransaction.PaymentType.COURSE_PURCHASE)
-                .paymentMethod(PaymentTransaction.PaymentMethod.PAYOS)
-                .description("Purchase course: " + course.getTitle())
-                .metadata(metadata)
-                .successUrl(successUrl)
-                .cancelUrl(cancelUrl)
-                .build();
-
-        return paymentService.createPayment(userId, paymentRequest);
-    }
 
     @Override
     @Transactional
@@ -117,8 +72,13 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                 .orElseThrow(() -> new NotFoundException("User not found"));
 
         // Deduct from user wallet
-        walletService.deductCash(userId, course.getPrice(), "Purchase course: " + course.getTitle(), "COURSE_PURCHASE",
-                "COURSE_" + course.getId());
+        walletService.deductCash(
+            userId,
+            course.getPrice(),
+            "Purchase course: " + course.getTitle(),
+            WalletTransaction.TransactionType.PURCHASE_COURSE,
+            "COURSE_PURCHASE",
+            "COURSE_" + course.getId());
 
         // Complete purchase: pay mentor + create record + auto-enroll
         CoursePurchase purchase = completePurchaseAndEnroll(user, course);
@@ -162,6 +122,13 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
     public void handlePaymentSuccess(PaymentSuccessEvent event) {
         PaymentTransaction transaction = event.getTransaction();
         if (transaction.getType() == PaymentTransaction.PaymentType.COURSE_PURCHASE) {
+            if (transaction.getPaymentMethod() != PaymentTransaction.PaymentMethod.PAYOS) {
+                log.warn("Ignoring non-PayOS legacy COURSE_PURCHASE event: internalRef={}, method={}",
+                        transaction.getInternalReference(), transaction.getPaymentMethod());
+                return;
+            }
+            log.warn("Processing legacy COURSE_PURCHASE event via payment domain: internalRef={}",
+                    transaction.getInternalReference());
             try {
                 ObjectMapper mapper = new ObjectMapper();
                 JsonNode node = mapper.readTree(transaction.getMetadata());
@@ -251,10 +218,6 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         Long courseId = course.getId();
         Course enrollmentCourse = courseRepository.findByIdForEnrollmentSnapshot(courseId).orElse(course);
 
-        // Pay mentor share
-        BigDecimal mentorShare = course.getPrice().multiply(MENTOR_SHARE_RATIO);
-        walletService.payMentorForCourse(course.getAuthor().getId(), mentorShare, courseId);
-
         // Create purchase record
         CoursePurchase purchase = CoursePurchase.builder()
                 .user(user)
@@ -265,6 +228,14 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                 .purchasedAt(Instant.now())
                 .build();
         purchase = coursePurchaseRepository.save(purchase);
+
+            // Pay mentor share using deterministic key to prevent duplicate payouts on retries
+            BigDecimal mentorShare = course.getPrice().multiply(MENTOR_SHARE_RATIO);
+            walletService.payMentorForCourse(
+                course.getAuthor().getId(),
+                mentorShare,
+                courseId,
+                "COURSE_PURCHASE_" + purchase.getId());
 
         // Auto-enroll user
         if (!courseEnrollmentRepository.existsByCourseIdAndUserId(courseId, userId)) {

@@ -3,7 +3,6 @@ package com.exe.skillverse_backend.course_service.controller;
 import com.exe.skillverse_backend.course_service.dto.purchasedto.CoursePurchaseDTO;
 import com.exe.skillverse_backend.course_service.dto.purchasedto.CoursePurchaseRequestDTO;
 import com.exe.skillverse_backend.course_service.service.CoursePurchaseService;
-import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -25,15 +24,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class CoursePurchaseController {
 
     private final CoursePurchaseService coursePurchaseService;
-
-    @PostMapping("/intent")
-    @Operation(summary = "Create payment intent for course purchase (PayOS)")
-    public ResponseEntity<CreatePaymentResponse> createIntent(
-            @Valid @RequestBody CoursePurchaseRequestDTO request,
-            Authentication authentication) {
-        Long userId = Long.parseLong(authentication.getName());
-        return ResponseEntity.ok(coursePurchaseService.createPurchaseIntent(userId, request));
-    }
 
     @PostMapping("/wallet")
     @Operation(summary = "Purchase course using wallet balance")

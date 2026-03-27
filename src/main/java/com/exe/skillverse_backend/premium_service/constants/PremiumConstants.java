@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.premium_service.constants;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -27,7 +26,7 @@ public final class PremiumConstants {
     public static final int EXPIRY_NOTIFICATION_DAYS = 3;
     
     /**
-     * Days before expiry to process auto-renewal
+     * Days before expiry to send low-balance reminder for auto-renewal
      */
     public static final int AUTO_RENEWAL_WINDOW_DAYS = 3;
     
@@ -36,6 +35,11 @@ public final class PremiumConstants {
      */
     public static final int BATCH_SIZE = 500;
 
+    /**
+     * Frequency for wallet auto-renewal attempts, in minutes.
+     */
+    public static final int AUTO_RENEWAL_INTERVAL_MINUTES = 1;
+
     // ==================== Refund Policy ====================
     /**
      * Hours within which 100% refund is available
@@ -43,9 +47,15 @@ public final class PremiumConstants {
     public static final int FULL_REFUND_HOURS = 24;
     
     /**
-     * Days within which 50% refund is available
+     * Hours within which 50% refund is still available after the full-refund window
      */
-    public static final int PARTIAL_REFUND_DAYS = 3;
+    public static final int PARTIAL_REFUND_HOURS = 72;
+
+    /**
+     * Hours within which learner subscriptions can be upgraded immediately
+     * using the grace-window fixed-delta pricing policy.
+     */
+    public static final int UPGRADE_GRACE_WINDOW_HOURS = 72;
     
     /**
      * Refund percentage for partial refund window
@@ -57,12 +67,6 @@ public final class PremiumConstants {
      */
     public static final int MAX_CANCELLATIONS_PER_MONTH = 1;
 
-    // ==================== Student Discount ====================
-    /**
-     * Student discount multiplier (0.8 = 20% off)
-     */
-    public static final BigDecimal STUDENT_DISCOUNT_MULTIPLIER = new BigDecimal("0.80");
-    
     /**
      * Valid student email domain patterns
      */
@@ -79,6 +83,13 @@ public final class PremiumConstants {
     public static final String MSG_INSUFFICIENT_BALANCE = "Số dư ví không đủ";
     public static final String MSG_FREE_TIER_NOT_CONFIGURED = "Gói miễn phí chưa được cấu hình. Vui lòng liên hệ hỗ trợ.";
     public static final String MSG_CANCELLATION_LIMIT = "Bạn đã hủy gói Premium trong tháng này. Chỉ được phép hủy 1 lần/tháng.";
+    public static final String MSG_NO_ACTIVE_SUBSCRIPTION = "Bạn hiện không có gói Premium đang hoạt động.";
+    public static final String MSG_FREE_TIER_NO_REFUND = "Gói miễn phí không hỗ trợ hoàn tiền.";
+    public static final String MSG_FREE_TIER_NO_AUTO_RENEW = "Gói miễn phí không hỗ trợ gia hạn tự động.";
+    public static final String MSG_AUTO_RENEW_ALREADY_ENABLED = "Gia hạn tự động đã được bật trước đó.";
+    public static final String MSG_REFUND_FULL = "Bạn đủ điều kiện hoàn 100% trong 24 giờ đầu.";
+    public static final String MSG_REFUND_PARTIAL = "Bạn đủ điều kiện hoàn 50% trong vòng 72 giờ kể từ khi mua gói.";
+    public static final String MSG_REFUND_EXPIRED = "Đã quá 72 giờ. Bạn chỉ có thể hủy gia hạn tự động, không được hoàn tiền.";
 
     // Prevent instantiation
     private PremiumConstants() {

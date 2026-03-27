@@ -31,10 +31,7 @@ public class CreateBookingIntentRequest {
     private BigDecimal priceVnd;
 
     @NotNull
-    @Pattern(regexp = "^(PAYOS|WALLET)$")
+    @Pattern(regexp = "^WALLET$")
     private String paymentMethod;
-
-    private String successUrl;
-    private String cancelUrl;
 }
 

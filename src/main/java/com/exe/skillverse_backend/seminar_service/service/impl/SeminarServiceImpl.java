@@ -294,6 +294,7 @@ public class SeminarServiceImpl implements SeminarService {
                         Long.valueOf(userId),
                         price,
                         "Purchase ticket for seminar: " + seminar.getTitle(),
+                    WalletTransaction.TransactionType.SEMINAR_PURCHASE,
                         WalletTransaction.TransactionType.SEMINAR_PURCHASE.name(),
                         "SEMINAR_" + seminarId);
 

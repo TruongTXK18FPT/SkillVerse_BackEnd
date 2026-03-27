@@ -1,13 +1,11 @@
 package com.exe.skillverse_backend.mentor_booking_service.controller;
 
-import com.exe.skillverse_backend.mentor_booking_service.dto.request.ApprovalRequest;
 import com.exe.skillverse_backend.mentor_booking_service.dto.request.CreateBookingIntentRequest;
 import com.exe.skillverse_backend.mentor_booking_service.dto.request.RatingRequest;
 import com.exe.skillverse_backend.mentor_booking_service.dto.response.BookingResponse;
 import com.exe.skillverse_backend.mentor_booking_service.service.BookingService;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
-import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
 import com.exe.skillverse_backend.payment_service.service.InvoiceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -46,16 +44,6 @@ public class BookingController {
     private final com.exe.skillverse_backend.mentor_booking_service.repository.BookingDisputeRepository disputeRepository;
     private final InvoiceService invoiceService;
     private final MentorProfileRepository mentorProfileRepository;
-
-    @PostMapping("/intent")
-    @Operation(summary = "Tạo intent thanh toán cho booking")
-    public ResponseEntity<CreatePaymentResponse> createIntent(
-            @Valid @RequestBody CreateBookingIntentRequest request,
-            Authentication authentication) {
-        Jwt jwt = (Jwt) authentication.getPrincipal();
-        Long learnerId = Long.valueOf(jwt.getClaimAsString("userId"));
-        return ResponseEntity.ok(bookingService.createBookingIntent(learnerId, request));
-    }
 
     @PostMapping("/wallet")
     @Operation(summary = "Tạo booking và đóng băng tiền trong ví")

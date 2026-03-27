@@ -499,11 +499,28 @@ public class WalletServiceImpl implements WalletService {
                         String description,
                         String referenceType,
                         String referenceId) {
+                return deductCash(
+                                userId,
+                                cashAmount,
+                                description,
+                                WalletTransaction.TransactionType.PURCHASE_PREMIUM,
+                                referenceType,
+                                referenceId);
+        }
+
+        @Transactional
+        public WalletTransaction deductCash(
+                        Long userId,
+                        BigDecimal cashAmount,
+                        String description,
+                        WalletTransaction.TransactionType transactionType,
+                        String referenceType,
+                        String referenceId) {
                 if (cashAmount.compareTo(BigDecimal.ZERO) <= 0) {
                         throw new IllegalArgumentException("Deduct amount must be greater than 0");
                 }
 
-                Wallet wallet = walletRepository.findByUser_Id(userId)
+                Wallet wallet = walletRepository.findByUserIdWithLock(userId)
                                 .orElseThrow(() -> new IllegalArgumentException(
                                                 "Wallet not found for user: " + userId));
 
@@ -525,7 +542,9 @@ public class WalletServiceImpl implements WalletService {
 
                 WalletTransaction transaction = WalletTransaction.builder()
                                 .wallet(wallet)
-                                .transactionType(WalletTransaction.TransactionType.PURCHASE_PREMIUM)
+                                .transactionType(transactionType != null
+                                                ? transactionType
+                                                : WalletTransaction.TransactionType.PURCHASE_PREMIUM)
                                 .cashAmount(cashAmount)
                                 .currencyType(WalletTransaction.CurrencyType.CASH)
                                 .cashBalanceAfter(newBalance)
@@ -683,11 +702,34 @@ public class WalletServiceImpl implements WalletService {
                         BigDecimal cashAmount,
                         String description,
                         String referenceId) {
+                return processRefund(userId, cashAmount, description, "SUBSCRIPTION_REFUND", referenceId);
+        }
+
+        public WalletTransaction processRefund(
+                        Long userId,
+                        BigDecimal cashAmount,
+                        String description,
+                        String referenceType,
+                        String referenceId) {
                 if (cashAmount.compareTo(BigDecimal.ZERO) <= 0) {
                         throw new IllegalArgumentException("Refund amount must be greater than 0");
                 }
 
-                Wallet wallet = walletRepository.findByUser_Id(userId)
+                if (referenceType != null && !referenceType.isEmpty()
+                                && referenceId != null && !referenceId.isEmpty()) {
+                        boolean alreadyProcessed = transactionRepository.existsByReferenceIdAndReferenceTypeAndStatus(
+                                        referenceId,
+                                        referenceType,
+                                        WalletTransaction.TransactionStatus.COMPLETED);
+                        if (alreadyProcessed) {
+                                log.warn("⚠️ Refund already processed for referenceType={} referenceId={}",
+                                                referenceType, referenceId);
+                                return transactionRepository.findByReferenceIdAndReferenceType(referenceId, referenceType)
+                                                .orElse(null);
+                        }
+                }
+
+                Wallet wallet = walletRepository.findByUserIdWithLock(userId)
                                 .orElseThrow(() -> new IllegalArgumentException(
                                                 "Wallet not found for user: " + userId));
 
@@ -764,14 +806,30 @@ public class WalletServiceImpl implements WalletService {
          */
         @Transactional
         public WalletTransaction payMentorForCourse(Long mentorId, BigDecimal amount, Long courseId) {
+                return payMentorForCourse(mentorId, amount, courseId, "COURSE_LEGACY_" + courseId);
+        }
+
+        @Transactional
+        public WalletTransaction payMentorForCourse(Long mentorId, BigDecimal amount, Long courseId,
+                        String payoutReferenceId) {
                 if (amount.compareTo(BigDecimal.ZERO) <= 0) {
                         throw new IllegalArgumentException("Số tiền phải lớn hơn 0");
                 }
 
                 String referenceType = "COURSE_PAYOUT";
-                String referenceId = "COURSE_" + courseId + "_" + System.currentTimeMillis(); // Unique per payout
-                                                                                              // instance if needed, or
-                                                                                              // just COURSE_PURCHASE_ID
+                String referenceId = (payoutReferenceId == null || payoutReferenceId.isBlank())
+                                ? ("COURSE_LEGACY_" + courseId)
+                                : payoutReferenceId;
+
+                boolean alreadyProcessed = transactionRepository.existsByReferenceIdAndReferenceTypeAndStatus(
+                                referenceId,
+                                referenceType,
+                                WalletTransaction.TransactionStatus.COMPLETED);
+                if (alreadyProcessed) {
+                        log.warn("⚠️ Course payout already processed for referenceId={}", referenceId);
+                        return transactionRepository.findByReferenceIdAndReferenceType(referenceId, referenceType)
+                                        .orElse(null);
+                }
 
                 Wallet wallet = walletRepository.findByUserIdWithLock(mentorId)
                                 .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
@@ -781,14 +839,6 @@ public class WalletServiceImpl implements WalletService {
 
                 WalletTransaction transaction = WalletTransaction.builder()
                                 .wallet(wallet)
-                                .transactionType(WalletTransaction.TransactionType.EARN_COINS) // Using EARN_COINS as
-                                                                                               // placeholder or add new
-                                                                                               // type if possible.
-                                // Actually let's check TransactionType enum. It has MENTOR_BOOKING. I should
-                                // probably add COURSE_SALE or similar.
-                                // For now I will use MENTOR_BOOKING or just generic DEPOSIT_CASH but with
-                                // description.
-                                // Let's use MENTOR_BOOKING as it's closest "Income from mentoring/teaching".
                                 .transactionType(WalletTransaction.TransactionType.MENTOR_BOOKING)
                                 .currencyType(WalletTransaction.CurrencyType.CASH)
                                 .cashAmount(amount)

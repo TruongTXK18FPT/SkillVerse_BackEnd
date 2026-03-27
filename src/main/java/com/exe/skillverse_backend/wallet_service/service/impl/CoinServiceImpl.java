@@ -2,10 +2,6 @@ package com.exe.skillverse_backend.wallet_service.service.impl;
 
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
-import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
-import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
-import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
-import com.exe.skillverse_backend.payment_service.service.PaymentService;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
@@ -25,7 +21,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Service for SkillCoin management
- * Handles coin purchases (wallet cash + PayOS direct)
+ * Handles wallet-first coin purchases.
+ * Direct PayOS coin checkout is retained only as a blocked legacy path.
  */
 @Slf4j
 @Service
@@ -33,7 +30,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class CoinServiceImpl implements CoinService {
 
         private final WalletService walletService;
-        private final PaymentService paymentService;
         private final WalletRepository walletRepository;
         private final WalletTransactionRepository transactionRepository;
         private final NotificationServiceImpl notificationService;
@@ -169,65 +165,6 @@ public class CoinServiceImpl implements CoinService {
                                 "paidAmount", price,
                                 "newCoinBalance", wallet.getCoinBalance(),
                                 "newCashBalance", wallet.getCashBalance());
-        }
-
-        /**
-         * OPTION 2: Mua Coin trực tiếp qua PayOS (không qua ví Cash)
-         */
-        @Transactional
-        public CreatePaymentResponse purchaseCoinsWithPayOS(
-                        Long userId,
-                        Long coinAmount,
-                        String packageId,
-                        String returnUrl,
-                        String cancelUrl) {
-                // 1. Validate coin amount
-                validateCoinAmount(coinAmount);
-
-                // 2. Get package info
-                Long totalCoins = coinAmount;
-                Long bonusCoins = 0L;
-                BigDecimal price;
-                String description;
-
-                if (packageId != null && COIN_PACKAGES.containsKey(packageId)) {
-                        CoinPackage pkg = COIN_PACKAGES.get(packageId);
-                        totalCoins = pkg.baseCoins + pkg.bonusCoins;
-                        bonusCoins = pkg.bonusCoins;
-                        price = pkg.priceVnd;
-                        description = String.format("Mua %s - %d SkillCoin%s",
-                                        packageId, totalCoins,
-                                        bonusCoins > 0 ? " (+" + bonusCoins + " bonus)" : "");
-                } else {
-                        price = COIN_PRICE_VND.multiply(new BigDecimal(coinAmount));
-                        description = String.format("Mua %d SkillCoin", coinAmount);
-                }
-
-                // 3. Create payment request with COIN_PURCHASE type
-                // Store metadata as JSON for proper parsing in callback
-                String metadataJson = String.format(
-                                "{\"coinAmount\":\"%s\",\"packageId\":\"%s\",\"totalCoins\":\"%s\",\"bonusCoins\":\"%s\"}",
-                                coinAmount.toString(),
-                                packageId != null ? packageId : "custom",
-                                totalCoins.toString(),
-                                bonusCoins.toString());
-
-                CreatePaymentRequest paymentRequest = CreatePaymentRequest.builder()
-                                .amount(price)
-                                .type(PaymentTransaction.PaymentType.COIN_PURCHASE) // Use COIN_PURCHASE for coins
-                                .paymentMethod(PaymentTransaction.PaymentMethod.PAYOS)
-                                .description(description)
-                                .successUrl(returnUrl)
-                                .cancelUrl(cancelUrl)
-                                .metadata(metadataJson)
-                                .build();
-
-                CreatePaymentResponse paymentResponse = paymentService.createPayment(userId, paymentRequest);
-
-                log.info("💳 Tạo thanh toán PayOS cho {} Coins - User: {} - Amount: {} VNĐ",
-                                totalCoins, userId, price);
-
-                return paymentResponse;
         }
 
         /**

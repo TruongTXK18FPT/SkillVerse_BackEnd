@@ -108,27 +108,6 @@ public class WalletController {
     }
 
     /**
-     * Purchase coins with PayOS
-     */
-    @PostMapping("/coins/purchase-with-payos")
-    @Operation(summary = "Purchase coins with PayOS", description = "Buy coins directly via PayOS payment")
-    public ResponseEntity<CreatePaymentResponse> purchaseCoinsWithPayOS(
-            @Valid @RequestBody PurchaseCoinsRequest request,
-            Authentication authentication) {
-        Long userId = extractUserId(authentication);
-
-        CreatePaymentResponse paymentResponse = coinService.purchaseCoinsWithPayOS(
-                userId,
-                request.getCoinAmount(),
-                request.getPackageId(),
-                request.getReturnUrl(),
-                request.getCancelUrl());
-
-        log.info("🪙 User {} tạo thanh toán mua {} Coins qua PayOS", userId, request.getCoinAmount());
-        return ResponseEntity.ok(paymentResponse);
-    }
-
-    /**
      * Get coin packages
      */
     @GetMapping("/coins/packages")

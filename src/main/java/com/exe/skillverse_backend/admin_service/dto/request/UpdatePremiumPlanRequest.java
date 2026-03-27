@@ -52,10 +52,14 @@ public class UpdatePremiumPlanRequest {
     @Schema(description = "Plan price in VND (0 for FREE_TIER)", example = "199000")
     private BigDecimal price;
 
-    @NotNull(message = "Student discount is required")
+    @DecimalMin(value = "0.0", message = "Discount must be at least 0")
+    @DecimalMax(value = "100.0", message = "Discount must not exceed 100")
+    @Schema(description = "Discount percentage for the plan's target role (0-100)", example = "20")
+    private BigDecimal discountPercent;
+
     @DecimalMin(value = "0.0", message = "Student discount must be at least 0")
     @DecimalMax(value = "100.0", message = "Student discount must not exceed 100")
-    @Schema(description = "Student discount percentage (0-100)", example = "20")
+    @Schema(description = "Legacy alias for role discount percentage (0-100). Optional for backward compatibility.", example = "20")
     private BigDecimal studentDiscountPercent;
 
     @NotBlank(message = "Features are required")

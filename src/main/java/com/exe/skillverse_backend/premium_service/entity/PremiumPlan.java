@@ -81,11 +81,16 @@ public class PremiumPlan {
     private TargetRole targetRole = TargetRole.LEARNER;
 
     /**
-     * Discount percentage for students (0-100)
+     * Legacy storage for role-based discount percentage (0-100).
+     * The column name is kept for backward compatibility while pricing logic
+     * transitions away from student-specific semantics.
      */
     @Column(name = "student_discount_percent", precision = 5, scale = 2)
     @Builder.Default
     private BigDecimal studentDiscountPercent = BigDecimal.ZERO;
+
+    @Column(name = "discount_percent", precision = 5, scale = 2)
+    private BigDecimal discountPercent;
 
     /**
      * Feature list stored as JSON
@@ -147,14 +152,32 @@ public class PremiumPlan {
     }
 
     /**
-     * Calculate discounted price for students
+     * Generic configured discount percentage for this plan's target role.
      */
-    public BigDecimal getStudentPrice() {
-        if (studentDiscountPercent.compareTo(BigDecimal.ZERO) == 0) {
+    public BigDecimal getDiscountPercent() {
+        if (discountPercent != null) {
+            return discountPercent;
+        }
+        return studentDiscountPercent != null ? studentDiscountPercent : BigDecimal.ZERO;
+    }
+
+    /**
+     * Calculate discounted price for the plan's configured target role.
+     */
+    public BigDecimal getDiscountedPrice() {
+        BigDecimal effectiveDiscountPercent = getDiscountPercent();
+        if (effectiveDiscountPercent.compareTo(BigDecimal.ZERO) == 0) {
             return price;
         }
-        BigDecimal discount = price.multiply(studentDiscountPercent).divide(BigDecimal.valueOf(100));
+        BigDecimal discount = price.multiply(effectiveDiscountPercent).divide(BigDecimal.valueOf(100));
         return price.subtract(discount);
+    }
+
+    /**
+     * Backward-compatible alias for older student-specific consumers.
+     */
+    public BigDecimal getStudentPrice() {
+        return getDiscountedPrice();
     }
 
     /**

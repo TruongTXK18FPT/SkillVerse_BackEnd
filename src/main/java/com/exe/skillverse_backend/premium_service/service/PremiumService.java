@@ -1,7 +1,7 @@
 package com.exe.skillverse_backend.premium_service.service;
 
-import com.exe.skillverse_backend.premium_service.dto.request.CreateSubscriptionRequest;
 import com.exe.skillverse_backend.premium_service.dto.response.PremiumPlanResponse;
+import com.exe.skillverse_backend.premium_service.dto.response.SubscriptionCheckoutPreviewResponse;
 import com.exe.skillverse_backend.premium_service.dto.response.UserSubscriptionResponse;
 import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
@@ -60,9 +60,19 @@ public interface PremiumService {
     Optional<PremiumPlanResponse> getPlanByType(PremiumPlan.PlanType planType);
 
     /**
-     * Create a new subscription
+     * Get checkout preview for a target premium plan.
+     * Supports fresh purchase plus the current learner upgrade policy
+     * (72h grace upgrade or full-price upgrade after the grace window).
+     * The applyStudentDiscount flag is retained only for backward compatibility.
+     * It is ignored by the current pricing flow because pricing is now resolved
+     * by backend pricing policy.
      */
-    UserSubscriptionResponse createSubscription(Long userId, CreateSubscriptionRequest request);
+    SubscriptionCheckoutPreviewResponse getCheckoutPreview(
+            Long buyerUserId,
+            Long planId,
+            boolean applyStudentDiscount,
+            Long targetUserId
+    );
 
     /**
      * Get user's current active subscription
@@ -90,8 +100,10 @@ public interface PremiumService {
     boolean hasActivePremiumSubscription(Long userId);
 
     /**
-     * Validate student email for discount eligibility
+     * Legacy compatibility method. Pricing no longer depends on student email.
+     * New business logic should not call this method.
      */
+    @Deprecated
     boolean isValidStudentEmail(String email);
 
     /**
@@ -112,6 +124,9 @@ public interface PremiumService {
     /**
      * Purchase premium subscription using wallet cash
      * Throws exception if insufficient balance
+     * The applyStudentDiscount flag is retained only for backward compatibility.
+     * It is ignored by the current pricing flow because pricing is now resolved
+     * by backend pricing policy.
      */
     UserSubscriptionResponse purchaseWithWalletCash(Long userId, Long planId, boolean applyStudentDiscount);
 
@@ -119,6 +134,9 @@ public interface PremiumService {
      * Purchase premium subscription using wallet cash for another user (gift)
      * Parent can buy for their linked children
      * Throws exception if insufficient balance or no valid link
+     * The applyStudentDiscount flag is retained only for backward compatibility.
+     * It is ignored by the current pricing flow because pricing is now resolved
+     * by backend pricing policy.
      */
     UserSubscriptionResponse purchaseWithWalletCash(Long buyerId, Long planId, boolean applyStudentDiscount, Long targetUserId);
 
@@ -193,4 +211,11 @@ public interface PremiumService {
      * Returns true if a subscription was recovered and activated.
      */
     boolean tryRecoverPendingSubscriptions(Long userId);
+
+    /**
+     * Roll back a pending premium subscription when its payment fails or is cancelled.
+     * The implementation should restore the beneficiary's effective fallback plan
+     * (typically FREE_TIER) when appropriate.
+     */
+    void rollbackPendingSubscriptionPayment(String paymentMetadata, String reason);
 }

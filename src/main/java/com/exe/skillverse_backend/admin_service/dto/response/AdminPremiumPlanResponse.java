@@ -47,6 +47,12 @@ public class AdminPremiumPlanResponse {
     @Schema(description = "Target role (LEARNER, RECRUITER, PARENT)", example = "RECRUITER")
     private PremiumPlan.TargetRole targetRole;
 
+    @Schema(description = "Discount percentage for the plan's target role", example = "10")
+    private BigDecimal discountPercent;
+
+    @Schema(description = "Discounted price for the plan's target role", example = "71100")
+    private BigDecimal discountedPrice;
+
     @Schema(description = "Student discount percentage", example = "10")
     private BigDecimal studentDiscountPercent;
 

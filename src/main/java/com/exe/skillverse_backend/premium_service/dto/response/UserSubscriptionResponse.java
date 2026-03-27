@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.premium_service.dto.response;
 
 import com.exe.skillverse_backend.premium_service.entity.UserSubscription;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -48,11 +49,38 @@ public class UserSubscriptionResponse {
     @Schema(description = "Subscription status", example = "ACTIVE")
     private UserSubscription.SubscriptionStatus status;
 
-    @Schema(description = "Whether this is a student subscription", example = "false")
+    @Schema(description = "Legacy alias for discounted pricing, retained for backward compatibility", example = "false")
     private Boolean isStudentSubscription;
+
+    @Schema(description = "Whether this subscription is using a discounted pricing policy", example = "false")
+    private Boolean isDiscountedSubscription;
 
     @Schema(description = "Auto-renewal enabled", example = "false")
     private Boolean autoRenew;
+
+    @Schema(description = "Renewal amount locked for the upcoming billing cycle", example = "249000")
+    private BigDecimal renewalPrice;
+
+    @Schema(description = "When the system will attempt wallet auto-renewal")
+    private LocalDateTime renewalAttemptDate;
+
+    @Schema(description = "When the current renewal amount was locked for the next cycle")
+    private LocalDateTime renewalPriceLockedAt;
+
+    @Schema(description = "Scheduled downgrade target plan, if the user has already queued a lower-tier plan")
+    private PremiumPlanResponse scheduledChangePlan;
+
+    @Schema(description = "When the scheduled downgrade will become active")
+    private LocalDateTime scheduledChangeEffectiveDate;
+
+    @Schema(description = "Whether auto-renewal will apply to the scheduled plan after the switch")
+    private Boolean scheduledChangeAutoRenew;
+
+    @Schema(description = "Renewal amount that will apply to the scheduled plan")
+    private BigDecimal scheduledChangeRenewalPrice;
+
+    @Schema(description = "When the system will attempt auto-renewal for the scheduled plan")
+    private LocalDateTime scheduledChangeRenewalAttemptDate;
 
     @Schema(description = "Payment transaction ID that created this subscription")
     private Long paymentTransactionId;
