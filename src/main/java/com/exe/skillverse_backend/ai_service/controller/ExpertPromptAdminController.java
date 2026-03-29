@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.ai_service.dto.request.ExpertPromptRequest;
 import com.exe.skillverse_backend.ai_service.entity.ExpertPromptConfig;
 import com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository;
 import com.exe.skillverse_backend.ai_service.service.ExpertPromptMediaService;
+import com.exe.skillverse_backend.ai_service.service.ExpertPromptServiceImpl;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,7 +17,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1/admin/expert-prompts")
@@ -37,21 +38,20 @@ public class ExpertPromptAdminController {
 
     private final ExpertPromptConfigRepository expertPromptConfigRepository;
     private final ExpertPromptMediaService expertPromptMediaService;
+    private final ExpertPromptServiceImpl expertPromptService;
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Create new Expert Prompt", description = "Add a new industry/role and its expert system prompt")
     public ResponseEntity<ExpertPromptConfig> createExpertPrompt(@Valid @RequestBody ExpertPromptRequest request) {
-        // Check duplicate
         if (expertPromptConfigRepository.findByDomainAndIndustryAndJobRoleAndIsActiveTrue(
                 request.getDomain(), request.getIndustry(), request.getJobRole()).isPresent()) {
             throw new ApiException(ErrorCode.BAD_REQUEST, "Prompt config already exists for this role");
         }
 
-        // Build system prompt from components if not provided directly
         String systemPrompt = request.getSystemPrompt();
-        if ((systemPrompt == null || systemPrompt.isBlank()) &&
-                (request.getDomainRules() != null || request.getRolePrompt() != null)) {
+        if ((systemPrompt == null || systemPrompt.isBlank())
+                && (request.getDomainRules() != null || request.getRolePrompt() != null)) {
             systemPrompt = buildSystemPrompt(request.getDomainRules(), request.getRolePrompt(), request.getJobRole());
         }
 
@@ -80,10 +80,9 @@ public class ExpertPromptAdminController {
         ExpertPromptConfig config = expertPromptConfigRepository.findById(id)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Prompt config not found"));
 
-        // Build system prompt from components if not provided directly
         String systemPrompt = request.getSystemPrompt();
-        if ((systemPrompt == null || systemPrompt.isBlank()) &&
-                (request.getDomainRules() != null || request.getRolePrompt() != null)) {
+        if ((systemPrompt == null || systemPrompt.isBlank())
+                && (request.getDomainRules() != null || request.getRolePrompt() != null)) {
             systemPrompt = buildSystemPrompt(request.getDomainRules(), request.getRolePrompt(), request.getJobRole());
         }
 
@@ -100,24 +99,17 @@ public class ExpertPromptAdminController {
         return ResponseEntity.ok(expertPromptConfigRepository.save(config));
     }
 
-    /**
-     * Build system prompt from base + domain rules + role-specific prompt
-     */
     private String buildSystemPrompt(String domainRules, String rolePrompt, String jobRole) {
         StringBuilder sb = new StringBuilder();
+        sb.append("# MEOWL AI - CHUYÊN GIA ").append(jobRole.toUpperCase()).append("\n\n");
 
-        // Base prompt header
-        sb.append("# 🌟 MEOWL AI - CHUYÊN GIA ").append(jobRole.toUpperCase()).append("\n\n");
-
-        // Domain rules section
         if (domainRules != null && !domainRules.isBlank()) {
-            sb.append("## 📋 QUY TẮC LĨNH VỰC\n");
+            sb.append("## QUY TẮC LĨNH VỰC\n");
             sb.append(domainRules).append("\n\n");
         }
 
-        // Role-specific section
         if (rolePrompt != null && !rolePrompt.isBlank()) {
-            sb.append("## 🎯 CHUYÊN MÔN VAI TRÒ\n");
+            sb.append("## CHUYÊN MÔN VAI TRÒ\n");
             sb.append(rolePrompt).append("\n\n");
         }
 
@@ -139,6 +131,54 @@ public class ExpertPromptAdminController {
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Prompt config not found")));
     }
 
+    @GetMapping("/match")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
+    @Operation(summary = "Find matching Expert Prompt", description = "Find expert prompt config by domain, industry and job role")
+    public ResponseEntity<ExpertPromptConfig> findMatchingPrompt(
+            @RequestParam String domain,
+            @RequestParam String industry,
+            @RequestParam String jobRole) {
+
+        return expertPromptConfigRepository.findByDomainAndIndustryAndJobRoleAndIsActiveTrue(domain, industry, jobRole)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> {
+                    String domainPattern = (domain == null || domain.isBlank()) ? null : "%" + domain + "%";
+                    String industryPattern = (industry == null || industry.isBlank()) ? null : "%" + industry + "%";
+                    String rolePattern = (jobRole == null || jobRole.isBlank())
+                            ? null
+                            : "%" + jobRole.trim().toLowerCase() + "%";
+
+                    if (rolePattern != null) {
+                        List<ExpertPromptConfig> fuzzyMatches = expertPromptConfigRepository.findMatchingPrompts(
+                                domainPattern,
+                                industryPattern,
+                                rolePattern);
+
+                        if (!fuzzyMatches.isEmpty()) {
+                            return ResponseEntity.ok(fuzzyMatches.get(0));
+                        }
+                    }
+
+                    String resolvedSystemPrompt = expertPromptService.getSystemPrompt(domain, industry, jobRole);
+                    if (resolvedSystemPrompt == null || resolvedSystemPrompt.isBlank()) {
+                        throw new ApiException(ErrorCode.NOT_FOUND,
+                                "Không tìm thấy cấu hình prompt phù hợp cho ngành và vị trí đã chọn");
+                    }
+
+                    ExpertPromptConfig fallbackConfig = ExpertPromptConfig.builder()
+                            .id(0L)
+                            .domain(domain)
+                            .industry(industry)
+                            .jobRole(jobRole)
+                            .keywords("Đang áp dụng prompt dự phòng từ ExpertPromptService vì chưa có bản ghi cấu hình lưu trực tiếp.")
+                            .systemPrompt(resolvedSystemPrompt)
+                            .isActive(true)
+                            .build();
+
+                    return ResponseEntity.ok(fallbackConfig);
+                });
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Delete Expert Prompt")
@@ -149,7 +189,6 @@ public class ExpertPromptAdminController {
         expertPromptConfigRepository.deleteById(id);
         return ResponseEntity.noContent().build();
     }
-    // ==================== MEDIA MANAGEMENT ====================
 
     @PostMapping(value = "/{id}/media", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")

@@ -47,9 +47,10 @@ public interface AssessmentPromptService {
         private List<String> focusAreas;
         private String language;
         private String duration;
+        private Integer questionCount;
 
         public UserAssessmentInfo(String domain, String goal, String level, List<String> skills,
-                List<String> focusAreas, String language, String duration) {
+                List<String> focusAreas, String language, String duration, Integer questionCount) {
             this.domain = domain;
             this.goal = goal;
             this.level = level;
@@ -57,6 +58,7 @@ public interface AssessmentPromptService {
             this.focusAreas = focusAreas;
             this.language = language;
             this.duration = duration;
+            this.questionCount = questionCount;
         }
 
         public String domain() { return domain; }
@@ -66,6 +68,7 @@ public interface AssessmentPromptService {
         public List<String> focusAreas() { return focusAreas; }
         public String language() { return language; }
         public String duration() { return duration; }
+        public Integer questionCount() { return questionCount; }
     }
 
     /**

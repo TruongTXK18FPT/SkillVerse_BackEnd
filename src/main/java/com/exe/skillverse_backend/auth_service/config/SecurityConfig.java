@@ -103,6 +103,8 @@ public class SecurityConfig {
                                 .requestMatchers(HttpMethod.GET, "/api/premium/plans", "/api/premium/plans/**")
                                 .permitAll()
                                 .requestMatchers("/ws/**").permitAll()
+                                .requestMatchers(HttpMethod.GET, "/api/v1/expert-fields", "/api/v1/expert-fields/**")
+                                .permitAll()
 
                                 // Courses: public read only, write endpoints must be authenticated
                                 .requestMatchers(HttpMethod.GET, "/api/courses", "/api/courses/*",

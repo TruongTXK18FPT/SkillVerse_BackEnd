@@ -31,7 +31,10 @@ import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
 import com.exe.skillverse_backend.study_service.entity.TaskPriority;
 import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
+import com.exe.skillverse_backend.question_bank_service.dto.response.QuestionBankResponse;
+import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.persistence.EntityManager;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -70,6 +73,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class JourneyServiceImpl implements JourneyService {
 
     private static final int MAX_ASSESSMENT_ATTEMPTS = 2;
+    private static final int MIN_QUESTION_BANK_POOL_SIZE = 25;
     private static final String STUDY_PLAN_LINK_MARKER_PREFIX = "[ROADMAP_NODE_LINK]";
     private static final int MAX_STUDY_TASKS_PER_NODE = 12;
     private static final String DEFAULT_STUDY_TIMEZONE = "Asia/Ho_Chi_Minh";
@@ -87,6 +91,7 @@ public class JourneyServiceImpl implements JourneyService {
     private final AssessmentTestRepository assessmentTestRepository;
     private final TestResultRepository testResultRepository;
     private final JourneyProgressRepository journeyProgressRepository;
+    private final EntityManager entityManager;
 
     @Qualifier("generateTestChatModel")
     private final ChatModel generateTestChatModel;
@@ -94,6 +99,7 @@ public class JourneyServiceImpl implements JourneyService {
     private final AssessmentPromptService assessmentPromptService;
     private final TaskBoardService taskBoardService;
     private final AiStudySupportService aiStudySupportService;
+    private final QuestionBankService questionBankService;
     private final ObjectMapper objectMapper;
 
     private static final class QuestionEvaluation {
@@ -183,6 +189,31 @@ public class JourneyServiceImpl implements JourneyService {
     public Page<JourneySummaryResponse> getUserJourneys(User user, Pageable pageable) {
         return journeyRepository.findByUser(user, pageable)
                 .map(this::mapToJourneySummary);
+    }
+
+    @Override
+    @Transactional
+    public void deleteJourney(User user, Long journeyId) {
+        Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
+                .orElseThrow(() -> new RuntimeException("Journey not found"));
+
+        entityManager.createNativeQuery(
+                        "DELETE FROM test_results WHERE journey_id = ?1 " +
+                                "OR assessment_test_id IN (SELECT id FROM assessment_tests WHERE journey_id = ?1)")
+                .setParameter(1, journey.getId())
+                .executeUpdate();
+        entityManager.createNativeQuery("DELETE FROM assessment_tests WHERE journey_id = ?1")
+                .setParameter(1, journey.getId())
+                .executeUpdate();
+        entityManager.createNativeQuery("DELETE FROM journey_progress WHERE journey_id = ?1")
+                .setParameter(1, journey.getId())
+                .executeUpdate();
+        entityManager.createNativeQuery("DELETE FROM journeys WHERE id = ?1 AND user_id = ?2")
+                .setParameter(1, journey.getId())
+                .setParameter(2, user.getId())
+                .executeUpdate();
+
+        log.info("Deleted journey {} for user {}", journeyId, user.getId());
     }
 
     @Override
@@ -348,10 +379,109 @@ public class JourneyServiceImpl implements JourneyService {
         // Domain and goal are now directly in the request
         String domain = assessmentData.getDomain();
         String goal = assessmentData.getGoal();
+        String jobRole = assessmentData.getJobRole();
+        String industry = assessmentData.getIndustry();
+        int requestedQuestionCount = resolveAssessmentQuestionCount(assessmentData);
+        int requestedTimeLimitMinutes = resolveAssessmentTimeLimitMinutes(assessmentData);
 
-        log.info("Using domain: {}, goal: {}", domain, goal);
+        log.info("Using domain: {}, goal: {}, jobRole: {}, industry: {}, questionCount: {}, timeLimitMinutes: {}",
+                domain, goal, jobRole, industry, requestedQuestionCount, requestedTimeLimitMinutes);
 
-        // Build UserAssessmentInfo record (simplified)
+        // === NEW: Bank-first test generation ===
+        AssessmentTest test = tryGenerateFromQuestionBank(
+                journey, user, domain, industry, jobRole, requestedQuestionCount, requestedTimeLimitMinutes);
+
+        if (test != null) {
+            // Bank was used (full or partial)
+            return buildGenerateTestResponse(journey, test,
+                    "Đã tạo bài quiz đánh giá cho " + domain + " từ ngân hàng câu hỏi.");
+        }
+
+        // === Fallback: AI generation (no bank or empty bank) ===
+        return generateTestFromAI(journey, user, domain, assessmentData, generatedTestCount);
+    }
+
+    /**
+     * Try to generate test from question bank.
+     * @return AssessmentTest if bank was used, null if bank should not be used
+     */
+    private AssessmentTest tryGenerateFromQuestionBank(Journey journey, User user, String domain,
+            String industry, String jobRole, int requestedQuestionCount, int requestedTimeLimitMinutes) {
+
+        Optional<QuestionBankResponse> bankOpt = questionBankService.findActiveBank(domain, industry, jobRole);
+        if (bankOpt.isEmpty()) {
+            log.info("No question bank found for domain={}, industry={}, jobRole={}. Falling back to AI generation.",
+                    domain, industry, jobRole);
+            return null;
+        }
+
+        QuestionBankResponse bank = bankOpt.get();
+        int availableQuestions = bank.getActiveQuestionCount() != null ? bank.getActiveQuestionCount() : 0;
+        if (availableQuestions < MIN_QUESTION_BANK_POOL_SIZE) {
+            log.info("Question bank {} has only {} active questions (< {}). Falling back to AI generation.",
+                    bank.getId(), availableQuestions, MIN_QUESTION_BANK_POOL_SIZE);
+            return null;
+        }
+
+        List<QuestionInfo> bankQuestions = questionBankService.selectRandomQuestions(
+                bank.getId(), requestedQuestionCount, bank.getDifficultyDistribution());
+
+        if (bankQuestions.size() < requestedQuestionCount) {
+            log.info("Question bank {} returned only {} / {} requested questions. Falling back to AI generation.",
+                    bank.getId(), bankQuestions.size(), requestedQuestionCount);
+            return null;
+        }
+
+        questionBankService.incrementUsedCount(bankQuestions);
+
+        // Build AssessmentTest from bank questions
+        AssessmentTest test = AssessmentTest.builder()
+                .journey(journey)
+                .title("Bài đánh giá kỹ năng " + domain)
+                .description("Bài quiz đánh giá kỹ năng từ ngân hàng câu hỏi cho " + domain)
+                .targetField(domain)
+                .status(AssessmentTest.TestStatus.PENDING)
+                .questionCount(bankQuestions.size())
+                .timeLimitMinutes(requestedTimeLimitMinutes)
+                .difficultyLevel("MIXED")
+                .questionsJson(toQuestionsJson(bankQuestions))
+                .generationPrompt("Generated from question bank id=" + bank.getId())
+                .build();
+
+        test = assessmentTestRepository.save(test);
+
+        // Update journey status
+        journey.setStatus(Journey.JourneyStatus.TEST_IN_PROGRESS);
+        journey.setLastActivityAt(Instant.now());
+        journeyRepository.save(journey);
+
+        // Create progress milestone
+        JourneyProgress progress = JourneyProgress.builder()
+                .journey(journey)
+                .user(user)
+                .milestone(JourneyProgress.Milestone.TEST_GENERATED)
+                .isCompleted(true)
+                .milestoneProgress(100)
+                .completedAt(Instant.now())
+                .build();
+        journeyProgressRepository.save(progress);
+
+        return test;
+    }
+
+    private String getSkillAreasAlreadyCovered(List<QuestionInfo> questions) {
+        return questions.stream()
+                .map(QuestionInfo::skillArea)
+                .filter(Objects::nonNull)
+                .collect(Collectors.joining(", "));
+    }
+
+    /**
+     * Fallback: Generate test entirely via AI (original behavior).
+     */
+    private GenerateTestResponse generateTestFromAI(Journey journey, User user, String domain,
+            StartJourneyRequest assessmentData, long generatedTestCount) {
+
         UserAssessmentInfo userInfo = new UserAssessmentInfo(
                 assessmentData.getDomain(),
                 assessmentData.getGoal(),
@@ -359,26 +489,27 @@ public class JourneyServiceImpl implements JourneyService {
                 assessmentData.getSkills(),
                 assessmentData.getFocusAreas(),
                 assessmentData.getLanguage(),
-                assessmentData.getDuration()
+                assessmentData.getDuration(),
+                resolveAssessmentQuestionCount(assessmentData)
         );
 
-        // Get specialized prompt using AssessmentPromptService
         String prompt = assessmentPromptService.getTestGenerationPrompt(
                 domain,
-                null, // industry - not needed in simplified version
-                null, // role - not needed in simplified version
+                assessmentData.getIndustry(),
+                assessmentData.getJobRole(),
                 userInfo
         );
 
         log.info("Calling AI to generate specialized test for domain: {}", domain);
 
-        String aiResponse = getChatClient()
-                .prompt()
-                .user(prompt)
-                .call()
-                .content();
+        String aiResponse;
+        try {
+            aiResponse = getChatClient().prompt().user(prompt).call().content();
+        } catch (Exception e) {
+            log.error("AI test generation failed: {}", e.getMessage());
+            throw new RuntimeException("Failed to generate test: AI service error", e);
+        }
 
-        // Parse AI response
         Map<String, Object> testData;
         try {
             String jsonStr = extractJsonFromResponse(aiResponse);
@@ -388,17 +519,24 @@ public class JourneyServiceImpl implements JourneyService {
             throw new RuntimeException("Failed to generate test: Invalid AI response", e);
         }
 
-        // Create assessment test entity
+        int requestedQuestionCount = resolveAssessmentQuestionCount(assessmentData);
+        int requestedTimeLimitMinutes = resolveAssessmentTimeLimitMinutes(assessmentData);
+        List<Object> normalizedQuestions = normalizeGeneratedQuestions(testData.get("questions"), requestedQuestionCount);
+        if (normalizedQuestions.isEmpty()) {
+            throw new RuntimeException("Failed to generate test: AI response missing questions");
+        }
+        int finalQuestionCount = Math.min(requestedQuestionCount, normalizedQuestions.size());
+
         AssessmentTest test = AssessmentTest.builder()
                 .journey(journey)
                 .title((String) testData.get("title"))
                 .description((String) testData.get("description"))
                 .targetField((String) testData.get("targetField"))
                 .status(AssessmentTest.TestStatus.PENDING)
-                .questionCount((Integer) testData.get("questionCount"))
-                .timeLimitMinutes((Integer) testData.get("timeLimitMinutes"))
+                .questionCount(finalQuestionCount)
+                .timeLimitMinutes(requestedTimeLimitMinutes)
                 .difficultyLevel((String) testData.get("difficultyLevel"))
-                .questionsJson(objectMapper.valueToTree(testData.get("questions")).toString())
+                .questionsJson(objectMapper.valueToTree(normalizedQuestions).toString())
                 .generationPrompt(prompt)
                 .build();
 
@@ -428,6 +566,149 @@ public class JourneyServiceImpl implements JourneyService {
                         : " Bạn đã dùng hết lượt tạo lại quiz.");
 
         return buildGenerateTestResponse(journey, test, message);
+    }
+
+    private String toQuestionsJson(List<QuestionInfo> questions) {
+        try {
+            return objectMapper.writeValueAsString(toQuestionPayloads(questions));
+        } catch (Exception e) {
+            log.error("Failed to serialize questions to JSON: {}", e.getMessage());
+            return "[]";
+        }
+    }
+
+    private List<Map<String, Object>> toQuestionPayloads(List<QuestionInfo> questions) {
+        if (questions == null || questions.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<Map<String, Object>> payloads = new ArrayList<>();
+        int fallbackQuestionId = 1;
+        for (QuestionInfo question : questions) {
+            if (question == null) {
+                continue;
+            }
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            long questionId = question.questionId() != null && question.questionId() > 0
+                    ? question.questionId()
+                    : fallbackQuestionId;
+            payload.put("questionId", questionId);
+            payload.put("question", question.question());
+            payload.put("options", question.options() != null ? question.options() : Collections.emptyList());
+            payload.put("correctAnswer", question.correctAnswer());
+            payload.put("explanation", question.explanation());
+            payload.put("difficulty", question.difficulty());
+            payload.put("skillArea", question.skillArea());
+            payloads.add(payload);
+            fallbackQuestionId++;
+        }
+
+        return payloads;
+    }
+
+    private int resolveAssessmentQuestionCount(StartJourneyRequest assessmentData) {
+        if (assessmentData == null) {
+            return 15;
+        }
+
+        Integer requestedQuestionCount = assessmentData.getQuestionCount();
+        if (requestedQuestionCount != null) {
+            if (requestedQuestionCount <= 10) {
+                return 10;
+            }
+            if (requestedQuestionCount <= 15) {
+                return 15;
+            }
+            return 25;
+        }
+
+        String duration = assessmentData.getDuration();
+        if (duration == null || duration.isBlank()) {
+            return 15;
+        }
+
+        return switch (duration.trim().toUpperCase(Locale.ROOT)) {
+            case "QUICK" -> 10;
+            case "DEEP" -> 25;
+            default -> 15;
+        };
+    }
+
+    private int resolveAssessmentTimeLimitMinutes(StartJourneyRequest assessmentData) {
+        if (assessmentData == null || assessmentData.getDuration() == null || assessmentData.getDuration().isBlank()) {
+            return 15;
+        }
+
+        return switch (assessmentData.getDuration().trim().toUpperCase(Locale.ROOT)) {
+            case "QUICK" -> 5;
+            case "DEEP" -> 30;
+            default -> 15;
+        };
+    }
+
+    private List<Object> normalizeGeneratedQuestions(Object questionsData, int requestedQuestionCount) {
+        if (!(questionsData instanceof List<?> rawQuestions) || rawQuestions.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        return rawQuestions.stream()
+                .filter(Objects::nonNull)
+                .limit(requestedQuestionCount)
+                .collect(Collectors.toList());
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<QuestionInfo> generateAiQuestionsSupplement(String domain, String industry, String jobRole,
+            UserAssessmentInfo userInfo, int count, String excludeSkills) {
+        StringBuilder promptBuilder = new StringBuilder();
+        promptBuilder.append("Tạo ").append(count)
+                .append(" câu hỏi trắc nghiệm bổ sung cho bài đánh giá kỹ năng.\n")
+                .append("Lĩnh vực: ").append(domain).append("\n");
+        if (jobRole != null) {
+            promptBuilder.append("Vai trò: ").append(jobRole).append("\n");
+        }
+        if (excludeSkills != null && !excludeSkills.isBlank()) {
+            promptBuilder.append("Các kỹ năng đã có trong ngân hàng (không tạo trùng): ")
+                    .append(excludeSkills).append("\n");
+        }
+        promptBuilder.append("\nFormat JSON: {\"questions\": [...]}\n");
+        promptBuilder.append("Mỗi câu: {\"questionId\":1,\"question\":\"...\",\"options\":[\"A. ...\",\"B. ...\",\"C. ...\",\"D. ...\"],\"correctAnswer\":\"A\",\"explanation\":\"...\",\"difficulty\":\"BEGINNER\",\"skillArea\":\"...\"}");
+
+        try {
+            String aiResponse = getChatClient().prompt().user(promptBuilder.toString()).call().content();
+            String jsonStr = extractJsonFromResponse(aiResponse);
+            Map<String, Object> parsed = objectMapper.readValue(jsonStr, Map.class);
+            List<?> questionsList = (List<?>) parsed.get("questions");
+            List<QuestionInfo> result = new ArrayList<>();
+
+            if (questionsList != null) {
+                for (Object q : questionsList) {
+                    if (!(q instanceof Map)) continue;
+                    Map<String, Object> question = (Map<String, Object>) q;
+                    List<String> options = new ArrayList<>();
+                    Object opts = question.get("options");
+                    if (opts instanceof List) {
+                        for (int i = 0; i < ((List<?>) opts).size(); i++) {
+                            options.add(((List<?>) opts).get(i).toString());
+                        }
+                    }
+                    result.add(new QuestionInfo(
+                            0L,
+                            (String) question.get("question"),
+                            options,
+                            (String) question.get("correctAnswer"),
+                            (String) question.get("explanation"),
+                            (String) question.get("difficulty"),
+                            (String) question.get("skillArea")
+                    ));
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("Failed to generate AI supplement questions: {}", e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     private boolean shouldResumeExistingAssessmentTest(Journey journey, AssessmentTest latestTest) {
@@ -464,6 +745,89 @@ public class JourneyServiceImpl implements JourneyService {
                 .build();
     }
 
+    private AssessmentTest ensureAssessmentTestQuestionsReady(AssessmentTest test) {
+        if (test == null || hasRenderableQuestionPayload(test.getQuestionsJson())) {
+            return test;
+        }
+
+        Long bankId = extractQuestionBankId(test.getGenerationPrompt());
+        if (bankId == null) {
+            log.warn("Assessment test {} has invalid questionsJson and no question bank marker to recover from.",
+                    test.getId());
+            return test;
+        }
+
+        try {
+            QuestionBankResponse bank = questionBankService.getBankById(bankId);
+            int targetCount = test.getQuestionCount() != null && test.getQuestionCount() > 0
+                    ? test.getQuestionCount()
+                    : MIN_QUESTION_BANK_POOL_SIZE;
+
+            List<QuestionInfo> recoveredQuestions = questionBankService.selectRandomQuestions(
+                    bankId, targetCount, bank.getDifficultyDistribution());
+
+            if (recoveredQuestions.size() < targetCount) {
+                log.warn("Could not recover enough questions for test {} from bank {}. Got {} / {}.",
+                        test.getId(), bankId, recoveredQuestions.size(), targetCount);
+                return test;
+            }
+
+            test.setQuestionsJson(toQuestionsJson(recoveredQuestions));
+            test.setQuestionCount(recoveredQuestions.size());
+            AssessmentTest recovered = assessmentTestRepository.save(test);
+            log.info("Recovered questionsJson for assessment test {} from question bank {}", test.getId(), bankId);
+            return recovered;
+        } catch (Exception ex) {
+            log.warn("Failed to recover questionsJson for assessment test {} from question bank {}: {}",
+                    test.getId(), bankId, ex.getMessage());
+            return test;
+        }
+    }
+
+    private boolean hasRenderableQuestionPayload(String questionsJson) {
+        List<Map<String, Object>> questions = parseQuestionsJson(questionsJson);
+        if (questions.isEmpty()) {
+            return false;
+        }
+
+        return questions.stream().allMatch(this::isRenderableQuestionItem);
+    }
+
+    private boolean isRenderableQuestionItem(Map<String, Object> question) {
+        if (question == null || question.isEmpty()) {
+            return false;
+        }
+
+        String questionText = Optional.ofNullable(toText(question.get("question"))).orElse("").trim();
+        if (questionText.isBlank()) {
+            return false;
+        }
+
+        Object optionsValue = question.get("options");
+        if (!(optionsValue instanceof List<?> options)) {
+            return false;
+        }
+
+        return options.stream().filter(Objects::nonNull).count() >= 2;
+    }
+
+    private Long extractQuestionBankId(String generationPrompt) {
+        if (generationPrompt == null || generationPrompt.isBlank()) {
+            return null;
+        }
+
+        Matcher matcher = Pattern.compile("question bank id=(\\d+)").matcher(generationPrompt);
+        if (!matcher.find()) {
+            return null;
+        }
+
+        try {
+            return Long.parseLong(matcher.group(1));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
     @Override
     public AssessmentTestResponse getAssessmentTest(User user, Long journeyId, Long testId) {
         Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
@@ -471,6 +835,7 @@ public class JourneyServiceImpl implements JourneyService {
 
         AssessmentTest test = assessmentTestRepository.findByIdAndJourney(testId, journey)
                 .orElseThrow(() -> new RuntimeException("Test not found"));
+        test = ensureAssessmentTestQuestionsReady(test);
 
         return AssessmentTestResponse.builder()
                 .id(test.getId())
@@ -497,6 +862,7 @@ public class JourneyServiceImpl implements JourneyService {
 
         AssessmentTest test = assessmentTestRepository.findByIdAndJourney(request.getTestId(), journey)
                 .orElseThrow(() -> new RuntimeException("Test not found"));
+        test = ensureAssessmentTestQuestionsReady(test);
 
         // Parse questions
         List<Map<String, Object>> questions;

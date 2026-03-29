@@ -91,4 +91,10 @@ public class StartJourneyRequest {
      * Options: QUICK (5 min), STANDARD (10-15 min), DEEP (20-30 min)
      */
     private String duration;
+
+    /**
+     * Desired number of assessment questions.
+     * Frontend currently offers 10 / 15 / 25 and backend normalizes safely.
+     */
+    private Integer questionCount;
 }

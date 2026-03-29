@@ -46,8 +46,8 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
         prompt.append(getBaseSystemPrompt()).append("\n\n");
         prompt.append(getDomainSpecificInstructions(detectedDomain, detectedRole)).append("\n\n");
         prompt.append(buildUserContextSection(userInfo, detectedDomain, detectedRole)).append("\n\n");
-        prompt.append(getTestRequirementsSection(detectedDomain, detectedRole)).append("\n\n");
-        prompt.append(getOutputFormatSection(detectedDomain, detectedRole));
+        prompt.append(getTestRequirementsSection(detectedDomain, detectedRole, userInfo)).append("\n\n");
+        prompt.append(getOutputFormatSection(detectedDomain, detectedRole, userInfo));
 
         return prompt.toString();
     }
@@ -482,6 +482,8 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
     }
 
     private String buildUserContextSection(UserAssessmentInfo userInfo, String domain, String role) {
+        int requestedQuestionCount = resolveRequestedQuestionCount(userInfo);
+        int requestedTimeLimitMinutes = resolveRequestedTimeLimitMinutes(userInfo);
         StringBuilder sb = new StringBuilder();
         sb.append("## THONG TIN NGUOI DUNG CAN DANH GIA:\n\n");
         sb.append("- Linh vuc: ").append(userInfo.domain() != null ? userInfo.domain() : domain).append("\n");
@@ -490,16 +492,20 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
         sb.append("- Ky nang da biet: ").append(userInfo.skills() != null && !userInfo.skills().isEmpty() ? String.join(", ", userInfo.skills()) : "Chua co ky nang dang ke").append("\n");
         sb.append("- Linh vuc muon tap trung: ").append(userInfo.focusAreas() != null && !userInfo.focusAreas().isEmpty() ? String.join(", ", userInfo.focusAreas()) : "Chua xac dinh").append("\n");
         sb.append("- Ngon ngu bai test: ").append(userInfo.language() != null ? userInfo.language() : "Tieng Viet").append("\n");
-        sb.append("- Thoi luong bai test: ").append(userInfo.duration() != null ? userInfo.duration() : "Tieu chuan (10-15 phut)").append("\n\n");
+        sb.append("- Thoi luong bai test: ").append(userInfo.duration() != null ? userInfo.duration() : "Tieu chuan (10-15 phut)").append("\n");
+        sb.append("- So luong cau hoi mong muon: ").append(requestedQuestionCount).append("\n");
+        sb.append("- Gioi han thoi gian mong muon: ").append(requestedTimeLimitMinutes).append(" phut\n\n");
         sb.append("Nganh duoc xac dinh: ").append(domain).append("\n");
         sb.append("Vai tro muc tieu: ").append(role).append("\n");
         return sb.toString();
     }
 
-    private String getTestRequirementsSection(String domain, String role) {
+    private String getTestRequirementsSection(String domain, String role, UserAssessmentInfo userInfo) {
+        int requestedQuestionCount = resolveRequestedQuestionCount(userInfo);
+        int requestedTimeLimitMinutes = resolveRequestedTimeLimitMinutes(userInfo);
         return "## YEU CAU TAO BAI KIEM TRA:\n\n" +
             "### So luong va Cau truc:\n" +
-            "- Tong so cau hoi: 25-30 cau\n" +
+            "- Tao DUNG " + requestedQuestionCount + " cau hoi, khong thieu, khong du\n" +
             "- Phan bo theo do kho:\n" +
             "  - Beginner (De): 20%\n" +
             "  - Intermediate (Trung binh): 35%\n" +
@@ -517,19 +523,21 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
             "- Cau tra loi dung phai co giai thich ro rang\n" +
             "- Cac dap an sai phai co tinh 'gay nhieu' cao (co the dung mot phan)\n\n" +
             "### Thoi gian:\n" +
-            "- Thoi gian lam bai: 35-45 phut\n" +
-            "- Moi cau hoi trung binh: 1.5 phut\n";
+            "- timeLimitMinutes phai bang DUNG " + requestedTimeLimitMinutes + "\n" +
+            "- Tong bai test phai phu hop voi " + requestedQuestionCount + " cau hoi trong " + requestedTimeLimitMinutes + " phut\n";
     }
 
-    private String getOutputFormatSection(String domain, String role) {
+    private String getOutputFormatSection(String domain, String role, UserAssessmentInfo userInfo) {
+        int requestedQuestionCount = resolveRequestedQuestionCount(userInfo);
+        int requestedTimeLimitMinutes = resolveRequestedTimeLimitMinutes(userInfo);
         return "## DINH DANG OUTPUT (JSON):\n\n" +
             "```json\n" +
             "{\n" +
             "  \"title\": \"Danh gia Ky nang " + role + " - Cap do: [LEVEL]\",\n" +
             "  \"description\": \"Mo ta ngan gon ve bai danh gia va muc dich\",\n" +
             "  \"targetField\": \"" + domain + "\",\n" +
-            "  \"questionCount\": so_cau_hoi,\n" +
-            "  \"timeLimitMinutes\": thoi_gian_phut,\n" +
+            "  \"questionCount\": " + requestedQuestionCount + ",\n" +
+            "  \"timeLimitMinutes\": " + requestedTimeLimitMinutes + ",\n" +
             "  \"difficultyLevel\": \"mixed\",\n" +
             "  \"questions\": [\n" +
             "    {\n" +
@@ -546,7 +554,7 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
             "  \"metadata\": {\n" +
             "    \"domain\": \"" + domain + "\",\n" +
             "    \"targetRole\": \"" + role + "\",\n" +
-            "    \"estimatedCompletionTime\": \"35-45 phut\",\n" +
+            "    \"estimatedCompletionTime\": \"" + requestedTimeLimitMinutes + " phut\",\n" +
             "    \"passingScore\": \"60%\"\n" +
             "  }\n" +
             "}\n" +
@@ -555,7 +563,45 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
             "- Chi tra ve JSON hop le, khong co text khac\n" +
             "- Khong su dung markdown code blocks trong response\n" +
             "- Dam bao JSON co the parse duoc\n" +
+            "- Mang questions phai chua DUNG " + requestedQuestionCount + " phan tu\n" +
             "- Giai thich phai rat chi tiet va co gia tri hoc tap\n";
+    }
+
+    private int resolveRequestedQuestionCount(UserAssessmentInfo userInfo) {
+        Integer requested = userInfo.questionCount();
+        if (requested != null) {
+            if (requested <= 10) {
+                return 10;
+            }
+            if (requested <= 15) {
+                return 15;
+            }
+            return 25;
+        }
+
+        String duration = userInfo.duration();
+        if (duration == null || duration.isBlank()) {
+            return 15;
+        }
+
+        return switch (duration.trim().toUpperCase()) {
+            case "QUICK" -> 10;
+            case "DEEP" -> 25;
+            default -> 15;
+        };
+    }
+
+    private int resolveRequestedTimeLimitMinutes(UserAssessmentInfo userInfo) {
+        String duration = userInfo.duration();
+        if (duration == null || duration.isBlank()) {
+            return 15;
+        }
+
+        return switch (duration.trim().toUpperCase()) {
+            case "QUICK" -> 5;
+            case "DEEP" -> 30;
+            default -> 15;
+        };
     }
 
     private String buildEvaluationPrompt(String domain, TestSubmissionInfo submissionInfo) {

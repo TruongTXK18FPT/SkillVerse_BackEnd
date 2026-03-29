@@ -199,6 +199,10 @@ public class DatabaseSchemaFixer {
             "Add SLA deadline tracking, cancellation, and dispute eligibility columns to short_term_job_applications, short_term_jobs, and job_disputes",
             this::patchJobSLACancellationDisputeColumns,
             this::verifyJobSLACancellationDisputeColumns);
+        applyPatch("PATCH-033-question-bank-schema",
+            "Create question_banks and question_bank_questions tables with indexes",
+            this::patchQuestionBankSchema,
+            this::verifyQuestionBankSchema);
 
         log.info("All PostgreSQL schema patches applied and verified successfully.");
     }
@@ -2504,5 +2508,58 @@ public class DatabaseSchemaFixer {
                 END IF;
             END $$;
         """);
+    }
+
+    private void patchQuestionBankSchema() {
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS question_banks (
+                id BIGSERIAL PRIMARY KEY,
+                domain VARCHAR(255) NOT NULL,
+                industry VARCHAR(255),
+                job_role VARCHAR(100),
+                title VARCHAR(255) NOT NULL,
+                description TEXT,
+                difficulty_distribution TEXT,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ
+            )
+        """);
+
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS question_bank_questions (
+                id BIGSERIAL PRIMARY KEY,
+                question_bank_id BIGINT NOT NULL REFERENCES question_banks(id) ON DELETE CASCADE,
+                question_text TEXT NOT NULL,
+                options TEXT,
+                correct_answer VARCHAR(1) NOT NULL,
+                explanation TEXT,
+                difficulty VARCHAR(20) NOT NULL,
+                skill_area VARCHAR(255),
+                category VARCHAR(50),
+                source VARCHAR(50) DEFAULT 'MANUAL',
+                used_count INT DEFAULT 0,
+                is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ
+            )
+        """);
+
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_qb_domain ON question_banks(domain)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_qb_domain_job_role ON question_banks(domain, job_role)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_qbq_bank_id ON question_bank_questions(question_bank_id)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_qbq_difficulty ON question_bank_questions(difficulty)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_qbq_skill_area ON question_bank_questions(skill_area)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_qbq_bank_active ON question_bank_questions(question_bank_id, is_active)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_qbq_bank_difficulty ON question_bank_questions(question_bank_id, difficulty)");
+    }
+
+    private boolean verifyQuestionBankSchema() {
+        return hasTable("question_banks")
+                && hasTable("question_bank_questions")
+                && hasColumn("question_banks", "domain")
+                && hasColumn("question_bank_questions", "difficulty")
+                && hasIndex("idx_qb_domain")
+                && hasIndex("idx_qbq_bank_id");
     }
 }

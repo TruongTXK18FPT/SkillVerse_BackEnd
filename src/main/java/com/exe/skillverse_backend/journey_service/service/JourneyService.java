@@ -37,6 +37,11 @@ public interface JourneyService {
     Page<JourneySummaryResponse> getUserJourneys(User user, Pageable pageable);
 
     /**
+     * Delete a journey and related assessment artifacts for a user.
+     */
+    void deleteJourney(User user, Long journeyId);
+
+    /**
      * Get active journeys for a user.
      */
     List<JourneySummaryResponse> getActiveJourneys(User user);

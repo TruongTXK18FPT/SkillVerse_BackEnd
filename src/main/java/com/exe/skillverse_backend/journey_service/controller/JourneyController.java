@@ -26,6 +26,7 @@ import com.exe.skillverse_backend.journey_service.dto.response.AssessmentTestRes
 import com.exe.skillverse_backend.journey_service.dto.response.GenerateTestResponse;
 import com.exe.skillverse_backend.journey_service.dto.response.JourneySummaryResponse;
 import com.exe.skillverse_backend.journey_service.dto.response.TestResultResponse;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -86,6 +87,20 @@ public class JourneyController {
             @PageableDefault(size = 10) Pageable pageable) {
         User user = getUserFromAuth(userDetails);
         return ResponseEntity.ok(journeyService.getUserJourneys(user, pageable));
+    }
+
+    /**
+     * Delete a journey owned by current user.
+     * DELETE /api/v1/journey/{journeyId}
+     */
+    @DeleteMapping("/{journeyId}")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> deleteJourney(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long journeyId) {
+        User user = getUserFromAuth(userDetails);
+        journeyService.deleteJourney(user, journeyId);
+        return ResponseEntity.noContent().build();
     }
 
     /**
