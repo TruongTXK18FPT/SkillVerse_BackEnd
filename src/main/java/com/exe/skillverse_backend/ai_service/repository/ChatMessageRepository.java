@@ -13,32 +13,31 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
     /**
      * Find all messages in a session ordered by creation time
      */
-    @Query("SELECT cm FROM ChatMessage cm WHERE cm.sessionId = :sessionId ORDER BY cm.createdAt ASC")
+    @Query("SELECT cm FROM ChatMessage cm WHERE cm.chatSession.id = :sessionId ORDER BY cm.createdAt ASC")
     List<ChatMessage> findBySessionIdOrderByCreatedAtAsc(@Param("sessionId") Long sessionId);
 
     /**
      * Find latest message in a session
      */
-    @Query("SELECT cm FROM ChatMessage cm WHERE cm.sessionId = :sessionId ORDER BY cm.createdAt DESC LIMIT 1")
-    ChatMessage findLatestBySessionId(@Param("sessionId") Long sessionId);
+    ChatMessage findFirstByChatSession_IdOrderByCreatedAtDesc(Long sessionId);
 
     /**
      * Find all sessions for a user ordered by latest message
      * Uses subquery to avoid PostgreSQL SELECT DISTINCT + ORDER BY conflict
      */
-    @Query("SELECT cm.sessionId FROM ChatMessage cm WHERE cm.user.id = :userId " +
-            "GROUP BY cm.sessionId ORDER BY MAX(cm.createdAt) DESC")
+    @Query("SELECT cm.chatSession.id FROM ChatMessage cm WHERE cm.user.id = :userId " +
+            "GROUP BY cm.chatSession.id ORDER BY MAX(cm.createdAt) DESC")
     List<Long> findSessionIdsByUserId(@Param("userId") Long userId);
 
     /**
      * Delete all messages in a session
      */
-    void deleteBySessionId(Long sessionId);
+    void deleteByChatSession_Id(Long sessionId);
 
     /**
      * Count total distinct sessions in the system (Admin)
      */
-    @Query("SELECT COUNT(DISTINCT cm.sessionId) FROM ChatMessage cm")
+    @Query("SELECT COUNT(DISTINCT cm.chatSession.id) FROM ChatMessage cm")
     Long countDistinctSessions();
 
     /**
@@ -46,4 +45,6 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
      */
     @Query("SELECT COUNT(cm) FROM ChatMessage cm")
     Long countTotalMessages();
+
+    long countByChatSession_Id(Long sessionId);
 }

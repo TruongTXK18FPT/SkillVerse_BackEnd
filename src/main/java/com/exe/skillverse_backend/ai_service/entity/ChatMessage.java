@@ -1,12 +1,6 @@
 package com.exe.skillverse_backend.ai_service.entity;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
-import java.time.LocalDateTime;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -18,6 +12,14 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
 /**
  * Entity representing a chat message in the AI career counseling chatbot
@@ -27,7 +29,8 @@ import jakarta.persistence.Table;
         @Index(name = "idx_chat_user_session", columnList = "user_id, session_id"),
         @Index(name = "idx_chat_created", columnList = "created_at")
 })
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -43,22 +46,18 @@ public class ChatMessage {
      */
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "user_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
     private User user;
 
     /**
-     * Session ID for conversation grouping
-     * Allows maintaining context across multiple messages
+     * Owning chat session for this message pair
      */
-    @Column(name = "session_id", nullable = false)
-    private Long sessionId;
-
-    /**
-     * Custom title for the chat session
-     * Only stored in the first message of each session
-     * If null, title is auto-generated from first user message
-     */
-    @Column(name = "custom_title", length = 100)
-    private String customTitle;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "session_id", nullable = false)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private ChatSession chatSession;
 
     /**
      * User's input message
@@ -83,5 +82,9 @@ public class ChatMessage {
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
         }
+    }
+
+    public Long getSessionId() {
+        return chatSession != null ? chatSession.getId() : null;
     }
 }

@@ -6,9 +6,12 @@ import com.exe.skillverse_backend.ai_service.dto.gemini.GeminiDTO;
 import com.exe.skillverse_backend.ai_service.dto.request.ChatRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ChatResponse;
 import com.exe.skillverse_backend.ai_service.entity.ChatMessage;
+import com.exe.skillverse_backend.ai_service.entity.ChatSession;
+import com.exe.skillverse_backend.ai_service.entity.TaxonomyEntry;
 import com.exe.skillverse_backend.ai_service.enums.ChatMode;
 import com.exe.skillverse_backend.ai_service.repository.ChatMessageRepository;
-import com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository;
+import com.exe.skillverse_backend.ai_service.repository.ChatSessionRepository;
+import com.exe.skillverse_backend.ai_service.repository.TaxonomyEntryRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
@@ -40,11 +43,12 @@ import org.springframework.web.client.RestClient;
 public class AiChatbotServiceImpl implements AiChatbotService {
 
   private final ChatModel mistralChatModel;
+  private final ChatSessionRepository chatSessionRepository;
   private final ChatMessageRepository chatMessageRepository;
+  private final TaxonomyEntryRepository taxonomyEntryRepository;
   private final InputValidationServiceImpl inputValidationService;
   private final UsageLimitService usageLimitService;
   private final ExpertPromptServiceImpl expertPromptService;
-  private final ExpertPromptConfigRepository expertPromptConfigRepository;
   private final PremiumService premiumService;
   
   @Value("${spring.ai.openai.api-key}")
@@ -61,18 +65,20 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
   public AiChatbotServiceImpl(
       @Qualifier("mistralAiChatModel") ChatModel mistralChatModel,
+      ChatSessionRepository chatSessionRepository,
       ChatMessageRepository chatMessageRepository,
+      TaxonomyEntryRepository taxonomyEntryRepository,
       InputValidationServiceImpl inputValidationService,
       UsageLimitService usageLimitService,
       ExpertPromptServiceImpl expertPromptService,
-      ExpertPromptConfigRepository expertPromptConfigRepository,
       PremiumService premiumService) {
     this.mistralChatModel = mistralChatModel;
+    this.chatSessionRepository = chatSessionRepository;
     this.chatMessageRepository = chatMessageRepository;
+    this.taxonomyEntryRepository = taxonomyEntryRepository;
     this.inputValidationService = inputValidationService;
     this.usageLimitService = usageLimitService;
     this.expertPromptService = expertPromptService;
-    this.expertPromptConfigRepository = expertPromptConfigRepository;
     this.premiumService = premiumService;
   }
 
@@ -282,6 +288,13 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       QUY TẮC: Không thêm tiêu đề meta, dùng Markdown tối giản, emoji vừa phải.
       """;
 
+  private record ResolvedSessionContext(
+      ChatSession chatSession,
+      ExpertPromptServiceImpl.ExpertPromptResolution promptResolution,
+      TaxonomyEntry taxonomyEntry
+  ) {
+  }
+
   /**
    * Process a chat message and get AI response
    * Supports two modes:
@@ -304,6 +317,9 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       }
     }
 
+    ChatSession existingSession = findAccessibleSession(request.getSessionId(), user.getId());
+    hydrateRequestFromSession(request, existingSession);
+
     // 2. Validate chat mode and required fields
     validateChatRequest(request);
 
@@ -315,11 +331,12 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       // Don't throw error - let AI handle it with auto-correction
     }
 
-    Long sessionId = request.getSessionId();
+    ResolvedSessionContext sessionContext = resolveSessionContext(request, user, existingSession);
+    ChatSession chatSession = sessionContext.chatSession();
+    Long sessionId = chatSession.getId();
+    request.setSessionId(sessionId);
 
-    // Generate new session ID if not provided
-    if (sessionId == null) {
-      sessionId = System.currentTimeMillis();
+    if (existingSession == null) {
       log.info("Starting new {} chat session {} for user {}",
           request.getChatMode(), sessionId, user.getId());
     }
@@ -330,20 +347,30 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
     // Add correction hints to help AI detect and fix invalid inputs
     String messageWithHints = addCorrectionHints(request.getMessage());
-    log.info("Chat mode: {}, Original message: {}", request.getChatMode(), request.getMessage());
+    log.info("Chat mode: {}, Session: {}, Original message: {}",
+        request.getChatMode(), sessionId, request.getMessage());
 
     // Call AI with automatic provider selection and fallback
     String aiResponse = callAIWithFallback(messageWithHints, previousMessages, request);
     // Sanitize: remove '####' headings from AI response as requested
     aiResponse = sanitizeAIResponse(aiResponse);
 
+    LocalDateTime messageTimestamp = LocalDateTime.now();
+    updateSessionMetadata(
+        chatSession,
+        request,
+        sessionContext.promptResolution(),
+        sessionContext.taxonomyEntry(),
+        messageTimestamp);
+    chatSessionRepository.save(chatSession);
+
     // Save to database (save ONLY user's original message without any prefix)
     ChatMessage chatMessage = ChatMessage.builder()
         .user(user)
-        .sessionId(sessionId)
+        .chatSession(chatSession)
         .userMessage(request.getMessage()) // Save raw user message
         .aiResponse(aiResponse)
-        .createdAt(LocalDateTime.now())
+        .createdAt(messageTimestamp)
         .build();
 
     chatMessageRepository.save(chatMessage);
@@ -361,15 +388,12 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
     // Add expert context if in EXPERT_MODE
     if (request.getChatMode() == ChatMode.EXPERT_MODE) {
-      // Try to get mediaUrl from database
-      String mediaUrl = getExpertMediaUrl(request.getDomain(), request.getIndustry(), request.getJobRole());
-
       responseBuilder.expertContext(ChatResponse.ExpertContext.builder()
-          .domain(request.getDomain())
-          .industry(request.getIndustry())
-          .jobRole(request.getJobRole())
-          .expertName(buildExpertName(request.getJobRole()))
-          .mediaUrl(mediaUrl)
+          .domain(chatSession.getDomain())
+          .industry(chatSession.getIndustry())
+          .jobRole(chatSession.getJobRole())
+          .expertName(buildExpertName(chatSession.getJobRole()))
+          .mediaUrl(resolveExpertMediaUrl(chatSession, sessionContext.promptResolution()))
           .build());
     }
 
@@ -665,12 +689,12 @@ public class AiChatbotServiceImpl implements AiChatbotService {
    */
   @Transactional(readOnly = true)
   public List<ChatMessageResponse> getConversationHistory(Long sessionId, Long userId) {
-    List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
-
-    // Verify user owns this session
-    if (!messages.isEmpty() && !messages.get(0).getUser().getId().equals(userId)) {
-      throw new ApiException(ErrorCode.FORBIDDEN, "Access denied to this conversation");
+    ChatSession session = findAccessibleSession(sessionId, userId);
+    if (session == null) {
+      return List.of();
     }
+
+    List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
 
     // Convert to DTOs and clean old echo prefix
     return messages.stream()
@@ -689,32 +713,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
    */
   @Transactional(readOnly = true)
   public List<ChatSessionSummary> getUserSessions(Long userId) {
-    List<Long> sessionIds = chatMessageRepository.findSessionIdsByUserId(userId);
-
-    return sessionIds.stream()
-        .map(sessionId -> {
-          List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
-          if (messages.isEmpty()) {
-            return null;
-          }
-
-          // Use custom title if set, otherwise auto-generate from first message
-          ChatMessage firstMessage = messages.get(0);
-          String title;
-          if (firstMessage.getCustomTitle() != null && !firstMessage.getCustomTitle().isEmpty()) {
-            title = firstMessage.getCustomTitle();
-          } else {
-            title = extractTitle(firstMessage.getUserMessage());
-          }
-
-          return ChatSessionSummary.builder()
-              .sessionId(sessionId)
-              .title(title)
-              .lastMessageAt(messages.get(messages.size() - 1).getCreatedAt())
-              .messageCount(messages.size() * 2) // Multiply by 2 because each entity has User + AI message
-              .build();
-        })
-        .filter(summary -> summary != null)
+    return chatSessionRepository.findByUserIdOrderByActivityDesc(userId).stream()
+        .map(this::buildSessionSummary)
         .collect(Collectors.toList());
   }
 
@@ -738,38 +738,25 @@ public class AiChatbotServiceImpl implements AiChatbotService {
    */
   @Transactional
   public void deleteSession(Long sessionId, Long userId) {
-    // Verify user owns this session
-    List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
-
-    if (messages.isEmpty()) {
+    ChatSession session = findAccessibleSession(sessionId, userId);
+    if (session == null) {
       throw new ApiException(ErrorCode.NOT_FOUND, "Phiên trò chuyện không tồn tại");
     }
 
-    if (!messages.get(0).getUser().getId().equals(userId)) {
-      throw new ApiException(ErrorCode.FORBIDDEN, "Bạn không có quyền xóa phiên này");
-    }
+    long exchangeCount = chatMessageRepository.countByChatSession_Id(sessionId);
 
-    // Delete all messages in this session
-    chatMessageRepository.deleteBySessionId(sessionId);
-    log.info("Deleted session {} with {} messages for user {}", sessionId, messages.size(), userId);
+    chatSessionRepository.delete(session);
+    log.info("Deleted session {} with {} exchanges for user {}", sessionId, exchangeCount, userId);
   }
 
   /**
-   * Rename a chat session by updating custom title
-   * Note: Currently stores title in first message's metadata.
-   * Future improvement: Add ChatSession entity with customTitle field
+   * Rename a chat session by updating session metadata
    */
   @Transactional
   public ChatSessionSummary renameSession(Long sessionId, Long userId, String newTitle) {
-    // Verify user owns this session
-    List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
-
-    if (messages.isEmpty()) {
+    ChatSession session = findAccessibleSession(sessionId, userId);
+    if (session == null) {
       throw new ApiException(ErrorCode.NOT_FOUND, "Phiên trò chuyện không tồn tại");
-    }
-
-    if (!messages.get(0).getUser().getId().equals(userId)) {
-      throw new ApiException(ErrorCode.FORBIDDEN, "Bạn không có quyền đổi tên phiên này");
     }
 
     // Validate title
@@ -783,19 +770,200 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
     String trimmedTitle = newTitle.trim();
 
-    // Store custom title in first message's customTitle field
-    ChatMessage firstMessage = messages.get(0);
-    firstMessage.setCustomTitle(trimmedTitle);
-    chatMessageRepository.save(firstMessage);
+    session.setCustomTitle(trimmedTitle);
+    chatSessionRepository.save(session);
 
     log.info("Renamed session {} to '{}' for user {}", sessionId, trimmedTitle, userId);
 
+    return buildSessionSummary(session);
+  }
+
+  private ChatSession findAccessibleSession(Long sessionId, Long userId) {
+    if (sessionId == null) {
+      return null;
+    }
+
+    ChatSession session = chatSessionRepository.findById(sessionId).orElse(null);
+    if (session != null && !session.getUser().getId().equals(userId)) {
+      throw new ApiException(ErrorCode.FORBIDDEN, "Access denied to this conversation");
+    }
+    return session;
+  }
+
+  private void hydrateRequestFromSession(ChatRequest request, ChatSession existingSession) {
+    if (existingSession == null) {
+      return;
+    }
+
+    if (existingSession.getChatMode() != null) {
+      request.setChatMode(existingSession.getChatMode());
+    }
+
+    if (isBlank(request.getDomain())) {
+      request.setDomain(existingSession.getDomain());
+    }
+    if (isBlank(request.getIndustry())) {
+      request.setIndustry(existingSession.getIndustry());
+    }
+    if (isBlank(request.getJobRole())) {
+      request.setJobRole(existingSession.getJobRole());
+    }
+  }
+
+  private ResolvedSessionContext resolveSessionContext(
+      ChatRequest request,
+      User user,
+      ChatSession existingSession) {
+    ExpertPromptServiceImpl.ExpertPromptResolution promptResolution = null;
+    TaxonomyEntry taxonomyEntry = null;
+
+    if (request.getChatMode() == ChatMode.EXPERT_MODE) {
+      promptResolution = expertPromptService.resolvePrompt(
+          request.getDomain(),
+          request.getIndustry(),
+          request.getJobRole());
+      taxonomyEntry = resolveTaxonomyEntry(
+          request.getDomain(),
+          request.getIndustry(),
+          request.getJobRole());
+    }
+
+    ChatSession chatSession = existingSession;
+    if (chatSession == null) {
+      Long sessionId = request.getSessionId() != null ? request.getSessionId() : generateSessionId();
+      chatSession = ChatSession.builder()
+          .id(sessionId)
+          .user(user)
+          .chatMode(request.getChatMode())
+          .customTitle(extractTitle(request.getMessage()))
+          .build();
+    }
+
+    return new ResolvedSessionContext(chatSession, promptResolution, taxonomyEntry);
+  }
+
+  private void updateSessionMetadata(
+      ChatSession chatSession,
+      ChatRequest request,
+      ExpertPromptServiceImpl.ExpertPromptResolution promptResolution,
+      TaxonomyEntry taxonomyEntry,
+      LocalDateTime messageTimestamp) {
+    chatSession.setChatMode(request.getChatMode());
+    chatSession.setLastMessageAt(messageTimestamp);
+    if (chatSession.getCreatedAt() == null) {
+      chatSession.setCreatedAt(messageTimestamp);
+    }
+    chatSession.setUpdatedAt(messageTimestamp);
+
+    if (isBlank(chatSession.getCustomTitle())) {
+      chatSession.setCustomTitle(extractTitle(request.getMessage()));
+    }
+
+    if (request.getChatMode() == ChatMode.EXPERT_MODE) {
+      chatSession.setDomain(trimToNull(request.getDomain()));
+      chatSession.setIndustry(trimToNull(request.getIndustry()));
+      chatSession.setJobRole(trimToNull(request.getJobRole()));
+      chatSession.setExpertPromptConfig(promptResolution != null ? promptResolution.config() : null);
+      chatSession.setTaxonomyEntry(taxonomyEntry);
+    } else {
+      chatSession.setDomain(null);
+      chatSession.setIndustry(null);
+      chatSession.setJobRole(null);
+      chatSession.setExpertPromptConfig(null);
+      chatSession.setTaxonomyEntry(null);
+    }
+  }
+
+  private TaxonomyEntry resolveTaxonomyEntry(String domain, String industry, String jobRole) {
+    String normalizedRole = trimToNull(jobRole);
+    String normalizedDomain = trimToNull(domain);
+    String normalizedIndustry = trimToNull(industry);
+
+    if (normalizedRole == null) {
+      return null;
+    }
+
+    if (normalizedDomain != null && normalizedIndustry != null) {
+      TaxonomyEntry exactMatch = taxonomyEntryRepository
+          .findFirstByActiveTrueAndDomainIgnoreCaseAndIndustryIgnoreCaseAndRoleIgnoreCase(
+              normalizedDomain,
+              normalizedIndustry,
+              normalizedRole)
+          .orElse(null);
+      if (exactMatch != null) {
+        return exactMatch;
+      }
+    }
+
+    if (normalizedDomain != null) {
+      TaxonomyEntry domainRoleMatch = taxonomyEntryRepository
+          .findFirstByActiveTrueAndDomainIgnoreCaseAndRoleIgnoreCase(normalizedDomain, normalizedRole)
+          .orElse(null);
+      if (domainRoleMatch != null) {
+        return domainRoleMatch;
+      }
+    }
+
+    return taxonomyEntryRepository.findFirstByActiveTrueAndRoleIgnoreCase(normalizedRole).orElse(null);
+  }
+
+  private String resolveExpertMediaUrl(
+      ChatSession chatSession,
+      ExpertPromptServiceImpl.ExpertPromptResolution promptResolution) {
+    if (promptResolution != null && promptResolution.config() != null) {
+      return promptResolution.config().getMediaUrl();
+    }
+    if (chatSession.getExpertPromptConfig() != null) {
+      return chatSession.getExpertPromptConfig().getMediaUrl();
+    }
+    return null;
+  }
+
+  private ChatSessionSummary buildSessionSummary(ChatSession session) {
+    long exchangeCount = chatMessageRepository.countByChatSession_Id(session.getId());
+
     return ChatSessionSummary.builder()
-        .sessionId(sessionId)
-        .title(trimmedTitle)
-        .lastMessageAt(messages.get(messages.size() - 1).getCreatedAt())
-        .messageCount(messages.size())
+        .sessionId(session.getId())
+        .title(resolveSessionTitle(session))
+        .lastMessageAt(session.getLastMessageAt() != null ? session.getLastMessageAt() : session.getCreatedAt())
+        .createdAt(session.getCreatedAt())
+        .messageCount(Math.toIntExact(exchangeCount * 2))
+        .chatMode(session.getChatMode())
         .build();
+  }
+
+  private String resolveSessionTitle(ChatSession session) {
+    String storedTitle = trimToNull(session.getCustomTitle());
+    if (storedTitle != null) {
+      return storedTitle;
+    }
+
+    return chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(session.getId()).stream()
+        .findFirst()
+        .map(ChatMessage::getUserMessage)
+        .map(this::extractTitle)
+        .orElse("Cuộc trò chuyện mới");
+  }
+
+  private Long generateSessionId() {
+    long candidate = System.currentTimeMillis();
+    while (chatSessionRepository.existsById(candidate)) {
+      candidate++;
+    }
+    return candidate;
+  }
+
+  private String trimToNull(String value) {
+    if (value == null) {
+      return null;
+    }
+
+    String trimmed = value.trim();
+    return trimmed.isEmpty() ? null : trimmed;
+  }
+
+  private boolean isBlank(String value) {
+    return trimToNull(value) == null;
   }
 
   /**
@@ -1262,24 +1430,6 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     return cleaned.isEmpty() ? message : cleaned;
   }
 
-  /**
-   * Get expert media URL from database
-   * Returns null if not found
-   */
-  private String getExpertMediaUrl(String domain, String industry, String jobRole) {
-    try {
-      // Try exact match first
-      return expertPromptConfigRepository
-          .findByDomainAndIndustryAndJobRoleAndIsActiveTrue(domain, industry, jobRole)
-          .map(config -> config.getMediaUrl())
-          .orElse(null);
-    } catch (Exception e) {
-      log.warn("Failed to get media URL for expert {}/{}/{}: {}",
-          domain, industry, jobRole, e.getMessage());
-      return null;
-    }
-  }
-
   // ==================== ADMIN STATISTICS ====================
 
   /**
@@ -1287,7 +1437,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
    */
   @Transactional(readOnly = true)
   public Long getTotalSessionCount() {
-    return chatMessageRepository.countDistinctSessions();
+    return chatSessionRepository.count();
   }
 
   /**

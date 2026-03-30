@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.ai_service.dto;
 
+import com.exe.skillverse_backend.ai_service.enums.ChatMode;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -30,7 +31,17 @@ public class ChatSessionSummary {
     private LocalDateTime lastMessageAt;
 
     /**
+     * Timestamp when session was created
+     */
+    private LocalDateTime createdAt;
+
+    /**
      * Total message count in session
      */
     private Integer messageCount;
+
+    /**
+     * Persisted session mode for reliable frontend filtering
+     */
+    private ChatMode chatMode;
 }

@@ -207,6 +207,10 @@ public class DatabaseSchemaFixer {
                 "Ensure refresh_tokens has device_session_id for single-device USER sessions",
                 this::patchRefreshTokensDeviceSessionId,
                 this::verifyRefreshTokensDeviceSessionId);
+        applyPatch("PATCH-035-ai-chat-session-relations",
+                "Create chat_sessions and backfill AI chat session relationships to expert prompt and taxonomy",
+                this::patchAiChatSessionRelations,
+                this::verifyAiChatSessionRelations);
 
         log.info("All PostgreSQL schema patches applied and verified successfully.");
     }
@@ -2592,5 +2596,395 @@ public class DatabaseSchemaFixer {
     private boolean verifyRefreshTokensDeviceSessionId() {
         return hasTable("refresh_tokens")
                 && hasColumn("refresh_tokens", "device_session_id");
+    }
+
+    private void patchAiChatSessionRelations() {
+        jdbcTemplate.execute("""
+            CREATE TABLE IF NOT EXISTS chat_sessions (
+                id BIGINT PRIMARY KEY,
+                user_id BIGINT,
+                chat_mode VARCHAR(40) NOT NULL DEFAULT 'GENERAL_CAREER_ADVISOR',
+                custom_title VARCHAR(100),
+                domain VARCHAR(255),
+                industry VARCHAR(255),
+                job_role VARCHAR(255),
+                expert_prompt_config_id BIGINT,
+                taxonomy_entry_id BIGINT,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP,
+                last_message_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """);
+
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS user_id BIGINT;
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS chat_mode VARCHAR(40) NOT NULL DEFAULT 'GENERAL_CAREER_ADVISOR';
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS custom_title VARCHAR(100);
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS domain VARCHAR(255);
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS industry VARCHAR(255);
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS job_role VARCHAR(255);
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS expert_prompt_config_id BIGINT;
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS taxonomy_entry_id BIGINT;
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW();
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP;
+                ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS last_message_at TIMESTAMP NOT NULL DEFAULT NOW();
+            END $$;
+        """);
+
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_last_message ON chat_sessions(user_id, last_message_at)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_mode ON chat_sessions(chat_mode)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_expert_prompt ON chat_sessions(expert_prompt_config_id)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_taxonomy ON chat_sessions(taxonomy_entry_id)");
+
+        if (hasTable("chat_messages")) {
+            jdbcTemplate.execute("""
+                WITH aggregated AS (
+                    SELECT
+                        session_id,
+                        MIN(created_at) AS created_at,
+                        MAX(created_at) AS last_message_at
+                    FROM chat_messages
+                    WHERE session_id IS NOT NULL
+                    GROUP BY session_id
+                ),
+                first_messages AS (
+                    SELECT DISTINCT ON (session_id)
+                        session_id,
+                        user_id,
+                        NULLIF(BTRIM(custom_title), '') AS custom_title
+                    FROM chat_messages
+                    WHERE session_id IS NOT NULL
+                    ORDER BY session_id, created_at ASC, id ASC
+                )
+                INSERT INTO chat_sessions (
+                    id,
+                    user_id,
+                    chat_mode,
+                    custom_title,
+                    created_at,
+                    last_message_at,
+                    updated_at
+                )
+                SELECT
+                    aggregated.session_id,
+                    first_messages.user_id,
+                    CASE
+                        WHEN first_messages.custom_title ILIKE 'Expert %'
+                             OR first_messages.custom_title ILIKE 'Chuyên gia %'
+                             OR first_messages.custom_title ILIKE 'Chuyen gia %'
+                        THEN 'EXPERT_MODE'
+                        ELSE 'GENERAL_CAREER_ADVISOR'
+                    END,
+                    first_messages.custom_title,
+                    aggregated.created_at,
+                    aggregated.last_message_at,
+                    aggregated.last_message_at
+                FROM aggregated
+                JOIN first_messages ON first_messages.session_id = aggregated.session_id
+                ON CONFLICT (id) DO UPDATE
+                SET user_id = COALESCE(chat_sessions.user_id, EXCLUDED.user_id),
+                    chat_mode = COALESCE(chat_sessions.chat_mode, EXCLUDED.chat_mode),
+                    custom_title = COALESCE(chat_sessions.custom_title, EXCLUDED.custom_title),
+                    created_at = COALESCE(chat_sessions.created_at, EXCLUDED.created_at),
+                    last_message_at = GREATEST(
+                        COALESCE(chat_sessions.last_message_at, EXCLUDED.last_message_at),
+                        EXCLUDED.last_message_at
+                    ),
+                    updated_at = COALESCE(chat_sessions.updated_at, EXCLUDED.updated_at)
+            """);
+
+            jdbcTemplate.execute("""
+                WITH aggregated AS (
+                    SELECT
+                        session_id,
+                        MIN(created_at) AS created_at,
+                        MAX(created_at) AS last_message_at
+                    FROM chat_messages
+                    WHERE session_id IS NOT NULL
+                    GROUP BY session_id
+                ),
+                first_messages AS (
+                    SELECT DISTINCT ON (session_id)
+                        session_id,
+                        user_id
+                    FROM chat_messages
+                    WHERE session_id IS NOT NULL
+                    ORDER BY session_id, created_at ASC, id ASC
+                )
+                UPDATE chat_sessions cs
+                SET user_id = COALESCE(cs.user_id, first_messages.user_id),
+                    created_at = COALESCE(cs.created_at, aggregated.created_at),
+                    last_message_at = COALESCE(aggregated.last_message_at, cs.last_message_at, cs.created_at, NOW()),
+                    updated_at = COALESCE(cs.updated_at, aggregated.last_message_at, NOW())
+                FROM aggregated
+                JOIN first_messages ON first_messages.session_id = aggregated.session_id
+                WHERE cs.id = aggregated.session_id
+            """);
+        }
+
+        jdbcTemplate.execute("""
+            UPDATE chat_sessions
+            SET chat_mode = 'GENERAL_CAREER_ADVISOR'
+            WHERE chat_mode IS NULL
+        """);
+        jdbcTemplate.execute("""
+            UPDATE chat_sessions
+            SET created_at = COALESCE(created_at, last_message_at, NOW())
+            WHERE created_at IS NULL
+        """);
+        jdbcTemplate.execute("""
+            UPDATE chat_sessions
+            SET last_message_at = COALESCE(last_message_at, created_at, NOW())
+            WHERE last_message_at IS NULL
+        """);
+
+        jdbcTemplate.execute("""
+            UPDATE chat_sessions
+            SET job_role = CASE
+                WHEN custom_title ILIKE 'Expert %' THEN NULLIF(BTRIM(SUBSTRING(custom_title FROM CHAR_LENGTH('Expert ') + 1)), '')
+                WHEN custom_title ILIKE 'Chuyên gia %' THEN NULLIF(BTRIM(SUBSTRING(custom_title FROM CHAR_LENGTH('Chuyên gia ') + 1)), '')
+                WHEN custom_title ILIKE 'Chuyen gia %' THEN NULLIF(BTRIM(SUBSTRING(custom_title FROM CHAR_LENGTH('Chuyen gia ') + 1)), '')
+                ELSE job_role
+            END
+            WHERE (job_role IS NULL OR BTRIM(job_role) = '')
+              AND custom_title IS NOT NULL
+              AND (
+                  custom_title ILIKE 'Expert %'
+                  OR custom_title ILIKE 'Chuyên gia %'
+                  OR custom_title ILIKE 'Chuyen gia %'
+              )
+        """);
+
+        jdbcTemplate.execute("""
+            UPDATE chat_sessions
+            SET chat_mode = 'EXPERT_MODE'
+            WHERE job_role IS NOT NULL
+              AND BTRIM(job_role) <> ''
+        """);
+
+        if (hasTable("expert_prompt_configs")) {
+            jdbcTemplate.execute("""
+                WITH unique_prompt_roles AS (
+                    SELECT
+                        LOWER(BTRIM(job_role)) AS normalized_job_role,
+                        MIN(id) AS config_id
+                    FROM expert_prompt_configs
+                    WHERE COALESCE(is_active, TRUE) = TRUE
+                      AND job_role IS NOT NULL
+                    GROUP BY LOWER(BTRIM(job_role))
+                    HAVING COUNT(*) = 1
+                )
+                UPDATE chat_sessions cs
+                SET expert_prompt_config_id = unique_prompt_roles.config_id
+                FROM unique_prompt_roles
+                WHERE cs.expert_prompt_config_id IS NULL
+                  AND cs.job_role IS NOT NULL
+                  AND LOWER(BTRIM(cs.job_role)) = unique_prompt_roles.normalized_job_role
+            """);
+        }
+
+        if (hasTable("taxonomy_entries")) {
+            jdbcTemplate.execute("""
+                WITH unique_taxonomy_roles AS (
+                    SELECT
+                        LOWER(BTRIM(role)) AS normalized_role,
+                        MIN(id) AS taxonomy_id
+                    FROM taxonomy_entries
+                    WHERE COALESCE(active, TRUE) = TRUE
+                      AND role IS NOT NULL
+                    GROUP BY LOWER(BTRIM(role))
+                    HAVING COUNT(*) = 1
+                )
+                UPDATE chat_sessions cs
+                SET taxonomy_entry_id = unique_taxonomy_roles.taxonomy_id
+                FROM unique_taxonomy_roles
+                WHERE cs.taxonomy_entry_id IS NULL
+                  AND cs.job_role IS NOT NULL
+                  AND LOWER(BTRIM(cs.job_role)) = unique_taxonomy_roles.normalized_role
+            """);
+        }
+
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'users'
+                ) AND NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                      ON tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage ccu
+                      ON tc.constraint_name = ccu.constraint_name
+                     AND tc.table_schema = ccu.table_schema
+                    WHERE tc.table_schema = current_schema()
+                      AND tc.table_name = 'chat_sessions'
+                      AND tc.constraint_type = 'FOREIGN KEY'
+                      AND kcu.column_name = 'user_id'
+                      AND ccu.table_name = 'users'
+                      AND ccu.column_name = 'id'
+                ) THEN
+                    ALTER TABLE chat_sessions
+                        ADD CONSTRAINT fk_chat_sessions_user
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+                END IF;
+            END $$;
+        """);
+
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'expert_prompt_configs'
+                ) AND NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                      ON tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage ccu
+                      ON tc.constraint_name = ccu.constraint_name
+                     AND tc.table_schema = ccu.table_schema
+                    WHERE tc.table_schema = current_schema()
+                      AND tc.table_name = 'chat_sessions'
+                      AND tc.constraint_type = 'FOREIGN KEY'
+                      AND kcu.column_name = 'expert_prompt_config_id'
+                      AND ccu.table_name = 'expert_prompt_configs'
+                      AND ccu.column_name = 'id'
+                ) THEN
+                    ALTER TABLE chat_sessions
+                        ADD CONSTRAINT fk_chat_sessions_expert_prompt
+                        FOREIGN KEY (expert_prompt_config_id) REFERENCES expert_prompt_configs(id) ON DELETE SET NULL;
+                END IF;
+            END $$;
+        """);
+
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'taxonomy_entries'
+                ) AND NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                      ON tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage ccu
+                      ON tc.constraint_name = ccu.constraint_name
+                     AND tc.table_schema = ccu.table_schema
+                    WHERE tc.table_schema = current_schema()
+                      AND tc.table_name = 'chat_sessions'
+                      AND tc.constraint_type = 'FOREIGN KEY'
+                      AND kcu.column_name = 'taxonomy_entry_id'
+                      AND ccu.table_name = 'taxonomy_entries'
+                      AND ccu.column_name = 'id'
+                ) THEN
+                    ALTER TABLE chat_sessions
+                        ADD CONSTRAINT fk_chat_sessions_taxonomy
+                        FOREIGN KEY (taxonomy_entry_id) REFERENCES taxonomy_entries(id) ON DELETE SET NULL;
+                END IF;
+            END $$;
+        """);
+
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'chat_messages'
+                ) AND NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                      ON tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage ccu
+                      ON tc.constraint_name = ccu.constraint_name
+                     AND tc.table_schema = ccu.table_schema
+                    WHERE tc.table_schema = current_schema()
+                      AND tc.table_name = 'chat_messages'
+                      AND tc.constraint_type = 'FOREIGN KEY'
+                      AND kcu.column_name = 'session_id'
+                      AND ccu.table_name = 'chat_sessions'
+                      AND ccu.column_name = 'id'
+                ) THEN
+                    ALTER TABLE chat_messages
+                        ADD CONSTRAINT fk_chat_messages_session
+                        FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE;
+                END IF;
+            END $$;
+        """);
+
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM chat_sessions WHERE user_id IS NULL) THEN
+                    ALTER TABLE chat_sessions ALTER COLUMN user_id SET NOT NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM chat_sessions WHERE chat_mode IS NULL) THEN
+                    ALTER TABLE chat_sessions ALTER COLUMN chat_mode SET NOT NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM chat_sessions WHERE created_at IS NULL) THEN
+                    ALTER TABLE chat_sessions ALTER COLUMN created_at SET NOT NULL;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM chat_sessions WHERE last_message_at IS NULL) THEN
+                    ALTER TABLE chat_sessions ALTER COLUMN last_message_at SET NOT NULL;
+                END IF;
+            END $$;
+        """);
+    }
+
+    private boolean verifyAiChatSessionRelations() {
+        return hasTable("chat_sessions")
+                && hasColumn("chat_sessions", "user_id")
+                && hasColumn("chat_sessions", "chat_mode")
+                && hasColumn("chat_sessions", "expert_prompt_config_id")
+                && hasColumn("chat_sessions", "taxonomy_entry_id")
+                && hasIndex("idx_chat_sessions_user")
+                && hasIndex("idx_chat_sessions_user_last_message")
+                && hasForeignKeyReference("chat_sessions", "user_id", "users", "id")
+                && hasForeignKeyReference("chat_messages", "session_id", "chat_sessions", "id");
+    }
+
+    private boolean hasForeignKeyReference(
+            String tableName,
+            String columnName,
+            String referencedTableName,
+            String referencedColumnName) {
+        Boolean exists = jdbcTemplate.queryForObject("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                  ON tc.constraint_name = kcu.constraint_name
+                 AND tc.table_schema = kcu.table_schema
+                JOIN information_schema.constraint_column_usage ccu
+                  ON tc.constraint_name = ccu.constraint_name
+                 AND tc.table_schema = ccu.table_schema
+                WHERE tc.table_schema = current_schema()
+                  AND tc.table_name = ?
+                  AND tc.constraint_type = 'FOREIGN KEY'
+                  AND kcu.column_name = ?
+                  AND ccu.table_name = ?
+                  AND ccu.column_name = ?
+            )
+        """, Boolean.class, tableName, columnName, referencedTableName, referencedColumnName);
+        return Boolean.TRUE.equals(exists);
     }
 }

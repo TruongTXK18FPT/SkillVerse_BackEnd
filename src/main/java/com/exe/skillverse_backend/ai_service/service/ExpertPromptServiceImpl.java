@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.ai_service.service;
 
+import com.exe.skillverse_backend.ai_service.entity.ExpertPromptConfig;
 import com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,10 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
     private final ExpertPromptConfigRepository expertPromptConfigRepository;
 
     public String getSystemPrompt(String domain, String industry, String jobRole) {
+        return resolvePrompt(domain, industry, jobRole).systemPrompt();
+    }
+
+    public ExpertPromptResolution resolvePrompt(String domain, String industry, String jobRole) {
         // Normalization
         String normalizedRole = (jobRole == null) ? "" : jobRole.trim().toLowerCase();
         String normalizedIndustry = (industry == null) ? "" : industry.trim().toLowerCase();
@@ -34,7 +39,7 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
 
         // If no specific role, return null (AiChatbotService will use default)
         if (normalizedRole.isEmpty()) {
-            return null;
+            return new ExpertPromptResolution(null, null);
         }
 
         // 1. Try finding EXACT match in DB first (Best for when frontend sends selected
@@ -43,7 +48,7 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
                 domain, industry, jobRole);
 
         if (exactMatch.isPresent()) {
-            return exactMatch.get().getSystemPrompt();
+            return new ExpertPromptResolution(exactMatch.get().getSystemPrompt(), exactMatch.get());
         }
 
         // 2. Try fuzzy matching if exact match fails (For loose search)
@@ -55,7 +60,8 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
 
         if (!matchingPrompts.isEmpty()) {
             // Return the first match
-            return matchingPrompts.get(0).getSystemPrompt();
+            ExpertPromptConfig matchedConfig = matchingPrompts.get(0);
+            return new ExpertPromptResolution(matchedConfig.getSystemPrompt(), matchedConfig);
         }
 
         // 3. Fallback to hardcoded logic via sub-services
@@ -63,28 +69,40 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
         // Domain-based delegation
         if (normalizedDomain.contains("it") || normalizedDomain.contains("công nghệ thông tin") ||
                 normalizedDomain.contains("technology") || normalizedDomain.contains("software")) {
-            return itPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole);
+            return new ExpertPromptResolution(
+                    itPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole),
+                    null);
         }
         if (normalizedDomain.contains("business") || normalizedDomain.contains("kinh doanh") ||
                 normalizedDomain.contains("marketing") || normalizedDomain.contains("sales")) {
-            return businessPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole);
+            return new ExpertPromptResolution(
+                    businessPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole),
+                    null);
         }
         if (normalizedDomain.contains("design") || normalizedDomain.contains("thiết kế") ||
                 normalizedDomain.contains("creative") || normalizedDomain.contains("art")) {
-            return designPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole);
+            return new ExpertPromptResolution(
+                    designPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole),
+                    null);
         }
         if (normalizedDomain.contains("engineering") || normalizedDomain.contains("kỹ thuật") ||
                 normalizedDomain.contains("công nghiệp") || normalizedDomain.contains("manufacturing")) {
-            return engineeringPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole);
+            return new ExpertPromptResolution(
+                    engineeringPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole),
+                    null);
         }
         if (normalizedDomain.contains("healthcare") || normalizedDomain.contains("y tế") ||
                 normalizedDomain.contains("sức khỏe") || normalizedDomain.contains("medical")) {
-            return healthcarePromptService.getPrompt(normalizedIndustry, normalizedRole);
+            return new ExpertPromptResolution(
+                    healthcarePromptService.getPrompt(normalizedIndustry, normalizedRole),
+                    null);
         }
         if (normalizedDomain.contains("education") || normalizedDomain.contains("giáo dục") ||
                 normalizedDomain.contains("đào tạo") || normalizedDomain.contains("teaching") ||
                 normalizedDomain.contains("edtech") || normalizedDomain.contains("learning")) {
-            return educationPromptService.getPrompt(normalizedIndustry, normalizedRole);
+            return new ExpertPromptResolution(
+                    educationPromptService.getPrompt(normalizedIndustry, normalizedRole),
+                    null);
         }
 
         boolean isLogisticsDomain = normalizedDomain.contains("logistics") || normalizedDomain.contains("trade") ||
@@ -93,7 +111,9 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
                 normalizedDomain.contains("vận tải") || normalizedDomain.contains("kho bãi");
 
         if (isLogisticsDomain) {
-            return logisticsPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole);
+            return new ExpertPromptResolution(
+                    logisticsPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole),
+                    null);
         }
 
         // Legal & Public Administration
@@ -101,7 +121,9 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
                 normalizedDomain.contains("pháp lý") || normalizedDomain.contains("law") ||
                 normalizedDomain.contains("hành chính") || normalizedDomain.contains("công quyền") ||
                 normalizedDomain.contains("public administration") || normalizedDomain.contains("paralegal")) {
-            return legalPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole);
+            return new ExpertPromptResolution(
+                    legalPromptService.getPrompt(normalizedDomain, normalizedIndustry, normalizedRole),
+                    null);
         }
 
         // Arts & Entertainment
@@ -109,7 +131,9 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
                 normalizedDomain.contains("entertainment") || normalizedDomain.contains("arts_entertainment") ||
                 normalizedDomain.contains("nghệ thuật") || normalizedDomain.contains("giải trí") ||
                 normalizedDomain.contains("biểu diễn")) {
-            return artsPromptService.getPrompt(domain, industry, jobRole);
+            return new ExpertPromptResolution(
+                    artsPromptService.getPrompt(domain, industry, jobRole),
+                    null);
         }
 
         // Service & Hospitality
@@ -118,7 +142,9 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
                 normalizedDomain.contains("nhà hàng") || normalizedDomain.contains("khách sạn") ||
                 normalizedDomain.contains("f&b") || normalizedDomain.contains("food") ||
                 normalizedDomain.contains("beverage") || normalizedDomain.contains("restaurant")) {
-            return servicePromptService.getPrompt(domain, industry, jobRole);
+            return new ExpertPromptResolution(
+                    servicePromptService.getPrompt(domain, industry, jobRole),
+                    null);
         }
 
         // Social Community
@@ -127,7 +153,9 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
                 normalizedDomain.contains("cộng đồng") || normalizedDomain.contains("phi lợi nhuận") ||
                 normalizedDomain.contains("xã hội") || normalizedDomain.contains("thiện nguyện") ||
                 normalizedDomain.contains("social work") || normalizedDomain.contains("ngo")) {
-            return socialCommunityPromptService.getPrompt(industry, jobRole);
+            return new ExpertPromptResolution(
+                    socialCommunityPromptService.getPrompt(industry, jobRole),
+                    null);
         }
 
         // Agriculture – Environment
@@ -137,12 +165,17 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
                 normalizedDomain.contains("agronomist") || normalizedDomain.contains("crop") ||
                 normalizedDomain.contains("horticulture") || normalizedDomain.contains("soil") ||
                 normalizedDomain.contains("seed") || normalizedDomain.contains("plant protection")) {
-            return agricultureEnvironmentPromptService.getPrompt(industry, jobRole);
+            return new ExpertPromptResolution(
+                    agricultureEnvironmentPromptService.getPrompt(industry, jobRole),
+                    null);
         }
 
         // Fallback if role is provided but not matched in our specific list
         // We return a generic expert prompt for that role
-        return getGenericExpertPrompt(jobRole);
+        return new ExpertPromptResolution(getGenericExpertPrompt(jobRole), null);
+    }
+
+    public record ExpertPromptResolution(String systemPrompt, ExpertPromptConfig config) {
     }
 
     public String getGenericExpertPrompt(String role) {

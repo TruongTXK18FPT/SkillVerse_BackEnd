@@ -1,19 +1,24 @@
 package com.exe.skillverse_backend.ai_service.entity;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 @Entity
 @Table(name = "taxonomy_entries", indexes = {
@@ -52,6 +57,12 @@ public class TaxonomyEntry {
 
     @Column(name = "updated_at")
     private Instant updatedAt;
+
+    @Builder.Default
+    @OneToMany(mappedBy = "taxonomyEntry")
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private List<ChatSession> chatSessions = new ArrayList<>();
 
     @PrePersist
     protected void onCreate() {
