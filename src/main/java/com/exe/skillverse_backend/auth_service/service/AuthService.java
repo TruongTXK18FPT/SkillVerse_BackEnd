@@ -15,7 +15,7 @@ public interface AuthService {
 
     boolean verifyToken(String token);
 
-    AuthResponse refreshToken(String refreshToken);
+    AuthResponse refreshToken(String refreshToken, String deviceSessionId);
 
     void logout(String accessToken);
 

@@ -1,6 +1,8 @@
 package com.exe.skillverse_backend.auth_service.config;
 
+import com.exe.skillverse_backend.auth_service.entity.RefreshToken;
 import com.exe.skillverse_backend.auth_service.repository.InvalidatedTokenRepository;
+import com.exe.skillverse_backend.auth_service.repository.RefreshTokenRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.nimbusds.jose.crypto.MACVerifier;
@@ -28,6 +30,7 @@ import java.time.temporal.ChronoUnit;
 public class CustomJwtDecoder implements JwtDecoder {
 
     private final InvalidatedTokenRepository invalidatedTokenRepository;
+    private final RefreshTokenRepository refreshTokenRepository;
     private final UserRepository userRepository;
 
     @Value("${jwt.secret}")
@@ -116,6 +119,22 @@ public class CustomJwtDecoder implements JwtDecoder {
                     UserRepository.UserSecurityInfo securityInfo = securityInfoOpt.get();
                     if (securityInfo.getStatus() != UserStatus.ACTIVE) {
                         throw new BadJwtException("User account is inactive");
+                    }
+
+                    Object deviceSessionClaim = signedJWT.getJWTClaimsSet().getClaim("deviceSessionId");
+                    if (deviceSessionClaim instanceof String deviceSessionId && !deviceSessionId.isBlank()) {
+                        RefreshToken activeRefreshToken = refreshTokenRepository.findByUserId(userIdLong)
+                                .orElseThrow(() -> new BadJwtException("ACCOUNT_LOGGED_ELSEWHERE"));
+
+                        String activeDeviceSessionId = activeRefreshToken.getDeviceSessionId();
+                        if (activeDeviceSessionId == null || !activeDeviceSessionId.equals(deviceSessionId)) {
+                            log.warn(
+                                    "Rejecting JWT due to device-session mismatch for user {}. tokenSession={}, activeSession={}",
+                                    userIdLong,
+                                    deviceSessionId,
+                                    activeDeviceSessionId);
+                            throw new BadJwtException("ACCOUNT_LOGGED_ELSEWHERE");
+                        }
                     }
 
                     LocalDateTime passwordChangedAt = securityInfo.getPasswordChangedAt();

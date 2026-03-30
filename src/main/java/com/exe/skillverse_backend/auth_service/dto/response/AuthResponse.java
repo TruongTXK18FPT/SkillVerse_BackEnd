@@ -17,4 +17,6 @@ public class AuthResponse {
 
     @Builder.Default
     private boolean needsProfileCompletion = false;
+
+    private String deviceSessionId;
 }

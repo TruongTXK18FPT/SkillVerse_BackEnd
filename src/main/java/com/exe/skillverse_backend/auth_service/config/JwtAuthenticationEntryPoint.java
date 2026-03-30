@@ -30,6 +30,15 @@ public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
 
         Map<String, Object> body = new HashMap<>();
+        String message = authException.getMessage();
+        if (message != null && message.contains("ACCOUNT_LOGGED_ELSEWHERE")) {
+            body.put("code", "ACCOUNT_LOGGED_ELSEWHERE");
+            body.put("message", "Tài khoản của bạn đã được đăng nhập ở nơi khác.");
+            body.put("result", null);
+            objectMapper.writeValue(response.getOutputStream(), body);
+            return;
+        }
+
         body.put("code", 1401);
         body.put("message", "Unauthenticated");
         body.put("result", null);

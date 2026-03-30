@@ -165,12 +165,21 @@ public class AuthServiceImpl implements AuthService {
                                 throw new AuthenticationException("Incorrect email or password");
                         }
 
-                        // Generate tokens
-                        String accessToken = generateToken(user);
+                        // Generate refresh session first so access token carries the active device session id.
                         String refreshToken = generateLoginRefreshToken(user, request.getRememberMe());
                         // Get user profile information if exists
                         String fullName = getUserFullName(user);
                         String avatarUrl = getUserAvatarUrl(user);
+
+                        // USER role: lấy deviceSessionId từ record vừa tạo
+                        String deviceSessionId = null;
+                        if (refreshToken != null && user.getPrimaryRole() == PrimaryRole.USER) {
+                                String hash = hashRefreshToken(refreshToken);
+                                var rt = refreshTokenRepository.findByToken(hash);
+                                deviceSessionId = rt.map(RefreshToken::getDeviceSessionId).orElse(null);
+                        }
+
+                        String accessToken = generateToken(user, deviceSessionId);
 
                         // Build user DTO
                         UserDto userDto = new UserDto();
@@ -190,6 +199,7 @@ public class AuthServiceImpl implements AuthService {
                                         .tokenType("Bearer")
                                         .expiresIn(accessTokenExpiration)
                                         .user(userDto)
+                                        .deviceSessionId(deviceSessionId)
                                         .build();
 
                 } catch (Exception e) {
@@ -198,6 +208,10 @@ public class AuthServiceImpl implements AuthService {
         }
 
         public String generateToken(User user) {
+                return generateToken(user, null);
+        }
+
+        private String generateToken(User user, String deviceSessionId) {
                 try {
                         Date expirationDate = new Date(System.currentTimeMillis() + accessTokenExpiration * 1000);
                         String jti = UUID.randomUUID().toString();
@@ -217,6 +231,7 @@ public class AuthServiceImpl implements AuthService {
                                         .claim("email", user.getEmail())
                                         .claim("scope", buildScope(user))
                                         .claim("roles", roles) // Add roles claim for @PreAuthorize
+                                        .claim("deviceSessionId", deviceSessionId)
                                         .build();
 
                         SignedJWT signedJWT = new SignedJWT(
@@ -245,7 +260,7 @@ public class AuthServiceImpl implements AuthService {
         }
 
         @Transactional
-        public AuthResponse refreshToken(String refreshToken) {
+        public AuthResponse refreshToken(String refreshToken, String deviceSessionId) {
                 try {
                         log.info("Starting token refresh process");
 
@@ -276,13 +291,6 @@ public class AuthServiceImpl implements AuthService {
                                 throw new RuntimeException("Refresh token expired");
                         }
 
-                        // Reuse detection: if provided token cannot be found by current hash (handled
-                        // above)
-                        // or if multiple valid tokens exist for same user (shouldn't due to
-                        // deleteByUserId),
-                        // we could enforce additional policies; current rotation + single-token per
-                        // user prevents reuse window.
-
                         // Get user with roles (needed for token generation)
                         User user = userRepository.findByIdWithRoles(tokenRecord.getUserId())
                                         .orElseThrow(() -> {
@@ -290,6 +298,22 @@ public class AuthServiceImpl implements AuthService {
                                                                 tokenRecord.getUserId());
                                                 return new RuntimeException("User not found");
                                         });
+
+                        // USER role: kiểm tra deviceSessionId match
+                        if (user.getPrimaryRole() == PrimaryRole.USER
+                                        && tokenRecord.getDeviceSessionId() != null) {
+                                if (deviceSessionId == null
+                                                || !tokenRecord.getDeviceSessionId().equals(deviceSessionId)) {
+                                        log.warn("Session mismatch for USER {}: expected={}, received={}",
+                                                        user.getId(), tokenRecord.getDeviceSessionId(), deviceSessionId);
+                                        // Xóa token để ngăn reuse
+                                        refreshTokenRepository.delete(tokenRecord);
+                                        throw new AuthenticationException(
+                                                        "Tài khoản của bạn đã được đăng nhập ở nơi khác.",
+                                                        "ACCOUNT_LOGGED_ELSEWHERE",
+                                                        401);
+                                }
+                        }
 
                         // Account may have been deactivated/blocked after initial login.
                         if (user.getStatus() != UserStatus.ACTIVE) {
@@ -302,8 +326,17 @@ public class AuthServiceImpl implements AuthService {
 
                         // Generate new tokens (absolute lifetime enforcement: do not extend beyond
                         // current expiry)
-                        String newAccessToken = generateToken(user);
                         String newRefreshToken = generateRefreshToken(user, tokenRecord.getExpiryDate());
+
+                        // Lấy deviceSessionId mới cho USER role
+                        String newDeviceSessionId = null;
+                        if (user.getPrimaryRole() == PrimaryRole.USER) {
+                                String newHash = hashRefreshToken(newRefreshToken);
+                                newDeviceSessionId = refreshTokenRepository.findByToken(newHash)
+                                                .map(RefreshToken::getDeviceSessionId).orElse(null);
+                        }
+
+                        String newAccessToken = generateToken(user, newDeviceSessionId);
 
                         // Get user profile information
                         String fullName = getUserFullName(user);
@@ -327,9 +360,12 @@ public class AuthServiceImpl implements AuthService {
                                         .refreshToken(newRefreshToken)
                                         .tokenType("Bearer")
                                         .expiresIn(accessTokenExpiration)
-                                        .user(userDto) // ✅ FIX: Add user data to response
+                                        .user(userDto)
+                                        .deviceSessionId(newDeviceSessionId)
                                         .build();
 
+                } catch (AuthenticationException e) {
+                        throw e;
                 } catch (Exception e) {
                         log.error("Token refresh failed: {}", e.getMessage(), e);
                         throw e;
@@ -366,11 +402,6 @@ public class AuthServiceImpl implements AuthService {
                 // Delete existing refresh token for user
                 refreshTokenRepository.deleteByUserId(user.getId());
 
-                // No remember-me => short-lived, non-persistent session (access token only).
-                if (!Boolean.TRUE.equals(rememberMe)) {
-                        return null;
-                }
-
                 return generateRefreshToken(user, null);
         }
 
@@ -381,6 +412,12 @@ public class AuthServiceImpl implements AuthService {
                 // Create new refresh token (plaintext to return to client)
                 String plain = UUID.randomUUID().toString();
                 String tokenHash = hashRefreshToken(plain);
+                String deviceSessionId = null;
+
+                // Chỉ USER role mới có single-device restriction
+                if (user.getPrimaryRole() == PrimaryRole.USER) {
+                        deviceSessionId = UUID.randomUUID().toString();
+                }
 
                 RefreshToken refreshToken = new RefreshToken();
                 refreshToken.setUserId(user.getId());
@@ -391,6 +428,7 @@ public class AuthServiceImpl implements AuthService {
                                 ? fixedExpiry
                                 : LocalDateTime.now().plusSeconds(refreshTokenExpiration);
                 refreshToken.setExpiryDate(newExpiry);
+                refreshToken.setDeviceSessionId(deviceSessionId);
 
                 refreshTokenRepository.save(refreshToken);
                 return plain; // return plaintext to client
@@ -685,9 +723,18 @@ public class AuthServiceImpl implements AuthService {
                                 }
                         }
 
-                        // 8. Generate JWT tokens
-                        String accessToken = generateToken(user);
+                        // 8. Generate refresh session first so access token carries the active device session id
                         String refreshToken = generateLoginRefreshToken(user, rememberMe);
+
+                        // USER role: lấy deviceSessionId từ record vừa tạo
+                        String deviceSessionId = null;
+                        if (refreshToken != null && user.getPrimaryRole() == PrimaryRole.USER) {
+                                String hash = hashRefreshToken(refreshToken);
+                                var rt = refreshTokenRepository.findByToken(hash);
+                                deviceSessionId = rt.map(RefreshToken::getDeviceSessionId).orElse(null);
+                        }
+
+                        String accessToken = generateToken(user, deviceSessionId);
 
                         // 9. Get user full name and avatar
                         String fullName = isNewUser ? name : getUserFullName(user);
@@ -716,6 +763,7 @@ public class AuthServiceImpl implements AuthService {
                                         .expiresIn(accessTokenExpiration)
                                         .user(userDto)
                                         .needsProfileCompletion(isNewUser)
+                                        .deviceSessionId(deviceSessionId)
                                         .build();
 
                         log.info("Google authentication successful for user: {}", email);

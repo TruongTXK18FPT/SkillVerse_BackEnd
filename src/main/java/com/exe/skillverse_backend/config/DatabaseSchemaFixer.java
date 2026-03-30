@@ -200,9 +200,13 @@ public class DatabaseSchemaFixer {
             this::patchJobSLACancellationDisputeColumns,
             this::verifyJobSLACancellationDisputeColumns);
         applyPatch("PATCH-033-question-bank-schema",
-            "Create question_banks and question_bank_questions tables with indexes",
-            this::patchQuestionBankSchema,
-            this::verifyQuestionBankSchema);
+                "Create question_banks and question_bank_questions tables with indexes",
+                this::patchQuestionBankSchema,
+                this::verifyQuestionBankSchema);
+        applyPatch("PATCH-034-refresh-tokens-device-session-id",
+                "Ensure refresh_tokens has device_session_id for single-device USER sessions",
+                this::patchRefreshTokensDeviceSessionId,
+                this::verifyRefreshTokensDeviceSessionId);
 
         log.info("All PostgreSQL schema patches applied and verified successfully.");
     }
@@ -2561,5 +2565,32 @@ public class DatabaseSchemaFixer {
                 && hasColumn("question_bank_questions", "difficulty")
                 && hasIndex("idx_qb_domain")
                 && hasIndex("idx_qbq_bank_id");
+    }
+
+    private void patchRefreshTokensDeviceSessionId() {
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'refresh_tokens'
+                ) AND NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'refresh_tokens'
+                      AND column_name = 'device_session_id'
+                ) THEN
+                    ALTER TABLE refresh_tokens ADD COLUMN device_session_id VARCHAR(64);
+                END IF;
+            END $$;
+        """);
+    }
+
+    private boolean verifyRefreshTokensDeviceSessionId() {
+        return hasTable("refresh_tokens")
+                && hasColumn("refresh_tokens", "device_session_id");
     }
 }

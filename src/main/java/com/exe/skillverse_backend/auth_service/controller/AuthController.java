@@ -13,6 +13,7 @@ import com.exe.skillverse_backend.auth_service.dto.response.AuthResponse;
 import com.exe.skillverse_backend.auth_service.dto.response.ForgotPasswordResponse;
 import com.exe.skillverse_backend.auth_service.dto.response.RegistrationResponse;
 import com.exe.skillverse_backend.auth_service.service.AuthService;
+import com.exe.skillverse_backend.shared.exception.AuthenticationException;
 import com.exe.skillverse_backend.auth_service.service.EmailVerificationService;
 import com.exe.skillverse_backend.auth_service.service.PasswordResetService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -118,11 +119,20 @@ public class AuthController {
     })
     public ResponseEntity<?> refresh(@Valid @RequestBody RefreshTokenRequest request) {
         try {
-            AuthResponse response = authService.refreshToken(request.getRefreshToken());
+            AuthResponse response = authService.refreshToken(
+                    request.getRefreshToken(),
+                    request.getDeviceSessionId());
             return ResponseEntity.ok(response);
-        } catch (RuntimeException e) {
+        } catch (AuthenticationException e) {
             String rawMessage = e.getMessage() != null ? e.getMessage() : "";
             String normalized = rawMessage.toLowerCase();
+            if ("account_logged_elsewhere".equals(e.getErrorCode()) || normalized.contains("logged elsewhere")) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                        Map.of(
+                                "code", "ACCOUNT_LOGGED_ELSEWHERE",
+                                "message", "Tài khoản của bạn đã được đăng nhập ở nơi khác.",
+                                "status", HttpStatus.CONFLICT.value()));
+            }
             String code = "INVALID_REFRESH_TOKEN";
             String message = "Invalid or expired refresh token";
             if (normalized.contains("expired")) {
@@ -131,6 +141,27 @@ public class AuthController {
             } else if (normalized.contains("inactive")) {
                 code = "ACCOUNT_INACTIVE";
                 message = "Account is inactive";
+            }
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
+                    Map.of(
+                            "code", code,
+                            "message", message,
+                            "status", HttpStatus.UNAUTHORIZED.value()));
+        } catch (RuntimeException e) {
+            String rawMessage = e.getMessage() != null ? e.getMessage() : "";
+            if (rawMessage.toLowerCase().contains("logged elsewhere")) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                        Map.of(
+                                "code", "ACCOUNT_LOGGED_ELSEWHERE",
+                                "message", "Tài khoản của bạn đã được đăng nhập ở nơi khác.",
+                                "status", HttpStatus.CONFLICT.value()));
+            }
+            String normalized = rawMessage.toLowerCase();
+            String code = "INVALID_REFRESH_TOKEN";
+            String message = "Invalid or expired refresh token";
+            if (normalized.contains("expired")) {
+                code = "REFRESH_TOKEN_EXPIRED";
+                message = "Refresh token expired";
             }
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(
                     Map.of(

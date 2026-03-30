@@ -7,4 +7,6 @@ import lombok.Data;
 public class RefreshTokenRequest {
     @NotBlank
     private String refreshToken;
+
+    private String deviceSessionId;
 }

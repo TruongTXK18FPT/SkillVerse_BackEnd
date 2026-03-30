@@ -35,6 +35,9 @@ public class RefreshToken {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
+    @Column(name = "device_session_id", length = 64)
+    private String deviceSessionId;
+
     @Column(name = "expiry_date", nullable = false)
     private LocalDateTime expiryDate;
 }

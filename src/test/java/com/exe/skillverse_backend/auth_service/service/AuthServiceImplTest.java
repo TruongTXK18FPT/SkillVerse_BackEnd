@@ -161,12 +161,14 @@ class AuthServiceImplTest {
     @DisplayName("refreshToken should rotate tokens and keep refresh expiry capped to the original absolute lifetime")
     void refreshToken_ShouldRotateTokensAndKeepAbsoluteExpiry() {
         String oldPlainRefreshToken = "existing-refresh-token";
+        String deviceSessionId = "device-session-1";
         LocalDateTime originalExpiry = LocalDateTime.now().plusHours(6);
 
         RefreshToken existingToken = new RefreshToken();
         existingToken.setId(10L);
         existingToken.setUserId(activeUser.getId());
         existingToken.setToken(hashRefreshToken(oldPlainRefreshToken));
+        existingToken.setDeviceSessionId(deviceSessionId);
         existingToken.setExpiryDate(originalExpiry);
 
         when(refreshTokenRepository.findByToken(hashRefreshToken(oldPlainRefreshToken)))
@@ -177,7 +179,7 @@ class AuthServiceImplTest {
         when(refreshTokenRepository.save(any(RefreshToken.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        AuthResponse response = authService.refreshToken(oldPlainRefreshToken);
+        AuthResponse response = authService.refreshToken(oldPlainRefreshToken, deviceSessionId);
 
         assertNotNull(response.getAccessToken());
         assertNotNull(response.getRefreshToken());
@@ -192,6 +194,7 @@ class AuthServiceImplTest {
         RefreshToken rotatedToken = refreshTokenCaptor.getValue();
         assertEquals(hashRefreshToken(response.getRefreshToken()), rotatedToken.getToken());
         assertEquals(originalExpiry, rotatedToken.getExpiryDate());
+        assertNotNull(rotatedToken.getDeviceSessionId());
     }
 
     @Test
@@ -209,7 +212,7 @@ class AuthServiceImplTest {
                 .thenReturn(Optional.of(expiredToken));
 
         RuntimeException exception = assertThrows(RuntimeException.class,
-                () -> authService.refreshToken(expiredPlainRefreshToken));
+                () -> authService.refreshToken(expiredPlainRefreshToken, "expired-session"));
 
         assertEquals("Refresh token expired", exception.getMessage());
         verify(refreshTokenRepository).delete(expiredToken);
