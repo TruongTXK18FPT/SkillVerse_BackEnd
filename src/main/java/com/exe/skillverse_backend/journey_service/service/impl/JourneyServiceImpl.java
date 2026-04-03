@@ -31,6 +31,7 @@ import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
 import com.exe.skillverse_backend.study_service.entity.TaskPriority;
 import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
+import com.exe.skillverse_backend.question_bank_service.entity.QuestionBank;
 import com.exe.skillverse_backend.question_bank_service.dto.response.QuestionBankResponse;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -437,6 +438,7 @@ public class JourneyServiceImpl implements JourneyService {
         // Build AssessmentTest from bank questions
         AssessmentTest test = AssessmentTest.builder()
                 .journey(journey)
+                .questionBank(entityManager.getReference(QuestionBank.class, bank.getId()))
                 .title("Bài đánh giá kỹ năng " + domain)
                 .description("Bài quiz đánh giá kỹ năng từ ngân hàng câu hỏi cho " + domain)
                 .targetField(domain)
@@ -750,7 +752,7 @@ public class JourneyServiceImpl implements JourneyService {
             return test;
         }
 
-        Long bankId = extractQuestionBankId(test.getGenerationPrompt());
+        Long bankId = resolveQuestionBankId(test);
         if (bankId == null) {
             log.warn("Assessment test {} has invalid questionsJson and no question bank marker to recover from.",
                     test.getId());
@@ -774,6 +776,9 @@ public class JourneyServiceImpl implements JourneyService {
 
             test.setQuestionsJson(toQuestionsJson(recoveredQuestions));
             test.setQuestionCount(recoveredQuestions.size());
+            if (test.getQuestionBank() == null) {
+                test.setQuestionBank(entityManager.getReference(QuestionBank.class, bankId));
+            }
             AssessmentTest recovered = assessmentTestRepository.save(test);
             log.info("Recovered questionsJson for assessment test {} from question bank {}", test.getId(), bankId);
             return recovered;
@@ -826,6 +831,16 @@ public class JourneyServiceImpl implements JourneyService {
         } catch (NumberFormatException ex) {
             return null;
         }
+    }
+
+    private Long resolveQuestionBankId(AssessmentTest test) {
+        if (test == null) {
+            return null;
+        }
+        if (test.getQuestionBank() != null && test.getQuestionBank().getId() != null) {
+            return test.getQuestionBank().getId();
+        }
+        return extractQuestionBankId(test.getGenerationPrompt());
     }
 
     @Override

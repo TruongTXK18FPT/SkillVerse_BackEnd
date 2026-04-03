@@ -1,8 +1,11 @@
 package com.exe.skillverse_backend.ai_service.controller;
 
 import com.exe.skillverse_backend.ai_service.dto.request.ExpertPromptRequest;
+import com.exe.skillverse_backend.ai_service.dto.request.GeneratePromptRequest;
+import com.exe.skillverse_backend.ai_service.dto.response.PromptGenerationResponse;
 import com.exe.skillverse_backend.ai_service.entity.ExpertPromptConfig;
 import com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigRepository;
+import com.exe.skillverse_backend.ai_service.service.ExpertPromptGeneratorService;
 import com.exe.skillverse_backend.ai_service.service.ExpertPromptMediaService;
 import com.exe.skillverse_backend.ai_service.service.ExpertPromptServiceImpl;
 import com.exe.skillverse_backend.shared.exception.ApiException;
@@ -39,6 +42,7 @@ public class ExpertPromptAdminController {
     private final ExpertPromptConfigRepository expertPromptConfigRepository;
     private final ExpertPromptMediaService expertPromptMediaService;
     private final ExpertPromptServiceImpl expertPromptService;
+    private final ExpertPromptGeneratorService expertPromptGeneratorService;
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
@@ -177,6 +181,15 @@ public class ExpertPromptAdminController {
 
                     return ResponseEntity.ok(fallbackConfig);
                 });
+    }
+
+    @PostMapping("/generate")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
+    @Operation(summary = "Generate Expert Prompt content using AI",
+            description = "Uses Mistral AI to generate domainRules and rolePrompt for a new expert persona")
+    public ResponseEntity<PromptGenerationResponse> generateExpertPrompts(
+            @Valid @RequestBody GeneratePromptRequest request) {
+        return ResponseEntity.ok(expertPromptGeneratorService.generateExpertPrompts(request));
     }
 
     @DeleteMapping("/{id}")

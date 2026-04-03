@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.ai_service.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -101,6 +102,7 @@ public class ExpertPromptConfig {
 
     @Builder.Default
     @OneToMany(mappedBy = "expertPromptConfig")
+    @JsonIgnore
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private List<ChatSession> chatSessions = new ArrayList<>();

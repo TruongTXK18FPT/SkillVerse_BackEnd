@@ -896,7 +896,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
                     "Can only request admin cancellation review when the application is awaiting rework or freshly submitted");
         }
 
-        disputeRepository.findByJobId(job.getId())
+        disputeRepository.findByShortTermJobId(job.getId())
                 .filter(dispute -> dispute.getStatus() != Dispute.DisputeStatus.RESOLVED
                         && dispute.getStatus() != Dispute.DisputeStatus.DISMISSED)
                 .ifPresent(dispute -> {
@@ -921,8 +921,8 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         shortTermJobRepository.save(job);
 
         Dispute dispute = Dispute.builder()
-                .jobId(job.getId())
-                .applicationId(application.getId())
+                .shortTermJob(job)
+                .application(application)
                 .initiatorId(userId)
                 .respondentId(application.getUser().getId())
                 .disputeType(Dispute.DisputeType.CANCELLATION_REVIEW)

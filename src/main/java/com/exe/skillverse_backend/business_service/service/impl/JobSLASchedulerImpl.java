@@ -132,6 +132,12 @@ public class JobSLASchedulerImpl {
     // No more auto-cancel based on worker response timeout.
     // ============================================================
 
+    /**
+     * @deprecated Cancellation requests are now reviewed by admin manually.
+     *             Worker response timeout for cancellation is no longer auto-processed.
+     *             This method is kept for backward compatibility and will be removed in a future release.
+     */
+    @Deprecated
     private void processCancellationResponseOverdue() {
         List<ShortTermJobApplication> overdue = applicationRepository
                 .findOverdueCancellationResponse(LocalDateTime.now());
@@ -244,10 +250,11 @@ public class JobSLASchedulerImpl {
         disputeRepository.save(dispute);
 
         // Update job status to ESCALATED
-        shortTermJobRepository.findById(dispute.getJobId()).ifPresent(job -> {
+        if (dispute.getShortTermJob() != null) {
+            ShortTermJob job = dispute.getShortTermJob();
             job.setStatus(ShortTermJobStatus.ESCALATED);
             shortTermJobRepository.save(job);
-        });
+        }
 
         // Note: Super-admin notifications for escalated disputes should be handled
         // via the admin dashboard, which queries disputes with status = ESCALATED.

@@ -147,8 +147,10 @@ public class EscrowServiceImpl implements EscrowService {
         JobEscrow escrow = jobEscrowRepository.findByJobId(jobId)
                 .orElseThrow(() -> new NotFoundException("Escrow not found for job ID: " + jobId));
 
-        // Validate escrow is in correct state
-        if (escrow.getStatus() != EscrowStatus.FUNDED && escrow.getStatus() != EscrowStatus.PARTIALLY_RELEASED) {
+        // Validate escrow is in correct state (DISPUTED allowed so admin can resolve)
+        if (escrow.getStatus() != EscrowStatus.FUNDED
+                && escrow.getStatus() != EscrowStatus.PARTIALLY_RELEASED
+                && escrow.getStatus() != EscrowStatus.DISPUTED) {
             throw new BadRequestException("Escrow cannot be released in current status: " + escrow.getStatus());
         }
 
@@ -246,8 +248,10 @@ public class EscrowServiceImpl implements EscrowService {
         JobEscrow escrow = jobEscrowRepository.findByJobId(jobId)
                 .orElseThrow(() -> new NotFoundException("Escrow not found for job ID: " + jobId));
 
-        // Validate escrow is in refundable state
-        if (escrow.getStatus() != EscrowStatus.FUNDED && escrow.getStatus() != EscrowStatus.PARTIALLY_RELEASED) {
+        // Validate escrow is in refundable state (DISPUTED allowed so admin can resolve)
+        if (escrow.getStatus() != EscrowStatus.FUNDED
+                && escrow.getStatus() != EscrowStatus.PARTIALLY_RELEASED
+                && escrow.getStatus() != EscrowStatus.DISPUTED) {
             throw new BadRequestException("Escrow cannot be refunded in current status: " + escrow.getStatus());
         }
 

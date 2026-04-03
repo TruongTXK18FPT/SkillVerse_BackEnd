@@ -100,6 +100,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
                 .recruiter(recruiter)
                 .candidate(candidate)
                 .jobPosting(jobContext.jobPosting)
+                .shortTermJob(jobContext.shortTermJob)
                 .jobContextType(jobContext.contextType)
                 .jobContextId(jobContext.jobId)
                 .status(com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionStatus.CONTACTED)
@@ -189,8 +190,13 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
     }
 
     @Override
-    public List<RecruitmentSessionResponse> getSessionsByJob(Long recruiterId, Long jobId) {
-        List<RecruitmentSession> sessions = sessionRepository.findByRecruiterIdAndJobPostingId(recruiterId, jobId);
+    public List<RecruitmentSessionResponse> getSessionsByJob(Long recruiterId, Long jobId, RecruitmentJobContextType jobContextType) {
+        List<RecruitmentSession> sessions;
+        if (jobContextType == RecruitmentJobContextType.SHORT_TERM_JOB) {
+            sessions = sessionRepository.findByRecruiterIdAndShortTermJobId(recruiterId, jobId);
+        } else {
+            sessions = sessionRepository.findByRecruiterIdAndJobPostingId(recruiterId, jobId);
+        }
         return sessions.stream()
                 .map(session -> mapToSessionResponse(session, recruiterId))
                 .collect(Collectors.toList());
@@ -358,21 +364,14 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
             return sessionRepository.findByRecruiterIdAndCandidateId(recruiterId, candidateId).orElse(null);
         }
 
-        Optional<RecruitmentSession> byContext = sessionRepository
-                .findByRecruiterIdAndCandidateIdAndJobContextTypeAndJobContextId(
-                        recruiterId,
-                        candidateId,
-                        jobContextType,
-                        jobId);
-        if (byContext.isPresent()) {
-            return byContext.get();
+        if (jobContextType == RecruitmentJobContextType.SHORT_TERM_JOB) {
+            return sessionRepository.findByRecruiterIdAndCandidateIdAndShortTermJobId(
+                    recruiterId, candidateId, jobId).orElse(null);
         }
 
         if (jobContextType == RecruitmentJobContextType.JOB_POSTING) {
             return sessionRepository.findByRecruiterIdAndCandidateIdAndJobPostingId(
-                    recruiterId,
-                    candidateId,
-                    jobId).orElse(null);
+                    recruiterId, candidateId, jobId).orElse(null);
         }
 
         return null;
@@ -419,20 +418,19 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
 
     private ChatAvailability resolveChatAvailability(RecruitmentSession session) {
         RecruitmentJobContextType contextType = resolveContextType(session);
-        Long contextJobId = resolveContextJobId(session);
 
-        if (contextType == null || contextJobId == null) {
+        if (contextType == null) {
             return ChatAvailability.available();
         }
 
         if (contextType == RecruitmentJobContextType.SHORT_TERM_JOB) {
-            Optional<ShortTermJob> shortTermJob = shortTermJobRepository.findById(contextJobId);
-            if (shortTermJob.isEmpty()) {
+            ShortTermJob shortTermJob = session.getShortTermJob();
+            if (shortTermJob == null) {
                 return ChatAvailability.unavailable("Short-term job no longer exists.", null);
             }
 
-            String currentStatus = shortTermJob.get().getStatus().name();
-            if (!isShortTermChatActive(shortTermJob.get().getStatus())) {
+            String currentStatus = shortTermJob.getStatus().name();
+            if (!isShortTermChatActive(shortTermJob.getStatus())) {
                 return ChatAvailability.unavailable(
                         "Job đã đóng hoặc không còn hoạt động. Không thể tiếp tục nhắn tin.",
                         currentStatus);
@@ -441,13 +439,13 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
             return ChatAvailability.available(currentStatus);
         }
 
-        Optional<JobPosting> jobPosting = jobPostingRepository.findById(contextJobId);
-        if (jobPosting.isEmpty()) {
+        JobPosting jobPosting = session.getJobPosting();
+        if (jobPosting == null) {
             return ChatAvailability.unavailable("Job posting no longer exists.", null);
         }
 
-        String currentStatus = jobPosting.get().getStatus().name();
-        if (jobPosting.get().getStatus() == JobStatus.CLOSED) {
+        String currentStatus = jobPosting.getStatus().name();
+        if (jobPosting.getStatus() == JobStatus.CLOSED) {
             return ChatAvailability.unavailable(
                     "Job đã đóng. Không thể tiếp tục nhắn tin trong cuộc trò chuyện này.",
                     currentStatus);
@@ -532,10 +530,13 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
     }
 
     private Long resolveContextJobId(RecruitmentSession session) {
-        if (session.getJobContextId() != null) {
-            return session.getJobContextId();
+        if (session.getShortTermJob() != null) {
+            return session.getShortTermJob().getId();
         }
-        return session.getJobPosting() != null ? session.getJobPosting().getId() : null;
+        if (session.getJobPosting() != null) {
+            return session.getJobPosting().getId();
+        }
+        return session.getJobContextId();
     }
 
     private void validateJobPostingIsChatActive(JobPosting jobPosting) {
@@ -618,20 +619,23 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
         private final RecruitmentJobContextType contextType;
         private final Long jobId;
         private final JobPosting jobPosting;
+        private final ShortTermJob shortTermJob;
         private final String jobTitle;
 
         private JobContextSnapshot(RecruitmentJobContextType contextType,
                                    Long jobId,
                                    JobPosting jobPosting,
+                                   ShortTermJob shortTermJob,
                                    String jobTitle) {
             this.contextType = contextType;
             this.jobId = jobId;
             this.jobPosting = jobPosting;
+            this.shortTermJob = shortTermJob;
             this.jobTitle = jobTitle;
         }
 
         private static JobContextSnapshot empty() {
-            return new JobContextSnapshot(null, null, null, null);
+            return new JobContextSnapshot(null, null, null, null, null);
         }
 
         private static JobContextSnapshot forJobPosting(JobPosting jobPosting) {
@@ -639,6 +643,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
                     RecruitmentJobContextType.JOB_POSTING,
                     jobPosting.getId(),
                     jobPosting,
+                    null,
                     jobPosting.getTitle());
         }
 
@@ -647,6 +652,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
                     RecruitmentJobContextType.SHORT_TERM_JOB,
                     shortTermJob.getId(),
                     null,
+                    shortTermJob,
                     shortTermJob.getTitle());
         }
     }

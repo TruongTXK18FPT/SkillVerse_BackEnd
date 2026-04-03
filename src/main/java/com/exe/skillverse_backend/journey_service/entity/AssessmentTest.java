@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.journey_service.entity;
 
+import com.exe.skillverse_backend.question_bank_service.entity.QuestionBank;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -31,7 +32,8 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(name = "assessment_tests", indexes = {
         @Index(columnList = "journey_id"),
-        @Index(columnList = "status")
+        @Index(columnList = "status"),
+        @Index(columnList = "question_bank_id")
 })
 @Data
 @NoArgsConstructor
@@ -49,6 +51,14 @@ public class AssessmentTest {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "journey_id", nullable = false)
     private Journey journey;
+
+    /**
+     * Optional source question bank used to build the assessment.
+     * Null means the test came from pure AI generation.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "question_bank_id")
+    private QuestionBank questionBank;
 
     /**
      * Test title

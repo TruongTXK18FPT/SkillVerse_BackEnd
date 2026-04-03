@@ -211,6 +211,26 @@ public class DatabaseSchemaFixer {
                 "Create chat_sessions and backfill AI chat session relationships to expert prompt and taxonomy",
                 this::patchAiChatSessionRelations,
                 this::verifyAiChatSessionRelations);
+        applyPatch("PATCH-036-assessment-tests-question-bank-link",
+                "Add assessment_tests.question_bank_id with FK, indexes, and backfill from legacy generation prompt markers",
+                this::patchAssessmentTestsQuestionBankLink,
+                this::verifyAssessmentTestsQuestionBankLink);
+        applyPatch("PATCH-037-chat-service-hard-foreign-keys",
+                "Enforce hard foreign keys for chat group and user message tables",
+                this::patchChatServiceHardForeignKeys,
+                this::verifyChatServiceHardForeignKeys);
+        applyPatch("PATCH-038-dispute-job-application-fk-backfill",
+                "Backfill job_disputes FK relationships from existing job_id/application_id columns and enforce FK constraints",
+                this::patchDisputeJobApplicationFkBackfill,
+                this::verifyDisputeJobApplicationFkBackfill);
+        applyPatch("PATCH-039-recruitment-session-short-term-job-fk",
+                "Add short_term_job_id nullable FK column to recruitment_sessions with referential integrity",
+                this::patchRecruitmentSessionShortTermJobFk,
+                this::verifyRecruitmentSessionShortTermJobFk);
+        applyPatch("PATCH-040-recruitment-session-unique-constraint",
+                "Fix unique constraint on recruitment_sessions to support SHORT_TERM_JOB (add short_term_job_id)",
+                this::patchRecruitmentSessionUniqueConstraint,
+                this::verifyRecruitmentSessionUniqueConstraint);
 
         log.info("All PostgreSQL schema patches applied and verified successfully.");
     }
@@ -2571,6 +2591,396 @@ public class DatabaseSchemaFixer {
                 && hasIndex("idx_qbq_bank_id");
     }
 
+    private void patchAssessmentTestsQuestionBankLink() {
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'assessment_tests'
+                ) THEN
+                    ALTER TABLE assessment_tests
+                        ADD COLUMN IF NOT EXISTS question_bank_id BIGINT;
+                END IF;
+            END $$;
+        """);
+
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'assessment_tests'
+                ) AND EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'question_banks'
+                ) AND NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                      ON tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage ccu
+                      ON tc.constraint_name = ccu.constraint_name
+                     AND tc.table_schema = ccu.table_schema
+                    WHERE tc.table_schema = current_schema()
+                      AND tc.table_name = 'assessment_tests'
+                      AND tc.constraint_type = 'FOREIGN KEY'
+                      AND kcu.column_name = 'question_bank_id'
+                      AND ccu.table_name = 'question_banks'
+                      AND ccu.column_name = 'id'
+                ) THEN
+                    ALTER TABLE assessment_tests
+                        ADD CONSTRAINT fk_assessment_tests_question_bank
+                        FOREIGN KEY (question_bank_id) REFERENCES question_banks(id) ON DELETE SET NULL;
+                END IF;
+            END $$;
+        """);
+
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_assessment_tests_question_bank_id ON assessment_tests(question_bank_id)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_assessment_tests_question_bank_created_at ON assessment_tests(question_bank_id, created_at DESC)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_assessment_tests_journey_created_at ON assessment_tests(journey_id, created_at DESC)");
+
+        jdbcTemplate.execute("""
+            WITH extracted AS (
+                SELECT
+                    at.id,
+                    substring(at.generation_prompt FROM 'question bank id=([0-9]+)') AS bank_id_text
+                FROM assessment_tests at
+                WHERE at.question_bank_id IS NULL
+                  AND at.generation_prompt IS NOT NULL
+                  AND at.generation_prompt ~ 'question bank id=([0-9]+)'
+            )
+            UPDATE assessment_tests at
+            SET question_bank_id = extracted.bank_id_text::BIGINT
+            FROM extracted
+            JOIN question_banks qb ON qb.id = extracted.bank_id_text::BIGINT
+            WHERE at.id = extracted.id
+        """);
+    }
+
+    private boolean verifyAssessmentTestsQuestionBankLink() {
+        if (!hasTable("assessment_tests")) {
+            return false;
+        }
+
+        long remainingRecoverableLegacyRows = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*)
+            FROM assessment_tests at
+            WHERE at.question_bank_id IS NULL
+              AND at.generation_prompt IS NOT NULL
+              AND at.generation_prompt ~ 'question bank id=([0-9]+)'
+              AND EXISTS (
+                  SELECT 1
+                  FROM question_banks qb
+                  WHERE qb.id = substring(at.generation_prompt FROM 'question bank id=([0-9]+)')::BIGINT
+              )
+        """, Long.class);
+
+        return hasColumn("assessment_tests", "question_bank_id")
+                && hasIndex("idx_assessment_tests_question_bank_id")
+                && hasIndex("idx_assessment_tests_question_bank_created_at")
+                && hasIndex("idx_assessment_tests_journey_created_at")
+                && hasForeignKeyReference("assessment_tests", "question_bank_id", "question_banks", "id")
+                && remainingRecoverableLegacyRows == 0L;
+    }
+
+    private void patchChatServiceHardForeignKeys() {
+        if (hasTable("user_chat_messages")) {
+            jdbcTemplate.execute("""
+                DELETE FROM user_chat_messages ucm
+                WHERE ucm.sender_id IS NULL
+                   OR ucm.recipient_id IS NULL
+                   OR NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ucm.sender_id)
+                   OR NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ucm.recipient_id)
+            """);
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_user_chat_messages_sender_recipient_timestamp ON user_chat_messages(sender_id, recipient_id, timestamp)");
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_user_chat_messages_recipient_sender_timestamp ON user_chat_messages(recipient_id, sender_id, timestamp)");
+            jdbcTemplate.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        JOIN information_schema.constraint_column_usage ccu
+                          ON tc.constraint_name = ccu.constraint_name
+                         AND tc.table_schema = ccu.table_schema
+                        WHERE tc.table_schema = current_schema()
+                          AND tc.table_name = 'user_chat_messages'
+                          AND tc.constraint_type = 'FOREIGN KEY'
+                          AND kcu.column_name = 'sender_id'
+                          AND ccu.table_name = 'users'
+                          AND ccu.column_name = 'id'
+                    ) THEN
+                        ALTER TABLE user_chat_messages
+                            ADD CONSTRAINT fk_user_chat_messages_sender
+                            FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE;
+                    END IF;
+
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        JOIN information_schema.constraint_column_usage ccu
+                          ON tc.constraint_name = ccu.constraint_name
+                         AND tc.table_schema = ccu.table_schema
+                        WHERE tc.table_schema = current_schema()
+                          AND tc.table_name = 'user_chat_messages'
+                          AND tc.constraint_type = 'FOREIGN KEY'
+                          AND kcu.column_name = 'recipient_id'
+                          AND ccu.table_name = 'users'
+                          AND ccu.column_name = 'id'
+                    ) THEN
+                        ALTER TABLE user_chat_messages
+                            ADD CONSTRAINT fk_user_chat_messages_recipient
+                            FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE;
+                    END IF;
+
+                    IF NOT EXISTS (SELECT 1 FROM user_chat_messages WHERE sender_id IS NULL) THEN
+                        ALTER TABLE user_chat_messages ALTER COLUMN sender_id SET NOT NULL;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM user_chat_messages WHERE recipient_id IS NULL) THEN
+                        ALTER TABLE user_chat_messages ALTER COLUMN recipient_id SET NOT NULL;
+                    END IF;
+                END $$;
+            """);
+        }
+
+        if (hasTable("group_chats")) {
+            jdbcTemplate.execute("""
+                DELETE FROM group_chats gc
+                WHERE gc.course_id IS NULL
+                   OR gc.mentor_id IS NULL
+                   OR NOT EXISTS (SELECT 1 FROM courses c WHERE c.id = gc.course_id)
+                   OR NOT EXISTS (SELECT 1 FROM users u WHERE u.id = gc.mentor_id)
+            """);
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_group_chats_course_id ON group_chats(course_id)");
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_group_chats_mentor_id ON group_chats(mentor_id)");
+            jdbcTemplate.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        JOIN information_schema.constraint_column_usage ccu
+                          ON tc.constraint_name = ccu.constraint_name
+                         AND tc.table_schema = ccu.table_schema
+                        WHERE tc.table_schema = current_schema()
+                          AND tc.table_name = 'group_chats'
+                          AND tc.constraint_type = 'FOREIGN KEY'
+                          AND kcu.column_name = 'course_id'
+                          AND ccu.table_name = 'courses'
+                          AND ccu.column_name = 'id'
+                    ) THEN
+                        ALTER TABLE group_chats
+                            ADD CONSTRAINT fk_group_chats_course
+                            FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE;
+                    END IF;
+
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        JOIN information_schema.constraint_column_usage ccu
+                          ON tc.constraint_name = ccu.constraint_name
+                         AND tc.table_schema = ccu.table_schema
+                        WHERE tc.table_schema = current_schema()
+                          AND tc.table_name = 'group_chats'
+                          AND tc.constraint_type = 'FOREIGN KEY'
+                          AND kcu.column_name = 'mentor_id'
+                          AND ccu.table_name = 'users'
+                          AND ccu.column_name = 'id'
+                    ) THEN
+                        ALTER TABLE group_chats
+                            ADD CONSTRAINT fk_group_chats_mentor
+                            FOREIGN KEY (mentor_id) REFERENCES users(id) ON DELETE CASCADE;
+                    END IF;
+
+                    IF NOT EXISTS (SELECT 1 FROM group_chats WHERE course_id IS NULL) THEN
+                        ALTER TABLE group_chats ALTER COLUMN course_id SET NOT NULL;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM group_chats WHERE mentor_id IS NULL) THEN
+                        ALTER TABLE group_chats ALTER COLUMN mentor_id SET NOT NULL;
+                    END IF;
+                END $$;
+            """);
+        }
+
+        if (hasTable("group_chat_members")) {
+            jdbcTemplate.execute("""
+                DELETE FROM group_chat_members gcm
+                WHERE gcm.group_id IS NULL
+                   OR gcm.user_id IS NULL
+                   OR NOT EXISTS (SELECT 1 FROM group_chats gc WHERE gc.id = gcm.group_id)
+                   OR NOT EXISTS (SELECT 1 FROM users u WHERE u.id = gcm.user_id)
+            """);
+            jdbcTemplate.execute("""
+                DELETE FROM group_chat_members duplicate_member
+                USING group_chat_members kept_member
+                WHERE duplicate_member.id > kept_member.id
+                  AND duplicate_member.group_id = kept_member.group_id
+                  AND duplicate_member.user_id = kept_member.user_id
+            """);
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_group_chat_members_group_id ON group_chat_members(group_id)");
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_group_chat_members_user_id ON group_chat_members(user_id)");
+            jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS uk_group_chat_members_group_user ON group_chat_members(group_id, user_id)");
+            jdbcTemplate.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        JOIN information_schema.constraint_column_usage ccu
+                          ON tc.constraint_name = ccu.constraint_name
+                         AND tc.table_schema = ccu.table_schema
+                        WHERE tc.table_schema = current_schema()
+                          AND tc.table_name = 'group_chat_members'
+                          AND tc.constraint_type = 'FOREIGN KEY'
+                          AND kcu.column_name = 'group_id'
+                          AND ccu.table_name = 'group_chats'
+                          AND ccu.column_name = 'id'
+                    ) THEN
+                        ALTER TABLE group_chat_members
+                            ADD CONSTRAINT fk_group_chat_members_group
+                            FOREIGN KEY (group_id) REFERENCES group_chats(id) ON DELETE CASCADE;
+                    END IF;
+
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        JOIN information_schema.constraint_column_usage ccu
+                          ON tc.constraint_name = ccu.constraint_name
+                         AND tc.table_schema = ccu.table_schema
+                        WHERE tc.table_schema = current_schema()
+                          AND tc.table_name = 'group_chat_members'
+                          AND tc.constraint_type = 'FOREIGN KEY'
+                          AND kcu.column_name = 'user_id'
+                          AND ccu.table_name = 'users'
+                          AND ccu.column_name = 'id'
+                    ) THEN
+                        ALTER TABLE group_chat_members
+                            ADD CONSTRAINT fk_group_chat_members_user
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+                    END IF;
+
+                    IF NOT EXISTS (SELECT 1 FROM group_chat_members WHERE group_id IS NULL) THEN
+                        ALTER TABLE group_chat_members ALTER COLUMN group_id SET NOT NULL;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM group_chat_members WHERE user_id IS NULL) THEN
+                        ALTER TABLE group_chat_members ALTER COLUMN user_id SET NOT NULL;
+                    END IF;
+                END $$;
+            """);
+        }
+
+        if (hasTable("group_chat_messages")) {
+            jdbcTemplate.execute("""
+                DELETE FROM group_chat_messages gcm
+                WHERE gcm.group_id IS NULL
+                   OR gcm.sender_id IS NULL
+                   OR NOT EXISTS (SELECT 1 FROM group_chats gc WHERE gc.id = gcm.group_id)
+                   OR NOT EXISTS (SELECT 1 FROM users u WHERE u.id = gcm.sender_id)
+            """);
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_group_chat_messages_group_id_timestamp ON group_chat_messages(group_id, timestamp)");
+            jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_group_chat_messages_sender_id ON group_chat_messages(sender_id)");
+            jdbcTemplate.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        JOIN information_schema.constraint_column_usage ccu
+                          ON tc.constraint_name = ccu.constraint_name
+                         AND tc.table_schema = ccu.table_schema
+                        WHERE tc.table_schema = current_schema()
+                          AND tc.table_name = 'group_chat_messages'
+                          AND tc.constraint_type = 'FOREIGN KEY'
+                          AND kcu.column_name = 'group_id'
+                          AND ccu.table_name = 'group_chats'
+                          AND ccu.column_name = 'id'
+                    ) THEN
+                        ALTER TABLE group_chat_messages
+                            ADD CONSTRAINT fk_group_chat_messages_group
+                            FOREIGN KEY (group_id) REFERENCES group_chats(id) ON DELETE CASCADE;
+                    END IF;
+
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.table_constraints tc
+                        JOIN information_schema.key_column_usage kcu
+                          ON tc.constraint_name = kcu.constraint_name
+                         AND tc.table_schema = kcu.table_schema
+                        JOIN information_schema.constraint_column_usage ccu
+                          ON tc.constraint_name = ccu.constraint_name
+                         AND tc.table_schema = ccu.table_schema
+                        WHERE tc.table_schema = current_schema()
+                          AND tc.table_name = 'group_chat_messages'
+                          AND tc.constraint_type = 'FOREIGN KEY'
+                          AND kcu.column_name = 'sender_id'
+                          AND ccu.table_name = 'users'
+                          AND ccu.column_name = 'id'
+                    ) THEN
+                        ALTER TABLE group_chat_messages
+                            ADD CONSTRAINT fk_group_chat_messages_sender
+                            FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE;
+                    END IF;
+
+                    IF NOT EXISTS (SELECT 1 FROM group_chat_messages WHERE group_id IS NULL) THEN
+                        ALTER TABLE group_chat_messages ALTER COLUMN group_id SET NOT NULL;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM group_chat_messages WHERE sender_id IS NULL) THEN
+                        ALTER TABLE group_chat_messages ALTER COLUMN sender_id SET NOT NULL;
+                    END IF;
+                END $$;
+            """);
+        }
+    }
+
+    private boolean verifyChatServiceHardForeignKeys() {
+        return hasTable("group_chats")
+                && hasTable("group_chat_members")
+                && hasTable("group_chat_messages")
+                && hasTable("user_chat_messages")
+                && hasIndex("idx_group_chats_course_id")
+                && hasIndex("idx_group_chat_members_group_id")
+                && hasIndex("uk_group_chat_members_group_user")
+                && hasIndex("idx_group_chat_messages_group_id_timestamp")
+                && hasIndex("idx_user_chat_messages_sender_recipient_timestamp")
+                && hasForeignKeyReference("group_chats", "course_id", "courses", "id")
+                && hasForeignKeyReference("group_chats", "mentor_id", "users", "id")
+                && hasForeignKeyReference("group_chat_members", "group_id", "group_chats", "id")
+                && hasForeignKeyReference("group_chat_members", "user_id", "users", "id")
+                && hasForeignKeyReference("group_chat_messages", "group_id", "group_chats", "id")
+                && hasForeignKeyReference("group_chat_messages", "sender_id", "users", "id")
+                && hasForeignKeyReference("user_chat_messages", "sender_id", "users", "id")
+                && hasForeignKeyReference("user_chat_messages", "recipient_id", "users", "id");
+    }
+
     private void patchRefreshTokensDeviceSessionId() {
         jdbcTemplate.execute("""
             DO $$
@@ -2960,6 +3370,218 @@ public class DatabaseSchemaFixer {
                 && hasIndex("idx_chat_sessions_user_last_message")
                 && hasForeignKeyReference("chat_sessions", "user_id", "users", "id")
                 && hasForeignKeyReference("chat_messages", "session_id", "chat_sessions", "id");
+    }
+
+    // ==================== PATCH-038: Dispute FK Backfill ====================
+
+    private void patchDisputeJobApplicationFkBackfill() {
+        // Step 1: Backfill short_term_job FK (job_id column already exists, just add FK constraint if not present)
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                      ON tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage ccu
+                      ON tc.constraint_name = ccu.constraint_name
+                     AND tc.table_schema = ccu.table_schema
+                    WHERE tc.table_schema = current_schema()
+                      AND tc.table_name = 'job_disputes'
+                      AND tc.constraint_type = 'FOREIGN KEY'
+                      AND kcu.column_name = 'job_id'
+                      AND ccu.table_name = 'short_term_jobs'
+                      AND ccu.column_name = 'id'
+                ) THEN
+                    ALTER TABLE job_disputes
+                        ADD CONSTRAINT fk_job_disputes_short_term_job
+                        FOREIGN KEY (job_id) REFERENCES short_term_jobs(id) ON DELETE RESTRICT;
+                END IF;
+            END $$;
+        """);
+
+        // Step 2: Add application FK column if not exists, then backfill from existing application_id data
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'job_disputes'
+                      AND column_name = 'application_id'
+                ) THEN
+                    ALTER TABLE job_disputes ADD COLUMN application_id BIGINT;
+                END IF;
+            END $$;
+        """);
+
+        // Step 3: Add FK constraint on application_id if not present
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                      ON tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage ccu
+                      ON tc.constraint_name = ccu.constraint_name
+                     AND tc.table_schema = ccu.table_schema
+                    WHERE tc.table_schema = current_schema()
+                      AND tc.table_name = 'job_disputes'
+                      AND tc.constraint_type = 'FOREIGN KEY'
+                      AND kcu.column_name = 'application_id'
+                      AND ccu.table_name = 'short_term_job_applications'
+                      AND ccu.column_name = 'id'
+                ) THEN
+                    ALTER TABLE job_disputes
+                        ADD CONSTRAINT fk_job_disputes_application
+                        FOREIGN KEY (application_id) REFERENCES short_term_job_applications(id) ON DELETE SET NULL;
+                END IF;
+            END $$;
+        """);
+
+        // Step 4: Add indexes for dispute FK lookups
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_job_disputes_short_term_job ON job_disputes(job_id)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_job_disputes_application ON job_disputes(application_id)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_job_disputes_status ON job_disputes(status)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_job_disputes_initiator ON job_disputes(initiator_id)");
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_job_disputes_respondent ON job_disputes(respondent_id)");
+    }
+
+    private boolean verifyDisputeJobApplicationFkBackfill() {
+        return hasTable("job_disputes")
+                && hasColumn("job_disputes", "job_id")
+                && hasColumn("job_disputes", "application_id")
+                && hasForeignKeyReference("job_disputes", "job_id", "short_term_jobs", "id")
+                && hasForeignKeyReference("job_disputes", "application_id", "short_term_job_applications", "id")
+                && hasIndex("idx_job_disputes_short_term_job")
+                && hasIndex("idx_job_disputes_application")
+                && hasIndex("idx_job_disputes_status");
+    }
+
+    // ==================== PATCH-039: RecruitmentSession ShortTermJob FK ====================
+
+    private void patchRecruitmentSessionShortTermJobFk() {
+        // Step 1: Add short_term_job_id column if not exists
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'recruitment_sessions'
+                      AND column_name = 'short_term_job_id'
+                ) THEN
+                    ALTER TABLE recruitment_sessions ADD COLUMN short_term_job_id BIGINT;
+                END IF;
+            END $$;
+        """);
+
+        // Step 2: Add FK constraint if not present
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.table_constraints tc
+                    JOIN information_schema.key_column_usage kcu
+                      ON tc.constraint_name = kcu.constraint_name
+                     AND tc.table_schema = kcu.table_schema
+                    JOIN information_schema.constraint_column_usage ccu
+                      ON tc.constraint_name = ccu.constraint_name
+                     AND tc.table_schema = ccu.table_schema
+                    WHERE tc.table_schema = current_schema()
+                      AND tc.table_name = 'recruitment_sessions'
+                      AND tc.constraint_type = 'FOREIGN KEY'
+                      AND kcu.column_name = 'short_term_job_id'
+                      AND ccu.table_name = 'short_term_jobs'
+                      AND ccu.column_name = 'id'
+                ) THEN
+                    ALTER TABLE recruitment_sessions
+                        ADD CONSTRAINT fk_recruitment_sessions_short_term_job
+                        FOREIGN KEY (short_term_job_id) REFERENCES short_term_jobs(id) ON DELETE SET NULL;
+                END IF;
+            END $$;
+        """);
+
+        // Step 3: Backfill short_term_job_id from job_context_id where context_type = SHORT_TERM_JOB
+        jdbcTemplate.execute("""
+            UPDATE recruitment_sessions
+            SET short_term_job_id = job_context_id
+            WHERE job_context_type = 'SHORT_TERM_JOB'
+              AND job_context_id IS NOT NULL
+              AND short_term_job_id IS NULL;
+        """);
+
+        // Step 4: Add index for FK lookups
+        jdbcTemplate.execute("CREATE INDEX IF NOT EXISTS idx_recruitment_sessions_short_term_job ON recruitment_sessions(short_term_job_id)");
+    }
+
+    private boolean verifyRecruitmentSessionShortTermJobFk() {
+        return hasTable("recruitment_sessions")
+                && hasColumn("recruitment_sessions", "short_term_job_id")
+                && hasForeignKeyReference("recruitment_sessions", "short_term_job_id", "short_term_jobs", "id")
+                && hasIndex("idx_recruitment_sessions_short_term_job");
+    }
+
+    // ==================== PATCH-040: RecruitmentSession Unique Constraint ====================
+
+    private void patchRecruitmentSessionUniqueConstraint() {
+        // Drop old unique constraint (only on job_posting_id) and replace with composite constraint
+        // that supports both job_posting and short_term_job FKs
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'recruitment_sessions'
+                      AND constraint_name = 'uk_recruitment_session_recruiter_candidate_job'
+                ) THEN
+                    ALTER TABLE recruitment_sessions DROP CONSTRAINT uk_recruitment_session_recruiter_candidate_job;
+                END IF;
+            END $$;
+        """);
+
+        // Create new composite unique constraint: (recruiter_id, candidate_id, job_posting_id, short_term_job_id)
+        // PostgreSQL treats NULL values as distinct, so multiple SHORT_TERM_JOB sessions (with NULL job_posting_id)
+        // will NOT violate the constraint as long as short_term_job_id differs
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'recruitment_sessions'
+                      AND constraint_name = 'uk_recruitment_session_recruiter_candidate_context'
+                ) THEN
+                    ALTER TABLE recruitment_sessions
+                        ADD CONSTRAINT uk_recruitment_session_recruiter_candidate_context
+                        UNIQUE (recruiter_id, candidate_id, job_posting_id, short_term_job_id);
+                END IF;
+            END $$;
+        """);
+    }
+
+    private boolean verifyRecruitmentSessionUniqueConstraint() {
+        return hasUniqueConstraint("recruitment_sessions", "uk_recruitment_session_recruiter_candidate_context");
+    }
+
+    private boolean hasUniqueConstraint(String tableName, String constraintName) {
+        Boolean exists = jdbcTemplate.queryForObject("""
+            SELECT EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE table_schema = current_schema()
+                  AND table_name = ?
+                  AND constraint_name = ?
+                  AND constraint_type = 'UNIQUE'
+            )
+        """, Boolean.class, tableName, constraintName);
+        return Boolean.TRUE.equals(exists);
     }
 
     private boolean hasForeignKeyReference(

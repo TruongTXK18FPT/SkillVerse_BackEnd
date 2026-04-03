@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.business_service.entity.DisputeEvidence;
 import com.exe.skillverse_backend.business_service.entity.DisputeResponseEntity;
 import com.exe.skillverse_backend.business_service.service.DisputeService;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
+import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -49,19 +50,43 @@ public class DisputeController {
     }
 
     @GetMapping("/{disputeId}")
-    public ResponseEntity<Dispute> getDispute(@PathVariable Long disputeId) {
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Dispute> getDispute(
+            @PathVariable Long disputeId,
+            Authentication auth) {
+        Long userId = JwtUtils.extractUserId(auth);
+        Dispute dispute = disputeService.getDispute(disputeId);
+        if (dispute == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (!userId.equals(dispute.getInitiatorId())
+                && !userId.equals(dispute.getRespondentId())
+                && auth.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))) {
+            throw new ForbiddenException("You do not have access to this dispute");
+        }
         log.info("GET /api/disputes/{}", disputeId);
-        return ResponseEntity.ok(disputeService.getDispute(disputeId));
+        return ResponseEntity.ok(dispute);
     }
 
     @GetMapping("/job/{jobId}")
-    public ResponseEntity<Dispute> getDisputesByJob(@PathVariable Long jobId) {
-        log.info("GET /api/disputes/job/{}", jobId);
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Dispute> getDisputesByJob(
+            @PathVariable Long jobId,
+            Authentication auth) {
+        Long userId = JwtUtils.extractUserId(auth);
         List<Dispute> disputes = disputeService.getDisputesByJob(jobId);
         if (disputes.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(disputes.get(0));
+        // Check user is a party in the dispute or admin
+        Dispute dispute = disputes.get(0);
+        if (!userId.equals(dispute.getInitiatorId())
+                && !userId.equals(dispute.getRespondentId())
+                && auth.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))) {
+            throw new ForbiddenException("You do not have access to disputes for this job");
+        }
+        log.info("GET /api/disputes/job/{}", jobId);
+        return ResponseEntity.ok(dispute);
     }
 
     @GetMapping("/my-disputes")
@@ -95,7 +120,20 @@ public class DisputeController {
     }
 
     @GetMapping("/{disputeId}/evidence")
-    public ResponseEntity<List<DisputeEvidence>> getDisputeEvidence(@PathVariable Long disputeId) {
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<List<DisputeEvidence>> getDisputeEvidence(
+            @PathVariable Long disputeId,
+            Authentication auth) {
+        Long userId = JwtUtils.extractUserId(auth);
+        Dispute dispute = disputeService.getDispute(disputeId);
+        if (dispute == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (!userId.equals(dispute.getInitiatorId())
+                && !userId.equals(dispute.getRespondentId())
+                && auth.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))) {
+            throw new ForbiddenException("You do not have access to this dispute");
+        }
         log.info("GET /api/disputes/{}/evidence", disputeId);
         return ResponseEntity.ok(disputeService.getDisputeEvidence(disputeId));
     }

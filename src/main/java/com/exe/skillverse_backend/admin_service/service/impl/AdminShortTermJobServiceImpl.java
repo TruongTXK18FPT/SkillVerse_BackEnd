@@ -5,17 +5,19 @@ import com.exe.skillverse_backend.admin_service.dto.response.AdminJobStatsRespon
 import com.exe.skillverse_backend.admin_service.service.AdminShortTermJobService;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse;
 import com.exe.skillverse_backend.business_service.entity.Dispute;
+import com.exe.skillverse_backend.business_service.entity.EscrowTransaction;
+import com.exe.skillverse_backend.business_service.entity.EscrowTransaction.EscrowTransactionType;
 import com.exe.skillverse_backend.business_service.entity.JobEscrow;
 import com.exe.skillverse_backend.business_service.entity.JobStatusAuditLog;
 import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
 import com.exe.skillverse_backend.business_service.entity.ShortTermJobApplication;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
 import com.exe.skillverse_backend.business_service.repository.DisputeRepository;
+import com.exe.skillverse_backend.business_service.repository.EscrowTransactionRepository;
 import com.exe.skillverse_backend.business_service.repository.JobEscrowRepository;
 import com.exe.skillverse_backend.business_service.repository.JobStatusAuditLogRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobApplicationRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
-import com.exe.skillverse_backend.business_service.service.DisputeService;
 import com.exe.skillverse_backend.business_service.service.EscrowService;
 import com.exe.skillverse_backend.business_service.service.JobAuditService;
 import com.exe.skillverse_backend.business_service.service.ShortTermJobService;
@@ -28,6 +30,7 @@ import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -51,11 +54,11 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
     private final ShortTermJobRepository shortTermJobRepository;
     private final ShortTermJobService shortTermJobService;
     private final DisputeRepository disputeRepository;
-    private final DisputeService disputeService;
     private final ShortTermJobApplicationRepository applicationRepository;
     private final JobStatusAuditLogRepository auditLogRepository;
     private final JobAuditService auditService;
     private final JobEscrowRepository jobEscrowRepository;
+    private final EscrowTransactionRepository escrowTransactionRepository;
     private final WalletTransactionRepository walletTransactionRepository;
     private final WalletService walletService;
     private final EscrowService escrowService;
@@ -378,11 +381,11 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                 .orElseThrow(() -> new NotFoundException("Dispute not found with ID: " + disputeId));
 
         List<JobStatusAuditLog> logs = new ArrayList<>();
-        if (dispute.getApplicationId() != null) {
-            logs.addAll(auditLogRepository.findByApplicationIdOrderByCreatedAtDesc(dispute.getApplicationId()));
+        if (dispute.getApplication() != null) {
+            logs.addAll(auditLogRepository.findByApplicationIdOrderByCreatedAtDesc(dispute.getApplication().getId()));
         }
-        if (dispute.getJobId() != null) {
-            logs.addAll(auditLogRepository.findByShortTermJobIdOrderByCreatedAtDesc(dispute.getJobId()));
+        if (dispute.getShortTermJob() != null) {
+            logs.addAll(auditLogRepository.findByShortTermJobIdOrderByCreatedAtDesc(dispute.getShortTermJob().getId()));
         }
 
         logs.sort(Comparator.comparing(JobStatusAuditLog::getCreatedAt).reversed());
@@ -415,13 +418,8 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                 ? Dispute.DisputeStatus.DISMISSED
                 : Dispute.DisputeStatus.RESOLVED);
 
-        ShortTermJob job = shortTermJobRepository.findById(dispute.getJobId())
-                .orElseThrow(() -> new NotFoundException("Short-term job not found with ID: " + dispute.getJobId()));
-        ShortTermJobApplication application = null;
-        if (dispute.getApplicationId() != null) {
-            application = applicationRepository.findById(dispute.getApplicationId())
-                    .orElseThrow(() -> new NotFoundException("Application not found with ID: " + dispute.getApplicationId()));
-        }
+        ShortTermJob job = dispute.getShortTermJob();
+        ShortTermJobApplication application = dispute.getApplication();
 
         ShortTermJobStatus previousJobStatus = job.getStatus();
         ShortTermJobStatus nextJobStatus = previousJobStatus;
@@ -485,8 +483,63 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                     }
                 }
                 case PARTIAL_REFUND, PARTIAL_RELEASE, WORKER_PARTIAL -> {
-                    log.info("Dispute {} resolved with {}. Partial handling remains unchanged. pct={}",
-                            disputeId, request.getResolution(), request.getPartialRefundPct());
+                    BigDecimal splitPct = request.getPartialRefundPct() != null
+                            ? request.getPartialRefundPct().divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP)
+                            : new BigDecimal("0.50");
+
+                    JobEscrow escrow = jobEscrowRepository.findByJobId(job.getId()).orElse(null);
+                    if (escrow != null) {
+                        BigDecimal recruiterShare = escrow.getEscrowBalance().multiply(splitPct).setScale(2, RoundingMode.HALF_UP);
+                        BigDecimal workerShare = escrow.getEscrowBalance().subtract(recruiterShare);
+
+                        // Update escrow
+                        escrow.setEscrowBalance(BigDecimal.ZERO);
+                        escrow.setPendingPayoutBalance(workerShare);
+                        escrow.setStatus(JobEscrow.EscrowStatus.PARTIALLY_RELEASED);
+                        escrow.setReleasedAt(LocalDateTime.now());
+                        jobEscrowRepository.save(escrow);
+
+                        // REFUND transaction for recruiter
+                        EscrowTransaction refundTx = EscrowTransaction.builder()
+                                .escrow(escrow)
+                                .transactionType(EscrowTransactionType.REFUND)
+                                .amount(recruiterShare)
+                                .feeAmount(BigDecimal.ZERO)
+                                .netAmount(recruiterShare)
+                                .actorId(adminId)
+                                .actorName("Admin")
+                                .reason("Partial refund (" + splitPct.multiply(new BigDecimal("100")).setScale(0) + "%) to recruiter")
+                                .metadata("{\"disputeId\":" + disputeId + ",\"resolution\":\"" + request.getResolution() + "\"}")
+                                .build();
+                        escrowTransactionRepository.save(refundTx);
+
+                        // PARTIAL_RELEASE transaction for worker
+                        EscrowTransaction workerTx = EscrowTransaction.builder()
+                                .escrow(escrow)
+                                .transactionType(EscrowTransactionType.PARTIAL_RELEASE)
+                                .amount(workerShare)
+                                .feeAmount(BigDecimal.ZERO)
+                                .netAmount(workerShare)
+                                .actorId(adminId)
+                                .actorName("Admin")
+                                .reason("Partial release (" + splitPct.multiply(new BigDecimal("100")).setScale(0) + "%) to worker")
+                                .metadata("{\"disputeId\":" + disputeId + ",\"resolution\":\"" + request.getResolution() + "\"}")
+                                .build();
+                        escrowTransactionRepository.save(workerTx);
+
+                        log.info("Dispute {} resolved with {}. Recruiter: {}, Worker: {}",
+                                disputeId, request.getResolution(), recruiterShare, workerShare);
+                    } else {
+                        log.warn("Dispute {} resolved with {} but no escrow found for job {}",
+                                disputeId, request.getResolution(), job.getId());
+                    }
+
+                    nextJobStatus = ShortTermJobStatus.PAID;
+                    if (application != null) {
+                        nextApplicationStatus =
+                                com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus.COMPLETED;
+                        application.setCompletedAt(LocalDateTime.now());
+                    }
                 }
                 default -> log.warn("Unknown resolution type for dispute {}: {}", disputeId, request.getResolution());
             }

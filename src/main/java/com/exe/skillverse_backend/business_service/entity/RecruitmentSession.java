@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobCo
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionStatus;
 import jakarta.persistence.*;
+import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -50,12 +51,16 @@ public class RecruitmentSession {
     @JoinColumn(name = "job_posting_id")
     private JobPosting jobPosting; // Nullable - có thể chat không có job cụ thể
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "short_term_job_id")
+    private ShortTermJob shortTermJob; // Nullable - chat cho short-term job
+
     @Enumerated(EnumType.STRING)
     @Column(name = "job_context_type", length = 30)
     private RecruitmentJobContextType jobContextType;
 
     @Column(name = "job_context_id")
-    private Long jobContextId;
+    private Long jobContextId; // Legacy - chỉ dùng khi job_posting_id/short_term_job_id chưa được set
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

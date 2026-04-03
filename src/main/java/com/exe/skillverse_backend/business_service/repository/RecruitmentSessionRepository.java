@@ -30,6 +30,9 @@ public interface RecruitmentSessionRepository extends JpaRepository<RecruitmentS
             RecruitmentJobContextType jobContextType,
             Long jobContextId);
 
+    Optional<RecruitmentSession> findByRecruiterIdAndCandidateIdAndShortTermJobId(
+            Long recruiterId, Long candidateId, Long shortTermJobId);
+
     /**
      * Tìm session dựa trên recruiter và candidate (không cần job)
      */
@@ -115,6 +118,15 @@ public interface RecruitmentSessionRepository extends JpaRepository<RecruitmentS
             "AND rs.isArchivedByRecruiter = false " +
             "ORDER BY rs.lastMessageAt DESC NULLS LAST")
     List<RecruitmentSession> findByRecruiterIdAndJobPostingId(
+            @Param("recruiterId") Long recruiterId,
+            @Param("jobId") Long jobId);
+
+    @Query("SELECT rs FROM RecruitmentSession rs " +
+            "WHERE rs.recruiter.id = :recruiterId " +
+            "AND rs.shortTermJob.id = :jobId " +
+            "AND rs.isArchivedByRecruiter = false " +
+            "ORDER BY rs.lastMessageAt DESC NULLS LAST")
+    List<RecruitmentSession> findByRecruiterIdAndShortTermJobId(
             @Param("recruiterId") Long recruiterId,
             @Param("jobId") Long jobId);
 

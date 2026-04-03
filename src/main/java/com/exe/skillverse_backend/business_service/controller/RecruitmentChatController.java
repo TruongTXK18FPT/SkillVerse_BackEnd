@@ -127,12 +127,13 @@ public class RecruitmentChatController {
     @PreAuthorize("hasRole('RECRUITER')")
     public ResponseEntity<List<RecruitmentSessionResponse>> getSessionsByJob(
             @PathVariable Long jobId,
+            @RequestParam(defaultValue = "JOB_POSTING") RecruitmentJobContextType jobContextType,
             Authentication authentication) {
 
         Long recruiterId = Long.parseLong(authentication.getName());
-        log.info("GET /api/v1/recruitment/sessions/job/{} - Fetching sessions for job", jobId);
+        log.info("GET /api/v1/recruitment/sessions/job/{} - Fetching sessions for job (context={})", jobId, jobContextType);
 
-        List<RecruitmentSessionResponse> response = recruitmentChatService.getSessionsByJob(recruiterId, jobId);
+        List<RecruitmentSessionResponse> response = recruitmentChatService.getSessionsByJob(recruiterId, jobId, jobContextType);
         return ResponseEntity.ok(response);
     }
 

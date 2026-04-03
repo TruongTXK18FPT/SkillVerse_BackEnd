@@ -41,10 +41,6 @@ public interface ShortTermJobApplicationRepository extends JpaRepository<ShortTe
 
     Optional<ShortTermJobApplication> findByShortTermJobIdAndUserId(Long jobId, Long userId);
 
-    // Find application by job ID and user ID (used in dispute flow)
-    @Query("SELECT a FROM ShortTermJobApplication a WHERE a.shortTermJob.id = :jobId AND a.user.id = :userId")
-    Optional<ShortTermJobApplication> findByJobIdAndUserId(@Param("jobId") Long jobId, @Param("userId") Long userId);
-
     // Find accepted application for a job
     @Query("SELECT a FROM ShortTermJobApplication a WHERE a.shortTermJob.id = :jobId AND a.status = 'ACCEPTED'")
     Optional<ShortTermJobApplication> findAcceptedApplicationByJobId(@Param("jobId") Long jobId);

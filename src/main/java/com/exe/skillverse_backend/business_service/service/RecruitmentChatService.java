@@ -43,7 +43,7 @@ public interface RecruitmentChatService {
     /**
      * Lấy session theo job
      */
-    java.util.List<RecruitmentSessionResponse> getSessionsByJob(Long recruiterId, Long jobId);
+    java.util.List<RecruitmentSessionResponse> getSessionsByJob(Long recruiterId, Long jobId, RecruitmentJobContextType jobContextType);
 
     /**
      * Gửi tin nhắn trong session
