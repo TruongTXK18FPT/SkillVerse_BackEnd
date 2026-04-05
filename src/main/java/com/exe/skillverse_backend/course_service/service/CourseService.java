@@ -7,6 +7,7 @@ import com.exe.skillverse_backend.course_service.dto.coursedto.CourseUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
+import java.util.List;
 import java.util.Map;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.multipart.MultipartFile;
@@ -44,4 +45,11 @@ public interface CourseService {
 
     /** Get course counts grouped by status (for admin dashboard) */
     Map<String, Long> getCourseStats();
+
+    /**
+     * Batch fetch courses by IDs.
+     * Used by frontend to efficiently load all courses for roadmap nodes in one call.
+     * IDs that don't exist are silently omitted from the result.
+     */
+    List<CourseDetailDTO> getCoursesByIds(List<Long> ids);
 }

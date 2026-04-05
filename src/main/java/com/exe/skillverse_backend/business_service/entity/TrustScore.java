@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.business_service.entity;
 
+import com.exe.skillverse_backend.auth_service.entity.User;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -37,7 +38,7 @@ public class TrustScore {
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = false, unique = true)
     @JsonIgnore
-    private com.exe.skillverse_backend.auth_service.entity.User user;
+    private User user;
 
     @Column(name = "user_id", insertable = false, updatable = false)
     private Long userId;

@@ -2,6 +2,8 @@ package com.exe.skillverse_backend.journey_service.service.impl;
 
 import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
+import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
+import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.QuestionInfo;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.TestSubmissionInfo;
@@ -25,6 +27,9 @@ import com.exe.skillverse_backend.journey_service.repository.TestResultRepositor
 import com.exe.skillverse_backend.journey_service.service.JourneyService;
 import com.exe.skillverse_backend.study_service.dto.request.CreateTaskRequest;
 import com.exe.skillverse_backend.study_service.dto.request.GenerateScheduleRequest;
+import com.exe.skillverse_backend.study_service.entity.StudySession;
+import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
+import com.exe.skillverse_backend.study_service.entity.StudySessionStatus;
 import com.exe.skillverse_backend.study_service.dto.response.StudySessionResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
@@ -52,6 +57,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+
+import com.exe.skillverse_backend.shared.exception.ApiException;
+import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -89,6 +97,7 @@ public class JourneyServiceImpl implements JourneyService {
     );
 
     private final JourneyRepository journeyRepository;
+    private final RoadmapSessionRepository roadmapSessionRepository;
     private final AssessmentTestRepository assessmentTestRepository;
     private final TestResultRepository testResultRepository;
     private final JourneyProgressRepository journeyProgressRepository;
@@ -101,6 +110,7 @@ public class JourneyServiceImpl implements JourneyService {
     private final TaskBoardService taskBoardService;
     private final AiStudySupportService aiStudySupportService;
     private final QuestionBankService questionBankService;
+    private final StudySessionRepository studySessionRepository;
     private final ObjectMapper objectMapper;
 
     private static final class QuestionEvaluation {
@@ -144,6 +154,9 @@ public class JourneyServiceImpl implements JourneyService {
             this.assessmentConfidence = assessmentConfidence;
             this.reassessmentRecommended = reassessmentRecommended;
         }
+    }
+
+    private record RoadmapNodeLinkRef(Long journeyId, Long roadmapSessionId, String nodeId) {
     }
 
     // Lazy ChatClient instance
@@ -230,9 +243,19 @@ public class JourneyServiceImpl implements JourneyService {
         Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
                 .orElseThrow(() -> new RuntimeException("Journey not found"));
 
+        Long previousRoadmapSessionId = journey.getRoadmapSessionId();
         journey.setStatus(newStatus);
         journey.setLastActivityAt(Instant.now());
         journey = journeyRepository.save(journey);
+
+        // When pausing or cancelling a journey, archive all its roadmap-linked tasks
+        // so they no longer clutter the task board but are preserved in DB for audit.
+        if ((newStatus == Journey.JourneyStatus.PAUSED || newStatus == Journey.JourneyStatus.CANCELLED)
+                && previousRoadmapSessionId != null) {
+            int archived = taskBoardService.archiveTasksByRoadmapSession(user.getId(), previousRoadmapSessionId);
+            log.info("Archived {} tasks for roadmap session {} when journey {} set to {}",
+                    archived, previousRoadmapSessionId, journeyId, newStatus);
+        }
 
         return mapToJourneySummary(journey);
     }
@@ -260,6 +283,14 @@ public class JourneyServiceImpl implements JourneyService {
         journey.setStatus(resumedStatus);
         journey.setLastActivityAt(Instant.now());
         journey = journeyRepository.save(journey);
+
+        // BUG-6 FIX: When resuming a journey, restore archived tasks so they reappear on the board
+        Long roadmapSessionId = journey.getRoadmapSessionId();
+        if (roadmapSessionId != null) {
+            int unarchived = taskBoardService.unarchiveTasksByRoadmapSession(user.getId(), roadmapSessionId);
+            log.info("Restored {} tasks for roadmap session {} when journey {} resumed",
+                    unarchived, roadmapSessionId, journeyId);
+        }
 
         return mapToJourneySummary(journey);
     }
@@ -1173,31 +1204,32 @@ public class JourneyServiceImpl implements JourneyService {
     @Transactional
     public Object createStudyPlanForNode(User user, Long journeyId, String nodeId, GenerateScheduleRequest request) {
         Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
-                .orElseThrow(() -> new RuntimeException("Journey not found"));
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Journey not found"));
 
-        return createStudyPlanForRoadmapNodeInternal(user, journey, nodeId, request);
+        RoadmapSession roadmapSession = requireOwnedRoadmapSession(user, journey.getRoadmapSessionId());
+        return createStudyPlanForRoadmapNodeInternal(user, roadmapSession, journey, nodeId, request);
     }
 
     @Override
     @Transactional
     public Object createStudyPlanForRoadmapNode(User user, Long roadmapSessionId, String nodeId, GenerateScheduleRequest request) {
-        Journey journey = journeyRepository.findByRoadmapSessionId(roadmapSessionId)
-                .orElseThrow(() -> new RuntimeException("Journey not found for roadmap session"));
-
-        if (!Objects.equals(journey.getUser().getId(), user.getId())) {
-            throw new RuntimeException("Journey not found");
-        }
-
-        return createStudyPlanForRoadmapNodeInternal(user, journey, nodeId, request);
+        RoadmapSession roadmapSession = requireOwnedRoadmapSession(user, roadmapSessionId);
+        Journey journey = findJourneyContextForRoadmapSession(user, roadmapSessionId).orElse(null);
+        return createStudyPlanForRoadmapNodeInternal(user, roadmapSession, journey, nodeId, request);
     }
 
-    private Object createStudyPlanForRoadmapNodeInternal(User user, Journey journey, String nodeId, GenerateScheduleRequest request) {
+    private Object createStudyPlanForRoadmapNodeInternal(
+            User user,
+            RoadmapSession roadmapSession,
+            Journey journey,
+            String nodeId,
+            GenerateScheduleRequest request) {
         if (nodeId == null || nodeId.isBlank()) {
-            throw new RuntimeException("Node id is required");
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Node id is required");
         }
 
         String normalizedNodeId = nodeId.trim();
-        RoadmapResponse roadmap = requireRoadmapForJourney(user, journey);
+        RoadmapResponse roadmap = requireRoadmapForSession(user, roadmapSession);
         List<RoadmapResponse.RoadmapNode> roadmapNodes = roadmap.getRoadmap() != null
                 ? roadmap.getRoadmap()
                 : Collections.emptyList();
@@ -1208,22 +1240,22 @@ public class JourneyServiceImpl implements JourneyService {
                 .orElse(null);
 
         if (node == null) {
-            throw new RuntimeException("Roadmap node not found for id: " + normalizedNodeId);
+            throw new ApiException(ErrorCode.NOT_FOUND, "Roadmap node not found for id: " + normalizedNodeId);
         }
 
         if (isRoadmapNodeCompleted(roadmap, normalizedNodeId)) {
             return Map.of(
                     "message", "Node này đã hoàn thành. Hãy tạo/kích hoạt plan cho node tiếp theo.",
                     "created", false,
-                    "journeyId", journey.getId(),
-                    "roadmapSessionId", journey.getRoadmapSessionId(),
+                    "journeyId", journey != null ? journey.getId() : null,
+                    "roadmapSessionId", roadmapSession.getId(),
                     "nodeId", normalizedNodeId);
         }
 
         String nextEligibleNodeId = findNextEligibleNodeId(roadmap, roadmapNodes);
         if (nextEligibleNodeId != null && !normalizedNodeId.equals(nextEligibleNodeId)) {
             String nextNodeTitle = resolveNodeDisplayTitle(roadmapNodes, nextEligibleNodeId);
-            throw new IllegalArgumentException(
+            throw new ApiException(ErrorCode.FORBIDDEN,
                     String.format("Bạn cần hoàn thành node '%s' trước khi tạo plan cho node này.", nextNodeTitle));
         }
 
@@ -1233,16 +1265,16 @@ public class JourneyServiceImpl implements JourneyService {
         List<TaskColumnResponse> board = taskBoardService.getBoard(user.getId());
         UUID todoColumnId = resolveTodoColumnId(board);
         List<TaskResponse> existingTasks = flattenBoardTasks(board);
-        String marker = buildStudyPlanMarker(journey.getId(), journey.getRoadmapSessionId(), normalizedNodeId);
-        List<TaskResponse> existingTasksForNode = findExistingNodeTasks(existingTasks, marker);
+        String marker = buildStudyPlanMarker(journey != null ? journey.getId() : null, roadmapSession.getId(), normalizedNodeId);
+        List<TaskResponse> existingTasksForNode = findExistingNodeTasks(existingTasks, roadmapSession.getId(), normalizedNodeId);
 
         if (!existingTasksForNode.isEmpty()) {
             TaskResponse firstTask = existingTasksForNode.get(0);
-            return Map.of(
+            return buildStudyPlanResponse(
                     "message", "Roadmap node is already linked to study planner tasks.",
                     "created", false,
-                    "journeyId", journey.getId(),
-                    "roadmapSessionId", journey.getRoadmapSessionId(),
+                    "journeyId", journey != null ? journey.getId() : null,
+                    "roadmapSessionId", roadmapSession.getId(),
                     "nodeId", normalizedNodeId,
                     "taskCount", existingTasksForNode.size(),
                     "task", toTaskSummary(firstTask),
@@ -1251,10 +1283,11 @@ public class JourneyServiceImpl implements JourneyService {
                             .collect(Collectors.toList()));
         }
 
-        GenerateScheduleRequest scheduleRequest = buildRoadmapNodeScheduleRequest(journey, node, request);
+        GenerateScheduleRequest scheduleRequest = buildRoadmapNodeScheduleRequest(roadmapSession, journey, node, request);
         List<StudySessionResponse> plannedSessions = generateNodeStudySessions(user, node, scheduleRequest);
         List<TaskResponse> createdTasks = createTasksFromPlannedSessions(
                 user,
+                roadmapSession,
                 journey,
                 node,
                 todoColumnId,
@@ -1265,40 +1298,63 @@ public class JourneyServiceImpl implements JourneyService {
                 scheduleRequest);
 
         if (createdTasks.isEmpty()) {
-            throw new RuntimeException("Unable to create study tasks for this roadmap node");
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Unable to create study tasks for this roadmap node");
         }
 
-        journey.setStatus(Journey.JourneyStatus.STUDY_PLAN_IN_PROGRESS);
-        journey.setLastActivityAt(Instant.now());
-        if (journey.getProgressPercentage() == null || journey.getProgressPercentage() < 40) {
-            journey.setProgressPercentage(40);
+        if (journey != null) {
+            journey.setStatus(Journey.JourneyStatus.STUDY_PLAN_IN_PROGRESS);
+            journey.setLastActivityAt(Instant.now());
+            if (journey.getProgressPercentage() == null || journey.getProgressPercentage() < 40) {
+                journey.setProgressPercentage(40);
+            }
+            journeyRepository.save(journey);
         }
-        journeyRepository.save(journey);
 
-        return Map.of(
+        return buildStudyPlanResponse(
                 "message", "Study planner tasks created from roadmap node.",
                 "created", true,
-                "journeyId", journey.getId(),
-                "roadmapSessionId", journey.getRoadmapSessionId(),
+                "journeyId", journey != null ? journey.getId() : null,
+                "roadmapSessionId", roadmapSession.getId(),
                 "nodeId", normalizedNodeId,
                 "taskCount", createdTasks.size(),
                 "task", toTaskSummary(createdTasks.get(0)),
                 "tasks", createdTasks.stream()
                         .map(this::toTaskSummary)
-                        .collect(Collectors.toList())
-        );
+                        .collect(Collectors.toList()));
+    }
+
+    private RoadmapSession requireOwnedRoadmapSession(User user, Long roadmapSessionId) {
+        if (roadmapSessionId == null) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Roadmap session id is required");
+        }
+        return roadmapSessionRepository.findByIdAndUserId(roadmapSessionId, user.getId())
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Roadmap not found"));
+    }
+
+    private Optional<Journey> findJourneyContextForRoadmapSession(User user, Long roadmapSessionId) {
+        Optional<Journey> journey = journeyRepository.findByRoadmapSessionId(roadmapSessionId);
+        if (journey.isPresent() && !Objects.equals(journey.get().getUser().getId(), user.getId())) {
+            log.warn("Ignoring mismatched journey {} for roadmap session {} and user {}",
+                    journey.get().getId(), roadmapSessionId, user.getId());
+            return Optional.empty();
+        }
+        return journey;
+    }
+
+    private RoadmapResponse requireRoadmapForSession(User user, RoadmapSession roadmapSession) {
+        if (roadmapSession == null || roadmapSession.getId() == null) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Please generate roadmap first");
+        }
+        return aiRoadmapService.getRoadmapById(roadmapSession.getId(), user.getId());
     }
 
     private RoadmapResponse requireRoadmapForJourney(User user, Journey journey) {
-        if (journey.getRoadmapSessionId() == null) {
-            throw new RuntimeException("Please generate roadmap first");
-        }
-        return aiRoadmapService.getRoadmapById(journey.getRoadmapSessionId(), user.getId());
+        return requireRoadmapForSession(user, requireOwnedRoadmapSession(user, journey != null ? journey.getRoadmapSessionId() : null));
     }
 
     private UUID resolveTodoColumnId(List<TaskColumnResponse> board) {
         if (board == null || board.isEmpty()) {
-            throw new RuntimeException("Study planner board is unavailable");
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Study planner board is unavailable");
         }
 
         return board.stream()
@@ -1310,7 +1366,7 @@ public class JourneyServiceImpl implements JourneyService {
                         .map(TaskColumnResponse::getId)
                         .filter(Objects::nonNull)
                         .findFirst()
-                        .orElseThrow(() -> new RuntimeException("No study planner column found")));
+                        .orElseThrow(() -> new ApiException(ErrorCode.BAD_REQUEST, "No study planner column found")));
     }
 
     private List<TaskResponse> flattenBoardTasks(List<TaskColumnResponse> board) {
@@ -1328,11 +1384,35 @@ public class JourneyServiceImpl implements JourneyService {
     }
 
     private String buildStudyPlanMarker(Long journeyId, Long roadmapSessionId, String nodeId) {
-        return String.format("%s journey=%d roadmap=%d node=%s",
-                STUDY_PLAN_LINK_MARKER_PREFIX,
-                journeyId,
-                roadmapSessionId,
-                nodeId);
+        StringBuilder marker = new StringBuilder(STUDY_PLAN_LINK_MARKER_PREFIX);
+        if (journeyId != null) {
+            marker.append(" journey=").append(journeyId);
+        }
+        marker.append(" roadmap=").append(roadmapSessionId);
+        marker.append(" node=").append(nodeId);
+        return marker.toString();
+    }
+
+    private Optional<RoadmapNodeLinkRef> parseStudyPlanMarker(String notes) {
+        if (notes == null || notes.isBlank() || !notes.contains(STUDY_PLAN_LINK_MARKER_PREFIX)) {
+            return Optional.empty();
+        }
+
+        Matcher roadmapMatcher = Pattern.compile("\\broadmap=(\\d+)\\b", Pattern.CASE_INSENSITIVE).matcher(notes);
+        Matcher nodeMatcher = Pattern.compile("\\bnode=([^\\s]+)\\b", Pattern.CASE_INSENSITIVE).matcher(notes);
+        if (!roadmapMatcher.find() || !nodeMatcher.find()) {
+            return Optional.empty();
+        }
+
+        Matcher journeyMatcher = Pattern.compile("\\bjourney=(\\d+)\\b", Pattern.CASE_INSENSITIVE).matcher(notes);
+        Long journeyId = journeyMatcher.find() ? safeParseLong(journeyMatcher.group(1)) : null;
+        Long matchedRoadmapId = safeParseLong(roadmapMatcher.group(1));
+        String matchedNodeId = nodeMatcher.group(1) != null ? nodeMatcher.group(1).trim() : null;
+        if (matchedRoadmapId == null || matchedNodeId == null || matchedNodeId.isBlank()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(new RoadmapNodeLinkRef(journeyId, matchedRoadmapId, matchedNodeId));
     }
 
     private int countTrackableRoadmapNodes(List<RoadmapResponse.RoadmapNode> nodes) {
@@ -1403,10 +1483,24 @@ public class JourneyServiceImpl implements JourneyService {
         return safeTruncate(normalized, maxLength, "");
     }
 
-    private List<TaskResponse> findExistingNodeTasks(List<TaskResponse> existingTasks, String marker) {
+    private List<TaskResponse> findExistingNodeTasks(List<TaskResponse> existingTasks, Long roadmapSessionId, String nodeId) {
         return existingTasks.stream()
-                .filter(task -> task.getUserNotes() != null && task.getUserNotes().contains(marker))
+                .filter(task -> parseStudyPlanMarker(task.getUserNotes())
+                        .map(link -> Objects.equals(link.roadmapSessionId(), roadmapSessionId)
+                                && Objects.equals(link.nodeId(), nodeId))
+                        .orElse(false))
                 .collect(Collectors.toList());
+    }
+
+    private Map<String, Object> buildStudyPlanResponse(Object... entries) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        for (int i = 0; i + 1 < entries.length; i += 2) {
+            Object value = entries[i + 1];
+            if (value != null) {
+                response.put(String.valueOf(entries[i]), value);
+            }
+        }
+        return response;
     }
 
     private Map<String, Object> toTaskSummary(TaskResponse task) {
@@ -1423,6 +1517,7 @@ public class JourneyServiceImpl implements JourneyService {
     }
 
     private GenerateScheduleRequest buildRoadmapNodeScheduleRequest(
+            RoadmapSession roadmapSession,
             Journey journey,
             RoadmapResponse.RoadmapNode node,
             GenerateScheduleRequest inputRequest) {
@@ -1435,9 +1530,13 @@ public class JourneyServiceImpl implements JourneyService {
         int durationMinutes = safeDurationMinutes(request.getDurationMinutes());
         int maxSessionsPerDay = safeMaxSessionsPerDay(request.getMaxSessionsPerDay());
 
-        request.setSubjectName(safeTruncate(firstNonBlank(node.getTitle(), journey.getTitle(), "Roadmap node"), 200, "Roadmap node"));
-        request.setTopics(collectNodeTopics(node, 16));
-        request.setDesiredOutcome(firstNonBlank(request.getDesiredOutcome(), buildDefaultDesiredOutcome(journey, node)));
+        request.setSubjectName(safeTruncate(firstNonBlank(
+                node.getTitle(),
+                journey != null ? journey.getTitle() : null,
+                roadmapSession != null ? roadmapSession.getTitle() : null,
+                "Roadmap node"), 200, "Roadmap node"));
+        request.setTopics(collectNodeTopics(node, 16, request.getChildBranchTitles()));
+        request.setDesiredOutcome(firstNonBlank(request.getDesiredOutcome(), buildDefaultDesiredOutcome(roadmapSession, journey, node)));
         request.setFreeTimeDescription(firstNonBlank(
                 request.getFreeTimeDescription(),
                 "Auto-generated from roadmap node and user preferences"));
@@ -1506,6 +1605,9 @@ public class JourneyServiceImpl implements JourneyService {
         target.setChronotype(source.getChronotype());
         target.setIdealFocusWindows(source.getIdealFocusWindows() != null
                 ? new ArrayList<>(source.getIdealFocusWindows())
+                : null);
+        target.setChildBranchTitles(source.getChildBranchTitles() != null
+                ? new ArrayList<>(source.getChildBranchTitles())
                 : null);
     }
 
@@ -1603,7 +1705,7 @@ public class JourneyServiceImpl implements JourneyService {
         int sessionCount = Math.max(3, (int) Math.ceil((double) estimatedMinutes / durationMinutes));
         sessionCount = Math.min(MAX_STUDY_TASKS_PER_NODE, sessionCount);
 
-        List<String> focusItems = collectNodeTopics(node, 20);
+        List<String> focusItems = collectNodeTopics(node, 20, request.getChildBranchTitles());
         if (focusItems.isEmpty()) {
             focusItems = List.of(firstNonBlank(node.getDescription(), node.getTitle(), "Core topic"));
         }
@@ -1641,6 +1743,7 @@ public class JourneyServiceImpl implements JourneyService {
 
     private List<TaskResponse> createTasksFromPlannedSessions(
             User user,
+            RoadmapSession roadmapSession,
             Journey journey,
             RoadmapResponse.RoadmapNode node,
             UUID todoColumnId,
@@ -1667,36 +1770,63 @@ public class JourneyServiceImpl implements JourneyService {
                 : LocalDate.now(resolveStudyTimeZone(request.getTimezone()));
         LocalDateTime fallbackCursor = LocalDateTime.of(baseDate, resolvePreferredStartTime(request));
 
+        // Pre-create StudySession entities so they can be linked to tasks.
+        // This enables checkAndCompleteLinkedTasks() to auto-move tasks to Done
+        // when all linked sessions are marked COMPLETED (GAP-2 fix).
+        List<StudySession> createdSessions = new ArrayList<>();
+        for (StudySessionResponse sessionResponse : sourceSessions) {
+            LocalDateTime startTime = sessionResponse.getStartTime() != null ? sessionResponse.getStartTime() : fallbackCursor;
+            LocalDateTime endTime = sessionResponse.getEndTime() != null && sessionResponse.getEndTime().isAfter(startTime)
+                    ? sessionResponse.getEndTime()
+                    : startTime.plusMinutes(durationMinutes);
+
+            StudySession entity = StudySession.builder()
+                    .title(sessionResponse.getTitle())
+                    .startTime(startTime)
+                    .endTime(endTime)
+                    .status(StudySessionStatus.SCHEDULED)
+                    .user(user)
+                    .fullDescription(sessionResponse.getDescription())
+                    .build();
+            createdSessions.add(entity);
+            fallbackCursor = endTime.plusMinutes(breakMinutes);
+        }
+
+        // Persist sessions so they have IDs before linking to tasks
+        List<StudySession> savedSessions = studySessionRepository.saveAll(createdSessions);
+        List<UUID> savedSessionIds = savedSessions.stream()
+                .map(StudySession::getId)
+                .collect(Collectors.toList());
+
         List<TaskResponse> createdTasks = new ArrayList<>();
-        int totalSteps = sourceSessions.size();
+        int totalSteps = savedSessions.size();
 
         for (int i = 0; i < totalSteps; i++) {
-            StudySessionResponse session = sourceSessions.get(i);
-            LocalDateTime startTime = session.getStartTime() != null ? session.getStartTime() : fallbackCursor;
-            LocalDateTime endTime = session.getEndTime() != null && session.getEndTime().isAfter(startTime)
-                    ? session.getEndTime()
-                    : startTime.plusMinutes(durationMinutes);
+            StudySession savedSession = savedSessions.get(i);
+            StudySessionResponse sessionResponse = sourceSessions.get(i);
 
             CreateTaskRequest taskRequest = new CreateTaskRequest();
             taskRequest.setColumnId(todoColumnId);
-            taskRequest.setTitle(buildTaskTitleFromSession(node, session, i + 1, totalSteps));
-            taskRequest.setDescription(buildTaskDescriptionFromSession(journey, node, session, i + 1, totalSteps));
-            taskRequest.setStartDate(startTime);
-            taskRequest.setEndDate(endTime);
-            taskRequest.setDeadline(endTime);
+            taskRequest.setTitle(buildTaskTitleFromSession(node, sessionResponse, i + 1, totalSteps));
+            taskRequest.setDescription(buildTaskDescriptionFromSession(roadmapSession, journey, node, sessionResponse, i + 1, totalSteps));
+            taskRequest.setStartDate(savedSession.getStartTime());
+            taskRequest.setEndDate(savedSession.getEndTime());
+            taskRequest.setDeadline(savedSession.getEndTime());
             taskRequest.setPriority(resolveTaskPriority(node));
             taskRequest.setUserProgress(0);
+            // Link the task to its StudySession — this is what enables
+            // checkAndCompleteLinkedTasks() to auto-complete tasks when sessions complete
+            taskRequest.setLinkedSessionIds(List.of(savedSession.getId()));
             taskRequest.setUserNotes(buildStudyPlanTaskNotes(
                     marker,
                     node,
-                    session,
+                    sessionResponse,
                     i + 1,
                     totalSteps,
                     nodeOrder,
                     totalRoadmapNodes));
 
             createdTasks.add(taskBoardService.createTask(user.getId(), taskRequest));
-            fallbackCursor = endTime.plusMinutes(breakMinutes);
         }
 
         return createdTasks;
@@ -1717,7 +1847,7 @@ public class JourneyServiceImpl implements JourneyService {
         return TaskPriority.MEDIUM;
     }
 
-    private String buildTaskDescriptionFromNode(Journey journey, RoadmapResponse.RoadmapNode node) {
+    private String buildTaskDescriptionFromNode(RoadmapSession roadmapSession, Journey journey, RoadmapResponse.RoadmapNode node) {
         StringBuilder description = new StringBuilder();
         if (node.getDescription() != null && !node.getDescription().isBlank()) {
             description.append(node.getDescription().trim()).append("\n\n");
@@ -1729,12 +1859,7 @@ public class JourneyServiceImpl implements JourneyService {
         appendTaskSection(description, "Tài nguyên gợi ý", node.getSuggestedResources());
         appendTaskSection(description, "Tiêu chí hoàn thành", node.getSuccessCriteria());
 
-        description.append("Nguồn: Journey #")
-                .append(journey.getId())
-                .append(" • Roadmap #")
-                .append(journey.getRoadmapSessionId())
-                .append(" • Node ")
-                .append(node.getId());
+        description.append(buildRoadmapSourceLabel(roadmapSession, journey, node));
 
         return safeTruncate(description.toString().trim(), 5000, "Task được tạo từ roadmap node");
     }
@@ -1753,6 +1878,7 @@ public class JourneyServiceImpl implements JourneyService {
     }
 
     private String buildTaskDescriptionFromSession(
+            RoadmapSession roadmapSession,
             Journey journey,
             RoadmapResponse.RoadmapNode node,
             StudySessionResponse session,
@@ -1766,9 +1892,7 @@ public class JourneyServiceImpl implements JourneyService {
         }
 
         description.append("Step ").append(step).append("/").append(totalSteps).append("\n");
-        description.append("Source: Journey #").append(journey.getId())
-                .append(" | Roadmap #").append(journey.getRoadmapSessionId())
-                .append(" | Node ").append(node.getId());
+        description.append(buildRoadmapSourceLabel(roadmapSession, journey, node).replace(" • ", " | "));
 
         return safeTruncate(description.toString().trim(), 5000, "Roadmap study task");
     }
@@ -1810,11 +1934,19 @@ public class JourneyServiceImpl implements JourneyService {
         builder.append("\n");
     }
 
-    private List<String> collectNodeTopics(RoadmapResponse.RoadmapNode node, int limit) {
+    private List<String> collectNodeTopics(RoadmapResponse.RoadmapNode node, int limit, List<String> childBranchTitles) {
         LinkedHashSet<String> topics = new LinkedHashSet<>();
         topics.addAll(sanitizeTextList(node.getLearningObjectives(), limit));
         topics.addAll(sanitizeTextList(node.getKeyConcepts(), limit));
         topics.addAll(sanitizeTextList(node.getPracticalExercises(), limit));
+        // GAP-6 fix: include child branch topics so AI generates sessions for them
+        if (childBranchTitles != null && !childBranchTitles.isEmpty()) {
+            childBranchTitles.stream()
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(t -> !t.isBlank())
+                    .forEach(t -> topics.add("[Child] " + t));
+        }
         if (topics.isEmpty()) {
             topics.add(firstNonBlank(node.getTitle(), "Core roadmap topic"));
         }
@@ -1834,12 +1966,39 @@ public class JourneyServiceImpl implements JourneyService {
                 .collect(Collectors.toList());
     }
 
-    private String buildDefaultDesiredOutcome(Journey journey, RoadmapResponse.RoadmapNode node) {
-        String role = firstNonBlank(journey.getJobRole(), journey.getSubCategory(), journey.getDomain(), "target role");
+    private String buildDefaultDesiredOutcome(RoadmapSession roadmapSession, Journey journey, RoadmapResponse.RoadmapNode node) {
+        String role = firstNonBlank(
+                journey != null ? journey.getJobRole() : null,
+                journey != null ? journey.getSubCategory() : null,
+                journey != null ? journey.getDomain() : null,
+                roadmapSession != null ? roadmapSession.getTarget() : null,
+                roadmapSession != null ? roadmapSession.getFinalObjective() : null,
+                roadmapSession != null ? roadmapSession.getOriginalGoal() : null,
+                "target goal");
         return safeTruncate(
                 String.format("Master node '%s' and move closer to %s", firstNonBlank(node.getTitle(), "this topic"), role),
                 300,
                 "Master this roadmap node");
+    }
+
+    private String buildRoadmapSourceLabel(RoadmapSession roadmapSession, Journey journey, RoadmapResponse.RoadmapNode node) {
+        StringBuilder source = new StringBuilder();
+        if (journey != null && journey.getId() != null) {
+            source.append("Journey #").append(journey.getId()).append(" • ");
+        }
+        source.append("Roadmap #")
+                .append(roadmapSession != null ? roadmapSession.getId() : null)
+                .append(" • Node ")
+                .append(node.getId());
+        return source.toString();
+    }
+
+    private Long safeParseLong(String value) {
+        try {
+            return value == null ? null : Long.parseLong(value.trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private LocalDate resolveDefaultDeadline(

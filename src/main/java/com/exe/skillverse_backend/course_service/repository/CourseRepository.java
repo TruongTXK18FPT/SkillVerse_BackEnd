@@ -127,4 +127,11 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
      */
     @Transactional(readOnly = true)
     long countByStatus(CourseStatus status);
+
+    /**
+     * Batch fetch courses by IDs and status (GAP-7: replaces N parallel getCourse() calls
+     * in frontend's useRoadmapMappedCourses hook).
+     */
+    @Transactional(readOnly = true)
+    List<Course> findByIdInAndStatus(@Param("ids") List<Long> ids, @Param("status") CourseStatus status);
 }

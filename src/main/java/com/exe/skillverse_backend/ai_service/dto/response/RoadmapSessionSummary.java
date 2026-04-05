@@ -35,6 +35,7 @@ public class RoadmapSessionSummary {
     // Metadata
     private String difficultyLevel;
     private Integer schemaVersion;
+    private String status; // ACTIVE, PAUSED, DELETED
 
     private Instant createdAt;
 }

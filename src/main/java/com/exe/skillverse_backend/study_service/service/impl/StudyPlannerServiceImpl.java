@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.study_service.service.impl;
 
+import com.exe.skillverse_backend.ai_service.service.RoadmapCompletionSyncService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.study_service.dto.request.CreateStudySessionRequest;
@@ -30,6 +31,7 @@ public class StudyPlannerServiceImpl implements StudyPlannerService {
     private final UserRepository userRepository;
     private final TaskRepository taskRepository;
     private final TaskColumnRepository taskColumnRepository;
+    private final RoadmapCompletionSyncService roadmapCompletionSyncService;
 
     @Override
     @Transactional
@@ -162,7 +164,8 @@ public class StudyPlannerServiceImpl implements StudyPlannerService {
                         .ifPresent(doneColumn -> {
                             task.setColumn(doneColumn);
                             task.setStatus("Done");
-                            taskRepository.save(task);
+                            Task savedTask = taskRepository.save(task);
+                            roadmapCompletionSyncService.syncTaskProgress(savedTask);
                         });
             }
         }

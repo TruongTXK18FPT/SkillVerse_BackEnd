@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.notification_service.entity.Notification;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.repository.NotificationRepository;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.notification_service.service.FcmService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -24,6 +25,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final UserRepository userRepository;
     private final UserProfileService userProfileService;
     private final PostRepository postRepository;
+    private final FcmService fcmService;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createNotification(Long userId, String title, String message, NotificationType type, String relatedId,
@@ -52,6 +54,13 @@ public class NotificationServiceImpl implements NotificationService {
                 .build();
 
         notificationRepository.saveAndFlush(notification);
+
+        // Send push notification to mobile devices (async, non-blocking)
+        if (fcmService.isFirebaseEnabled()) {
+            String dataPayload = "type=" + type.name() + ",notificationId=" + notification.getId() +
+                    (relatedId != null ? ",relatedId=" + relatedId : "");
+            fcmService.sendPushNotification(userId, title, message, dataPayload);
+        }
     }
 
     public Page<NotificationResponse> getUserNotifications(Long userId, Boolean isRead, Pageable pageable) {
@@ -82,12 +91,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Transactional
     public void markAllAsRead(Long userId) {
-        notificationRepository.findByUserIdOrderByCreatedAtDesc(userId).forEach(n -> {
-            if (!n.isRead()) {
-                n.setRead(true);
-                notificationRepository.save(n);
-            }
-        });
+        notificationRepository.markAllAsReadByUserId(userId);
     }
 
     private NotificationResponse mapToResponse(Notification notification) {

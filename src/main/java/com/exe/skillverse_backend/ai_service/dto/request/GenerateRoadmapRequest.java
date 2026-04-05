@@ -146,6 +146,8 @@ public class GenerateRoadmapRequest {
     public String getDesiredDuration() {
         if (desiredDuration != null && !desiredDuration.isBlank()) return desiredDuration;
         if (timelineToWork != null && !timelineToWork.isBlank()) return timelineToWork;
+        // Skill mode: default 1 tháng nếu có dailyLearningTime
+        if (dailyLearningTime != null && !dailyLearningTime.isBlank()) return "1 tháng";
         return null;
     }
 

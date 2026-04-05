@@ -17,7 +17,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
@@ -156,6 +158,25 @@ public class CourseController {
         }
         CourseDetailDTO course = courseService.getCourse(courseId, actorId);
         return ResponseEntity.ok(course);
+    }
+
+    @GetMapping("/batch")
+    @Operation(summary = "Batch fetch courses by IDs",
+            description = "Public endpoint. Returns only PUBLIC courses. " +
+                    "IDs that don't map to a public course are silently omitted. " +
+                    "Use this instead of N parallel /courses/{id} calls.")
+    public ResponseEntity<List<CourseDetailDTO>> getCoursesBatch(
+            @Parameter(description = "Comma-separated course IDs, e.g. 1,2,3")
+            @RequestParam @NotBlank String ids) {
+
+        List<Long> courseIds = Arrays.stream(ids.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .map(Long::parseLong)
+                .collect(Collectors.toList());
+
+        List<CourseDetailDTO> courses = courseService.getCoursesByIds(courseIds);
+        return ResponseEntity.ok(courses);
     }
 
     @GetMapping

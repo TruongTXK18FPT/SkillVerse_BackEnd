@@ -9,14 +9,20 @@ import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
 import com.exe.skillverse_backend.ai_service.dto.response.ValidationResult;
 import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
+import com.exe.skillverse_backend.ai_service.entity.RoadmapSession.RoadmapStatus;
 import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
+import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
+import com.exe.skillverse_backend.course_service.repository.CourseRepository;
+import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
+import com.exe.skillverse_backend.study_service.entity.Task;
+import com.exe.skillverse_backend.study_service.repository.TaskRepository;
+import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.premium_service.dto.response.FeatureLimitInfo;
-import com.exe.skillverse_backend.premium_service.dto.response.UserSubscriptionResponse;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
-import com.exe.skillverse_backend.premium_service.entity.PremiumPlan;
 import com.exe.skillverse_backend.premium_service.exception.UsageLimitExceededException;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
@@ -27,15 +33,21 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.Year;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
@@ -65,6 +77,15 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
     // Use Gemini native endpoint instead of OpenAI-compatible one
     private static final String GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
+    private static final Pattern ROADMAP_NODE_LINK_PATTERN = Pattern.compile(
+            "\\[ROADMAP_NODE_LINK\\](?:\\s+journey=(\\d+))?\\s+roadmap=(\\d+)\\s+node=([^\\s]+)",
+            Pattern.CASE_INSENSITIVE);
+        private static final Pattern HOURS_PATTERN = Pattern
+            .compile("(\\d+(?:[.,]\\d+)?)\\s*(h|hr|hrs|hour|hours|gio|giờ)", Pattern.CASE_INSENSITIVE);
+        private static final Pattern MINUTES_PATTERN = Pattern
+            .compile("(\\d+(?:[.,]\\d+)?)\\s*(m|min|mins|minute|minutes|phut|phút)", Pattern.CASE_INSENSITIVE);
+        private static final Pattern COMPACT_HM_PATTERN = Pattern.compile("(\\d{1,3})\\s*h\\s*(\\d{1,2})",
+            Pattern.CASE_INSENSITIVE);
 
     private final RoadmapSessionRepository roadmapSessionRepository;
     private final UserRoadmapProgressRepository progressRepository;
@@ -75,6 +96,10 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
     private final TaxonomyService taxonomyService;
     private final PremiumService premiumService;
     private final ChatModel mistralChatModel;
+    private final CourseRepository courseRepository;
+    private final JourneyRepository journeyRepository;
+    private final TaskRepository taskRepository;
+    private final RoadmapCompletionSyncService roadmapCompletionSyncService;
 
     public AiRoadmapServiceImpl(
             RoadmapSessionRepository roadmapSessionRepository,
@@ -85,7 +110,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             ExpertPromptService expertPromptService,
             TaxonomyService taxonomyService,
             PremiumService premiumService,
-            @Qualifier("mistralAiChatModel") ChatModel mistralChatModel) {
+            @Qualifier("mistralAiChatModel") ChatModel mistralChatModel,
+            CourseRepository courseRepository,
+            JourneyRepository journeyRepository,
+            TaskRepository taskRepository,
+            RoadmapCompletionSyncService roadmapCompletionSyncService,
+            TaskBoardService taskBoardService) {
         this.roadmapSessionRepository = roadmapSessionRepository;
         this.progressRepository = progressRepository;
         this.objectMapper = objectMapper;
@@ -95,7 +125,14 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         this.taxonomyService = taxonomyService;
         this.premiumService = premiumService;
         this.mistralChatModel = mistralChatModel;
+        this.courseRepository = courseRepository;
+        this.journeyRepository = journeyRepository;
+        this.taskRepository = taskRepository;
+        this.roadmapCompletionSyncService = roadmapCompletionSyncService;
+        this.taskBoardService = taskBoardService;
     }
+
+    private final TaskBoardService taskBoardService;
 
     /**
      * Pre-validate roadmap generation request without actually generating
@@ -186,14 +223,14 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             } catch (Exception e) {
                 log.warn("⚠️ Gemini API failed, attempting fallback to Mistral AI: {}", e.getMessage());
                 String prompt = buildPrompt(request);
-                String finalPrompt = prompt + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Nếu phát hiện mục tiêu/đầu vào vô lý, hãy từ chối lịch sự. Chỉ trả về JSON hợp lệ.";
+                String finalPrompt = prompt
+                        + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Nếu phát hiện mục tiêu/đầu vào vô lý, hãy từ chối lịch sự. Chỉ trả về JSON hợp lệ.";
                 roadmapJson = callMistralAPI(finalPrompt);
                 roadmapJson = extractJsonFromResponse(roadmapJson);
             }
-            String storedJson = sanitizeJson(roadmapJson);
-
             // Step 4: Parse and validate JSON (Schema V2)
             ParsedRoadmap parsed = validateAndParseRoadmapV2(roadmapJson);
+            String storedJson = serializeParsedRoadmap(parsed);
 
             // Inject mode-specific metadata from request for clarity
             try {
@@ -269,6 +306,15 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             Double totalHours = parsed.statistics() != null ? parsed.statistics().getTotalEstimatedHours()
                     : calculateTotalHours(parsed.nodes());
 
+            // Step 6.5: Validate suggestedCourseIds against real DB (Anti-Hallucination)
+            validateAndStripFakeCourseIds(parsed.nodes());
+
+            // Step 6.6: Pause all currently ACTIVE roadmaps for this user
+            int pausedCount = roadmapSessionRepository.pauseAllActiveByUserId(user.getId());
+            if (pausedCount > 0) {
+                log.info("⏸️ Paused {} active roadmap(s) for user {} before creating new one", pausedCount, user.getId());
+            }
+
             // Step 7: Save to database with V2 schema
             RoadmapSession session = RoadmapSession.builder()
                     .user(user)
@@ -280,13 +326,16 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .duration(parsed.metadata().getDuration())
                     .experienceLevel(parsed.metadata().getExperienceLevel())
                     .learningStyle(parsed.metadata().getLearningStyle())
-                    .roadmapMode(truncate(parsed.metadata().getRoadmapMode() != null ? parsed.metadata().getRoadmapMode()
-                            : (request.getRoadmapMode() != null ? request.getRoadmapMode().name() : null), 20))
-                    .roadmapType(truncate(parsed.metadata().getRoadmapType() != null ? parsed.metadata().getRoadmapType()
-                            : request.getRoadmapType(), 20))
+                    .roadmapMode(
+                            truncate(parsed.metadata().getRoadmapMode() != null ? parsed.metadata().getRoadmapMode()
+                                    : (request.getRoadmapMode() != null ? request.getRoadmapMode().name() : null), 20))
+                    .roadmapType(
+                            truncate(parsed.metadata().getRoadmapType() != null ? parsed.metadata().getRoadmapType()
+                                    : request.getRoadmapType(), 20))
                     .target(parsed.metadata().getTarget() != null ? parsed.metadata().getTarget() : request.getTarget())
                     .finalObjective(
-                            truncate(parsed.metadata().getFinalObjective() != null ? parsed.metadata().getFinalObjective()
+                            truncate(parsed.metadata().getFinalObjective() != null
+                                    ? parsed.metadata().getFinalObjective()
                                     : request.getFinalObjective(), 100))
                     // Statistics (for premium quota)
                     .totalNodes(totalNodes)
@@ -294,6 +343,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .difficultyLevel(truncate(parsed.metadata().getDifficultyLevel(), 20))
                     // Premium tracking
                     .isPremiumGenerated(false) // TODO: Check user premium status
+                    // Status: new roadmap is always ACTIVE
+                    .status(RoadmapStatus.ACTIVE)
                     // Full JSON
                     .roadmapJson(storedJson)
                     .build();
@@ -307,6 +358,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             // Step 8: Return response (new format)
             return RoadmapResponse.builder()
                     .sessionId(session.getId())
+                    .roadmapStatus(RoadmapStatus.ACTIVE.name())
                     .metadata(parsed.metadata())
                     .roadmap(parsed.nodes())
                     .statistics(parsed.statistics())
@@ -333,8 +385,10 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
      * Helper to truncate strings to database column limits
      */
     private String truncate(String value, int maxLength) {
-        if (value == null) return null;
-        if (value.length() <= maxLength) return value;
+        if (value == null)
+            return null;
+        if (value.length() <= maxLength)
+            return value;
         return value.substring(0, maxLength);
     }
 
@@ -467,7 +521,9 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
      */
     private Double calculateTotalHours(List<RoadmapResponse.RoadmapNode> nodes) {
         int totalMinutes = nodes.stream()
-                .mapToInt(RoadmapResponse.RoadmapNode::getEstimatedTimeMinutes)
+                .map(RoadmapResponse.RoadmapNode::getEstimatedTimeMinutes)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
                 .sum();
         return totalMinutes / 60.0;
     }
@@ -479,11 +535,11 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         log.info("📡 Calling Mistral AI as fallback");
         try {
             return ChatClient.builder(mistralChatModel)
-                .build()
-                .prompt()
-                .user(prompt)
-                .call()
-                .content();
+                    .build()
+                    .prompt()
+                    .user(prompt)
+                    .call()
+                    .content();
         } catch (Exception e) {
             log.error("❌ Failed to call Mistral AI: {}", e.getMessage());
             throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "Mistral AI generation failed: " + e.getMessage());
@@ -495,9 +551,10 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
      */
     private String callGeminiAPI(GenerateRoadmapRequest request) {
         String prompt = buildPrompt(request);
-        
+
         // Append critical instruction for JSON format
-        String finalPrompt = prompt + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Nếu phát hiện mục tiêu/đầu vào vô lý (ví dụ: IELTS 10.0, nội dung thô tục), hãy từ chối lịch sự bằng tiếng Việt và gợi ý cách nhập lại hợp lệ. Chỉ trả về JSON hợp lệ như yêu cầu.";
+        String finalPrompt = prompt
+                + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Nếu phát hiện mục tiêu/đầu vào vô lý (ví dụ: IELTS 10.0, nội dung thô tục), hãy từ chối lịch sự bằng tiếng Việt và gợi ý cách nhập lại hợp lệ. Chỉ trả về JSON hợp lệ như yêu cầu.";
 
         String rawResponse = callGeminiDirectly(finalPrompt, geminiModel);
         return extractJsonFromResponse(rawResponse);
@@ -513,7 +570,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             // 1. Configure RestClient with 1-hour timeout
             SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
             requestFactory.setConnectTimeout(60 * 1000); // 60s connect
-            requestFactory.setReadTimeout(3600 * 1000);  // 1 hour read
+            requestFactory.setReadTimeout(3600 * 1000); // 1 hour read
 
             RestClient restClient = RestClient.builder()
                     .requestFactory(requestFactory)
@@ -533,7 +590,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             GeminiDTO.GenerationConfig genConfig = GeminiDTO.GenerationConfig.builder()
                     .temperature(0.7)
                     .maxOutputTokens(30000)
-                    // .responseMimeType("application/json") // Don't force JSON here to support validation prompt
+                    // .responseMimeType("application/json") // Don't force JSON here to support
+                    // validation prompt
                     .build();
 
             GeminiDTO.Request geminiRequest = GeminiDTO.Request.builder()
@@ -543,7 +601,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
             // 3. Execute Request
             String url = GEMINI_API_BASE_URL + modelName + ":generateContent?key=" + geminiApiKey;
-            
+
             GeminiDTO.Response response = restClient.post()
                     .uri(url)
                     .contentType(MediaType.APPLICATION_JSON)
@@ -554,12 +612,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             // 4. Process Response
             if (response != null && response.getCandidates() != null && !response.getCandidates().isEmpty()) {
                 GeminiDTO.Candidate candidate = response.getCandidates().get(0);
-                if (candidate.getContent() != null && candidate.getContent().getParts() != null 
+                if (candidate.getContent() != null && candidate.getContent().getParts() != null
                         && !candidate.getContent().getParts().isEmpty()) {
-                    
+
                     String rawText = candidate.getContent().getParts().get(0).getText();
                     log.debug("Raw Gemini response length: {}", rawText.length());
-                    
+
                     return rawText;
                 }
             }
@@ -609,68 +667,69 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         String systemPrompt = buildSystemPromptV2(request);
 
         // Add user input context
-        String userContext = String.format("""
+        String userContext = String.format(
+                """
 
-                === USER INPUT ===
-                Roadmap Mode: %s
-                Roadmap Type: %s
-                Target: %s
-                Industry: %s
-                Final Objective: %s
-                Core Goal: %s
-                Duration: %s
-                Desired Duration: %s
-                Current Level: %s
-                Experience Level: %s
-                Learning Style: %s
-                Background: %s
-                Daily Time: %s
-                Target Environment: %s
-                Location: %s
-                Priority: %s
-                Tool Preferences: %s
-                Difficulty Concern: %s
-                Income Goal: %s
+                        === USER INPUT ===
+                        Roadmap Mode: %s
+                        Roadmap Type: %s
+                        Target: %s
+                        Industry: %s
+                        Final Objective: %s
+                        Core Goal: %s
+                        Duration: %s
+                        Desired Duration: %s
+                        Current Level: %s
+                        Experience Level: %s
+                        Learning Style: %s
+                        Background: %s
+                        Daily Time: %s
+                        Target Environment: %s
+                        Location: %s
+                        Priority: %s
+                        Tool Preferences: %s
+                        Difficulty Concern: %s
+                        Income Goal: %s
 
-                === SKILL MODE INPUT ===
-                Skill Name: %s
-                Skill Category: %s
-                Desired Depth: %s
-                Learner Type: %s
-                Current Skill Level: %s
-                Learning Goal: %s
-                Daily Learning Time: %s
-                Assessment Preference: %s
-                Difficulty Tolerance: %s
-                Tool Preference: %s
+                        === SKILL MODE INPUT ===
+                        Skill Name: %s
+                        Skill Category: %s
+                        Desired Depth: %s
+                        Learner Type: %s
+                        Current Skill Level: %s
+                        Learning Goal: %s
+                        Daily Learning Time: %s
+                        Assessment Preference: %s
+                        Difficulty Tolerance: %s
+                        Tool Preference: %s
 
-                === CAREER MODE INPUT ===
-                Target Role: %s
-                Career Track: %s
-                Target Seniority: %s
-                Work Mode: %s
-                Target Market: %s
-                Company Type: %s
-                Timeline To Work: %s
-                Income Expectation: %s
-                Work Experience: %s
-                Transferable Skills: %s
-                Confidence Level: %s
+                        === CAREER MODE INPUT ===
+                        Target Role: %s
+                        Career Track: %s
+                        Target Seniority: %s
+                        Work Mode: %s
+                        Target Market: %s
+                        Company Type: %s
+                        Timeline To Work: %s
+                        Income Expectation: %s
+                        Work Experience: %s
+                        Transferable Skills: %s
+                        Confidence Level: %s
 
-                === YOUR TASK ===
-                Analyze inputs using Pattern Detection Engine.
-                Validate using Validation Framework (scores, deprecated tech, time feasibility).
-                Generate roadmap adapted to level, style, context, preferences.
-                CRITICAL: Trong phần description của mỗi node, hãy sử dụng Markdown phong phú để làm nổi bật thông tin quan trọng:
-                - Dùng **in đậm** cho từ khóa quan trọng.
-                - Dùng *in nghiêng* cho lưu ý.
-                - Dùng danh sách (- item) để liệt kê.
-                - Dùng `code block` cho các thuật ngữ kỹ thuật hoặc lệnh.
-                Return ONLY valid JSON following the exact format specified above.
+                        === YOUR TASK ===
+                        Analyze inputs using Pattern Detection Engine.
+                        Validate using Validation Framework (scores, deprecated tech, time feasibility).
+                        Generate roadmap adapted to level, style, context, preferences.
+                        CRITICAL: Trong phần description của mỗi node, hãy sử dụng Markdown phong phú để làm nổi bật thông tin quan trọng:
+                        - Dùng **in đậm** cho từ khóa quan trọng.
+                        - Dùng *in nghiêng* cho lưu ý.
+                        - Dùng danh sách (- item) để liệt kê.
+                        - Dùng `code block` cho các thuật ngữ kỹ thuật hoặc lệnh.
+                        Return ONLY valid JSON following the exact format specified above.
 
-                CRITICAL: Response must be pure JSON starting with { and ending with }.
-                NO markdown, NO explanations, ONLY JSON.
-                %s""",
+                        CRITICAL: Response must be pure JSON starting with { and ending with }.
+                        NO markdown, NO explanations, ONLY JSON.
+                        %s""",
                 request.getRoadmapMode() != null ? request.getRoadmapMode().name() : "",
                 nullSafe(request.getRoadmapType()),
                 nullSafe(request.getTarget()),
@@ -771,15 +830,21 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         String ruleBlock = buildGlobalRuleBlock();
         String domainBlock = buildDomainContextBlock(request);
         String expertPackBlock = buildExpertPackContextBlock(request);
+        int currentYear = Year.now().getValue();
+        String yearContext = "CURRENT_YEAR: " + currentYear + "\n";
+        String adaptiveGraphGuidance = buildAdaptiveGraphGuidance(request);
         String base = expertPersona + "\n" + ruleBlock + "\n" + domainBlock + "\n" + expertPackBlock + "\n"
+                + yearContext
                 + """
                         # AI ROADMAP ARCHITECT - SYSTEM PROMPT V2
 
                         ## VAI TRÒ & SỨ MỆNH
-                        Bạn là AI Roadmap Architect - Chuyên gia thiết kế lộ trình học tập:
+                        Bạn là AI Roadmap Architect - Chuyên gia thiết kế lộ trình học tập trong năm (xem CURRENT_YEAR):
                         - Phát hiện 99%% ý định học tập từ văn bản tự nhiên
                         - Xác thực thông tin với độ chính xác cao
-                        - Tạo lộ trình cấu trúc cây (tree) tối ưu
+                        - Tạo lộ trình dạng graph/tree có đường chính rõ và các nhánh mở rộng thực sự
+                        - parent_id/children biểu diễn cấu trúc cây học tập; prerequisites chỉ biểu diễn unlock/dependency
+                        - Sử dụng công nghệ, framework, công cụ MỚI NHẤT của năm (xem CURRENT_YEAR)
                         - Trả về JSON chuẩn, KHÔNG chat hay hỏi han
 
                         ## PATTERN DETECTION - BẮT Ý ĐỊNH HỌC TẬP
@@ -907,6 +972,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                               "description": "Mô tả chi tiết với Markdown đầy đủ (bôi đậm, nghiêng, list, code block)",
                               "estimated_time_minutes": 180,
                               "type": "MAIN",
+                              "is_core": true,
+                              "parent_id": null,
                               "difficulty": "easy | medium | hard",
                               "learning_objectives": ["..."],
                               "key_concepts": ["..."],
@@ -935,6 +1002,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         - 10-15 nodes (bắt buộc)
                         - 2-3 root nodes (không có prerequisites)
                         - Main path ≥ 6 nodes
+                        - MỖI node bắt buộc có estimated_time_minutes là số nguyên > 0 (không dùng 0)
 
                         ### Node Types by Experience:
                         - Mới bắt đầu: 75%% MAIN, 25%% SIDE (difficulty: 60%% easy, 30%% medium, 10%% hard)
@@ -945,12 +1013,38 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         ### Time Allocation:
                         - 2 tuần = 1680 phút | 1 tháng = 3600 phút | 3 tháng = 10800 phút | 6 tháng = 21600 phút | 1 năm = 43200 phút
                         - Tổng thời gian nodes ≈ 80-100%% total (20%% buffer)
+                        - Nếu thiếu dữ liệu, vẫn phải ước lượng tối thiểu 30 phút cho node nhỏ và tăng theo độ khó/khối lượng bài tập
 
-                        ### Graph Integrity:
+                        ### Task-Type Time Benchmarks (phút, beginner基准 ×1.0):
+                        - Setup/Cài đặt/Môi trường: 30-60 phút (cho beginner KHÔNG BAO GIỜ > 90 phút)
+                        - Tìm hiểu khái niệm/Đọc lý thuyết: 30-90 phút
+                        - Học cú pháp cơ bản: 45-90 phút
+                        - Làm bài tập thực hành: 60-120 phút
+                        - Project/Dự án nhỏ: 120-240 phút
+                        - Ôn tập/Kiểm tra: 30-60 phút
+                        - Debug/Sửa lỗi: 30-90 phút
+                        - Scale theo difficulty: easy ×1.0, medium ×1.5, hard ×2.0
+                        - Scale theo experience: zero/basic ×1.0, intermediate ×0.8, advanced ×0.6
+
+                        ### Phase/Structure Time Distribution:
+                        - Phase 1 (Nền tảng): ~25%% tổng thời gian
+                        - Phase 2 (Cốt lõi): ~40%% tổng thời gian
+                        - Phase 3 (Thực hành): ~25%% tổng thời gian
+                        - Phase 4 (Dự án/Kiểm tra): ~10%% tổng thời gian
+
+                        ### Graph Integrity (ENFORCED — AI PHẢI tuân theo):
+                        - parent_id là CHA trong cây, KHÔNG được suy ra thay cho prerequisites
+                        - MỌI node trừ ROOT đầu tiên PHẢI có parent_id hợp lệ
+                        - MỌI node (trừ node cuối cùng) PHẢI có children (không bắt buộc phải là array rỗng — nếu node có child tiếp theo, phải liệt kê trong children)
+                        - children PHẢI khớp với parent_id: nếu A là parent_id của B thì children của A phải chứa B
+                        - Một node chỉ có tối đa 1 parent_id
                         - Mọi node (trừ ROOT) PHẢI có prerequisites
                         - Mọi ID trong prerequisites/children PHẢI tồn tại
                         - KHÔNG circular dependencies
                         - KHÔNG orphan nodes
+                        - KHÔNG biến toàn bộ roadmap thành một chuỗi tuyến tính; phải có nhánh SIDE/Main mở rộng thật khi phù hợp
+                        - Nếu có structure/phase, roadmap nodes phải phân bổ hợp lý theo các phase đó
+                        - CRITICAL: children và parent_id phải được SET cho TẤT CẢ nodes. Array rỗng [] chỉ dùng cho node KHÔNG CÓ child nào. KHÔNG ĐƯỢC bỏ trống hoặc null.
 
                         ## ADAPTATION BY LEARNING STYLE
 
@@ -1024,8 +1118,46 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         - Dựa vào daily_time và desired_duration để tính ngân sách thời gian tổng và phân bổ thời gian cho từng node
                         - Tổng thời gian nodes ≈ time_budget_minutes × 0.9 (10%% buffer)
 
-                        """;
+                        """
+                + "\n"
+                + adaptiveGraphGuidance
+                + "\n";
         return base;
+    }
+
+    private String buildAdaptiveGraphGuidance(GenerateRoadmapRequest request) {
+        String desiredDepth = nullSafe(request.getDesiredDepth()).trim().toUpperCase(Locale.ROOT);
+        if (desiredDepth.isBlank()) {
+            desiredDepth = "SOLID";
+        }
+
+        if ("BASIC".equals(desiredDepth)) {
+            return """
+                    ## ADAPTIVE BRANCHING (DESIRED_DEPTH=BASIC)
+                    - Ưu tiên đường chính tuần tự, nhánh phụ tối thiểu và dễ theo dõi.
+                    - Graph depth mục tiêu: tối đa 3 tầng.
+                    - Fan-out trung bình mỗi node: 1-2 nhánh.
+                    - Side nodes chỉ dùng để củng cố nền tảng, tránh mở rộng lan man.
+                    """;
+        }
+
+        if ("ADVANCED".equals(desiredDepth)) {
+            return """
+                    ## ADAPTIVE BRANCHING (DESIRED_DEPTH=ADVANCED)
+                    - Tăng số nhánh phụ có mục tiêu rõ ràng để mở rộng chuyên sâu.
+                    - Graph depth mục tiêu: >= 4 tầng khi hợp lý.
+                    - Fan-out trung bình mỗi node: 2-3 nhánh ở các node chính.
+                    - Bổ sung nhánh dự án/thử thách nâng cao để phản ánh năng lực thực chiến.
+                    """;
+        }
+
+        return """
+                ## ADAPTIVE BRANCHING (DESIRED_DEPTH=SOLID)
+                - Cân bằng giữa đường chính và nhánh phụ để vừa chắc nền, vừa có mở rộng.
+                - Graph depth mục tiêu: khoảng 4 tầng.
+                - Fan-out trung bình mỗi node: 1-2 nhánh, ưu tiên nhánh có tác dụng rõ ràng.
+                - Nhánh phụ nên hỗ trợ trực tiếp cho mục tiêu nghề nghiệp/kỹ năng chính.
+                """;
     }
 
     private String buildExpertPackContextBlock(GenerateRoadmapRequest request) {
@@ -1076,15 +1208,37 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         if (dailyTime == null)
             return 60;
         String s = dailyTime.toLowerCase();
+        // Extract all numbers from the string
+        String numMatch = s.replaceAll("[^0-9]", "");
+        if (!numMatch.isEmpty()) {
+            try {
+                int num = Integer.parseInt(numMatch);
+                if (s.contains("phút") || s.contains("min")) {
+                    return Math.min(num, 480);
+                }
+                if (s.contains("giờ") || s.contains("hour")) {
+                    return Math.min(num * 60, 480);
+                }
+                if (s.contains("ngày") || s.contains("day")) {
+                    return Math.min(num * 480, 1440);
+                }
+                // If only a number is present (e.g., "1" or "2"), treat as hours
+                if (numMatch.length() <= 2 && !s.contains("phút") && !s.contains("min")) {
+                    // Plain number like "1" or "2" = hours
+                    if (num <= 8) return Math.min(num * 60, 480);
+                }
+                // If number is large (e.g., "30" without unit), assume minutes
+                return Math.min(num, 480);
+            } catch (NumberFormatException e) {
+                // Fall through to string-based detection
+            }
+        }
+        // Fallback string checks
         if (s.contains("30"))
             return 30;
         if (s.contains("2"))
             return 120;
         if (s.contains("1"))
-            return 60;
-        if (s.contains("phút"))
-            return 30;
-        if (s.contains("giờ"))
             return 60;
         return 60;
     }
@@ -1197,11 +1351,29 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         "Invalid roadmap structure: missing or empty 'roadmap' array");
             }
             List<RoadmapResponse.RoadmapNode> nodes = parseNodes(roadmapArray);
+            RoadmapGraphCanonicalizer.Result canonicalGraph = RoadmapGraphCanonicalizer.canonicalize(nodes);
+            nodes = canonicalGraph.nodes();
+
+            // BUG-8 FIX: Post-canonicalization fallback — if NO edges exist at all,
+            // infer a linear chain from sequential order so the roadmap is never a "floating" graph
+            long edgesCount = nodes.stream()
+                    .filter(n -> n.getChildren() != null && !n.getChildren().isEmpty())
+                    .count();
+            if (edgesCount == 0 && nodes.size() > 1) {
+                log.warn("⚠️ No parent-child relationships found after canonicalization; inferring linear chain for {} nodes", nodes.size());
+                for (int i = 1; i < nodes.size(); i++) {
+                    nodes.get(i).setParentId(nodes.get(i - 1).getId());
+                    nodes.get(i - 1).setChildren(List.of(nodes.get(i).getId()));
+                }
+            } else if (canonicalGraph.warnings() != null && !canonicalGraph.warnings().isEmpty()) {
+                log.warn("Roadmap canonicalization warnings: {}", canonicalGraph.warnings());
+            }
 
             // Parse statistics
             JsonNode statsNode = root.path("roadmap_statistics");
-            RoadmapResponse.RoadmapStatistics statistics = statsNode.isMissingNode() ? null
-                    : parseStatistics(statsNode);
+                RoadmapResponse.RoadmapStatistics statistics = normalizeRoadmapStatistics(
+                    nodes,
+                    statsNode.isMissingNode() ? null : parseStatistics(statsNode));
 
             // Parse learning tips
             List<String> learningTips = new ArrayList<>();
@@ -1285,8 +1457,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 }
             }
 
-            log.info("✅ Validated roadmap V2: {} nodes, difficulty: {}",
-                    nodes.size(), metadata.getDifficultyLevel());
+            log.info("✅ Validated roadmap V2: {} nodes, difficulty: {}, roots={}, branchNodes={}, childDerivedParents={}, dependencyOnlyNodes={}",
+                    nodes.size(), metadata.getDifficultyLevel(), canonicalGraph.rootCount(), canonicalGraph.branchCount(),
+                    canonicalGraph.childDerivedParents(), canonicalGraph.dependencyOnlyNodes());
+            if (!canonicalGraph.warnings().isEmpty()) {
+                log.warn("⚠️ Roadmap graph canonicalization warnings: {}", canonicalGraph.warnings());
+            }
 
             return new ParsedRoadmap(metadata, nodes, statistics, learningTips,
                     overview, structure, thinkingProgression, projectsEvidence, nextSteps, skillDependencies);
@@ -1420,13 +1596,21 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         "Invalid node type: " + typeStr + ". Must be MAIN or SIDE");
             }
 
+                Integer estimatedTimeMinutes = resolveEstimatedTimeMinutes(nodeJson, type);
+
             RoadmapResponse.RoadmapNode node = RoadmapResponse.RoadmapNode.builder()
                     .id(nodeJson.path("id").asText())
                     .title(nodeJson.path("title").asText())
                     .description(nodeJson.path("description").asText(""))
-                    .estimatedTimeMinutes(nodeJson.path("estimated_time_minutes").asInt(0))
+                    .estimatedTimeMinutes(estimatedTimeMinutes)
                     .type(type)
                     .difficulty(nodeJson.path("difficulty").asText("medium"))
+                    // Tree node fields (with smart fallback)
+                    .isCore(nodeJson.has("is_core") ? nodeJson.path("is_core").asBoolean()
+                            : type == RoadmapResponse.RoadmapNode.NodeType.MAIN)
+                    .parentId(nodeJson.path("parent_id").asText(null))
+                    .suggestedCourseIds(parseStringArray(nodeJson.path("suggested_course_ids")))
+                    // Learning content
                     .learningObjectives(parseStringArray(nodeJson.path("learning_objectives")))
                     .keyConcepts(parseStringArray(nodeJson.path("key_concepts")))
                     .practicalExercises(parseStringArray(nodeJson.path("practical_exercises")))
@@ -1441,6 +1625,235 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         }
 
         return nodes;
+    }
+
+    private Integer resolveEstimatedTimeMinutes(
+            JsonNode nodeJson,
+            RoadmapResponse.RoadmapNode.NodeType type) {
+        String[] numericKeys = {
+                "estimated_time_minutes",
+                "estimatedTimeMinutes",
+                "estimated_minutes",
+                "estimated_duration_minutes",
+                "estimated_duration_min",
+                "duration_minutes",
+                "time_minutes"
+        };
+
+        Integer parsedMinutes = null;
+        for (String key : numericKeys) {
+            JsonNode valueNode = nodeJson.path(key);
+            parsedMinutes = parseMinutesValue(valueNode);
+            if (parsedMinutes != null) {
+                break;
+            }
+        }
+
+        if (parsedMinutes == null) {
+            String[] textualKeys = {
+                    "estimated_time",
+                    "estimated_duration",
+                    "duration",
+                    "time_estimate",
+                    "timeEstimate",
+                    "estimated_completion_time"
+            };
+            for (String key : textualKeys) {
+                JsonNode valueNode = nodeJson.path(key);
+                parsedMinutes = parseMinutesValue(valueNode);
+                if (parsedMinutes != null) {
+                    break;
+                }
+            }
+        }
+
+        // Step 1: AI gave a value — apply task-type sanity cap
+        if (parsedMinutes != null && parsedMinutes > 0) {
+            int capped = capByTaskType(parsedMinutes, nodeJson);
+            return Math.min(capped, 480);
+        }
+
+        // Step 2: No value from AI — use realistic fallback
+        return computeFallbackEstimatedMinutes(nodeJson, type);
+    }
+
+    /**
+     * Apply a task-type sanity cap on top of whatever time the AI generated.
+     * This is the last line of defense — if AI says "setup" = 6 hours, we cap it.
+     *
+     * Strategy: Use ONLY generic, cross-domain patterns. Cap only the
+     * most obviously overestimated categories. Everything else gets a
+     * generous proportional cap based on content depth.
+     *
+     * Cross-domain means we do NOT hard-code "Java", "Python", "Design", etc.
+     * — those would be domain-specific and break non-technical roadmaps.
+     */
+    private int capByTaskType(int minutes, JsonNode nodeJson) {
+        String title = nodeJson.path("title").asText("").toLowerCase();
+        String description = nodeJson.path("description").asText("").toLowerCase();
+
+        // Hard-cap: setup/environment — universal pattern, max 90 min
+        // Matches any language/skill: "Setup", "Cài đặt", "Install JDK", "Configure IDE", etc.
+        if (title.matches("(?i).*(setup|cài.?đặt|install|môi.?trường|environment|config|configure|workspace|import|setting.?up|initiali[sz]e).*")) {
+            return Math.min(minutes, 90);
+        }
+
+        // Compute "expected" minutes via fallback formula (domain-agnostic)
+        // This gives us a baseline for what a reasonable time looks like
+        int objectiveCount = countArrayItems(nodeJson.path("learning_objectives"));
+        int conceptCount = countArrayItems(nodeJson.path("key_concepts"));
+        int exerciseCount = countArrayItems(nodeJson.path("practical_exercises"));
+        int criteriaCount = countArrayItems(nodeJson.path("success_criteria"));
+        int expectedBase = 60 + (objectiveCount * 15) + (conceptCount * 8)
+                + (exerciseCount * 22) + (criteriaCount * 6);
+        int expected = Math.max(30, Math.min(240, expectedBase));
+
+        // If AI is within 2x expected, keep AI's value (trust AI for non-setup tasks)
+        if (minutes <= expected * 2) {
+            return Math.min(minutes, 360); // Generous cap for normal nodes
+        }
+
+        // AI grossly overestimated (> 2x expected) — use expected as cap
+        return Math.min(minutes, expected * 2);
+    }
+
+    private Integer parseMinutesValue(JsonNode valueNode) {
+        if (valueNode == null || valueNode.isMissingNode() || valueNode.isNull()) {
+            return null;
+        }
+
+        if (valueNode.isInt() || valueNode.isLong()) {
+            return valueNode.asInt();
+        }
+
+        if (valueNode.isNumber()) {
+            return (int) Math.round(valueNode.asDouble());
+        }
+
+        if (valueNode.isTextual()) {
+            return parseMinutesFromText(valueNode.asText());
+        }
+
+        return null;
+    }
+
+    private Integer parseMinutesFromText(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+
+        Matcher compactMatcher = COMPACT_HM_PATTERN.matcher(normalized);
+        if (compactMatcher.find()) {
+            int hours = Integer.parseInt(compactMatcher.group(1));
+            int minutes = Integer.parseInt(compactMatcher.group(2));
+            return (hours * 60) + minutes;
+        }
+
+        int totalMinutes = 0;
+        boolean matched = false;
+
+        Matcher hoursMatcher = HOURS_PATTERN.matcher(normalized);
+        while (hoursMatcher.find()) {
+            String group = hoursMatcher.group(1).replace(',', '.');
+            double hours = Double.parseDouble(group);
+            totalMinutes += (int) Math.round(hours * 60);
+            matched = true;
+        }
+
+        Matcher minutesMatcher = MINUTES_PATTERN.matcher(normalized);
+        while (minutesMatcher.find()) {
+            String group = minutesMatcher.group(1).replace(',', '.');
+            double minutes = Double.parseDouble(group);
+            totalMinutes += (int) Math.round(minutes);
+            matched = true;
+        }
+
+        if (matched) {
+            return totalMinutes;
+        }
+
+        String digitsOnly = normalized.replaceAll("[^0-9]", "");
+        if (!digitsOnly.isEmpty()) {
+            return Integer.parseInt(digitsOnly);
+        }
+
+        return null;
+    }
+
+    private Integer computeFallbackEstimatedMinutes(
+            JsonNode nodeJson,
+            RoadmapResponse.RoadmapNode.NodeType type) {
+        int objectiveCount = countArrayItems(nodeJson.path("learning_objectives"));
+        int conceptCount = countArrayItems(nodeJson.path("key_concepts"));
+        int exerciseCount = countArrayItems(nodeJson.path("practical_exercises"));
+        int criteriaCount = countArrayItems(nodeJson.path("success_criteria"));
+
+        int baseMinutes = type == RoadmapResponse.RoadmapNode.NodeType.MAIN ? 90 : 60;
+        String difficulty = nodeJson.path("difficulty").asText("").trim().toLowerCase(Locale.ROOT);
+        if (difficulty.contains("easy") || difficulty.contains("beginner")) {
+            baseMinutes -= 15;
+        } else if (difficulty.contains("hard") || difficulty.contains("advanced") || difficulty.contains("expert")) {
+            baseMinutes += 25;
+        }
+
+        int estimated = baseMinutes
+                + (objectiveCount * 15)
+                + (conceptCount * 8)
+                + (exerciseCount * 22)
+                + (criteriaCount * 6);
+
+        return Math.max(30, Math.min(480, estimated));
+    }
+
+    private int countArrayItems(JsonNode arrayNode) {
+        if (arrayNode == null || !arrayNode.isArray()) {
+            return 0;
+        }
+
+        int count = 0;
+        for (JsonNode value : arrayNode) {
+            if (!value.asText("").isBlank()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private String serializeParsedRoadmap(ParsedRoadmap parsed) {
+        try {
+            Map<String, Object> root = new LinkedHashMap<>();
+            root.put("roadmap_metadata", parsed.metadata());
+            if (parsed.overview() != null) {
+                root.put("overview", parsed.overview());
+            }
+            if (parsed.structure() != null && !parsed.structure().isEmpty()) {
+                root.put("structure", parsed.structure());
+            }
+            if (parsed.thinkingProgression() != null && !parsed.thinkingProgression().isEmpty()) {
+                root.put("thinking_progression", parsed.thinkingProgression());
+            }
+            if (parsed.projectsEvidence() != null && !parsed.projectsEvidence().isEmpty()) {
+                root.put("projects_evidence", parsed.projectsEvidence());
+            }
+            if (parsed.nextSteps() != null) {
+                root.put("next_steps", parsed.nextSteps());
+            }
+            if (parsed.skillDependencies() != null && !parsed.skillDependencies().isEmpty()) {
+                root.put("skill_dependencies", parsed.skillDependencies());
+            }
+            root.put("roadmap", parsed.nodes());
+            if (parsed.statistics() != null) {
+                root.put("roadmap_statistics", parsed.statistics());
+            }
+            if (parsed.learningTips() != null && !parsed.learningTips().isEmpty()) {
+                root.put("learning_tips", parsed.learningTips());
+            }
+            return objectMapper.writeValueAsString(root);
+        } catch (JsonProcessingException e) {
+            throw new ApiException(ErrorCode.INTERNAL_ERROR, "Failed to serialize canonical roadmap JSON");
+        }
     }
 
     /**
@@ -1464,6 +1877,80 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 .difficultyDistribution(difficultyDistribution)
                 .build();
     }
+
+            private RoadmapResponse.RoadmapStatistics normalizeRoadmapStatistics(
+                List<RoadmapResponse.RoadmapNode> nodes,
+                RoadmapResponse.RoadmapStatistics parsedStatistics) {
+            int totalNodes = nodes.size();
+            int mainNodes = (int) nodes.stream()
+                .filter(node -> node.getType() == RoadmapResponse.RoadmapNode.NodeType.MAIN
+                    || Boolean.TRUE.equals(node.getIsCore()))
+                .count();
+            int sideNodes = Math.max(0, totalNodes - mainNodes);
+            double computedHours = calculateTotalHours(nodes);
+
+            Map<String, Integer> difficultyDistribution = parsedStatistics != null
+                ? new HashMap<>(parsedStatistics.getDifficultyDistribution() != null
+                    ? parsedStatistics.getDifficultyDistribution()
+                    : Collections.emptyMap())
+                : new HashMap<>();
+            if (difficultyDistribution.isEmpty()) {
+                for (RoadmapResponse.RoadmapNode node : nodes) {
+                String difficulty = node.getDifficulty();
+                if (difficulty == null || difficulty.isBlank()) {
+                    continue;
+                }
+                String key = difficulty.trim().toLowerCase(Locale.ROOT);
+                difficultyDistribution.put(key, difficultyDistribution.getOrDefault(key, 0) + 1);
+                }
+            }
+
+            if (parsedStatistics == null) {
+                return RoadmapResponse.RoadmapStatistics.builder()
+                    .totalNodes(totalNodes)
+                    .mainNodes(mainNodes)
+                    .sideNodes(sideNodes)
+                    .totalEstimatedHours(computedHours)
+                    .difficultyDistribution(difficultyDistribution)
+                    .build();
+            }
+
+            Integer normalizedTotalNodes = parsedStatistics.getTotalNodes() != null && parsedStatistics.getTotalNodes() > 0
+                ? parsedStatistics.getTotalNodes()
+                : totalNodes;
+            Integer normalizedMainNodes = parsedStatistics.getMainNodes() != null && parsedStatistics.getMainNodes() >= 0
+                ? parsedStatistics.getMainNodes()
+                : mainNodes;
+            Integer normalizedSideNodes = parsedStatistics.getSideNodes() != null && parsedStatistics.getSideNodes() >= 0
+                ? parsedStatistics.getSideNodes()
+                : sideNodes;
+
+            if (normalizedMainNodes + normalizedSideNodes != normalizedTotalNodes) {
+                normalizedMainNodes = mainNodes;
+                normalizedSideNodes = sideNodes;
+                normalizedTotalNodes = totalNodes;
+            }
+
+            Double parsedHours = parsedStatistics.getTotalEstimatedHours();
+            Double normalizedHours = (parsedHours == null || parsedHours <= 0.0)
+                ? computedHours
+                : parsedHours;
+
+            double diffRatio = computedHours > 0
+                ? Math.abs(normalizedHours - computedHours) / computedHours
+                : 0.0;
+            if (diffRatio > 0.25) {
+                normalizedHours = computedHours;
+            }
+
+            return RoadmapResponse.RoadmapStatistics.builder()
+                .totalNodes(normalizedTotalNodes)
+                .mainNodes(normalizedMainNodes)
+                .sideNodes(normalizedSideNodes)
+                .totalEstimatedHours(normalizedHours)
+                .difficultyDistribution(difficultyDistribution)
+                .build();
+            }
 
     /**
      * Helper: Parse JSON array to List<String>
@@ -1524,6 +2011,79 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         }
     }
 
+    private SummaryProgressStats resolveSummaryProgressStats(RoadmapSession session) {
+        List<RoadmapResponse.RoadmapNode> nodes = roadmapCompletionSyncService.extractNodes(session);
+        int totalQuests = !nodes.isEmpty()
+                ? nodes.size()
+                : session.getTotalNodes() != null ? session.getTotalNodes() : 0;
+
+        if (totalQuests <= 0) {
+            return new SummaryProgressStats(0, 0, 0);
+        }
+
+        if (nodes.isEmpty()) {
+            Long completedCount = progressRepository.countCompletedBySessionId(session.getId());
+            int completed = completedCount != null ? completedCount.intValue() : 0;
+            return new SummaryProgressStats(
+                    totalQuests,
+                    completed,
+                    resolveFallbackSummaryProgressPercentage(totalQuests, completed));
+        }
+
+        Map<String, RoadmapResponse.QuestProgress> storedProgressMap =
+                roadmapCompletionSyncService.loadStoredProgressMap(session.getId());
+        Map<String, RoadmapResponse.QuestProgress> resolvedProgressMap =
+                roadmapCompletionSyncService.overlayDerivedProgressSnapshot(
+                        session,
+                        nodes,
+                        storedProgressMap);
+
+        Set<String> nodeIds = nodes.stream()
+                .map(RoadmapResponse.RoadmapNode::getId)
+                .filter(id -> id != null && !id.isBlank())
+                .collect(Collectors.toSet());
+
+        if (nodeIds.isEmpty()) {
+            Long completedCount = progressRepository.countCompletedBySessionId(session.getId());
+            int completed = completedCount != null ? completedCount.intValue() : 0;
+            return new SummaryProgressStats(
+                    totalQuests,
+                    completed,
+                    resolveFallbackSummaryProgressPercentage(totalQuests, completed));
+        }
+
+        int completedQuests = (int) nodeIds.stream()
+                .map(resolvedProgressMap::get)
+                .filter(Objects::nonNull)
+                .filter(progress -> UserRoadmapProgress.ProgressStatus.COMPLETED.name()
+                        .equals(progress.getStatus()))
+                .count();
+
+        int aggregateProgress = nodeIds.stream()
+                .map(resolvedProgressMap::get)
+                .filter(Objects::nonNull)
+                .map(RoadmapResponse.QuestProgress::getProgress)
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .sum();
+
+        int progressPercentage = clampProgressPercentage(
+                (int) Math.round(aggregateProgress * 1.0 / totalQuests));
+
+        return new SummaryProgressStats(totalQuests, completedQuests, progressPercentage);
+    }
+
+    private int resolveFallbackSummaryProgressPercentage(int totalQuests, int completedQuests) {
+        if (totalQuests <= 0) {
+            return 0;
+        }
+        return clampProgressPercentage((completedQuests * 100) / totalQuests);
+    }
+
+    private int clampProgressPercentage(int value) {
+        return Math.max(0, Math.min(100, value));
+    }
+
     /**
      * Get all roadmap sessions (Admin)
      */
@@ -1533,32 +2093,10 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         List<RoadmapSessionSummary> summaries = new ArrayList<>();
 
         for (RoadmapSession session : sessions) {
-            // Parse roadmap JSON to count total quests
-            int totalQuests = 0;
-            try {
-                // Support both V1 and V2 schema
-                JsonNode root = objectMapper.readTree(session.getRoadmapJson());
-                JsonNode roadmapArray = root.path("roadmap");
-                totalQuests = roadmapArray.size();
-
-                // Fallback: if roadmap is empty, try using totalNodes from DB (V2 only)
-                if (totalQuests == 0 && session.getTotalNodes() != null) {
-                    totalQuests = session.getTotalNodes();
-                }
-            } catch (JsonProcessingException e) {
-                log.warn("Failed to parse roadmap JSON for session {}", session.getId());
-                // Fallback to DB field
-                if (session.getTotalNodes() != null) {
-                    totalQuests = session.getTotalNodes();
-                }
-            }
-
-            // Count completed quests
-            Long completedCount = progressRepository.countCompletedBySessionId(session.getId());
-            int completed = completedCount != null ? completedCount.intValue() : 0;
-
-            // Calculate progress percentage
-            int progressPercentage = totalQuests > 0 ? (completed * 100) / totalQuests : 0;
+            SummaryProgressStats progressStats = resolveSummaryProgressStats(session);
+            int totalQuests = progressStats.totalQuests();
+            int completed = progressStats.completedQuests();
+            int progressPercentage = progressStats.progressPercentage();
 
             // Build summary with V2 fields (fallback to V1 for old data)
             @SuppressWarnings("deprecation") // Intentional V1 fallback for backward compatibility
@@ -1578,6 +2116,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .progressPercentage(progressPercentage)
                     .difficultyLevel(session.getDifficultyLevel())
                     .schemaVersion(session.getSchemaVersion())
+                    .status(session.getStatus() != null ? session.getStatus().name() : "ACTIVE")
                     .createdAt(session.getCreatedAt())
                     .build();
 
@@ -1591,37 +2130,17 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
      * Get all roadmap sessions for a user
      */
     @Transactional(readOnly = true)
-    public List<RoadmapSessionSummary> getUserRoadmaps(Long userId) {
-        List<RoadmapSession> sessions = roadmapSessionRepository.findByUserIdOrderByCreatedAtDesc(userId);
+    public List<RoadmapSessionSummary> getUserRoadmaps(Long userId, boolean includeDeleted) {
+        List<RoadmapSession> sessions = includeDeleted
+                ? roadmapSessionRepository.findByUserIdOrderByCreatedAtDesc(userId)
+                : roadmapSessionRepository.findByUserIdAndStatusNotDeleted(userId);
         List<RoadmapSessionSummary> summaries = new ArrayList<>();
 
         for (RoadmapSession session : sessions) {
-            // Parse roadmap JSON to count total quests
-            int totalQuests = 0;
-            try {
-                // Support both V1 and V2 schema
-                JsonNode root = objectMapper.readTree(session.getRoadmapJson());
-                JsonNode roadmapArray = root.path("roadmap");
-                totalQuests = roadmapArray.size();
-
-                // Fallback: if roadmap is empty, try using totalNodes from DB (V2 only)
-                if (totalQuests == 0 && session.getTotalNodes() != null) {
-                    totalQuests = session.getTotalNodes();
-                }
-            } catch (JsonProcessingException e) {
-                log.warn("Failed to parse roadmap JSON for session {}", session.getId());
-                // Fallback to DB field
-                if (session.getTotalNodes() != null) {
-                    totalQuests = session.getTotalNodes();
-                }
-            }
-
-            // Count completed quests
-            Long completedCount = progressRepository.countCompletedBySessionId(session.getId());
-            int completed = completedCount != null ? completedCount.intValue() : 0;
-
-            // Calculate progress percentage
-            int progressPercentage = totalQuests > 0 ? (completed * 100) / totalQuests : 0;
+            SummaryProgressStats progressStats = resolveSummaryProgressStats(session);
+            int totalQuests = progressStats.totalQuests();
+            int completed = progressStats.completedQuests();
+            int progressPercentage = progressStats.progressPercentage();
 
             // Build summary with V2 fields (fallback to V1 for old data)
             @SuppressWarnings("deprecation") // Intentional V1 fallback for backward compatibility
@@ -1641,6 +2160,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .progressPercentage(progressPercentage)
                     .difficultyLevel(session.getDifficultyLevel())
                     .schemaVersion(session.getSchemaVersion())
+                    .status(session.getStatus() != null ? session.getStatus().name() : "ACTIVE")
                     .createdAt(session.getCreatedAt())
                     .build();
 
@@ -1650,13 +2170,91 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return summaries;
     }
 
+    @Transactional(readOnly = true)
+    public List<RoadmapSessionSummary> getUserDeletedRoadmaps(Long userId) {
+        List<RoadmapSession> sessions = roadmapSessionRepository.findByUserIdAndStatusDeleted(userId);
+        List<RoadmapSessionSummary> summaries = new ArrayList<>();
+
+        for (RoadmapSession session : sessions) {
+            SummaryProgressStats progressStats = resolveSummaryProgressStats(session);
+            int totalQuests = progressStats.totalQuests();
+            int completed = progressStats.completedQuests();
+            int progressPercentage = progressStats.progressPercentage();
+
+            @SuppressWarnings("deprecation")
+            RoadmapSessionSummary summary = RoadmapSessionSummary.builder()
+                    .sessionId(session.getId())
+                    .title(session.getTitle())
+                    .roadmapMode(session.getRoadmapMode())
+                    .originalGoal(session.getOriginalGoal() != null ? session.getOriginalGoal() : session.getGoal())
+                    .validatedGoal(session.getValidatedGoal())
+                    .duration(session.getDuration())
+                    .experienceLevel(session.getExperienceLevel() != null ? session.getExperienceLevel()
+                            : session.getExperience())
+                    .learningStyle(session.getLearningStyle() != null ? session.getLearningStyle() : session.getStyle())
+                    .totalQuests(totalQuests)
+                    .completedQuests(completed)
+                    .progressPercentage(progressPercentage)
+                    .difficultyLevel(session.getDifficultyLevel())
+                    .schemaVersion(session.getSchemaVersion())
+                    .status(session.getStatus() != null ? session.getStatus().name() : "ACTIVE")
+                    .createdAt(session.getCreatedAt())
+                    .build();
+
+            summaries.add(summary);
+        }
+
+        return summaries;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Long> getUserRoadmapStatusCounts(Long userId) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        counts.put("active", 0L);
+        counts.put("paused", 0L);
+        counts.put("deleted", 0L);
+
+        try {
+            List<Object[]> rows = roadmapSessionRepository.countGroupedByStatusForUser(userId);
+            for (Object[] row : rows) {
+                if (row == null || row.length < 2) {
+                    continue;
+                }
+
+                String status = row[0] == null
+                        ? ""
+                        : row[0].toString().trim().toUpperCase(Locale.ROOT);
+                long count = row[1] instanceof Number ? ((Number) row[1]).longValue() : 0L;
+
+                if ("ACTIVE".equals(status)) {
+                    counts.put("active", count);
+                } else if ("PAUSED".equals(status)) {
+                    counts.put("paused", count);
+                } else if ("DELETED".equals(status)) {
+                    counts.put("deleted", count);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to load roadmap status counts for user {}: {}", userId, e.getMessage());
+        }
+
+        long total = counts.getOrDefault("active", 0L)
+                + counts.getOrDefault("paused", 0L)
+                + counts.getOrDefault("deleted", 0L);
+        counts.put("total", total);
+        return counts;
+    }
+
     /**
      * Get a specific roadmap session with full details (supports V1 and V2 schemas)
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public RoadmapResponse getRoadmapById(Long sessionId, Long userId) {
         RoadmapSession session = roadmapSessionRepository.findByIdAndUserId(sessionId, userId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Roadmap not found"));
+        if (session.getStatus() == RoadmapStatus.DELETED) {
+            throw new ApiException(ErrorCode.NOT_FOUND, "Roadmap not found");
+        }
 
         // Detect schema version and parse accordingly
         Integer schemaVersion = session.getSchemaVersion() != null ? session.getSchemaVersion() : 1;
@@ -1666,12 +2264,13 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             ParsedRoadmap parsed = validateAndParseRoadmapV2(session.getRoadmapJson());
 
             // Load progress data
-            Map<String, RoadmapResponse.QuestProgress> progressMap = loadProgressData(sessionId);
+            Map<String, RoadmapResponse.QuestProgress> progressMap = resolveProgressData(session, parsed.nodes());
 
             return RoadmapResponse.builder()
                     .sessionId(session.getId())
+                    .roadmapStatus(session.getStatus() != null ? session.getStatus().name() : "ACTIVE")
                     .metadata(parsed.metadata())
-                    .roadmap(parsed.nodes())
+                    .roadmap(computeNodeStatuses(parsed.nodes(), progressMap))
                     .statistics(parsed.statistics())
                     .learningTips(parsed.learningTips())
                     .warnings(computeWarnings(parsed.metadata(), parsed.statistics()))
@@ -1711,12 +2310,13 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .build();
 
             // Load progress data for V1 roadmaps too
-            Map<String, RoadmapResponse.QuestProgress> progressMap = loadProgressData(sessionId);
+            Map<String, RoadmapResponse.QuestProgress> progressMap = resolveProgressData(session, nodes);
 
             return RoadmapResponse.builder()
                     .sessionId(session.getId())
+                    .roadmapStatus(session.getStatus() != null ? session.getStatus().name() : "ACTIVE")
                     .metadata(metadata)
-                    .roadmap(nodes)
+                    .roadmap(computeNodeStatuses(nodes, progressMap))
                     .statistics(statistics)
                     .learningTips(List.of()) // Empty list for V1 data
                     .warnings(List.of())
@@ -1748,6 +2348,13 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                         progress.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED ? 100 : 0)
                                 .completedAt(progress.getCompletedAt())
                                 .build()));
+    }
+
+    private Map<String, RoadmapResponse.QuestProgress> resolveProgressData(
+            RoadmapSession session,
+            List<RoadmapResponse.RoadmapNode> nodes) {
+        Map<String, RoadmapResponse.QuestProgress> storedProgressMap = loadProgressData(session.getId());
+        return roadmapCompletionSyncService.overlayDerivedProgress(session, nodes, storedProgressMap);
     }
 
     /**
@@ -1784,6 +2391,14 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         // Verify session belongs to user
         RoadmapSession session = roadmapSessionRepository.findByIdAndUserId(sessionId, userId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Roadmap not found"));
+        if (session.getStatus() == RoadmapStatus.DELETED) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Cannot update a deleted roadmap");
+        }
+
+        // Sequential Locking: Verify prerequisites are completed before allowing progress
+        if (Boolean.TRUE.equals(request.getCompleted())) {
+            enforceSequentialLocking(session, request.getQuestId());
+        }
 
         // Find or create progress record
         UserRoadmapProgress progress = progressRepository
@@ -1807,11 +2422,11 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
         progressRepository.save(progress);
 
+        Integer schemaVersion = session.getSchemaVersion() != null ? session.getSchemaVersion() : 1;
+
         // Calculate progress statistics (support V1 and V2)
         int totalQuests = 0;
         try {
-            Integer schemaVersion = session.getSchemaVersion() != null ? session.getSchemaVersion() : 1;
-
             if (schemaVersion >= 2) {
                 // V2: Parse or use cached totalNodes from DB
                 if (session.getTotalNodes() != null) {
@@ -1831,9 +2446,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             totalQuests = allProgress.size(); // Fallback: count all progress entries
         }
 
-        List<UserRoadmapProgress> allProgress = progressRepository.findBySessionId(sessionId);
-        int completedQuests = (int) allProgress.stream()
-                .filter(p -> p.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
+        Map<String, RoadmapResponse.QuestProgress> resolvedProgressMap = resolveProgressData(
+                session,
+                schemaVersion >= 2 ? validateAndParseRoadmapV2(session.getRoadmapJson()).nodes() : parseNodesFromV1Json(session.getRoadmapJson()));
+
+        int completedQuests = (int) resolvedProgressMap.values().stream()
+                .filter(p -> UserRoadmapProgress.ProgressStatus.COMPLETED.name().equals(p.getStatus()))
                 .count();
 
         double completionPercentage = totalQuests > 0
@@ -1878,8 +2496,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         } catch (Exception e) {
             log.warn("⚠️ AI validation (Gemini) failed, attempting fallback to Mistral: {}", e.getMessage());
             try {
-                 String aiResponse = callMistralAPI(validationPrompt);
-                 return parseAIValidationResponse(aiResponse, goal);
+                String aiResponse = callMistralAPI(validationPrompt);
+                return parseAIValidationResponse(aiResponse, goal);
             } catch (Exception ex) {
                 log.warn("⚠️ AI validation (Mistral) failed, falling back to basic validation: {}", ex.getMessage());
             }
@@ -2015,6 +2633,372 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 return ValidationResult.error("goal",
                         "Không thể xác định tính hợp lệ của mục tiêu. Vui lòng kiểm tra lại.", null);
         }
+    }
+
+    // =========================================================================
+    // Phase 1: New Methods — Tree Node Status, Sequential Locking, Course Validation
+    // =========================================================================
+
+    /**
+     * Validate suggestedCourseIds against real DB and strip fake/hallucinated IDs.
+     * AI may generate plausible-looking IDs — this ensures only real course IDs remain.
+     */
+    private void validateAndStripFakeCourseIds(List<RoadmapResponse.RoadmapNode> nodes) {
+        // Collect all suggested course IDs from all nodes
+        Set<Long> allSuggestedIds = new HashSet<>();
+        for (RoadmapResponse.RoadmapNode node : nodes) {
+            if (node.getSuggestedCourseIds() != null) {
+                for (String idStr : node.getSuggestedCourseIds()) {
+                    try {
+                        allSuggestedIds.add(Long.parseLong(idStr));
+                    } catch (NumberFormatException e) {
+                        // Non-numeric ID = definitely hallucinated, will be stripped
+                        log.warn("🚫 Hallucinated non-numeric course ID '{}' in node '{}'", idStr, node.getId());
+                    }
+                }
+            }
+        }
+
+        if (allSuggestedIds.isEmpty()) {
+            return; // No course IDs to validate
+        }
+
+        log.info("🔍 Validating {} suggested course ID(s) against DB", allSuggestedIds.size());
+
+        // Batch query DB to find which IDs actually exist (finds PUBLIC courses)
+        // NOTE: /courses/batch endpoint only returns PUBLIC courses. If a course was
+        // created as DRAFT/INACTIVE, it will be stripped here even if it exists in DB.
+        // User should publish courses to make them visible in roadmap.
+        List<Course> foundCourses = courseRepository.findAllById(allSuggestedIds);
+        Map<Long, CourseStatus> foundCourseStatuses = foundCourses.stream()
+                .collect(Collectors.toMap(Course::getId, Course::getStatus, (a, b) -> a));
+
+        Set<Long> validIds = foundCourses.stream()
+                .map(Course::getId)
+                .collect(Collectors.toSet());
+
+        int totalStripped = 0;
+        final int[] skippedNonPublic = {0};
+
+        // Strip invalid IDs from each node
+        for (RoadmapResponse.RoadmapNode node : nodes) {
+            if (node.getSuggestedCourseIds() != null && !node.getSuggestedCourseIds().isEmpty()) {
+                List<String> originalIds = node.getSuggestedCourseIds();
+                List<String> validatedIds = originalIds.stream()
+                        .filter(idStr -> {
+                            try {
+                                long id = Long.parseLong(idStr);
+                                if (!validIds.contains(id)) {
+                                    log.debug("Course ID {} not found in DB — will be stripped", id);
+                                    return false;
+                                }
+                                CourseStatus status = foundCourseStatuses.get(id);
+                                if (status != CourseStatus.PUBLIC) {
+                                    log.debug("Course ID {} found but status={} (not PUBLIC) — will be stripped", id, status);
+                                    skippedNonPublic[0]++;
+                                    return false;
+                                }
+                                return true;
+                            } catch (NumberFormatException e) {
+                                return false;
+                            }
+                        })
+                        .collect(Collectors.toList());
+
+                int stripped = originalIds.size() - validatedIds.size();
+                if (stripped > 0) {
+                    log.warn("🚫 Stripped {} course ID(s) from node '{}': {} → {}",
+                            stripped, node.getId(), originalIds, validatedIds);
+                    totalStripped += stripped;
+                }
+
+                node.setSuggestedCourseIds(validatedIds);
+            }
+        }
+
+        if (totalStripped > 0) {
+            log.info("🛡️ Anti-hallucination: Stripped {} fake course ID(s) total across all nodes ({} skipped: non-PUBLIC status)",
+                    totalStripped, skippedNonPublic[0]);
+        } else {
+            log.info("✅ All {} suggested course ID(s) validated and retained", allSuggestedIds.size());
+        }
+    }
+
+    /**
+     * Compute nodeStatus for each node based on progress data and prerequisites graph.
+     * Status flow: LOCKED → AVAILABLE → IN_PROGRESS → COMPLETED
+     */
+    private List<RoadmapResponse.RoadmapNode> computeNodeStatuses(
+            List<RoadmapResponse.RoadmapNode> nodes,
+            Map<String, RoadmapResponse.QuestProgress> progressMap) {
+
+        // Build set of completed node IDs for fast lookup
+        Set<String> completedNodeIds = new HashSet<>();
+        Set<String> inProgressNodeIds = new HashSet<>();
+        if (progressMap != null) {
+            for (Map.Entry<String, RoadmapResponse.QuestProgress> entry : progressMap.entrySet()) {
+                if (entry.getValue() != null && "COMPLETED".equals(entry.getValue().getStatus())) {
+                    completedNodeIds.add(entry.getKey());
+                } else if (entry.getValue() != null && entry.getValue().getProgress() != null
+                        && entry.getValue().getProgress() > 0) {
+                    inProgressNodeIds.add(entry.getKey());
+                }
+            }
+        }
+
+        // Compute status for each node
+        for (RoadmapResponse.RoadmapNode node : nodes) {
+            String nodeId = node.getId();
+
+            if (completedNodeIds.contains(nodeId)) {
+                node.setNodeStatus("COMPLETED");
+            } else if (inProgressNodeIds.contains(nodeId)) {
+                node.setNodeStatus("IN_PROGRESS");
+            } else {
+                // Check if prerequisites are all completed
+                boolean allPrereqsCompleted = true;
+                if (node.getPrerequisites() != null && !node.getPrerequisites().isEmpty()) {
+                    for (String prereqId : node.getPrerequisites()) {
+                        if (!completedNodeIds.contains(prereqId)) {
+                            allPrereqsCompleted = false;
+                            break;
+                        }
+                    }
+                }
+
+                node.setNodeStatus(allPrereqsCompleted ? "AVAILABLE" : "LOCKED");
+            }
+        }
+
+        return nodes;
+    }
+
+    /**
+     * Enforce sequential locking: cannot complete a node unless all prerequisites are COMPLETED.
+     * Throws FORBIDDEN (403) if any prerequisite is not done.
+     */
+    private void enforceSequentialLocking(RoadmapSession session, String questId) {
+        try {
+            Integer schemaVersion = session.getSchemaVersion() != null ? session.getSchemaVersion() : 1;
+            List<RoadmapResponse.RoadmapNode> nodes;
+
+            if (schemaVersion >= 2) {
+                ParsedRoadmap parsed = validateAndParseRoadmapV2(session.getRoadmapJson());
+                nodes = parsed.nodes();
+            } else {
+                nodes = parseNodesFromV1Json(session.getRoadmapJson());
+            }
+
+            // Find the target node
+            RoadmapResponse.RoadmapNode targetNode = null;
+            for (RoadmapResponse.RoadmapNode node : nodes) {
+                if (questId.equals(node.getId())) {
+                    targetNode = node;
+                    break;
+                }
+            }
+
+            if (targetNode == null) {
+                log.warn("Quest '{}' not found in roadmap {} — skipping lock check", questId, session.getId());
+                return; // Quest not found, let it pass (defensive)
+            }
+
+            // Check prerequisites
+            if (targetNode.getPrerequisites() != null && !targetNode.getPrerequisites().isEmpty()) {
+                List<UserRoadmapProgress> allProgress = progressRepository.findBySessionId(session.getId());
+                Set<String> completedIds = allProgress.stream()
+                        .filter(p -> p.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
+                        .map(UserRoadmapProgress::getQuestId)
+                        .collect(Collectors.toSet());
+
+                List<String> uncompletedPrereqs = targetNode.getPrerequisites().stream()
+                        .filter(prereq -> !completedIds.contains(prereq))
+                        .collect(Collectors.toList());
+
+                if (!uncompletedPrereqs.isEmpty()) {
+                    // Find titles for better UX error message
+                    Map<String, String> idToTitle = new HashMap<>();
+                    for (RoadmapResponse.RoadmapNode node : nodes) {
+                        idToTitle.put(node.getId(), node.getTitle());
+                    }
+
+                    String uncompletedNames = uncompletedPrereqs.stream()
+                            .map(id -> idToTitle.getOrDefault(id, id))
+                            .collect(Collectors.joining(", "));
+
+                    throw new ApiException(ErrorCode.FORBIDDEN,
+                            String.format("Bạn cần hoàn thành các node tiên quyết trước: [%s]", uncompletedNames));
+                }
+            }
+        } catch (ApiException e) {
+            throw e; // Re-throw ApiException (FORBIDDEN)
+        } catch (Exception e) {
+            log.warn("Sequential lock check failed for quest '{}' in session {} — allowing update: {}",
+                    questId, session.getId(), e.getMessage());
+            // Fail-open: if we can't parse the roadmap, allow the update
+        }
+    }
+
+    // =========================================================================
+    // Roadmap Lifecycle Management: Activate, Pause, Delete
+    // =========================================================================
+
+    /**
+     * Activate a roadmap (only ONE can be ACTIVE per user at a time)
+     */
+    @Override
+    @Transactional
+    public void activateRoadmap(Long sessionId, Long userId) {
+        RoadmapSession session = roadmapSessionRepository.findByIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Roadmap not found"));
+
+        if (session.getStatus() == RoadmapStatus.DELETED) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Cannot activate a deleted roadmap");
+        }
+
+        if (session.getStatus() == RoadmapStatus.ACTIVE) {
+            return; // Already active, no-op
+        }
+
+        // Pause all currently active roadmaps for this user
+        roadmapSessionRepository.pauseAllActiveByUserId(userId);
+
+        // Activate the requested roadmap
+        session.setStatus(RoadmapStatus.ACTIVE);
+        roadmapSessionRepository.save(session);
+
+        log.info("✅ Activated roadmap {} for user {}", sessionId, userId);
+    }
+
+    /**
+     * Pause a roadmap (set to PAUSED status)
+     */
+    @Override
+    @Transactional
+    public void pauseRoadmap(Long sessionId, Long userId) {
+        RoadmapSession session = roadmapSessionRepository.findByIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Roadmap not found"));
+
+        if (session.getStatus() == RoadmapStatus.DELETED) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Cannot pause a deleted roadmap");
+        }
+
+        session.setStatus(RoadmapStatus.PAUSED);
+        roadmapSessionRepository.save(session);
+
+        // Archive roadmap-linked tasks so they no longer clutter the board.
+        int archived = taskBoardService.archiveTasksByRoadmapSession(userId, sessionId);
+        log.info("⏸️ Paused roadmap {} for user {} (archived {} tasks)", sessionId, userId, archived);
+    }
+
+    /**
+     * Soft-delete a roadmap (set to DELETED status, data preserved)
+     */
+    @Override
+    @Transactional
+    public void deleteRoadmap(Long sessionId, Long userId) {
+        RoadmapSession session = roadmapSessionRepository.findByIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Roadmap not found"));
+
+        if (session.getStatus() == RoadmapStatus.DELETED) {
+            log.info("🗑️ Roadmap {} already deleted for user {}", sessionId, userId);
+            return;
+        }
+
+        session.setStatus(RoadmapStatus.DELETED);
+        roadmapSessionRepository.save(session);
+
+        // Archive tasks on soft-delete so board stays clean.
+        int archived = taskBoardService.archiveTasksByRoadmapSession(userId, sessionId);
+        log.info("🗑️ Soft-deleted roadmap {} for user {} (archived {} tasks)", sessionId, userId, archived);
+    }
+
+    @Override
+    @Transactional
+    public void permanentDeleteRoadmap(Long sessionId, Long userId) {
+        RoadmapSession session = roadmapSessionRepository.findByIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Roadmap not found"));
+
+        if (session.getStatus() != RoadmapStatus.DELETED) {
+            throw new ApiException(ErrorCode.BAD_REQUEST,
+                    "Please soft-delete the roadmap first before permanently deleting it");
+        }
+
+        int clearedJourneys = journeyRepository.clearRoadmapSessionId(sessionId);
+        progressRepository.deleteBySessionId(sessionId);
+        int cleanedTasks = cleanupRoadmapLinksFromTasks(userId, sessionId);
+        roadmapSessionRepository.delete(session);
+
+        log.info("🔥 Permanently deleted roadmap {} for user {} (journeysCleared={}, cleanedTasks={})",
+                sessionId, userId, clearedJourneys, cleanedTasks);
+    }
+
+    private int cleanupRoadmapLinksFromTasks(Long userId, Long roadmapSessionId) {
+        List<Task> tasks = taskRepository.findByUserId(userId);
+        List<Task> dirtyTasks = new ArrayList<>();
+
+        for (Task task : tasks) {
+            String existingNotes = task.getUserNotes();
+            String cleanedNotes = removeRoadmapMarkers(existingNotes, roadmapSessionId);
+            if (!stringEquals(existingNotes, cleanedNotes)) {
+                task.setUserNotes(cleanedNotes);
+                dirtyTasks.add(task);
+            }
+        }
+
+        if (!dirtyTasks.isEmpty()) {
+            taskRepository.saveAll(dirtyTasks);
+        }
+
+        return dirtyTasks.size();
+    }
+
+    private String removeRoadmapMarkers(String notes, Long roadmapSessionId) {
+        if (notes == null || notes.isBlank()) {
+            return notes;
+        }
+
+        Matcher matcher = ROADMAP_NODE_LINK_PATTERN.matcher(notes);
+        StringBuffer buffer = new StringBuffer();
+        boolean changed = false;
+
+        while (matcher.find()) {
+            Long matchedRoadmapId = safeParseLong(matcher.group(2));
+            if (matchedRoadmapId != null && matchedRoadmapId.equals(roadmapSessionId)) {
+                matcher.appendReplacement(buffer, "");
+                changed = true;
+            }
+        }
+
+        if (!changed) {
+            return notes;
+        }
+
+        matcher.appendTail(buffer);
+        String cleaned = buffer.toString()
+                .replaceAll("(?m)^[ \\t]*\\r?\\n", "")
+                .replaceAll("[ \\t]{2,}", " ")
+                .replaceAll("\\n{3,}", "\n\n")
+                .trim();
+        return cleaned.isEmpty() ? null : cleaned;
+    }
+
+    private record SummaryProgressStats(int totalQuests, int completedQuests, int progressPercentage) {
+    }
+
+    private Long safeParseLong(String value) {
+        try {
+            return value == null ? null : Long.parseLong(value.trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private boolean stringEquals(String left, String right) {
+        if (left == null) {
+            return right == null;
+        }
+        return left.equals(right);
     }
 
 }

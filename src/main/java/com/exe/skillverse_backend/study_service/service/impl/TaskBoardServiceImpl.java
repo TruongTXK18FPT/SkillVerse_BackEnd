@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.study_service.service.impl;
 
+import com.exe.skillverse_backend.ai_service.service.RoadmapCompletionSyncService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
@@ -16,7 +17,9 @@ import com.exe.skillverse_backend.study_service.repository.TaskRepository;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -33,25 +36,76 @@ public class TaskBoardServiceImpl implements TaskBoardService {
     private final UserRepository userRepository;
     private final StudySessionRepository studySessionRepository;
     private final NotificationService notificationService;
+    private final RoadmapCompletionSyncService roadmapCompletionSyncService;
 
     private static final String DEFAULT_COLUMN_TODO = "To Do";
 
     @Override
     @Transactional
     public List<TaskColumnResponse> getBoard(Long userId) {
+        return getBoard(userId, null);
+    }
+
+    @Override
+    @Transactional
+    public List<TaskColumnResponse> getBoard(Long userId, Long roadmapSessionId) {
         List<TaskColumn> columns = taskColumnRepository.findByUserIdOrderByOrderIndexAsc(userId);
         if (columns.isEmpty()) {
-            // Initialize default columns if none exist
             initializeDefaultColumns(userId);
             columns = taskColumnRepository.findByUserIdOrderByOrderIndexAsc(userId);
         }
-        return columns.stream().map(this::mapToColumnResponse).collect(Collectors.toList());
+        // Load all tasks for the user and filter archived in-memory.
+        // Safe for DBs where the archived column hasn't been migrated yet.
+        // When roadmapSessionId is provided, also filter by roadmap in userNotes.
+        List<Task> allUserTasks = taskRepository.findByUserId(userId);
+        final Set<UUID> archivedTaskIds = allUserTasks.stream()
+                .filter(t -> Boolean.TRUE.equals(t.getArchived()))
+                .map(Task::getId)
+                .collect(Collectors.toSet());
+        final String roadmapMarker = roadmapSessionId != null ? "roadmap=" + roadmapSessionId : null;
+
+        return columns.stream()
+                .map(col -> {
+                    List<TaskResponse> tasks = (col.getTasks() == null ? List.<Task>of() : col.getTasks()).stream()
+                            .filter(t -> !archivedTaskIds.contains(t.getId()))
+                            .filter(t -> roadmapMarker == null || (t.getUserNotes() != null && t.getUserNotes().contains(roadmapMarker)))
+                            .map(this::mapToTaskResponse)
+                            .collect(Collectors.toList());
+                    return TaskColumnResponse.builder()
+                            .id(col.getId())
+                            .name(col.getName())
+                            .orderIndex(col.getOrderIndex())
+                            .color(col.getColor())
+                            .tasks(tasks)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Archive all tasks linked to a roadmap session.
+     * Tasks are soft-deleted (archived=true) and hidden from the board,
+     * but preserved in DB for audit/debug. Called when a roadmap is paused/cancelled.
+     */
+    @Override
+    @Transactional
+    public int archiveTasksByRoadmapSession(Long userId, Long roadmapSessionId) {
+        String marker = "roadmap=" + roadmapSessionId;
+        return taskRepository.archiveByUserNotesContaining(userId, marker);
+    }
+
+    @Override
+    @Transactional
+    public int unarchiveTasksByRoadmapSession(Long userId, Long roadmapSessionId) {
+        String marker = "roadmap=" + roadmapSessionId;
+        return taskRepository.unarchiveByUserNotesContaining(userId, marker);
     }
 
     @Override
     @Transactional
     public void checkUpcomingDeadlines(Long userId) {
-        List<Task> tasks = taskRepository.findByUserId(userId);
+        List<Task> tasks = taskRepository.findByUserId(userId).stream()
+                .filter(t -> !Boolean.TRUE.equals(t.getArchived())).collect(Collectors.toList());
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime warningThreshold = now.plusHours(24); // Notify if deadline is within 24 hours
         
@@ -132,6 +186,15 @@ public class TaskBoardServiceImpl implements TaskBoardService {
             sessions = studySessionRepository.findAllById(request.getLinkedSessionIds());
         }
 
+        // Put the new task at the end of the column
+        List<Task> existingTasks = taskRepository.findByColumnIdOrderByOrderIndexAsc(column.getId());
+        double nextOrder = 1.0;
+        if (!existingTasks.isEmpty()) {
+            Task lastTask = existingTasks.get(existingTasks.size() - 1);
+            Double lastOrder = lastTask.getOrderIndex();
+            nextOrder = (lastOrder != null ? lastOrder : existingTasks.size()) + 1.0;
+        }
+
         Task task = Task.builder()
                 .title(request.getTitle())
                 .fullDescription(request.getDescription())
@@ -140,6 +203,7 @@ public class TaskBoardServiceImpl implements TaskBoardService {
                 .deadline(request.getDeadline())
                 .priority(request.getPriority())
                 .status(column.getName()) // Sync status with column name
+                .orderIndex(nextOrder)
                 .column(column)
                 .user(user)
                 .linkedSessions(sessions)
@@ -148,7 +212,9 @@ public class TaskBoardServiceImpl implements TaskBoardService {
                 .userNotes(request.getUserNotes())
                 .build();
 
-        return mapToTaskResponse(taskRepository.save(task));
+        Task savedTask = taskRepository.save(task);
+        roadmapCompletionSyncService.syncTaskProgress(savedTask);
+        return mapToTaskResponse(savedTask);
     }
 
     @Override
@@ -180,7 +246,9 @@ public class TaskBoardServiceImpl implements TaskBoardService {
             task.setLinkedSessions(sessions);
         }
 
-        return mapToTaskResponse(taskRepository.save(task));
+        Task savedTask = taskRepository.save(task);
+        roadmapCompletionSyncService.syncTaskProgress(savedTask);
+        return mapToTaskResponse(savedTask);
     }
 
     @Override
@@ -194,9 +262,45 @@ public class TaskBoardServiceImpl implements TaskBoardService {
     public void moveTask(UUID taskId, UUID targetColumnId) {
         Task task = taskRepository.findById(taskId).orElseThrow();
         TaskColumn column = taskColumnRepository.findById(targetColumnId).orElseThrow();
+        List<Task> existingTasks = taskRepository.findByColumnIdOrderByOrderIndexAsc(column.getId());
+        double nextOrder = 1.0;
+        if (!existingTasks.isEmpty()) {
+            Task lastTask = existingTasks.get(existingTasks.size() - 1);
+            Double lastOrder = lastTask.getOrderIndex();
+            nextOrder = (lastOrder != null ? lastOrder : existingTasks.size()) + 1.0;
+        }
+
         task.setColumn(column);
         task.setStatus(column.getName());
-        taskRepository.save(task);
+        task.setOrderIndex(nextOrder);
+        Task savedTask = taskRepository.save(task);
+        roadmapCompletionSyncService.syncTaskProgress(savedTask);
+    }
+
+    @Override
+    @Transactional
+    public TaskResponse reorderTask(UUID taskId, UUID targetColumnId, Double previousOrderIndex, Double nextOrderIndex) {
+        Task task = taskRepository.findById(taskId).orElseThrow();
+        TaskColumn column = taskColumnRepository.findById(targetColumnId).orElseThrow();
+
+        double newOrderIndex;
+        if (previousOrderIndex == null && nextOrderIndex == null) {
+            newOrderIndex = 1.0;
+        } else if (previousOrderIndex == null) {
+            newOrderIndex = nextOrderIndex / 2.0;
+        } else if (nextOrderIndex == null) {
+            newOrderIndex = previousOrderIndex + 1.0;
+        } else {
+            newOrderIndex = previousOrderIndex + (nextOrderIndex - previousOrderIndex) / 2.0;
+        }
+
+        task.setColumn(column);
+        task.setStatus(column.getName());
+        task.setOrderIndex(newOrderIndex);
+        
+        Task savedTask = taskRepository.save(task);
+        roadmapCompletionSyncService.syncTaskProgress(savedTask);
+        return mapToTaskResponse(savedTask);
     }
 
     @Override
@@ -206,6 +310,7 @@ public class TaskBoardServiceImpl implements TaskBoardService {
         LocalDateTime cutoffDateTime = LocalDateTime.now().minusDays(safeOverdueDays);
 
         List<UUID> taskIdsToDelete = taskRepository.findByUserId(userId).stream()
+                .filter(t -> !Boolean.TRUE.equals(t.getArchived()))
                 .filter(task -> columnId == null || (task.getColumn() != null && columnId.equals(task.getColumn().getId())))
                 .filter(task -> task.getDeadline() != null && !task.getDeadline().isAfter(cutoffDateTime))
                 .filter(task -> task.getUserProgress() == null || task.getUserProgress() < 100)
@@ -224,7 +329,8 @@ public class TaskBoardServiceImpl implements TaskBoardService {
     @Override
     @Transactional
     public void checkOverdueTasks(Long userId) {
-        List<Task> tasks = taskRepository.findByUserId(userId);
+        List<Task> tasks = taskRepository.findByUserId(userId).stream()
+                .filter(t -> !Boolean.TRUE.equals(t.getArchived())).collect(Collectors.toList());
         // Find or create Overdue column
         List<TaskColumn> columns = taskColumnRepository.findByUserIdOrderByOrderIndexAsc(userId);
         TaskColumn overdueColumn = columns.stream()
@@ -258,15 +364,12 @@ public class TaskBoardServiceImpl implements TaskBoardService {
     }
 
     private TaskColumnResponse mapToColumnResponse(TaskColumn column) {
-        List<TaskResponse> taskResponses = column.getTasks() == null ? new ArrayList<>() : 
-                column.getTasks().stream().map(this::mapToTaskResponse).collect(Collectors.toList());
-        
         return TaskColumnResponse.builder()
                 .id(column.getId())
                 .name(column.getName())
                 .orderIndex(column.getOrderIndex())
                 .color(column.getColor())
-                .tasks(taskResponses)
+                .tasks(List.of())
                 .build();
     }
 
@@ -283,6 +386,7 @@ public class TaskBoardServiceImpl implements TaskBoardService {
                 .deadline(task.getDeadline())
                 .priority(task.getPriority())
                 .status(task.getStatus())
+                .orderIndex(task.getOrderIndex())
                 .columnId(task.getColumn().getId())
                 .userProgress(task.getUserProgress())
                 .satisfactionLevel(task.getSatisfactionLevel())

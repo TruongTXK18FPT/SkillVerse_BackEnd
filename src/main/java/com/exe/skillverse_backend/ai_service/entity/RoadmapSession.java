@@ -10,6 +10,8 @@ import java.util.List;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -153,6 +155,24 @@ public class RoadmapSession {
     @Builder.Default
     @Column(name = "is_premium_generated", nullable = false)
     private Boolean isPremiumGenerated = false;
+
+    /**
+     * Roadmap lifecycle status: ACTIVE (currently learning), PAUSED, DELETED (soft)
+     * Only ONE roadmap per user can be ACTIVE at a time.
+     */
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 20, nullable = false)
+    private RoadmapStatus status = RoadmapStatus.ACTIVE;
+
+    /**
+     * Roadmap lifecycle status enum
+     */
+    public enum RoadmapStatus {
+        ACTIVE,
+        PAUSED,
+        DELETED
+    }
 
     /**
      * Generated roadmap as JSON (tree structure with nodes)

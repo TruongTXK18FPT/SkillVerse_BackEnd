@@ -67,6 +67,10 @@ env:
   # Remove.bg Configuration
   REMOVE_BG_API_KEY: ${{ secrets.REMOVE_BG_API_KEY }}
 
+  # Firebase Cloud Messaging Configuration
+  FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+  FIREBASE_CREDENTIALS_JSON_BASE64: ${{ secrets.FIREBASE_CREDENTIALS_JSON_BASE64 }}
+
 jobs:
   # Job 1: Code Quality & Testing
   quality-check:
@@ -431,6 +435,8 @@ jobs:
             -e CLOUDINARY_URL="${CLOUDINARY_URL}" \
             -e REMOVE_BG_API_KEY="${REMOVE_BG_API_KEY}" \
             -e AI_SEARCH_KEY="${AI_SEARCH_KEY}" \
+            -e FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID}" \
+            -e FIREBASE_CREDENTIALS_JSON_BASE64="${FIREBASE_CREDENTIALS_JSON_BASE64}" \
             skillverse-backend:${{ github.sha }}
             
           echo "⏳ Waiting for application to start..."
@@ -551,6 +557,8 @@ jobs:
           echo "CLOUDINARY_URL='${{ secrets.CLOUDINARY_URL }}'" >> .env
           echo "REMOVE_BG_API_KEY='${{ secrets.REMOVE_BG_API_KEY }}'" >> .env
           echo "AI_SEARCH_KEY='${{ secrets.AI_SEARCH_KEY }}'" >> .env
+          echo "FIREBASE_PROJECT_ID='${{ secrets.FIREBASE_PROJECT_ID }}'" >> .env
+          echo "FIREBASE_CREDENTIALS_JSON_BASE64='${{ secrets.FIREBASE_CREDENTIALS_JSON_BASE64 }}'" >> .env
 
           # Debug: Verify critical secrets are set (without exposing values)
           echo "🔍 Verifying critical environment variables..."
@@ -666,6 +674,8 @@ jobs:
               -e PAYOS_CLIENT_ID="$PAYOS_CLIENT_ID" \
               -e PAYOS_API_KEY="$PAYOS_API_KEY" \
               -e PAYOS_CHECKSUM_KEY="$PAYOS_CHECKSUM_KEY" \
+              -e FIREBASE_PROJECT_ID="$FIREBASE_PROJECT_ID" \
+              -e FIREBASE_CREDENTIALS_JSON_BASE64="$FIREBASE_CREDENTIALS_JSON_BASE64" \
               skillverse-backend:v1
             
             echo "⏳ Waiting for backend to start..."

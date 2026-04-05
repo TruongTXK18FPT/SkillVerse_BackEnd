@@ -8,6 +8,7 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -56,4 +57,8 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
      */
     @Query("SELECT j FROM Journey j WHERE j.user = :user AND j.status IN ('ACTIVE', 'STUDY_PLAN_IN_PROGRESS') AND j.lastActivityAt < :since")
     List<Journey> findInactiveJourneys(@Param("user") User user, @Param("since") Instant since);
+
+    @Modifying
+    @Query("UPDATE Journey j SET j.roadmapSessionId = null WHERE j.roadmapSessionId = :roadmapSessionId")
+    int clearRoadmapSessionId(@Param("roadmapSessionId") Long roadmapSessionId);
 }

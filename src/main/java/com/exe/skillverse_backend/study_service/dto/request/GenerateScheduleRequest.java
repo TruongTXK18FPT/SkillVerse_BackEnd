@@ -30,4 +30,11 @@ public class GenerateScheduleRequest {
     private Integer maxDailyStudyMinutes; // e.g. 240
     private String chronotype; // e.g. "lark","owl","neutral"
     private List<String> idealFocusWindows; // e.g. ["07:00-10:00","19:00-21:00"]
+
+    /**
+     * Titles of child branch nodes to include in the study plan.
+     * When present, the AI will also generate sessions for child topics
+     * beyond the primary node's scope (GAP-6 fix).
+     */
+    private List<String> childBranchTitles;
 }

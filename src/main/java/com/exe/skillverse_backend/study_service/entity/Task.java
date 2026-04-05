@@ -48,6 +48,9 @@ public class Task {
     @Enumerated(EnumType.STRING)
     private TaskPriority priority;
 
+    @Column(name = "order_index")
+    private Double orderIndex;
+
     // This field can be used for simple status tracking or synced with column name
     private String status; 
 
@@ -70,4 +73,17 @@ public class Task {
         inverseJoinColumns = @JoinColumn(name = "session_id")
     )
     private List<StudySession> linkedSessions;
+
+    /**
+     * Soft-archive flag. Archived tasks are hidden from the board by default
+     * but preserved in the database for audit/debug. When a roadmap is paused or
+     * cancelled, all its linked tasks are automatically archived so they no longer
+     * clutter the task board.
+     *
+     * Using Boolean (nullable) so Hibernate gracefully handles the column not existing
+     * in the database yet (before migration runs). In code, null or false = not archived.
+     */
+    @jakarta.persistence.Column(nullable = true)
+    @Builder.Default
+    private Boolean archived = false;
 }

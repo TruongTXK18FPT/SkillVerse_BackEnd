@@ -9,14 +9,18 @@ import com.exe.skillverse_backend.meowl_chat_service.repository.MeowlChatMessage
 import com.exe.skillverse_backend.meowl_chat_service.service.MeowlChatService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.text.Normalizer;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +54,64 @@ public class MeowlChatServiceImpl implements MeowlChatService {
     private final MistralAiChatModel mistralAiChatModel;
     private final MeowlChatMessageRepository chatMessageRepository;
     private final MeowlRoleGuidanceService roleGuidanceService;
+
+    private static final String CONTEXT_START_TOKEN = "[SKILLVERSE_CONTEXT]";
+    private static final String CONTEXT_END_TOKEN = "[END_SKILLVERSE_CONTEXT]";
+    private static final Pattern CONTEXT_MODE_PATTERN = Pattern.compile("(?m)^mode\\s*=\\s*([A-Z_]+)\\s*$");
+    private static final Pattern PLATFORM_ROUTE_PATTERN = Pattern.compile(
+            "/(premium|login|dashboard|profile|chatbot|courses|portfolio|about|mentorship|business)",
+            Pattern.CASE_INSENSITIVE);
+    private static final Set<String> CONTEXT_LOCKED_NODE_MODES = Set.of(
+            "MODE_ROADMAP_OVERVIEW",
+            "MODE_FALLBACK_TEACHER");
+
+    private static final class ContextEnvelopeMetadata {
+        private final String mode;
+        private final boolean contextLockedRoadmapNodeTurn;
+
+        private ContextEnvelopeMetadata(String mode, boolean contextLockedRoadmapNodeTurn) {
+            this.mode = mode;
+            this.contextLockedRoadmapNodeTurn = contextLockedRoadmapNodeTurn;
+        }
+
+        private static ContextEnvelopeMetadata none() {
+            return new ContextEnvelopeMetadata(null, false);
+        }
+
+        private String mode() {
+            return mode;
+        }
+
+        private boolean isContextLockedRoadmapNodeTurn() {
+            return contextLockedRoadmapNodeTurn;
+        }
+    }
+
+    private boolean isRateLimitLikeError(Throwable error) {
+        if (error == null) {
+            return false;
+        }
+
+        String message = sanitizeProviderErrorMessage(error).toLowerCase(Locale.ROOT);
+        return message.contains("429")
+                || message.contains("too many requests")
+                || message.contains("rate limit")
+                || message.contains("resource_exhausted")
+                || message.contains("quota");
+    }
+
+    private String sanitizeProviderErrorMessage(Throwable error) {
+        if (error == null) {
+            return "unknown provider error";
+        }
+
+        String message = error.getMessage();
+        if (message == null || message.isBlank()) {
+            return error.getClass().getSimpleName();
+        }
+
+        return message.replaceAll("\\s+", " ").trim();
+    }
 
     // System prompts with developer guard
     private static final Map<String, String> SYSTEM_PROMPTS = new HashMap<>();
@@ -295,6 +357,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
             MeowlRoleGuidanceService.RoleGuidanceContext guidanceContext =
                     roleGuidanceService.resolveContext(userId, language, request.getActiveRole());
             String activeRole = guidanceContext.getActiveRole().name();
+                ContextEnvelopeMetadata envelopeMetadata = parseContextEnvelopeMetadata(request.getMessage());
 
             // Save user message to DB for persistence
             if (userId != null) {
@@ -303,7 +366,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
             }
 
             // Build the prompt with system context
-            String fullPrompt = buildPrompt(request, language, guidanceContext.getPromptSection());
+            String fullPrompt = buildPrompt(request, language, guidanceContext.getPromptSection(), envelopeMetadata);
 
             // Try Gemini API first
             String aiResponse;
@@ -314,7 +377,12 @@ public class MeowlChatServiceImpl implements MeowlChatService {
                 aiResponse = callGeminiApi(fullPrompt);
                 log.info("Successfully got response from Gemini API");
             } catch (Exception geminiError) {
-                log.warn("Gemini API failed, falling back to Mistral: {}", geminiError.getMessage());
+                String geminiMessage = sanitizeProviderErrorMessage(geminiError);
+                if (isRateLimitLikeError(geminiError)) {
+                    log.info("Gemini API rate limited for Meowl chat, falling back to Mistral: {}", geminiMessage);
+                } else {
+                    log.warn("Gemini API failed for Meowl chat, falling back to Mistral: {}", geminiMessage);
+                }
 
                 // Fallback to Mistral
                 try {
@@ -324,13 +392,16 @@ public class MeowlChatServiceImpl implements MeowlChatService {
                     log.info("Successfully got response from Mistral API (fallback)");
                 } catch (Exception mistralError) {
                     log.error("Both Gemini and Mistral APIs failed", mistralError);
-                    throw new RuntimeException("All AI providers failed: Gemini - " + geminiError.getMessage() +
-                            ", Mistral - " + mistralError.getMessage());
+                    throw new RuntimeException("All AI providers failed: Gemini - " + geminiMessage +
+                            ", Mistral - " + sanitizeProviderErrorMessage(mistralError));
                 }
             }
 
             // Make response cute
             String cuteResponse = makeCuteResponse(aiResponse, language);
+            if (envelopeMetadata.isContextLockedRoadmapNodeTurn()) {
+                cuteResponse = sanitizeContextLockedNodeResponse(cuteResponse, language);
+            }
             
             // Save assistant response to DB
             if (userId != null) {
@@ -361,7 +432,11 @@ public class MeowlChatServiceImpl implements MeowlChatService {
                     .activeRole(activeRole)
                     .nextBestAction(guidanceContext.getNextBestAction());
 
-            determineAction(cuteResponse, language, responseBuilder);
+            if (envelopeMetadata.isContextLockedRoadmapNodeTurn()) {
+                responseBuilder.actionType("NONE");
+            } else {
+                determineAction(cuteResponse, language, responseBuilder);
+            }
 
             return responseBuilder.build();
 
@@ -380,10 +455,134 @@ public class MeowlChatServiceImpl implements MeowlChatService {
         }
     }
 
+    private ContextEnvelopeMetadata parseContextEnvelopeMetadata(String message) {
+        if (message == null || message.isBlank()) {
+            return ContextEnvelopeMetadata.none();
+        }
+
+        int startIndex = message.indexOf(CONTEXT_START_TOKEN);
+        int endIndex = message.indexOf(CONTEXT_END_TOKEN);
+        if (startIndex < 0 || endIndex <= startIndex) {
+            return ContextEnvelopeMetadata.none();
+        }
+
+        String envelopeBody = message.substring(startIndex, endIndex);
+        Matcher modeMatcher = CONTEXT_MODE_PATTERN.matcher(envelopeBody);
+        if (!modeMatcher.find()) {
+            return new ContextEnvelopeMetadata(null, false);
+        }
+
+        String mode = modeMatcher.group(1);
+        boolean contextLockedRoadmapNodeTurn = CONTEXT_LOCKED_NODE_MODES.contains(mode);
+        return new ContextEnvelopeMetadata(mode, contextLockedRoadmapNodeTurn);
+    }
+
+    private String buildContextLockedNodeGuidance(String language, String mode) {
+        boolean isVi = "vi".equals(language);
+        String resolvedMode = mode != null ? mode : "MODE_ROADMAP_OVERVIEW";
+
+        if (isVi) {
+            return """
+                    === CONTEXT-LOCKED ROADMAP NODE TUTORING (OVERRIDE) ===
+                    Turn hiện tại có envelope context-locked cho roadmap node mode: %s.
+                    Quy tắc bắt buộc cho turn này:
+                    - Chỉ dạy đúng node hiện tại theo mini-lesson: node là gì, vì sao quan trọng lúc này, ví dụ ngắn, và một bước hành động tiếp theo.
+                    - Không chuyển sang hướng dẫn nền tảng SkillVerse trừ khi user hỏi trực tiếp.
+                    - Không nhắc đăng nhập, không nhắc nâng cấp premium, không kêu gọi điều hướng/CTA nền tảng trong nội dung trả lời.
+                    - Quy tắc override: context-locked roadmap tutoring luôn ưu tiên hơn generic onboarding/platform guidance trong turn này.
+                    """.formatted(resolvedMode);
+        }
+
+        return """
+                === CONTEXT-LOCKED ROADMAP NODE TUTORING (OVERRIDE) ===
+                Current turn includes a context-locked roadmap-node envelope mode: %s.
+                Mandatory rules for this turn:
+                - Teach only the current node in mini-lesson style: what it is, why it matters now, one short example, and one concrete next action.
+                - Do not drift into generic SkillVerse platform guidance unless the user explicitly asks for it.
+                - Do not mention login prompts, premium upgrades, or platform navigation CTA in the answer text.
+                - Override rule: context-locked roadmap tutoring takes priority over generic onboarding/platform guidance for this turn.
+                """.formatted(resolvedMode);
+    }
+
+    private String sanitizeContextLockedNodeResponse(String response, String language) {
+        if (response == null || response.isBlank()) {
+            return buildContextLockedFallback(language);
+        }
+
+        String[] lines = response.split("\\r?\\n");
+        List<String> filteredLines = new ArrayList<>();
+        for (String line : lines) {
+            if (containsPlatformDriftHint(line)) {
+                continue;
+            }
+            filteredLines.add(line);
+        }
+
+        String sanitized = filteredLines.stream()
+                .collect(Collectors.joining("\n"))
+                .replaceAll("(?m)^[ \\t]*\\r?\\n", "")
+                .trim();
+
+        if (sanitized.isBlank()) {
+            return buildContextLockedFallback(language);
+        }
+
+        return sanitized;
+    }
+
+    private boolean containsPlatformDriftHint(String line) {
+        if (line == null || line.isBlank()) {
+            return false;
+        }
+
+        if (PLATFORM_ROUTE_PATTERN.matcher(line).find()) {
+            return true;
+        }
+
+        String normalized = normalizeForDriftMatch(line);
+        return normalized.contains("dang nhap")
+                || normalized.contains("login")
+                || normalized.contains("sign in")
+                || normalized.contains("premium")
+                || normalized.contains("nang cap")
+                || normalized.contains("goi premium")
+                || normalized.contains("goi hien tai")
+                || normalized.contains("free tier")
+                || normalized.contains("career chat")
+                || normalized.contains("expert chat")
+                || normalized.contains("skillverse")
+                || normalized.contains("cta")
+                || normalized.contains("faq");
+    }
+
+    private String normalizeForDriftMatch(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        return Normalizer.normalize(value, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private String buildContextLockedFallback(String language) {
+        if ("vi".equals(language)) {
+            return "Mình sẽ bám đúng node hiện tại để dạy ngắn gọn: node này là gì, vì sao quan trọng lúc này, một ví dụ nhỏ, và một bước tiếp theo cụ thể để bạn làm ngay.";
+        }
+
+        return "I will stay anchored to the current node with a compact mini-lesson: what it is, why it matters now, one short example, and one concrete next step you can do right away.";
+    }
+
     /**
      * Build the full prompt with system instructions and chat history
      */
-    private String buildPrompt(MeowlChatRequest request, String language, String rolePromptSection) {
+    private String buildPrompt(
+            MeowlChatRequest request,
+            String language,
+            String rolePromptSection,
+            ContextEnvelopeMetadata envelopeMetadata) {
         StringBuilder prompt = new StringBuilder();
 
         // Add system prompt
@@ -392,8 +591,10 @@ public class MeowlChatServiceImpl implements MeowlChatService {
         // Add developer guard
         prompt.append(DEV_GUARDS.get(language)).append("\n\n");
 
-        // Add role-aware guidance section
-        if (rolePromptSection != null && !rolePromptSection.isBlank()) {
+        // Add role-aware guidance section (overridden by context-locked node tutoring when needed)
+        if (envelopeMetadata.isContextLockedRoadmapNodeTurn()) {
+            prompt.append(buildContextLockedNodeGuidance(language, envelopeMetadata.mode())).append("\n\n");
+        } else if (rolePromptSection != null && !rolePromptSection.isBlank()) {
             prompt.append(rolePromptSection).append("\n\n");
         }
 
@@ -539,7 +740,11 @@ public class MeowlChatServiceImpl implements MeowlChatService {
                     // Check for error in response
                     if (root.has("error")) {
                         String errorMsg = root.path("error").path("message").asText();
-                        log.error("Gemini API error: {}", errorMsg);
+                        if (isRateLimitLikeError(new RuntimeException(errorMsg))) {
+                            log.info("Gemini API rate limit response received: {}", errorMsg);
+                        } else {
+                            log.warn("Gemini API returned recoverable error: {}", errorMsg);
+                        }
                         throw new RuntimeException("Gemini API error: " + errorMsg);
                     }
 
@@ -563,30 +768,35 @@ public class MeowlChatServiceImpl implements MeowlChatService {
 
                         // If MAX_TOKENS but no text generated, provide helpful error
                         if ("MAX_TOKENS".equals(finishReason)) {
-                            log.error("Gemini hit MAX_TOKENS before generating any text. Prompt tokens: {}",
+                            log.warn("Gemini hit MAX_TOKENS before generating any text. Prompt tokens: {}",
                                     root.path("usageMetadata").path("promptTokenCount").asInt());
                             throw new RuntimeException(
                                     "Response generation failed: token limit reached before generating text. Consider reducing prompt size or increasing maxOutputTokens.");
                         }
                     }
 
-                    log.error("Failed to extract text from Gemini response. Response structure: {}",
+                    log.warn("Failed to extract text from Gemini response. Response structure: {}",
                             root.toPrettyString());
                     throw new RuntimeException("No valid text found in Gemini API response");
 
                 } catch (Exception parseEx) {
-                    log.error("Failed to parse Gemini API response: {}", responseBody, parseEx);
+                    log.warn("Failed to parse Gemini API response: {}", sanitizeProviderErrorMessage(parseEx));
                     throw new RuntimeException("Failed to parse Gemini API response: " + parseEx.getMessage());
                 }
             }
 
-            log.error("Invalid response from Gemini API. Status: {}, Body: {}",
+            log.warn("Invalid response from Gemini API. Status: {}, Body: {}",
                     response.getStatusCode(), response.getBody());
             throw new RuntimeException("Failed to get valid response from Gemini API");
 
         } catch (Exception e) {
-            log.error("Error calling Gemini API: ", e);
-            throw new RuntimeException("Failed to call Gemini API", e);
+            String providerMessage = sanitizeProviderErrorMessage(e);
+            if (isRateLimitLikeError(e)) {
+                log.info("Gemini API request throttled: {}", providerMessage);
+            } else {
+                log.warn("Error calling Gemini API: {}", providerMessage);
+            }
+            throw new RuntimeException("Failed to call Gemini API: " + providerMessage, e);
         }
     }
 

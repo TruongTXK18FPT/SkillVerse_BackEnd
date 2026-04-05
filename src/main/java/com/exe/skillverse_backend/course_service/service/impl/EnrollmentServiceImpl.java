@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.course_service.service.impl;
 
+import com.exe.skillverse_backend.ai_service.service.RoadmapCompletionSyncService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollRequestDTO;
@@ -37,6 +38,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     private final CourseRepository courseRepository;
     private final UserRepository userRepository;
     private final Clock clock;
+    private final RoadmapCompletionSyncService roadmapCompletionSyncService;
 
     // Constants for error messages
     private static final String COURSE_NOT_FOUND = "COURSE_NOT_FOUND";
@@ -158,6 +160,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
 
         enrollmentRepository.save(enrollment);
         log.info("Updated completion status for user {} in course {} to {}", userId, courseId, completed);
+        roadmapCompletionSyncService.syncCourseProgress(userId, courseId);
     }
 
     @Override
@@ -179,6 +182,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
 
         enrollmentRepository.save(enrollment);
         log.info("Updated progress for user {} in course {} to {}%", userId, courseId, progressPercentage);
+        roadmapCompletionSyncService.syncCourseProgress(userId, courseId);
     }
 
     @Override

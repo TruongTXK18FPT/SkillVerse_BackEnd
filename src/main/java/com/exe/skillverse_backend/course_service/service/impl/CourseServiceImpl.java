@@ -212,6 +212,23 @@ public class CourseServiceImpl implements CourseService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<CourseDetailDTO> getCoursesByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return Collections.emptyList();
+        }
+        // Only return PUBLIC courses for batch fetch (public-facing endpoint)
+        List<Course> courses = courseRepository.findByIdInAndStatus(ids, CourseStatus.PUBLIC);
+        return courses.stream()
+                .map(course -> {
+                    CourseDetailDTO dto = courseMapper.toDetailDto(course);
+                    applyRevisionToDetail(dto, loadActiveRevisionForReadPath(course));
+                    return dto;
+                })
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public PageResponse<CourseSummaryDTO> listCourses(String q, CourseStatus status, Pageable pageable) {
         log.debug("Listing courses with query '{}', status '{}', page {}", q, status, pageable.getPageNumber());
 

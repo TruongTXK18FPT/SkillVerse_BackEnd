@@ -45,6 +45,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestClient;
 
+import com.exe.skillverse_backend.shared.exception.ApiException;
+import com.exe.skillverse_backend.shared.exception.ErrorCode;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -114,7 +117,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
 
     private List<StudySessionResponse> parseResponse(String response) {
         String cleaned = response.trim();
-        
+
         // Remove markdown code blocks
         if (cleaned.startsWith("```")) {
             int newlineIndex = cleaned.indexOf("\n");
@@ -125,20 +128,20 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                  cleaned = cleaned.substring(3);
             }
         }
-        
+
         if (cleaned.endsWith("```")) {
             cleaned = cleaned.substring(0, cleaned.length() - 3);
         }
-        
+
         cleaned = cleaned.trim();
-        
+
         try {
             return objectMapper.readValue(cleaned, new TypeReference<List<StudySessionResponse>>() {});
         } catch (JsonProcessingException e) {
-            log.error("Error parsing AI response (standard): {}", response);
-            
+            log.warn("Error parsing AI response (standard attempt): {}", e.getMessage());
+
+            // Fallback 1: Try with lenient mapper
             try {
-                // Configure extremely lenient mapper
                 ObjectMapper lenientMapper = new ObjectMapper();
                 lenientMapper.configure(JsonReadFeature.ALLOW_BACKSLASH_ESCAPING_ANY_CHARACTER.mappedFeature(), true);
                 lenientMapper.configure(JsonReadFeature.ALLOW_UNQUOTED_FIELD_NAMES.mappedFeature(), true);
@@ -148,23 +151,69 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 lenientMapper.configure(JsonReadFeature.ALLOW_JAVA_COMMENTS.mappedFeature(), true);
                 lenientMapper.configure(JsonReadFeature.ALLOW_TRAILING_COMMA.mappedFeature(), true);
                 lenientMapper.findAndRegisterModules();
-                
+
                 return lenientMapper.readValue(cleaned, new TypeReference<List<StudySessionResponse>>() {});
             } catch (Exception ex) {
-                 log.error("Fallback parsing failed", ex);
-                 // Last resort: Try to sanitize backslashes manually if it's the specific error
-                 if (ex.getMessage().contains("Unexpected character ('\\'")) {
-                     try {
-                         String sanitized = cleaned.replace("\\", "\\\\");
-                         return objectMapper.readValue(sanitized, new TypeReference<List<StudySessionResponse>>() {});
-                     } catch (Exception ex2) {
-                         log.error("Double fallback failed", ex2);
-                     }
-                 }
+                log.warn("Fallback parsing attempt failed: {}", ex.getMessage());
+
+                // Fallback 2: Sanitize raw control characters in JSON strings
+                // JSON spec requires newlines, tabs, carriage returns inside strings to be escaped as \n, \t, \r
+                // But Mistral AI sometimes outputs raw control characters in description fields
+                try {
+                    String sanitized = sanitizeJsonControlCharacters(cleaned);
+                    return objectMapper.readValue(sanitized, new TypeReference<List<StudySessionResponse>>() {});
+                } catch (Exception ex2) {
+                    log.error("All parsing fallbacks failed. Last error: {}", ex2.getMessage());
+                    // Log a snippet of the response for debugging
+                    String snippet = cleaned.length() > 500 ? cleaned.substring(0, 500) + "..." : cleaned;
+                    log.error("AI Response snippet (first 500 chars): {}", snippet);
+                }
             }
-            
+
             throw new RuntimeException("Failed to parse AI schedule");
         }
+    }
+
+    /**
+     * Sanitizes raw control characters (newline, tab, carriage return, etc.)
+     * that Mistral AI sometimes outputs inside JSON string values.
+     * These must be escaped as \n, \t, \r inside JSON strings.
+     */
+    private String sanitizeJsonControlCharacters(String json) {
+        StringBuilder result = new StringBuilder(json.length());
+        boolean inString = false;
+        char[] chars = json.toCharArray();
+
+        for (int i = 0; i < chars.length; i++) {
+            char c = chars[i];
+
+            if (c == '"' && (i == 0 || chars[i - 1] != '\\')) {
+                // Track if we're inside a string (flip on unescaped quote)
+                inString = !inString;
+                result.append(c);
+            } else if (inString) {
+                // We're inside a JSON string value - sanitize control characters
+                switch (c) {
+                    case '\n': result.append("\\n"); break;
+                    case '\r': result.append("\\r"); break;
+                    case '\t': result.append("\\t"); break;
+                    case '\f': result.append("\\f"); break;
+                    case '\b': result.append("\\b"); break;
+                    // Escape any other control chars (code 0-31 except \t\n\r)
+                    default:
+                        if (c < 32) {
+                            result.append(String.format("\\u%04x", (int) c));
+                        } else {
+                            result.append(c);
+                        }
+                        break;
+                }
+            } else {
+                result.append(c);
+            }
+        }
+
+        return result.toString();
     }
 
     private String getPromptText(GenerateScheduleRequest request) {
@@ -255,7 +304,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         // Check for Free Tier or No Subscription
         if (subscription == null || 
             (subscription.getPlan() != null && subscription.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER)) {
-            throw new RuntimeException("Tính năng AI Study Planner chỉ dành cho gói Premium (Skill-Plus, Student, Mentor-Pro). Vui lòng nâng cấp gói.");
+            throw new ApiException(ErrorCode.FORBIDDEN, "Tính năng AI Study Planner chỉ dành cho gói Premium (Skill-Plus, Student, Mentor-Pro). Vui lòng nâng cấp gói.");
         }
 
         String modelToUse = "mistral-small-latest"; // Default

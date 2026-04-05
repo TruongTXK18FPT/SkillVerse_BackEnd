@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -36,8 +37,25 @@ public class TaskBoardController {
     }
 
     @GetMapping
-    public ResponseEntity<List<TaskColumnResponse>> getBoard(Authentication authentication) {
+    public ResponseEntity<List<TaskColumnResponse>> getBoard(
+            @RequestParam(required = false) Long roadmapSessionId,
+            Authentication authentication) {
+        if (roadmapSessionId != null) {
+            return ResponseEntity.ok(taskBoardService.getBoard(getUserId(authentication), roadmapSessionId));
+        }
         return ResponseEntity.ok(taskBoardService.getBoard(getUserId(authentication)));
+    }
+
+    @PostMapping("/archive-roadmap/{roadmapSessionId}")
+    public ResponseEntity<java.util.Map<String, Object>> archiveRoadmapTasks(
+            @PathVariable Long roadmapSessionId,
+            Authentication authentication) {
+        int archived = taskBoardService.archiveTasksByRoadmapSession(getUserId(authentication), roadmapSessionId);
+        return ResponseEntity.ok(java.util.Map.of(
+                "archivedCount", archived,
+                "roadmapSessionId", roadmapSessionId,
+                "message", "Đã ẩn " + archived + " task của roadmap."
+        ));
     }
 
     @PostMapping("/columns")
@@ -93,7 +111,15 @@ public class TaskBoardController {
         taskBoardService.moveTask(taskId, targetColumnId);
         return ResponseEntity.ok().build();
     }
-
+    @PutMapping("/tasks/{taskId}/reorder")
+    public ResponseEntity<TaskResponse> reorderTask(
+            @PathVariable UUID taskId,
+            @RequestParam UUID targetColumnId,
+            @RequestParam(required = false) Double previousOrderIndex,
+            @RequestParam(required = false) Double nextOrderIndex) {
+        TaskResponse response = taskBoardService.reorderTask(taskId, targetColumnId, previousOrderIndex, nextOrderIndex);
+        return ResponseEntity.ok(response);
+    }
     @PostMapping("/check-overdue")
     public ResponseEntity<Void> checkOverdueTasks(Authentication authentication) {
         taskBoardService.checkOverdueTasks(getUserId(authentication));

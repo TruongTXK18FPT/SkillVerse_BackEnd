@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.course_service.service;
 
+import com.exe.skillverse_backend.ai_service.service.RoadmapCompletionSyncService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollRequestDTO;
@@ -56,13 +57,21 @@ class EnrollmentServiceImplTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private RoadmapCompletionSyncService roadmapCompletionSyncService;
+
     private EnrollmentServiceImpl service;
 
     private final Clock fixedClock = Clock.fixed(Instant.parse("2026-04-03T08:15:30Z"), ZoneOffset.UTC);
 
     @BeforeEach
     void setUp() {
-        service = new EnrollmentServiceImpl(enrollmentRepository, courseRepository, userRepository, fixedClock);
+        service = new EnrollmentServiceImpl(
+                enrollmentRepository,
+                courseRepository,
+                userRepository,
+                fixedClock,
+                roadmapCompletionSyncService);
         lenient().when(enrollmentRepository.save(any(CourseEnrollment.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 

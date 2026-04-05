@@ -269,6 +269,13 @@ app:
         batch-size: ${APP_COURSE_REVISION_LEARNING_REVISION_BACKFILL_BATCH_SIZE:1000}
         max-batches-per-run: ${APP_COURSE_REVISION_LEARNING_REVISION_BACKFILL_MAX_BATCHES_PER_RUN:3}
         fixed-delay-ms: ${APP_COURSE_REVISION_LEARNING_REVISION_BACKFILL_FIXED_DELAY_MS:60000}
-    quiz-attempt-session:
-      enabled: ${APP_COURSE_QUIZ_ATTEMPT_SESSION_ENABLED:true}
-      ttl-minutes: ${APP_COURSE_QUIZ_ATTEMPT_SESSION_TTL_MINUTES:30}
+
+quiz-attempt-session:
+  enabled: ${APP_COURSE_QUIZ_ATTEMPT_SESSION_ENABLED:true}
+
+# Firebase Configuration (FCM for Mobile Push Notifications)
+firebase:
+  project-id: ${FIREBASE_PROJECT_ID:skillverse-app}
+  credentials:
+    json-base64: ${FIREBASE_CREDENTIALS_JSON_BASE64:}
+  ttl-minutes: ${APP_COURSE_QUIZ_ATTEMPT_SESSION_TTL_MINUTES:30}

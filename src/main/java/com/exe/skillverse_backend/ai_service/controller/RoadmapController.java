@@ -30,9 +30,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -301,15 +303,47 @@ public class RoadmapController {
                         @ApiResponse(responseCode = "200", description = "Lấy danh sách lộ trình thành công"),
                         @ApiResponse(responseCode = "401", description = "Chưa xác thực")
         })
-        public ResponseEntity<List<RoadmapSessionSummary>> getUserRoadmaps(Authentication authentication) {
+        public ResponseEntity<List<RoadmapSessionSummary>> getUserRoadmaps(
+                        Authentication authentication,
+                        @RequestParam(defaultValue = "false") boolean includeDeleted) {
                 Jwt jwt = (Jwt) authentication.getPrincipal();
                 Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
 
-                log.info("Fetching roadmaps for user {}", userId);
+                log.info("Fetching roadmaps for user {} (includeDeleted={})", userId, includeDeleted);
 
-                List<RoadmapSessionSummary> roadmaps = aiRoadmapService.getUserRoadmaps(userId);
+                List<RoadmapSessionSummary> roadmaps = aiRoadmapService.getUserRoadmaps(userId, includeDeleted);
 
                 return ResponseEntity.ok(roadmaps);
+        }
+
+        @GetMapping("/deleted")
+        @Operation(summary = "Get User Deleted Roadmaps", description = "Retrieve only soft-deleted roadmap sessions for the current user")
+        @ApiResponses({
+                        @ApiResponse(responseCode = "200", description = "Lấy danh sách roadmap đã xóa mềm thành công"),
+                        @ApiResponse(responseCode = "401", description = "Chưa xác thực")
+        })
+        public ResponseEntity<List<RoadmapSessionSummary>> getUserDeletedRoadmaps(Authentication authentication) {
+                Jwt jwt = (Jwt) authentication.getPrincipal();
+                Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+                log.info("Fetching deleted roadmaps for user {}", userId);
+                List<RoadmapSessionSummary> roadmaps = aiRoadmapService.getUserDeletedRoadmaps(userId);
+
+                return ResponseEntity.ok(roadmaps);
+        }
+
+        @GetMapping("/status-counts")
+        @Operation(summary = "Get User Roadmap Status Counts", description = "Retrieve aggregated roadmap counts by lifecycle status for current user")
+        @ApiResponses({
+                        @ApiResponse(responseCode = "200", description = "Lấy số lượng roadmap theo trạng thái thành công"),
+                        @ApiResponse(responseCode = "401", description = "Chưa xác thực")
+        })
+        public ResponseEntity<Map<String, Long>> getUserRoadmapStatusCounts(Authentication authentication) {
+                Jwt jwt = (Jwt) authentication.getPrincipal();
+                Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+                Map<String, Long> counts = aiRoadmapService.getUserRoadmapStatusCounts(userId);
+                return ResponseEntity.ok(counts);
         }
 
         /**
@@ -370,5 +404,80 @@ public class RoadmapController {
                 ProgressResponse response = aiRoadmapService.updateProgress(sessionId, userId, request);
 
                 return ResponseEntity.ok(response);
+        }
+
+        // =========================================================================
+        // Roadmap Lifecycle Management: Activate, Pause, Delete
+        // =========================================================================
+
+        @PutMapping("/{sessionId}/activate")
+        @Operation(summary = "Activate a roadmap", description = "Set a roadmap as ACTIVE (pauses all other ACTIVE roadmaps for the user)")
+        @ApiResponses({
+                        @ApiResponse(responseCode = "200", description = "Roadmap activated"),
+                        @ApiResponse(responseCode = "404", description = "Roadmap not found"),
+                        @ApiResponse(responseCode = "400", description = "Cannot activate deleted roadmap")
+        })
+        public ResponseEntity<Void> activateRoadmap(
+                        @PathVariable Long sessionId,
+                        Authentication authentication) {
+
+                Jwt jwt = (Jwt) authentication.getPrincipal();
+                Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+                aiRoadmapService.activateRoadmap(sessionId, userId);
+                return ResponseEntity.ok().build();
+        }
+
+        @PutMapping("/{sessionId}/pause")
+        @Operation(summary = "Pause a roadmap", description = "Set a roadmap to PAUSED status")
+        @ApiResponses({
+                        @ApiResponse(responseCode = "200", description = "Roadmap paused"),
+                        @ApiResponse(responseCode = "404", description = "Roadmap not found"),
+                        @ApiResponse(responseCode = "400", description = "Cannot pause deleted roadmap")
+        })
+        public ResponseEntity<Void> pauseRoadmap(
+                        @PathVariable Long sessionId,
+                        Authentication authentication) {
+
+                Jwt jwt = (Jwt) authentication.getPrincipal();
+                Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+                aiRoadmapService.pauseRoadmap(sessionId, userId);
+                return ResponseEntity.ok().build();
+        }
+
+        @DeleteMapping("/{sessionId}")
+        @Operation(summary = "Soft-delete a roadmap", description = "Set a roadmap to DELETED status (data preserved)")
+        @ApiResponses({
+                        @ApiResponse(responseCode = "204", description = "Roadmap deleted"),
+                        @ApiResponse(responseCode = "404", description = "Roadmap not found")
+        })
+        public ResponseEntity<Void> deleteRoadmap(
+                        @PathVariable Long sessionId,
+                        Authentication authentication) {
+
+                Jwt jwt = (Jwt) authentication.getPrincipal();
+                Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+                aiRoadmapService.deleteRoadmap(sessionId, userId);
+                return ResponseEntity.noContent().build();
+        }
+
+        @DeleteMapping("/{sessionId}/permanent")
+        @Operation(summary = "Hard-delete a roadmap", description = "Permanently remove a roadmap and its direct linked data")
+        @ApiResponses({
+                        @ApiResponse(responseCode = "204", description = "Roadmap permanently deleted"),
+                        @ApiResponse(responseCode = "400", description = "Roadmap must be soft-deleted first or deletion is not allowed"),
+                        @ApiResponse(responseCode = "404", description = "Roadmap not found")
+        })
+        public ResponseEntity<Void> permanentDeleteRoadmap(
+                        @PathVariable Long sessionId,
+                        Authentication authentication) {
+
+                Jwt jwt = (Jwt) authentication.getPrincipal();
+                Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+                aiRoadmapService.permanentDeleteRoadmap(sessionId, userId);
+                return ResponseEntity.noContent().build();
         }
 }

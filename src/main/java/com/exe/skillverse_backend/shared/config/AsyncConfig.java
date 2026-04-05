@@ -49,7 +49,27 @@ public class AsyncConfig {
 
         executor.initialize();
 
-        log.info("✅ Email Task Executor initialized with core={}, max={}, queue={}",
+        log.info("Email Task Executor initialized with core={}, max={}, queue={}",
+                executor.getCorePoolSize(),
+                executor.getMaxPoolSize(),
+                executor.getQueueCapacity());
+
+        return executor;
+    }
+
+    @Bean(name = "fcmTaskExecutor")
+    public Executor fcmTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+
+        executor.setCorePoolSize(5);
+        executor.setMaxPoolSize(20);
+        executor.setQueueCapacity(500);
+        executor.setThreadNamePrefix("FcmAsync-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+
+        log.info("FCM Task Executor initialized with core={}, max={}, queue={}",
                 executor.getCorePoolSize(),
                 executor.getMaxPoolSize(),
                 executor.getQueueCapacity());

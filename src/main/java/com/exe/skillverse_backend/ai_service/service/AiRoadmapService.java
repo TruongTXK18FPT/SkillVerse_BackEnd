@@ -22,7 +22,11 @@ public interface AiRoadmapService {
 
         List<RoadmapSessionSummary> getAllRoadmaps();
 
-        List<RoadmapSessionSummary> getUserRoadmaps(Long userId);
+        List<RoadmapSessionSummary> getUserRoadmaps(Long userId, boolean includeDeleted);
+
+        List<RoadmapSessionSummary> getUserDeletedRoadmaps(Long userId);
+
+        Map<String, Long> getUserRoadmapStatusCounts(Long userId);
 
         RoadmapResponse getRoadmapById(Long sessionId, Long userId);
 
@@ -50,4 +54,12 @@ public interface AiRoadmapService {
 
         Map<String, Map<String, Long>> getModeCountsMonthlyForUser(Long userId, Instant from,
                         Instant to);
+
+        void activateRoadmap(Long sessionId, Long userId);
+
+        void pauseRoadmap(Long sessionId, Long userId);
+
+        void deleteRoadmap(Long sessionId, Long userId);
+
+        void permanentDeleteRoadmap(Long sessionId, Long userId);
 }

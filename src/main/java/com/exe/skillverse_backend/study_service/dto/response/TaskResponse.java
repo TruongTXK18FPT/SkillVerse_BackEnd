@@ -18,6 +18,7 @@ public class TaskResponse {
     private LocalDateTime deadline;
     private TaskPriority priority;
     private String status;
+    private Double orderIndex;
     private Integer userProgress;
     private String satisfactionLevel;
     private String userNotes;

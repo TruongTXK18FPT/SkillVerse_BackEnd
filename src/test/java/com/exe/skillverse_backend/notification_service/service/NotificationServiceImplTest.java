@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.notification_service.dto.NotificationResponse;
 import com.exe.skillverse_backend.notification_service.entity.Notification;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.repository.NotificationRepository;
+import com.exe.skillverse_backend.notification_service.service.FcmService;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
 import com.exe.skillverse_backend.user_service.dto.response.UserProfileResponse;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
@@ -27,6 +28,7 @@ import org.springframework.data.domain.PageRequest;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -46,11 +48,14 @@ class NotificationServiceImplTest {
     @Mock
     private PostRepository postRepository;
 
+    @Mock
+    private FcmService fcmService;
+
     private NotificationServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new NotificationServiceImpl(notificationRepository, userRepository, userProfileService, postRepository);
+        service = new NotificationServiceImpl(notificationRepository, userRepository, userProfileService, postRepository, fcmService);
     }
 
     @Test
@@ -58,6 +63,9 @@ class NotificationServiceImplTest {
     void createNotification_ShouldPersistUnreadNotification() {
         User recipient = User.builder().id(1L).email("recipient@skillverse.vn").build();
         when(userRepository.findById(recipient.getId())).thenReturn(Optional.of(recipient));
+
+        when(notificationRepository.saveAndFlush(any(Notification.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(fcmService.isFirebaseEnabled()).thenReturn(true);
 
         service.createNotification(
                 recipient.getId(),
@@ -69,6 +77,7 @@ class NotificationServiceImplTest {
 
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
         verify(notificationRepository).saveAndFlush(captor.capture());
+        verify(fcmService).sendPushNotification(eq(recipient.getId()), eq("Booking created"), eq("You have a new booking"), any());
         Notification saved = captor.getValue();
         assertEquals(recipient, saved.getUser());
         assertEquals(NotificationType.BOOKING_CREATED, saved.getType());
@@ -119,17 +128,13 @@ class NotificationServiceImplTest {
     }
 
     @Test
-    @DisplayName("markAllAsRead should save only unread notifications")
-    void markAllAsRead_ShouldSaveOnlyUnreadNotifications() {
-        Notification unread = Notification.builder().id(1L).isRead(false).build();
-        Notification alreadyRead = Notification.builder().id(2L).isRead(true).build();
-        when(notificationRepository.findByUserIdOrderByCreatedAtDesc(7L)).thenReturn(List.of(unread, alreadyRead));
+    @DisplayName("markAllAsRead should execute single bulk UPDATE query")
+    void markAllAsRead_ShouldExecuteBulkUpdate() {
+        when(notificationRepository.markAllAsReadByUserId(7L)).thenReturn(5);
 
         service.markAllAsRead(7L);
 
-        assertEquals(true, unread.isRead());
-        verify(notificationRepository).save(unread);
-        verify(notificationRepository, never()).save(alreadyRead);
+        verify(notificationRepository).markAllAsReadByUserId(7L);
     }
 
     @Test

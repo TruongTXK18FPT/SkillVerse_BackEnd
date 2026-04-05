@@ -1,5 +1,7 @@
 package com.exe.skillverse_backend.mentor_booking_service.controller;
 
+import com.exe.skillverse_backend.mentor_booking_service.repository.BookingDisputeRepository;
+import com.exe.skillverse_backend.mentor_booking_service.service.BookingDisputeService;
 import com.exe.skillverse_backend.mentor_booking_service.dto.request.CreateBookingIntentRequest;
 import com.exe.skillverse_backend.mentor_booking_service.dto.request.RatingRequest;
 import com.exe.skillverse_backend.mentor_booking_service.dto.response.BookingResponse;
@@ -40,8 +42,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class BookingController {
 
     private final BookingService bookingService;
-    private final com.exe.skillverse_backend.mentor_booking_service.service.BookingDisputeService disputeService;
-    private final com.exe.skillverse_backend.mentor_booking_service.repository.BookingDisputeRepository disputeRepository;
+    private final BookingDisputeService disputeService;
+    private final BookingDisputeRepository disputeRepository;
     private final InvoiceService invoiceService;
     private final MentorProfileRepository mentorProfileRepository;
 

@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -29,4 +30,8 @@ public interface UserRoadmapProgressRepository extends JpaRepository<UserRoadmap
      */
     @Query("SELECT COUNT(urp) FROM UserRoadmapProgress urp WHERE urp.roadmapSession.id = :sessionId AND urp.status = 'COMPLETED'")
     Long countCompletedBySessionId(@Param("sessionId") Long sessionId);
+
+    @Modifying
+    @Query("DELETE FROM UserRoadmapProgress urp WHERE urp.roadmapSession.id = :sessionId")
+    void deleteBySessionId(@Param("sessionId") Long sessionId);
 }

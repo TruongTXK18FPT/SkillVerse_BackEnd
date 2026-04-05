@@ -19,6 +19,7 @@ import lombok.NoArgsConstructor;
 public class RoadmapResponse {
 
     private Long sessionId;
+    private String roadmapStatus; // ACTIVE, PAUSED, DELETED
     private RoadmapMetadata metadata;
     private List<RoadmapNode> roadmap;
     private RoadmapStatistics statistics;
@@ -100,6 +101,14 @@ public class RoadmapResponse {
         private Integer estimatedTimeMinutes;
         private NodeType type;
         private String difficulty; // easy, medium, hard
+
+        // Tree node fields for vertical tree UI
+        private Boolean isCore; // true for main path, false for side quest
+        private String parentId; // ID of parent node in tree, null for root nodes
+        private List<String> suggestedCourseIds; // Validated course IDs from DB
+
+        // Node learning status (computed server-side)
+        private String nodeStatus; // LOCKED, AVAILABLE, IN_PROGRESS, COMPLETED
 
         // Learning content
         private List<String> learningObjectives;

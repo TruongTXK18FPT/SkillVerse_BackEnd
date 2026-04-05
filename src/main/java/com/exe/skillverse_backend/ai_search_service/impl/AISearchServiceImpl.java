@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.ai_search_service.dto.AICandidateMatchRequest;
 import com.exe.skillverse_backend.ai_search_service.dto.AICandidateMatchResponse;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.business_service.entity.JobPosting;
+import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
@@ -332,7 +333,7 @@ public class AISearchServiceImpl implements AISearchService {
                 .build();
     }
 
-    private double calculateExperienceMatch(com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob, PortfolioExtendedProfile profile) {
+    private double calculateExperienceMatch(ShortTermJob shortTermJob, PortfolioExtendedProfile profile) {
         if (profile.getYearsOfExperience() == null) {
             return 0.5;
         }
@@ -343,7 +344,7 @@ public class AISearchServiceImpl implements AISearchService {
         return 0.4;
     }
 
-    private double calculateBudgetMatch(com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob, PortfolioExtendedProfile profile) {
+    private double calculateBudgetMatch(ShortTermJob shortTermJob, PortfolioExtendedProfile profile) {
         if (profile.getHourlyRate() == null) {
             return 0.5;
         }

@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.journey_service.service;
 
+import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService;
 import com.exe.skillverse_backend.auth_service.entity.User;
@@ -13,6 +14,7 @@ import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.journey_service.repository.TestResultRepository;
 import com.exe.skillverse_backend.journey_service.service.impl.JourneyServiceImpl;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
+import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,6 +41,9 @@ class JourneyServiceImplTest {
 
     @Mock
     private JourneyRepository journeyRepository;
+
+    @Mock
+    private RoadmapSessionRepository roadmapSessionRepository;
 
     @Mock
     private AssessmentTestRepository assessmentTestRepository;
@@ -69,6 +74,8 @@ class JourneyServiceImplTest {
 
     @Mock
     private QuestionBankService questionBankService;
+    @Mock
+    private StudySessionRepository studySessionRepository;
 
     private JourneyServiceImpl service;
 
@@ -76,6 +83,7 @@ class JourneyServiceImplTest {
     void setUp() {
         service = new JourneyServiceImpl(
                 journeyRepository,
+                roadmapSessionRepository,
                 assessmentTestRepository,
                 testResultRepository,
                 journeyProgressRepository,
@@ -86,6 +94,7 @@ class JourneyServiceImplTest {
                 taskBoardService,
                 aiStudySupportService,
                 questionBankService,
+                studySessionRepository,
                 new ObjectMapper());
 
         lenient().when(journeyRepository.save(any(Journey.class))).thenAnswer(invocation -> {

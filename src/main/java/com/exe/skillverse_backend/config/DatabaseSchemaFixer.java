@@ -232,6 +232,15 @@ public class DatabaseSchemaFixer {
                 this::patchRecruitmentSessionUniqueConstraint,
                 this::verifyRecruitmentSessionUniqueConstraint);
 
+        applyPatch("PATCH-033-roadmap-session-status",
+            "Add status column to roadmap_sessions and set ACTIVE/PAUSED logic",
+            this::patchRoadmapSessionStatus,
+            this::verifyRoadmapSessionStatus);
+        applyPatch("PATCH-041-task-archived-column",
+            "Add archived column to tasks for roadmap task soft-delete",
+            this::patchTaskArchivedColumn,
+            this::verifyTaskArchivedColumn);
+
         log.info("All PostgreSQL schema patches applied and verified successfully.");
     }
 
@@ -3608,5 +3617,52 @@ public class DatabaseSchemaFixer {
             )
         """, Boolean.class, tableName, columnName, referencedTableName, referencedColumnName);
         return Boolean.TRUE.equals(exists);
+    }
+
+    private void patchRoadmapSessionStatus() {
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'roadmap_sessions' AND column_name = 'status') THEN
+                    
+                    ALTER TABLE roadmap_sessions ADD COLUMN status VARCHAR(20) DEFAULT 'ACTIVE';
+                    
+                    -- Only keep the latest roadmap ACTIVE for each user, set others to PAUSED
+                    UPDATE roadmap_sessions
+                    SET status = 'PAUSED'
+                    WHERE id NOT IN (
+                        SELECT id FROM (
+                            SELECT id, ROW_NUMBER() OVER(PARTITION BY user_id ORDER BY created_at DESC) as rn
+                            FROM roadmap_sessions
+                        ) sub
+                        WHERE sub.rn = 1
+                    );
+                END IF;
+            END $$;
+        """);
+    }
+
+    private boolean verifyRoadmapSessionStatus() {
+        return hasColumn("roadmap_sessions", "status");
+    }
+
+    private void patchTaskArchivedColumn() {
+        jdbcTemplate.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'tasks' AND column_name = 'archived') THEN
+                    ALTER TABLE tasks ADD COLUMN archived BOOLEAN DEFAULT FALSE;
+                    UPDATE tasks SET archived = FALSE WHERE archived IS NULL;
+                    ALTER TABLE tasks ALTER COLUMN archived SET NOT NULL;
+                    ALTER TABLE tasks ALTER COLUMN archived SET DEFAULT FALSE;
+                END IF;
+            END $$;
+        """);
+    }
+
+    private boolean verifyTaskArchivedColumn() {
+        return hasColumn("tasks", "archived");
     }
 }
