@@ -26,6 +26,8 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -473,6 +475,13 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
             
             Sử dụng ngôi thứ hai "bạn" khi nói với học viên.
             QUAN TRỌNG: Dựa vào dữ liệu thực tế được cung cấp. Nếu thiếu dữ liệu, hãy ghi nhận điều đó thay vì bịa ra.
+            
+            QUY TẮC ĐỊNH DẠNG BẮT BUỘC:
+            - Mỗi phần chính dùng heading cấp 2: ## N. TIÊU ĐỀ
+            - Bên trong mỗi phần, BẮT BUỘC chia thành ít nhất 2-3 mục con với heading cấp 3: ### Tên mục con
+            - KHÔNG được để dư ký tự ** hoặc __ ở cuối bất kỳ phần nào
+            - KHÔNG bọc tiêu đề heading ## trong dấu ** (sai: ## **1. TIÊU ĐỀ**, đúng: ## 1. TIÊU ĐỀ)
+            - Mỗi heading ### phải có nội dung bullet points bên dưới
             """;
 
         return switch (reportType) {
@@ -481,51 +490,47 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                 Báo cáo TOÀN DIỆN PHẢI có CHÍNH XÁC 9 phần sau (mỗi phần có heading ## tương ứng):
 
                 ## 1. KỸ NĂNG HIỆN CÓ
-                - Liệt kê các kỹ năng bạn đang học/có
-                - Phân loại theo mức độ (Beginner/Intermediate/Advanced)
-                - Nguồn: từ roadmap nào
+                Phân thành các mục con ### cho từng nhóm kỹ năng:
+                ### Kỹ năng đang học
+                ### Phân loại mức độ
+                ### Nguồn kỹ năng
 
                 ## 2. MỤC TIÊU HỌC TẬP
-                - Liệt kê các mục tiêu từ roadmaps
-                - Đánh giá mức độ rõ ràng và khả thi
-                - Đề xuất điều chỉnh nếu cần
+                ### Danh sách mục tiêu
+                ### Đánh giá mức độ rõ ràng
+                ### Đề xuất điều chỉnh
 
                 ## 3. TIẾN ĐỘ HỌC TẬP
-                - Tổng hợp tiến độ các roadmap
-                - Thời gian học tập (ngày/tuần/tháng)
-                - So sánh với mục tiêu
+                ### Tiến độ roadmap
+                ### Thời gian học tập
+                ### So sánh với mục tiêu
 
                 ## 4. ĐIỂM MẠNH CỦA BẠN
-                - Những gì bạn làm tốt
-                - Thói quen học tập tích cực
-                - Kỹ năng nổi bật
+                ### Kỹ năng nổi bật
+                ### Thói quen tích cực
 
                 ## 5. LĨNH VỰC CẦN CẢI THIỆN
-                - Những điểm chưa đạt
-                - Kỹ năng cần trau dồi thêm
-                - Thói quen cần điều chỉnh
+                ### Điểm chưa đạt
+                ### Thói quen cần điều chỉnh
 
                 ## 6. KHOẢNG TRỐNG KỸ NĂNG
-                - Kỹ năng còn thiếu so với mục tiêu
-                - Kiến thức cần bổ sung
-                - Lộ trình đề xuất
+                ### Kỹ năng còn thiếu
+                ### Lộ trình bổ sung
 
                 ## 7. KHUYẾN NGHỊ CÁ NHÂN
-                - Phương pháp học hiệu quả cho bạn
-                - Tài nguyên gợi ý
-                - Cách cải thiện điểm yếu
+                ### Phương pháp học
+                ### Tài nguyên gợi ý
 
                 ## 8. CÁC BƯỚC TIẾP THEO
-                - Action items cụ thể
-                - Timeline đề xuất
-                - Ưu tiên công việc
+                ### Action items
+                ### Timeline đề xuất
 
                 ## 9. ĐỘNG LỰC & KHÍCH LỆ
-                - Ghi nhận thành tích
-                - Lời động viên cá nhân
-                - Quote/message truyền cảm hứng
+                ### Ghi nhận thành tích
+                ### Lời động viên
 
                 Mỗi phần PHẢI có nội dung cụ thể. Sử dụng bullet points và emoji phù hợp.
+                KHÔNG để dư ký tự ** ở cuối phần. KHÔNG bọc heading trong **.
                 """;
 
             case WEEKLY_SUMMARY -> basePrompt + """
@@ -577,34 +582,91 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
 
     private StudentLearningReportResponse.ReportSections parseSections(String content) {
         return StudentLearningReportResponse.ReportSections.builder()
-                .currentSkills(extractSection(content, "1. KỸ NĂNG HIỆN CÓ", "2."))
-                .learningGoals(extractSection(content, "2. MỤC TIÊU HỌC TẬP", "3."))
-                .progressSummary(extractSection(content, "3. TIẾN ĐỘ HỌC TẬP", "4."))
-                .strengths(extractSection(content, "4. ĐIỂM MẠNH", "5."))
-                .areasToImprove(extractSection(content, "5. LĨNH VỰC CẦN CẢI THIỆN", "6."))
-                .skillGaps(extractSection(content, "6. KHOẢNG TRỐNG KỸ NĂNG", "7."))
-                .recommendations(extractSection(content, "7. KHUYẾN NGHỊ CÁ NHÂN", "8."))
-                .nextSteps(extractSection(content, "8. CÁC BƯỚC TIẾP THEO", "9."))
-                .motivation(extractSection(content, "9. ĐỘNG LỰC", null))
+                .currentSkills(extractSectionByHeading(content, 1, 2))
+                .learningGoals(extractSectionByHeading(content, 2, 3))
+                .progressSummary(extractSectionByHeading(content, 3, 4))
+                .strengths(extractSectionByHeading(content, 4, 5))
+                .areasToImprove(extractSectionByHeading(content, 5, 6))
+                .skillGaps(extractSectionByHeading(content, 6, 7))
+                .recommendations(extractSectionByHeading(content, 7, 8))
+                .nextSteps(extractSectionByHeading(content, 8, 9))
+                .motivation(extractSectionByHeading(content, 9, -1))
                 .build();
     }
 
-    private String extractSection(String content, String startMarker, String endMarker) {
+    /**
+     * Regex pattern that matches a level-2 heading line produced by the AI model.
+     * Handles variations such as:
+     *   ## 1. KỸ NĂNG HIỆN CÓ
+     *   ## **1. KỸ NĂNG HIỆN CÓ**
+     *   **## 1. KỸ NĂNG HIỆN CÓ**
+     *   1. KỸ NĂNG HIỆN CÓ (without ##)
+     */
+    private static final Pattern SECTION_HEADING_PATTERN = Pattern.compile(
+            "(?:^|\\n)\\s*(?:\\*{2})?\\s*(?:##\\s*)?(?:\\*{2})?\\s*(\\d+)\\.\\s",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    /**
+     * Extract a section of AI-generated content between heading N and heading nextN.
+     * Uses regex to robustly find "## N." heading patterns regardless of bold markers.
+     *
+     * @param content   Full AI report content
+     * @param sectionNum   Section number to extract (e.g. 1)
+     * @param nextSectionNum  Next section number (-1 means extract until end)
+     */
+    private String extractSectionByHeading(String content, int sectionNum, int nextSectionNum) {
         try {
-            int startIdx = content.indexOf(startMarker);
+            if (content == null || content.isBlank()) return "Không có dữ liệu";
+
+            // Find the heading for sectionNum
+            Matcher matcher = SECTION_HEADING_PATTERN.matcher(content);
+            int startIdx = -1;
+            while (matcher.find()) {
+                int num = Integer.parseInt(matcher.group(1));
+                if (num == sectionNum) {
+                    // Move past the entire heading line
+                    int lineEnd = content.indexOf('\n', matcher.end());
+                    startIdx = (lineEnd == -1) ? matcher.end() : lineEnd + 1;
+                    break;
+                }
+            }
             if (startIdx == -1) return "Không có dữ liệu";
 
-            int endIdx = endMarker != null ? content.indexOf(endMarker, startIdx + startMarker.length()) : content.length();
-            if (endIdx == -1) endIdx = content.length();
-
-            String section = content.substring(startIdx + startMarker.length(), endIdx).trim();
-            if (section.startsWith("##")) {
-                section = section.substring(2).trim();
+            // Find the heading for nextSectionNum
+            int endIdx = content.length();
+            if (nextSectionNum > 0) {
+                matcher = SECTION_HEADING_PATTERN.matcher(content);
+                while (matcher.find()) {
+                    if (matcher.start() <= startIdx) continue;
+                    int num = Integer.parseInt(matcher.group(1));
+                    if (num == nextSectionNum) {
+                        endIdx = matcher.start();
+                        break;
+                    }
+                }
             }
+
+            String section = content.substring(startIdx, endIdx).trim();
+            section = stripTrailingEmphasisMarkers(section);
             return section.isEmpty() ? "Không có dữ liệu" : section;
         } catch (Exception e) {
+            log.warn("Failed to extract section {} from report content", sectionNum, e);
             return "Không có dữ liệu";
         }
+    }
+
+    /**
+     * Remove trailing orphan emphasis markers (**, __, ***, etc.) that the AI model
+     * sometimes appends at the end of a section.
+     */
+    private String stripTrailingEmphasisMarkers(String text) {
+        if (text == null) return "";
+        // Strip trailing lines that only contain emphasis markers
+        text = text.replaceAll("(?m)^\\s*[*_]{2,}\\s*$", "").trim();
+        // Strip trailing emphasis markers at very end of content
+        text = text.replaceAll("\\s*[*_]{2,}\\s*$", "").trim();
+        return text;
     }
 
     private StudentLearningReport saveReport(User student, String studentName, String reportContent,
