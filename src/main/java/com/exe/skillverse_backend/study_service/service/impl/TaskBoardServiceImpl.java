@@ -23,10 +23,12 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TaskBoardServiceImpl implements TaskBoardService {
@@ -86,19 +88,43 @@ public class TaskBoardServiceImpl implements TaskBoardService {
      * Archive all tasks linked to a roadmap session.
      * Tasks are soft-deleted (archived=true) and hidden from the board,
      * but preserved in DB for audit/debug. Called when a roadmap is paused/cancelled.
+     *
+     * DEFENSIVE: wrapped in try-catch so missing columns / query errors
+     * do NOT crash the roadmap pause/delete flow. Task archival is optional.
      */
     @Override
     @Transactional
     public int archiveTasksByRoadmapSession(Long userId, Long roadmapSessionId) {
-        String marker = "roadmap=" + roadmapSessionId;
-        return taskRepository.archiveByUserNotesContaining(userId, marker);
+        try {
+            String marker = "roadmap=" + roadmapSessionId;
+            return taskRepository.archiveByUserNotesContaining(userId, marker);
+        } catch (Exception ex) {
+            log.warn("⚠️ Failed to archive tasks for roadmap {} (user {}): {}. "
+                    + "This is non-fatal — continuing roadmap pause/delete without task archival.",
+                    roadmapSessionId, userId, ex.getMessage());
+            return 0;
+        }
     }
 
+    /**
+     * Unarchive all archived tasks linked to a roadmap session.
+     * Called when a roadmap is resumed so tasks reappear on the board.
+     *
+     * DEFENSIVE: wrapped in try-catch so missing columns / query errors
+     * do NOT crash the resume flow.
+     */
     @Override
     @Transactional
     public int unarchiveTasksByRoadmapSession(Long userId, Long roadmapSessionId) {
-        String marker = "roadmap=" + roadmapSessionId;
-        return taskRepository.unarchiveByUserNotesContaining(userId, marker);
+        try {
+            String marker = "roadmap=" + roadmapSessionId;
+            return taskRepository.unarchiveByUserNotesContaining(userId, marker);
+        } catch (Exception ex) {
+            log.warn("⚠️ Failed to unarchive tasks for roadmap {} (user {}): {}. "
+                    + "This is non-fatal — continuing roadmap resume without task unarchival.",
+                    roadmapSessionId, userId, ex.getMessage());
+            return 0;
+        }
     }
 
     @Override

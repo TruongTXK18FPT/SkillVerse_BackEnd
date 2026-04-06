@@ -117,6 +117,6 @@ public interface RoadmapSessionRepository extends JpaRepository<RoadmapSession, 
      * Pause all ACTIVE roadmaps for a user (used when activating a new one)
      */
     @Modifying
-    @Query("UPDATE RoadmapSession rs SET rs.status = 'PAUSED', rs.updatedAt = CURRENT_TIMESTAMP WHERE rs.user.id = :userId AND rs.status = 'ACTIVE'")
+    @Query("UPDATE RoadmapSession rs SET rs.status = 'PAUSED' WHERE rs.user.id = :userId AND rs.status = 'ACTIVE'")
     int pauseAllActiveByUserId(@Param("userId") Long userId);
 }
