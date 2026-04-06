@@ -3625,10 +3625,11 @@ public class DatabaseSchemaFixer {
             BEGIN
                 IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                     WHERE table_name = 'roadmap_sessions' AND column_name = 'status') THEN
-                    
+
+                    -- Step 1: Add column with DEFAULT (Hibernate-safe, nullable initially)
                     ALTER TABLE roadmap_sessions ADD COLUMN status VARCHAR(20) DEFAULT 'ACTIVE';
-                    
-                    -- Only keep the latest roadmap ACTIVE for each user, set others to PAUSED
+
+                    -- Step 2: Backfill -- only keep the latest roadmap ACTIVE per user, others PAUSED
                     UPDATE roadmap_sessions
                     SET status = 'PAUSED'
                     WHERE id NOT IN (
@@ -3638,6 +3639,23 @@ public class DatabaseSchemaFixer {
                         ) sub
                         WHERE sub.rn = 1
                     );
+
+                    -- Step 3: Backfill any remaining NULLs (edge case during concurrent inserts)
+                    UPDATE roadmap_sessions SET status = 'ACTIVE' WHERE status IS NULL;
+
+                    -- Step 4: Add NOT NULL constraint only AFTER all rows are populated
+                    ALTER TABLE roadmap_sessions ALTER COLUMN status SET NOT NULL;
+                ELSE
+                    -- Column exists but NOT NULL may be missing (partial previous run or Hibernate added it nullable)
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'roadmap_sessions'
+                          AND column_name = 'status'
+                          AND is_nullable = 'NO'
+                    ) THEN
+                        UPDATE roadmap_sessions SET status = 'ACTIVE' WHERE status IS NULL;
+                        ALTER TABLE roadmap_sessions ALTER COLUMN status SET NOT NULL;
+                    END IF;
                 END IF;
             END $$;
         """);
