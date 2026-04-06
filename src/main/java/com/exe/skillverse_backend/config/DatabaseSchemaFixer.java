@@ -64,9 +64,32 @@ public class DatabaseSchemaFixer {
     private void applySchemaPatchesWithLock() {
         ensurePatchHistoryTable();
         acquireAdvisoryLock();
-        // All schema changes are now managed by Hibernate ddl-auto.
-        // This method only tracks that the fixer's infrastructure is in place.
+
+        applyPatch("fix-quizzes-description-oid", "Cast quizzes.description from TEXT to TEXT to resolve Hibernate oid cast failure",
+                this::patchQuizzesDescriptionOid,
+                this::verifyQuizzesDescriptionOid);
+
         log.info("Schema patch infrastructure ready.");
+    }
+
+    private void patchQuizzesDescriptionOid() {
+        if (!hasTable("quizzes")) {
+            log.debug("Table quizzes does not exist yet, skipping patch.");
+            return;
+        }
+        // Hibernate @Lob on String maps to oid in PostgreSQL.
+        // The column is already TEXT so we cast it explicitly to satisfy Hibernate's DDL.
+        executeSql("ALTER TABLE quizzes ALTER COLUMN description TYPE TEXT USING description::text");
+    }
+
+    private boolean verifyQuizzesDescriptionOid() {
+        if (!hasTable("quizzes") || !hasColumn("quizzes", "description")) {
+            return false;
+        }
+        var results = jdbcTemplate.queryForList(
+            "SELECT data_type FROM information_schema.columns WHERE table_name = 'quizzes' AND column_name = 'description'"
+        );
+        return !results.isEmpty() && "text".equalsIgnoreCase((String) results.get(0).get("data_type"));
     }
 
     // ─── Infrastructure ─────────────────────────────────────────────────────

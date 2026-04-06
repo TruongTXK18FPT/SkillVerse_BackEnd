@@ -10,7 +10,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OrderBy;
@@ -37,7 +36,7 @@ public class Quiz {
   private Module module;
 
   @Column(length = 200) private String title;
-  @Lob private String description;
+  @Column(columnDefinition = "TEXT") private String description;
   private Integer passScore;
   private Integer maxAttempts;
   @Column(name = "time_limit_minutes")
