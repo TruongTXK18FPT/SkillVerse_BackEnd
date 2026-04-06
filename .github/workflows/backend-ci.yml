@@ -180,10 +180,12 @@ jobs:
           echo "🚀 Starting application with ci profile (H2 in-memory, no Redis/production DB)..."
 
           # Start application with ci profile — self-contained, no external deps
+          # Force-exclude Mail auto-config as backup in case application-ci.yml is not loaded
           java -jar target/*.jar \
             --spring.profiles.active=ci \
             --server.port=8080 \
             --server.address=0.0.0.0 \
+            --spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration,org.springframework.boot.autoconfigure.mail.MailSenderValidatorAutoConfiguration \
             > app.log 2>&1 &
 
           APP_PID=$!

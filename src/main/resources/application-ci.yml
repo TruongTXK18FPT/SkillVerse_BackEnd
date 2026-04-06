@@ -29,6 +29,11 @@ spring:
     host: localhost
     port: 25
 
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.mail.MailSenderAutoConfiguration
+      - org.springframework.boot.autoconfigure.mail.MailSenderValidatorAutoConfiguration
+
   servlet:
     multipart:
       enabled: false
