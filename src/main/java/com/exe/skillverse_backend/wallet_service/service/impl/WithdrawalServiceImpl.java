@@ -13,6 +13,7 @@ import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.repository.WithdrawalRequestRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import com.exe.skillverse_backend.wallet_service.service.WalletEmailService;
 import com.exe.skillverse_backend.wallet_service.service.WithdrawalService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -41,7 +42,7 @@ public class WithdrawalServiceImpl implements WithdrawalService {
     private final UserRepository userRepository;
     private final WalletService walletService;
     private final UserProfileService userProfileService;
-    private final WalletEmailServiceImpl walletEmailService;
+    private final WalletEmailService walletEmailService;
     private final NotificationServiceImpl notificationService;
 
     // Configuration

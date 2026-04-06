@@ -15,8 +15,8 @@ import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
+import com.exe.skillverse_backend.wallet_service.service.WalletEmailService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
-import com.exe.skillverse_backend.wallet_service.service.impl.WalletEmailServiceImpl;
 import java.math.BigDecimal;
 import java.text.NumberFormat;
 import java.util.HashMap;
@@ -45,7 +45,7 @@ public class WalletServiceImpl implements WalletService {
         private final UserRepository userRepository;
         private final UserProfileRepository userProfileRepository;
         private final PasswordEncoder passwordEncoder;
-        private final WalletEmailServiceImpl walletEmailService;
+        private final WalletEmailService walletEmailService;
         private final NotificationService notificationService;
         private final ObjectProvider<PaymentService> paymentServiceProvider;
 

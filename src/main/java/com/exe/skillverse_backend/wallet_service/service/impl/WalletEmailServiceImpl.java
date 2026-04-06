@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.wallet_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.wallet_service.entity.WithdrawalRequest;
+import com.exe.skillverse_backend.wallet_service.service.WalletEmailService;
 import jakarta.mail.internet.MimeMessage;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
@@ -25,7 +26,7 @@ import org.springframework.stereotype.Service;
 @Service
 @Profile("!ci")
 @RequiredArgsConstructor
-public class WalletEmailServiceImpl {
+public class WalletEmailServiceImpl implements WalletEmailService {
 
     private final JavaMailSender mailSender;
 
