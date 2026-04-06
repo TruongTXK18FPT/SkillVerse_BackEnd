@@ -129,11 +129,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
-        <!-- H2 Database for Testing -->
+        <!-- H2 Database for Testing and CI -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <scope>test</scope>
+            <scope>runtime</scope>
         </dependency>
         <!-- Spring Boot Actuator for Health Checks -->
         <dependency>
