@@ -162,7 +162,7 @@ public class RoadmapSession {
      */
     @Builder.Default
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", length = 20, nullable = false)
+    @Column(name = "status", length = 20, nullable = true)
     private RoadmapStatus status = RoadmapStatus.ACTIVE;
 
     /**
