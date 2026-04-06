@@ -7,7 +7,8 @@ import com.exe.skillverse_backend.notification_service.entity.UserFcmToken;
 import com.exe.skillverse_backend.notification_service.repository.UserFcmTokenRepository;
 import com.exe.skillverse_backend.notification_service.service.FcmService;
 import com.google.firebase.messaging.*;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -17,13 +18,20 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class FcmServiceImpl implements FcmService {
 
     private final UserFcmTokenRepository fcmTokenRepository;
-    private final FirebaseMessaging firebaseMessaging;
     private final FirebaseConfig firebaseConfig;
+    @Autowired(required = false)
+    @Nullable
+    private FirebaseMessaging firebaseMessaging;
+
+    @Autowired
+    public FcmServiceImpl(UserFcmTokenRepository fcmTokenRepository, FirebaseConfig firebaseConfig) {
+        this.fcmTokenRepository = fcmTokenRepository;
+        this.firebaseConfig = firebaseConfig;
+    }
 
     @Override
     @Transactional

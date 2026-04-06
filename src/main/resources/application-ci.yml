@@ -10,10 +10,9 @@ spring:
     password: ""
 
   jpa:
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
-      # No schema changes needed — Swagger only reads entity metadata from annotations
-      ddl-auto: none
+      ddl-auto: create-drop
     show-sql: false
     properties:
       hibernate:
@@ -24,10 +23,6 @@ spring:
     redis:
       repositories:
         enabled: false
-
-  mail:
-    host: localhost
-    port: 25
 
   autoconfigure:
     exclude:
@@ -67,6 +62,16 @@ cors:
     age: 3600
 
 # Disable all external services with dummy values
+meowl:
+  gemini:
+    api-key: dummy
+    api-url: https://dummy.example.com
+    model: dummy
+  reminder:
+    enabled: false
+  notification:
+    enabled: false
+
 gemini:
   api-key: dummy
 
