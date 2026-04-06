@@ -150,6 +150,8 @@ jobs:
         continue-on-error: true
 
   # Job 3: API Documentation & Swagger
+  # Uses ci profile (H2 in-memory, no Redis, no production DB)
+  # Self-contained — no external dependencies, fast startup
   api-docs:
     name: 📚 API Documentation
     runs-on: ubuntu-latest
@@ -158,33 +160,6 @@ jobs:
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
-
-      - name: 🐳 Start Redis with Retry
-        run: |
-          echo "🔄 Pulling Redis image with retry logic..."
-          for i in {1..5}; do
-            if docker pull redis:7-alpine; then
-              echo "✅ Redis image pulled successfully."
-              break
-            fi
-            echo "⚠️ Pull failed (attempt $i/5). Retrying in 10s..."
-            sleep 10
-          done
-
-          echo "🚀 Starting Redis container..."
-          docker run -d --name redis -p 6379:6379 redis:7-alpine
-
-          echo "⏳ Waiting for Redis to be ready..."
-          for i in {1..30}; do
-            if docker exec redis redis-cli ping | grep -q "PONG"; then
-              echo "✅ Redis is ready!"
-              exit 0
-            fi
-            echo "⏳ Waiting for Redis... ($i/30)"
-            sleep 1
-          done
-          echo "❌ Redis failed to start."
-          exit 1
 
       - name: ☕ Setup Java
         uses: actions/setup-java@v4
@@ -196,93 +171,55 @@ jobs:
       - name: 🔐 Make mvnw executable
         run: chmod +x mvnw
 
-      - name: 🗄️ Test PostgreSQL Connection
-        env:
-          PGPASSWORD: ${{ secrets.DB_PASSWORD }}
-        run: |
-          # Install PostgreSQL client
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
-
-          # Debug: Check if secret is available
-          if [ -z "${{ secrets.DB_PASSWORD }}" ]; then
-            echo "❌ DB_PASSWORD secret is empty or not available"
-            echo "This could be a permission issue with repository secrets"
-            exit 1
-          else
-            echo "✅ DB_PASSWORD secret is available"
-          fi
-
-          # Test connection to production PostgreSQL
-          echo "🗄️ Testing PostgreSQL connection..."
-          psql \
-            -h 221.132.33.141 \
-            -U skillverse_user \
-            -d skillverse_db \
-            -c "SELECT version();" || {
-              echo "❌ Failed to connect to PostgreSQL"
-              exit 1
-            }
-          echo "✅ PostgreSQL connection successful!"
-        continue-on-error: false
-
       - name: 🏗️ Build Application
         run: |
           ./mvnw clean package -DskipTests -q
 
       - name: 🚀 Start Application for API Docs
-        env:
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
-          # Start app in background with docker profile and production PostgreSQL
-          echo "🚀 Starting application with docker profile..."
+          echo "🚀 Starting application with ci profile (H2 in-memory, no Redis/production DB)..."
 
-          # Start application with explicit configuration for CI environment
+          # Start application with ci profile — self-contained, no external deps
           java -jar target/*.jar \
-            --spring.profiles.active=docker \
+            --spring.profiles.active=ci \
             --server.port=8080 \
             --server.address=0.0.0.0 \
-            --spring.data.redis.host=localhost \
-            --spring.data.redis.port=6379 \
-            --logging.level.root=INFO \
-            --logging.level.com.exe.skillverse_backend=DEBUG > app.log 2>&1 &
+            > app.log 2>&1 &
 
           APP_PID=$!
           echo "📝 Application PID: $APP_PID"
           echo $APP_PID > app.pid
 
-          # Wait for startup with enhanced retry logic
-          echo "⏳ Waiting for application startup (up to 3 minutes)..."
+          # Wait for startup (ci profile starts faster since no DB/Redis)
+          echo "⏳ Waiting for application startup (up to 2 minutes)..."
           HEALTH_CHECK_PASSED=false
 
-          for i in {1..36}; do
-            echo "Attempt $i/36: Checking health endpoint..."
-            
+          for i in {1..24}; do
             # Check if process is still running
             if ! kill -0 $APP_PID 2>/dev/null; then
               echo "❌ Application process died! Last 50 lines of logs:"
               tail -n 50 app.log
               exit 1
             fi
-            
+
             # Try health check
             if curl -f -s http://localhost:8080/actuator/health >/dev/null 2>&1; then
               echo "✅ Application is ready!"
               HEALTH_CHECK_PASSED=true
               break
             fi
-            
-            echo "⏳ Not ready yet, waiting 5 seconds... (${i}/36)"
+
+            echo "⏳ Not ready yet, waiting 5 seconds... ($i/24)"
             sleep 5
           done
 
           # Verify health check passed
           if [ "$HEALTH_CHECK_PASSED" = false ]; then
-            echo "❌ Health check failed after 3 minutes. Application logs:"
+            echo "❌ Health check failed after 2 minutes. Application logs:"
             cat app.log
             echo ""
             echo "Process status:"
-            ps aux | grep java
+            ps aux | grep java || echo "(no java process found)"
             echo ""
             echo "Port status:"
             netstat -tlnp 2>/dev/null | grep 8080 || echo "Port 8080 not listening"

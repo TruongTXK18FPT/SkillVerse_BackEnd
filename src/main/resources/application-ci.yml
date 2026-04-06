@@ -1,0 +1,96 @@
+# CI Profile — for API Documentation generation only
+# Does NOT connect to production PostgreSQL or Redis
+# Uses H2 in-memory so Swagger/OpenAPI schema can be generated without external deps
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:ci_db;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      # No schema changes needed — Swagger only reads entity metadata from annotations
+      ddl-auto: none
+    show-sql: false
+    properties:
+      hibernate:
+        "[jdbc.lob.non_contextual_creation]": true
+    defer-datasource-initialization: false
+
+  data:
+    redis:
+      repositories:
+        enabled: false
+
+  mail:
+    host: localhost
+    port: 25
+
+  servlet:
+    multipart:
+      enabled: false
+
+server:
+  port: 8080
+  address: 0.0.0.0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+jwt:
+  secret: ${JWT_SECRET:ci-dummy-secret-for-swagger-generation-only-do-not-use-in-production}
+  access-token-expiration: 3600
+  refresh-token-expiration: 604800
+
+cors:
+  allowed:
+    origins: "*"
+    methods: GET,POST,PUT,DELETE,OPTIONS,PATCH
+    headers: "*"
+  allow:
+    credentials: false
+  max:
+    age: 3600
+
+# Disable all external services with dummy values
+gemini:
+  api-key: dummy
+
+mistral:
+  api-key: dummy
+
+ai:
+  search:
+    api-key: dummy
+
+payment:
+  payos:
+    client-id: dummy
+    api-key: dummy
+    checksum-key: dummy
+
+cloudinary:
+  cloud-name: dummy
+  api-key: dummy
+  api-secret: dummy
+
+firebase:
+  project-id: dummy
+  credentials:
+    json-base64: dummy
+
+logging:
+  level:
+    root: WARN
+    com.exe.skillverse_backend: INFO
+    org.springframework.web: WARN
+    org.hibernate: WARN
