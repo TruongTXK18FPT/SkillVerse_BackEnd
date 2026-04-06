@@ -15,6 +15,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -40,7 +41,11 @@ public class FirebaseConfig {
                 InputStream serviceAccount = findCredentialsStream();
                 if (serviceAccount != null) {
                     FirebaseOptions options = FirebaseOptions.builder()
-                            .setCredentials(GoogleCredentials.fromStream(serviceAccount))
+                            .setCredentials(GoogleCredentials.fromStream(serviceAccount)
+                                    .createScoped(Arrays.asList(
+                                            "https://www.googleapis.com/auth/cloud-platform",
+                                            "https://www.googleapis.com/auth/firebase.messaging"
+                                    )))
                             .setProjectId(projectId)
                             .build();
                     FirebaseApp.initializeApp(options);
