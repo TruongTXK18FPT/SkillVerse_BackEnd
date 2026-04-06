@@ -176,6 +176,8 @@ public class BookingServiceImpl implements BookingService {
         User learner = userRepository.findById(learnerId)
                 .orElseThrow(() -> new IllegalArgumentException("User không tồn tại"));
 
+        ensureLearnerIsNotMentor(learner, mentor);
+
         List<BookingStatus> activeStatuses = List.of(
                 BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ONGOING);
 
@@ -222,6 +224,8 @@ public class BookingServiceImpl implements BookingService {
                     .orElseThrow(() -> new IllegalArgumentException("Mentor không tồn tại"));
             User learner = transaction.getUser();
 
+            ensureLearnerIsNotMentor(learner, mentor);
+
             LocalDateTime end = start.plusMinutes(duration);
 
             Booking booking = Booking.builder()
@@ -260,6 +264,12 @@ public class BookingServiceImpl implements BookingService {
             return saved;
         } catch (Exception e) {
             throw new RuntimeException("Không thể tạo booking từ thanh toán", e);
+        }
+    }
+
+    private void ensureLearnerIsNotMentor(User learner, User mentor) {
+        if (learner != null && mentor != null && Objects.equals(learner.getId(), mentor.getId())) {
+            throw new IllegalArgumentException("Bạn không thể tự đặt lịch với chính mình");
         }
     }
 

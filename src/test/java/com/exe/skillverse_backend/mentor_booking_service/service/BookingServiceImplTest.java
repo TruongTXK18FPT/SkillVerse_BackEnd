@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.mentor_booking_service.service;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.mentor_booking_service.dto.request.CreateBookingIntentRequest;
 import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingDisputeRepository;
@@ -19,6 +20,8 @@ import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -112,6 +115,34 @@ class BookingServiceImplTest {
         when(bookingRepository.findById(booking.getId())).thenReturn(Optional.of(booking));
 
         assertThrows(IllegalArgumentException.class, () -> service.getBookingDetail(99L, booking.getId()));
+    }
+
+    @Test
+    @DisplayName("createBookingWithWallet should reject self-booking")
+    void createBookingWithWallet_ShouldRejectSelfBooking() {
+        User sameUser = User.builder()
+                .id(10L)
+                .email("mentor@skillverse.vn")
+                .firstName("Mentor")
+                .lastName("One")
+                .build();
+        CreateBookingIntentRequest request = CreateBookingIntentRequest.builder()
+                .mentorId(10L)
+                .startTime(ZonedDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(2))
+                .durationMinutes(60)
+                .priceVnd(new BigDecimal("500000"))
+                .paymentMethod("WALLET")
+                .build();
+
+        when(userRepository.findById(10L)).thenReturn(Optional.of(sameUser));
+
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.createBookingWithWallet(10L, request));
+
+        assertEquals("Bạn không thể tự đặt lịch với chính mình", exception.getMessage());
+        verify(bookingRepository, never()).save(any(Booking.class));
+        verify(walletService, never()).freezeCashForBooking(anyLong(), any(), anyLong());
     }
 
     @Test
