@@ -3,10 +3,12 @@ package com.exe.skillverse_backend.portfolio_service.service;
 import java.util.List;
 import org.springframework.web.multipart.MultipartFile;
 import com.exe.skillverse_backend.portfolio_service.dto.CVGenerationRequest;
+import com.exe.skillverse_backend.portfolio_service.dto.CompletedMissionDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.GeneratedCVDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.MentorReviewDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.PortfolioProjectDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.SystemCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.UserProfileDTO;
 
 public interface PortfolioService {
@@ -51,10 +53,20 @@ public interface PortfolioService {
 
         void deleteCertificate(Long certificateId, Long userId);
 
+        // System Certificates (course completion certs + gamification badges)
+        List<SystemCertificateDTO> getSystemCertificates(Long userId);
+
+        List<SystemCertificateDTO> importSystemCertificates(Long userId, String source);
+
         // Mentor Reviews
         List<MentorReviewDTO> getUserReviews(Long userId);
 
         List<MentorReviewDTO> getPublicUserReviews(Long userId);
+
+        // Completed Missions (short-term jobs)
+        List<CompletedMissionDTO> getCompletedMissions(Long userId);
+
+        List<CompletedMissionDTO> getPublicCompletedMissions(Long userId);
 
         // CV Generation
         GeneratedCVDTO generateCV(Long userId, CVGenerationRequest request);

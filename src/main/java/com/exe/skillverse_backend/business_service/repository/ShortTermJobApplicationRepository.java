@@ -76,6 +76,18 @@ public interface ShortTermJobApplicationRepository extends JpaRepository<ShortTe
     @Query("SELECT DISTINCT a FROM ShortTermJobApplication a LEFT JOIN FETCH a.revisionNotes WHERE a.id = :id")
     Optional<ShortTermJobApplication> findByIdWithRevisionNotes(@Param("id") Long id);
 
+    // Find completed applications by user (COMPLETED or PAID status)
+    @Query("SELECT a FROM ShortTermJobApplication a WHERE a.user.id = :userId AND (a.status = 'COMPLETED' OR a.status = 'PAID') ORDER BY a.completedAt DESC")
+    List<ShortTermJobApplication> findCompletedByUserId(@Param("userId") Long userId);
+
+    // Find completed applications with deliverables
+    @Query("SELECT DISTINCT a FROM ShortTermJobApplication a LEFT JOIN FETCH a.deliverables WHERE a.user.id = :userId AND (a.status = 'COMPLETED' OR a.status = 'PAID') ORDER BY a.completedAt DESC")
+    List<ShortTermJobApplication> findCompletedByUserIdWithDeliverables(@Param("userId") Long userId);
+
+    // Find completed applications with job info
+    @Query("SELECT DISTINCT a FROM ShortTermJobApplication a JOIN FETCH a.shortTermJob WHERE a.user.id = :userId AND (a.status = 'COMPLETED' OR a.status = 'PAID') ORDER BY a.completedAt DESC")
+    List<ShortTermJobApplication> findCompletedByUserIdWithJob(@Param("userId") Long userId);
+
     // ==================== SLA / OVERDUE QUERIES ====================
 
     // Find applications where recruiter has exceeded 48h review SLA (SUBMITTED + deadline passed)

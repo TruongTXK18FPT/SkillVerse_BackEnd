@@ -1,10 +1,12 @@
 package com.exe.skillverse_backend.portfolio_service.controller;
 
 import com.exe.skillverse_backend.portfolio_service.dto.CVGenerationRequest;
+import com.exe.skillverse_backend.portfolio_service.dto.CompletedMissionDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.GeneratedCVDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.MentorReviewDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.PortfolioProjectDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.SystemCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.UserProfileDTO;
 import com.exe.skillverse_backend.portfolio_service.entity.MentorReview;
 import com.exe.skillverse_backend.portfolio_service.repository.MentorReviewRepository;
@@ -390,6 +392,78 @@ public class PortfolioController {
                     "message", "Certificate deleted successfully"));
         } catch (Exception e) {
             return handlePortfolioException(e, "Error deleting certificate", "");
+        }
+    }
+
+    // ==================== SYSTEM CERTIFICATES (AUTO-IMPORT) ====================
+
+    @GetMapping("/system-certificates")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get system certificates", description = "Retrieve course completion certificates and gamification badges that can be imported into the portfolio")
+    public ResponseEntity<?> getSystemCertificates(Authentication authentication) {
+        try {
+            Long userId = Long.parseLong(authentication.getName());
+            List<SystemCertificateDTO> certs = portfolioService.getSystemCertificates(userId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", certs));
+        } catch (Exception e) {
+            log.error("Error retrieving system certificates", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/certificates/import/system")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Import system certificates", description = "Bulk-import course certificates and/or gamification badges into the portfolio external certificates table. source: COURSE | BADGE | ALL")
+    public ResponseEntity<?> importSystemCertificates(
+            @RequestParam(defaultValue = "ALL") String source,
+            Authentication authentication) {
+        try {
+            Long userId = Long.parseLong(authentication.getName());
+            List<SystemCertificateDTO> result = portfolioService.importSystemCertificates(userId, source);
+            long imported = result.stream().filter(SystemCertificateDTO::isImported).count();
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Import completed. Total system items: " + result.size() + ", imported: " + imported,
+                    "data", result));
+        } catch (Exception e) {
+            return handlePortfolioException(e, "Error importing system certificates", "Failed to import: ");
+        }
+    }
+
+    // ==================== COMPLETED MISSIONS (SHORT-TERM JOBS) ====================
+
+    @GetMapping("/completed-missions")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get completed missions", description = "Retrieve completed short-term job applications for the authenticated user")
+    public ResponseEntity<?> getCompletedMissions(Authentication authentication) {
+        try {
+            Long userId = Long.parseLong(authentication.getName());
+            List<CompletedMissionDTO> missions = portfolioService.getCompletedMissions(userId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", missions));
+        } catch (Exception e) {
+            log.error("Error retrieving completed missions", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/public/{userId}/completed-missions")
+    @Operation(summary = "Get public completed missions", description = "Retrieve completed short-term job applications for a public portfolio")
+    public ResponseEntity<?> getPublicCompletedMissions(@PathVariable Long userId) {
+        try {
+            List<CompletedMissionDTO> missions = portfolioService.getPublicCompletedMissions(userId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", missions));
+        } catch (Exception e) {
+            return handlePortfolioException(e, "Error retrieving public completed missions", "");
         }
     }
 

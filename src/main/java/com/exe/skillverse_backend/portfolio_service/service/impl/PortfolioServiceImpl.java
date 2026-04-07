@@ -3,10 +3,12 @@ package com.exe.skillverse_backend.portfolio_service.service.impl;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.portfolio_service.dto.CVGenerationRequest;
+import com.exe.skillverse_backend.portfolio_service.dto.CompletedMissionDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.GeneratedCVDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.MentorReviewDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.PortfolioProjectDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.SystemCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.UserProfileDTO;
 import com.exe.skillverse_backend.portfolio_service.entity.ExternalCertificate;
 import com.exe.skillverse_backend.portfolio_service.entity.GeneratedCV;
@@ -20,13 +22,26 @@ import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtended
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioProjectRepository;
 import com.exe.skillverse_backend.portfolio_service.service.CVGeneratorAIService;
 import com.exe.skillverse_backend.portfolio_service.service.PortfolioService;
+import com.exe.skillverse_backend.course_service.repository.CertificateRepository;
+import com.exe.skillverse_backend.gamification_service.entity.GamificationUserBadge;
+import com.exe.skillverse_backend.gamification_service.repository.GamificationUserBadgeRepository;
+import com.exe.skillverse_backend.business_service.entity.ShortTermJobApplication;
+import com.exe.skillverse_backend.business_service.entity.JobDeliverable;
+import com.exe.skillverse_backend.business_service.entity.JobReview;
+import com.exe.skillverse_backend.business_service.repository.ShortTermJobApplicationRepository;
+import com.exe.skillverse_backend.business_service.repository.JobReviewRepository;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -50,13 +65,17 @@ public class PortfolioServiceImpl implements PortfolioService {
     // Portfolio entities
     private final PortfolioProjectRepository projectRepository;
     private final MentorReviewRepository reviewRepository;
-    private final ExternalCertificateRepository certificateRepository;
+    private final ExternalCertificateRepository externalCertificateRepository;
     private final GeneratedCVRepository cvRepository;
 
     // Other dependencies
     private final UserRepository userRepository;
     private final CloudinaryService cloudinaryService;
     private final CVGeneratorAIService cvGeneratorAIService;
+    private final CertificateRepository courseCertificateRepository;
+    private final GamificationUserBadgeRepository badgeRepository;
+    private final ShortTermJobApplicationRepository jobApplicationRepository;
+    private final JobReviewRepository jobReviewRepository;
 
     // ==================== USER PROFILE (EXTENDED) ====================
 
@@ -514,7 +533,7 @@ public class PortfolioServiceImpl implements PortfolioService {
             }
         }
 
-        certificate = certificateRepository.save(certificate);
+        certificate = externalCertificateRepository.save(certificate);
 
         // Update certificate count in extended profile
         updateExtendedProfileCertificateCount(userId);
@@ -524,7 +543,7 @@ public class PortfolioServiceImpl implements PortfolioService {
 
     @Transactional(readOnly = true)
     public List<ExternalCertificateDTO> getUserCertificates(Long userId) {
-        return certificateRepository.findByUserIdOrderByIssueDateDesc(userId)
+        return externalCertificateRepository.findByUserIdOrderByIssueDateDesc(userId)
                 .stream()
                 .map(this::mapToCertificateDTO)
                 .collect(Collectors.toList());
@@ -536,9 +555,246 @@ public class PortfolioServiceImpl implements PortfolioService {
         return getUserCertificates(userId);
     }
 
+    // ==================== SYSTEM CERTIFICATES (AUTO-IMPORT) ====================
+
+    @Transactional(readOnly = true)
+    public List<SystemCertificateDTO> getSystemCertificates(Long userId) {
+        List<SystemCertificateDTO> result = new ArrayList<>();
+
+        // 1. Course completion certificates
+        var courseCerts = courseCertificateRepository.findActiveByUserId(userId);
+        for (var cert : courseCerts) {
+            String serial = cert.getSerial();
+            boolean imported = externalCertificateRepository.existsByCredentialId(serial);
+            result.add(SystemCertificateDTO.builder()
+                    .id(cert.getId())
+                    .source("COURSE")
+                    .title(cert.getCourseTitleSnapshot())
+                    .issuer("SkillVerse")
+                    .issueDate(cert.getIssuedAt() != null ? cert.getIssuedAt().atZone(java.time.ZoneId.systemDefault()).toLocalDate() : null)
+                    .credentialId(serial)
+                    .credentialUrl("/api/certificates/verify/" + serial)
+                    .category("TECHNICAL")
+                    .imageUrl(cert.getInstructorSignatureUrlSnapshot())
+                    .imported(imported)
+                    .build());
+        }
+
+        // 2. Gamification badges
+        var badges = badgeRepository.findByUserIdOrderByEarnedAtDesc(userId);
+        for (var badge : badges) {
+            String badgeKey = badge.getBadgeDefinition() != null
+                    ? badge.getBadgeDefinition().getBadgeKey() : null;
+            String serial = "BADGE-" + userId + "-" + badge.getBadgeDefId();
+            boolean imported = externalCertificateRepository.existsByCredentialId(serial);
+            String rarity = badge.getBadgeDefinition() != null
+                    ? badge.getBadgeDefinition().getBadgeRarity() : null;
+
+            String title = badge.getBadgeDefinition() != null
+                    ? badge.getBadgeDefinition().getBadgeTitle() : "Badge #" + badge.getBadgeDefId();
+
+            List<String> skills = new ArrayList<>();
+            skills.add(badge.getBadgeDefinition() != null
+                    ? badge.getBadgeDefinition().getBadgeCategory() : "Achievement");
+
+            result.add(SystemCertificateDTO.builder()
+                    .id(badge.getUserBadgeId())
+                    .source("BADGE")
+                    .title(title)
+                    .issuer("SkillVerse")
+                    .issueDate(badge.getEarnedAt() != null ? badge.getEarnedAt().toLocalDate() : null)
+                    .credentialId(serial)
+                    .badgeKey(badgeKey)
+                    .badgeRarity(rarity)
+                    .category("SOFT_SKILLS")
+                    .skills(skills)
+                    .imported(imported)
+                    .build());
+        }
+
+        return result;
+    }
+
+    @Transactional
+    public List<SystemCertificateDTO> importSystemCertificates(Long userId, String source) {
+        User user = getUserOrThrow(userId);
+        List<SystemCertificateDTO> imported = new ArrayList<>();
+
+        if ("COURSE".equalsIgnoreCase(source) || "ALL".equalsIgnoreCase(source)) {
+            var courseCerts = courseCertificateRepository.findActiveByUserId(userId);
+            for (var cert : courseCerts) {
+                String serial = cert.getSerial();
+                if (!externalCertificateRepository.existsByCredentialId(serial)) {
+                    ExternalCertificate extCert = ExternalCertificate.builder()
+                            .user(user)
+                            .title(cert.getCourseTitleSnapshot() + " - Certificate of Completion")
+                            .issuingOrganization("SkillVerse")
+                            .issueDate(cert.getIssuedAt() != null ? cert.getIssuedAt().atZone(java.time.ZoneId.systemDefault()).toLocalDate() : null)
+                            .credentialId(serial)
+                            .credentialUrl("/api/certificates/verify/" + serial)
+                            .category(ExternalCertificate.CertificateCategory.TECHNICAL)
+                            .isVerified(true)
+                            .build();
+                    externalCertificateRepository.save(extCert);
+                }
+            }
+        }
+
+        if ("BADGE".equalsIgnoreCase(source) || "ALL".equalsIgnoreCase(source)) {
+            var badges = badgeRepository.findByUserIdOrderByEarnedAtDesc(userId);
+            for (var badge : badges) {
+                String serial = "BADGE-" + userId + "-" + badge.getBadgeDefId();
+                if (!externalCertificateRepository.existsByCredentialId(serial)) {
+                    String title = badge.getBadgeDefinition() != null
+                            ? badge.getBadgeDefinition().getBadgeTitle() : "Achievement Badge";
+
+                    List<String> skills = new ArrayList<>();
+                    if (badge.getBadgeDefinition() != null) {
+                        skills.add(badge.getBadgeDefinition().getBadgeCategory());
+                    }
+
+                    ExternalCertificate extCert = ExternalCertificate.builder()
+                            .user(user)
+                            .title(title)
+                            .issuingOrganization("SkillVerse")
+                            .issueDate(badge.getEarnedAt() != null ? badge.getEarnedAt().toLocalDate() : null)
+                            .credentialId(serial)
+                            .category(ExternalCertificate.CertificateCategory.SOFT_SKILLS)
+                            .skills(skills)
+                            .isVerified(true)
+                            .build();
+                    externalCertificateRepository.save(extCert);
+                }
+            }
+        }
+
+        updateExtendedProfileCertificateCount(userId);
+        return getSystemCertificates(userId);
+    }
+
+    // ==================== COMPLETED MISSIONS (SHORT-TERM JOBS) ====================
+
+    @Transactional(readOnly = true)
+    public List<CompletedMissionDTO> getCompletedMissions(Long userId) {
+        // Just verify user exists - owner doesn't need a portfolio to see their completed missions
+        getUserOrThrow(userId);
+        return buildCompletedMissionDTOs(userId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<CompletedMissionDTO> getPublicCompletedMissions(Long userId) {
+        // Only show missions if the user has a public portfolio
+        getPublicExtendedProfileOrThrow(userId);
+        return buildCompletedMissionDTOs(userId);
+    }
+
+    private List<CompletedMissionDTO> buildCompletedMissionDTOs(Long userId) {
+        List<ShortTermJobApplication> applications =
+                jobApplicationRepository.findCompletedByUserIdWithDeliverables(userId);
+
+        return applications.stream().map(app -> {
+            var shortTermJob = app.getShortTermJob();
+
+            // Recruiter info
+            String recruiterName = "Recruiter";
+            String recruiterAvatar = null;
+            String recruiterCompanyName = null;
+            if (shortTermJob != null && shortTermJob.getRecruiterProfile() != null) {
+                var recruiterProfile = shortTermJob.getRecruiterProfile();
+                if (recruiterProfile.getUser() != null) {
+                    var recruiter = recruiterProfile.getUser();
+                    recruiterName = recruiter.getFirstName() + " " + recruiter.getLastName();
+                }
+                recruiterCompanyName = recruiterProfile.getCompanyName();
+            }
+
+            // Budget
+            BigDecimal budget = app.getProposedPrice();
+            if (budget == null && shortTermJob != null) {
+                budget = shortTermJob.getBudget();
+            }
+
+            // Required skills from job
+            List<String> requiredSkills = new ArrayList<>();
+            if (shortTermJob != null && shortTermJob.getRequiredSkills() != null) {
+                try {
+                    var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    requiredSkills = mapper.readValue(shortTermJob.getRequiredSkills(),
+                            mapper.getTypeFactory().constructCollectionType(List.class, String.class));
+                } catch (Exception e) {
+                    // ignore parse errors
+                }
+            }
+
+            // Deliverables
+            List<CompletedMissionDTO.DeliverableInfo> deliverables = new ArrayList<>();
+            List<String> deliverableTitles = new ArrayList<>();
+            if (app.getDeliverables() != null) {
+                for (var d : app.getDeliverables()) {
+                    deliverables.add(CompletedMissionDTO.DeliverableInfo.builder()
+                            .fileName(d.getFileName())
+                            .fileUrl(d.getFileUrl())
+                            .type(d.getType() != null ? d.getType().name() : null)
+                            .build());
+                    deliverableTitles.add(d.getFileName());
+                }
+            }
+
+            // Rating from JobReview (recruiter reviews candidate)
+            Double rating = null;
+            String reviewComment = null;
+            Integer communicationRating = null;
+            Integer qualityRating = null;
+            Integer timelinessRating = null;
+            Integer professionalismRating = null;
+            var reviews = jobReviewRepository.findByApplicationId(app.getId());
+            for (var review : reviews) {
+                if (review.getReviewType() == JobReview.ReviewType.RECRUITER_TO_CANDIDATE
+                        && review.getReviewee() != null
+                        && review.getReviewee().getId().equals(userId)) {
+                    rating = review.getRating() != null ? review.getRating().doubleValue() : null;
+                    reviewComment = review.getComment();
+                    communicationRating = review.getCommunicationRating();
+                    qualityRating = review.getQualityRating();
+                    timelinessRating = review.getTimelinessRating();
+                    professionalismRating = review.getProfessionalismRating();
+                    break;
+                }
+            }
+
+            return CompletedMissionDTO.builder()
+                    .applicationId(app.getId())
+                    .jobId(shortTermJob != null ? shortTermJob.getId() : null)
+                    .jobTitle(shortTermJob != null ? shortTermJob.getTitle() : "Completed Mission")
+                    .jobDescription(shortTermJob != null ? shortTermJob.getDescription() : null)
+                    .recruiterName(recruiterName)
+                    .recruiterAvatar(recruiterAvatar)
+                    .recruiterCompanyName(recruiterCompanyName)
+                    .budget(budget)
+                    .currency("VND")
+                    .deadline(shortTermJob != null && shortTermJob.getDeadline() != null ? shortTermJob.getDeadline().toLocalDate() : null)
+                    .estimatedDuration(shortTermJob != null ? shortTermJob.getEstimatedDuration() : null)
+                    .isRemote(shortTermJob != null ? shortTermJob.getIsRemote() : null)
+                    .location(shortTermJob != null ? shortTermJob.getLocation() : null)
+                    .requiredSkills(requiredSkills)
+                    .paymentMethod(shortTermJob != null && shortTermJob.getPaymentMethod() != null ? shortTermJob.getPaymentMethod().name() : null)
+                    .completedAt(app.getCompletedAt())
+                    .rating(rating)
+                    .reviewComment(reviewComment)
+                    .communicationRating(communicationRating)
+                    .qualityRating(qualityRating)
+                    .timelinessRating(timelinessRating)
+                    .professionalismRating(professionalismRating)
+                    .deliverables(deliverables)
+                    .status(app.getStatus() != null ? app.getStatus().name() : "COMPLETED")
+                    .workNote(app.getWorkNote())
+                    .build();
+        }).collect(Collectors.toList());
+    }
+
     @Transactional
     public void deleteCertificate(Long certificateId, Long userId) {
-        ExternalCertificate certificate = certificateRepository.findById(certificateId)
+        ExternalCertificate certificate = externalCertificateRepository.findById(certificateId)
                 .orElseThrow(() -> new NotFoundException("Certificate not found: " + certificateId));
 
         if (!certificate.getUser().getId().equals(userId)) {
@@ -554,7 +810,7 @@ public class PortfolioServiceImpl implements PortfolioService {
             }
         }
 
-        certificateRepository.delete(certificate);
+        externalCertificateRepository.delete(certificate);
 
         // Update certificate count in extended profile
         updateExtendedProfileCertificateCount(userId);
@@ -706,7 +962,7 @@ public class PortfolioServiceImpl implements PortfolioService {
      */
     private void updateExtendedProfileCertificateCount(Long userId) {
         extendedProfileRepository.findByUserId(userId).ifPresent(profile -> {
-            int count = (int) certificateRepository.countByUserId(userId);
+            int count = (int) externalCertificateRepository.countByUserId(userId);
             profile.updateCertificateCount(count);
             extendedProfileRepository.save(profile);
         });
