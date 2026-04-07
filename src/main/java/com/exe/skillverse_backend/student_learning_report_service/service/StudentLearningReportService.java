@@ -72,11 +72,19 @@ public interface StudentLearningReportService {
 
     /**
      * Kiểm tra xem học viên có thể tạo báo cáo mới không (rate limit check).
-     * 
+     *
      * @param studentId ID của học viên
      * @return true nếu có thể tạo báo cáo mới
      */
     boolean canGenerateNewReport(Long studentId);
+
+    /**
+     * Trả về số phút còn lại cho cooldown. Trả 0 nếu có thể tạo báo cáo.
+     *
+     * @param studentId ID của học viên
+     * @return Số phút còn lại (>= 0)
+     */
+    int getCooldownRemainingMinutes(Long studentId);
 
     /**
      * Đếm số báo cáo của học viên.

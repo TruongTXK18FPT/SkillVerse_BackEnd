@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
+import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.student_learning_report_service.dto.request.GenerateStudentReportRequest;
@@ -64,6 +65,9 @@ class StudentLearningReportServiceImplTest {
     private CourseEnrollmentRepository courseEnrollmentRepository;
 
     @Mock
+    private JourneyRepository journeyRepository;
+
+    @Mock
     private AiChatbotService aiChatbotService;
 
     @Mock
@@ -80,6 +84,7 @@ class StudentLearningReportServiceImplTest {
                 studySessionRepository,
                 taskRepository,
                 courseEnrollmentRepository,
+                journeyRepository,
                 aiChatbotService,
                 learningReportChatModel);
     }

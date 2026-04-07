@@ -34,6 +34,11 @@ public interface StudentLearningReportRepository extends JpaRepository<StudentLe
     Optional<StudentLearningReport> findFirstByStudentIdOrderByGeneratedAtDesc(Long studentId);
 
     /**
+     * Tìm báo cáo mới nhất trước một ID cho trước (dùng để so sánh trend với báo cáo trước đó).
+     */
+    Optional<StudentLearningReport> findFirstByStudentIdAndIdLessThanOrderByGeneratedAtDesc(Long studentId, Long reportId);
+
+    /**
      * Tìm báo cáo mới nhất theo loại.
      */
     Optional<StudentLearningReport> findFirstByStudentIdAndReportTypeOrderByGeneratedAtDesc(
@@ -77,4 +82,16 @@ public interface StudentLearningReportRepository extends JpaRepository<StudentLe
      */
     @Query("SELECT r.reportType, COUNT(r) FROM StudentLearningReport r WHERE r.student.id = :studentId GROUP BY r.reportType")
     List<Object[]> countByStudentIdGroupByReportType(@Param("studentId") Long studentId);
+
+    /**
+     * Lấy timestamp của báo cáo comprehensive mới nhất (dùng projection, tránh load LOB fields).
+     */
+    @Query(value = """
+        SELECT slr.generated_at
+        FROM student_learning_reports slr
+        WHERE slr.student_id = :studentId AND slr.report_type = 'COMPREHENSIVE'
+        ORDER BY slr.generated_at DESC
+        FETCH FIRST 1 ROWS ONLY
+        """, nativeQuery = true)
+    LocalDateTime findLatestComprehensiveGeneratedAt(@Param("studentId") Long studentId);
 }

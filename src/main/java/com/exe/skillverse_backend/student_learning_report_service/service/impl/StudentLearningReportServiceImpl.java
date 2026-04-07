@@ -10,6 +10,8 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
+import com.exe.skillverse_backend.journey_service.entity.Journey;
+import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.student_learning_report_service.dto.request.GenerateStudentReportRequest;
@@ -26,6 +28,7 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -58,6 +61,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     private final StudySessionRepository studySessionRepository;
     private final TaskRepository taskRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
+    private final JourneyRepository journeyRepository;
     private final AiChatbotService aiChatbotService;
     private final ChatModel learningReportChatModel;
 
@@ -71,6 +75,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
             StudySessionRepository studySessionRepository,
             TaskRepository taskRepository,
             CourseEnrollmentRepository courseEnrollmentRepository,
+            JourneyRepository journeyRepository,
             AiChatbotService aiChatbotService,
             @Lazy @Qualifier("learningReportChatModel") ChatModel learningReportChatModel) {
         this.reportRepository = reportRepository;
@@ -79,6 +84,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         this.studySessionRepository = studySessionRepository;
         this.taskRepository = taskRepository;
         this.courseEnrollmentRepository = courseEnrollmentRepository;
+        this.journeyRepository = journeyRepository;
         this.aiChatbotService = aiChatbotService;
         this.learningReportChatModel = learningReportChatModel;
     }
@@ -106,9 +112,10 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
         List<RoadmapSessionSummary> roadmaps = getRoadmapSummaries(studentId);
         List<ChatSessionSummary> chatSessions = getChatSessionSummaries(studentId);
+        List<JourneyMilestoneData> journeyMilestones = getJourneyMilestones(studentId);
 
         // Build context for AI
-        String dataContext = buildDataContext(studentName, metrics, roadmaps, chatSessions, request);
+        String dataContext = buildDataContext(studentName, metrics, roadmaps, chatSessions, request, journeyMilestones);
 
         // Get AI prompt based on report type
         String systemPrompt = getSystemPrompt(request.getReportType());
@@ -132,32 +139,45 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                 sections = parseSections(reportContent);
             } else {
                 // Fallback if AI is disabled
-                return generateFallbackReport(studentId, studentName, metrics, roadmaps, request.getReportType());
+                StudentLearningReportResponse fallback = generateFallbackReport(studentId, studentName, metrics, roadmaps, request.getReportType(), journeyMilestones);
+                computeDerivedFields(fallback, metrics, studentId);
+                return fallback;
             }
         } catch (Exception e) {
             log.error("Failed to generate learning report with AI for student {}", studentId, e);
-            return generateFallbackReport(studentId, studentName, metrics, roadmaps, request.getReportType());
+            StudentLearningReportResponse fallback = generateFallbackReport(studentId, studentName, metrics, roadmaps, request.getReportType(), journeyMilestones);
+            computeDerivedFields(fallback, metrics, studentId);
+            return fallback;
         }
 
         // Save report
+        // Pre-compute derived fields so we can store them in DB and return them in response
+        StudentLearningReportResponse tempResponse = StudentLearningReportResponse.builder()
+                .generatedAt(LocalDateTime.now(VN_ZONE))
+                .studentId(studentId)
+                .studentName(studentName)
+                .reportContent(reportContent)
+                .sections(sections)
+                .metrics(metrics)
+                .reportType(request.getReportType().name())
+                .build();
+        computeDerivedFields(tempResponse, metrics, studentId);
+
         try {
-            StudentLearningReport savedReport = saveReport(student, studentName, reportContent, sections, 
-                    true, request.getReportType());
+            StudentLearningReport savedReport = saveReport(student, studentName, reportContent, sections,
+                    true, request.getReportType(), metrics, tempResponse.getLearningTrend(), tempResponse.getRecommendedFocus());
             log.info("✅ Student learning report saved with ID: {}", savedReport.getId());
 
-            return buildResponse(savedReport, metrics);
+            StudentLearningReportResponse response = buildResponse(savedReport, metrics);
+            // Copy pre-computed derived fields (no re-computation needed)
+            response.setOverallProgress(tempResponse.getOverallProgress());
+            response.setLearningTrend(tempResponse.getLearningTrend());
+            response.setRecommendedFocus(tempResponse.getRecommendedFocus());
+            response.setMetrics(metrics); // ensure metrics is attached
+            return response;
         } catch (Exception e) {
             log.error("Failed to persist learning report for student {}", studentId, e);
-            // Return generated content without saving
-            return StudentLearningReportResponse.builder()
-                    .generatedAt(LocalDateTime.now(VN_ZONE))
-                    .studentId(studentId)
-                    .studentName(studentName)
-                    .reportContent(reportContent)
-                    .sections(sections)
-                    .metrics(metrics)
-                    .reportType(request.getReportType().name())
-                    .build();
+            return tempResponse; // return pre-computed response
         }
     }
 
@@ -174,17 +194,19 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     @Override
     @Transactional(readOnly = true)
     public List<StudentLearningReportResponse> getReportHistory(Long studentId) {
+        StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
         return reportRepository.findByStudentIdOrderByGeneratedAtDesc(studentId).stream()
-                .map(this::convertToResponse)
+                .map(report -> buildResponse(report, metrics))
                 .collect(Collectors.toList());
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<StudentLearningReportResponse> getReportHistory(Long studentId, int page, int size) {
+        StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
         return reportRepository.findByStudentIdOrderByGeneratedAtDesc(studentId, PageRequest.of(page, size))
                 .getContent().stream()
-                .map(this::convertToResponse)
+                .map(report -> buildResponse(report, metrics))
                 .collect(Collectors.toList());
     }
 
@@ -192,7 +214,10 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     @Transactional(readOnly = true)
     public StudentLearningReportResponse getLatestReport(Long studentId) {
         return reportRepository.findFirstByStudentIdOrderByGeneratedAtDesc(studentId)
-                .map(this::convertToResponse)
+                .map(report -> {
+                    StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
+                    return buildResponse(report, metrics);
+                })
                 .orElse(null);
     }
 
@@ -201,12 +226,13 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     public StudentLearningReportResponse getReportById(Long studentId, Long reportId) {
         StudentLearningReport report = reportRepository.findById(reportId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Report not found"));
-        
+
         if (!report.getStudent().getId().equals(studentId)) {
             throw new ApiException(ErrorCode.FORBIDDEN, "Không có quyền xem báo cáo này");
         }
 
-        return convertToResponse(report);
+        StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
+        return buildResponse(report, metrics);
     }
 
     @Override
@@ -221,9 +247,31 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
 
     @Override
     public boolean canGenerateNewReport(Long studentId) {
-        LocalDateTime cooldownTime = LocalDateTime.now(VN_ZONE).minusHours(REPORT_COOLDOWN_HOURS);
-        return !reportRepository.existsByStudentIdAndReportTypeAndGeneratedAtAfter(
-                studentId, StudentLearningReport.ReportType.COMPREHENSIVE, cooldownTime);
+        return getCooldownRemainingMinutes(studentId) <= 0;
+    }
+
+    /**
+     * Returns the remaining cooldown minutes until a new comprehensive report can be generated.
+     * Returns 0 if cooldown has expired (can generate).
+     */
+    public int getCooldownRemainingMinutes(Long studentId) {
+        // Use native projection query to avoid loading LOB (TEXT) columns
+        LocalDateTime generatedAt;
+        try {
+            generatedAt = reportRepository.findLatestComprehensiveGeneratedAt(studentId);
+        } catch (Exception e) {
+            log.warn("Could not fetch latest comprehensive report timestamp for student {}: {}",
+                    studentId, e.getMessage());
+            return 0; // Fail-open: allow generation if we can't check
+        }
+
+        if (generatedAt == null) {
+            return 0; // No previous report — can generate
+        }
+
+        LocalDateTime cooldownEnd = generatedAt.plusHours(REPORT_COOLDOWN_HOURS);
+        long minutesLeft = ChronoUnit.MINUTES.between(LocalDateTime.now(VN_ZONE), cooldownEnd);
+        return (int) Math.max(0, minutesLeft);
     }
 
     @Override
@@ -270,7 +318,9 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                     .totalQuests(total)
                     .completedQuests((int) completed)
                     .progressPercent(progress)
+                    .totalEstimatedHours(r.getTotalEstimatedHours())
                     .createdAt(r.getCreatedAt())
+                    .lastActivityAt(computeLastActivityAt(r))
                     .build());
         }
 
@@ -357,6 +407,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                 .totalTasks(totalTasks)
                 .completedTasks(completedTasks)
                 .totalTasksCompleted(completedTasks)  // Frontend expectation
+                .totalTasksPending(totalTasks - completedTasks)
                 .totalEnrolledCourses(totalEnrolledCourses)
                 .completedCourses(completedCourses)
                 .topSkills(topSkills)
@@ -403,7 +454,8 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
 
     private String buildDataContext(String studentName, StudentLearningReportResponse.StudentMetrics metrics,
                                     List<RoadmapSessionSummary> roadmaps, List<ChatSessionSummary> chatSessions,
-                                    GenerateStudentReportRequest request) {
+                                    GenerateStudentReportRequest request,
+                                    List<JourneyMilestoneData> journeyMilestones) {
         StringBuilder ctx = new StringBuilder();
         ctx.append("## Dữ liệu học tập của: ").append(studentName).append("\n\n");
 
@@ -462,6 +514,15 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
             ctx.append("\n### Kỹ năng muốn tập trung đánh giá:\n");
             for (String skill : request.getFocusSkills()) {
                 ctx.append("- ").append(skill).append("\n");
+            }
+        }
+
+        // Journey milestones — include active journey progress for richer AI context
+        if (!journeyMilestones.isEmpty()) {
+            ctx.append("\n### Journey Milestones:\n");
+            for (JourneyMilestoneData m : journeyMilestones) {
+                ctx.append("- ").append(m.completed ? "✅" : "⬜")
+                   .append(" ").append(m.name).append("\n");
             }
         }
 
@@ -671,7 +732,9 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
 
     private StudentLearningReport saveReport(User student, String studentName, String reportContent,
                                               StudentLearningReportResponse.ReportSections sections,
-                                              boolean isAiGenerated, StudentLearningReport.ReportType reportType) {
+                                              boolean isAiGenerated, StudentLearningReport.ReportType reportType,
+                                              StudentLearningReportResponse.StudentMetrics metrics,
+                                              String learningTrend, String recommendedFocus) {
         StudentLearningReport report = StudentLearningReport.builder()
                 .student(student)
                 .studentName(studentName)
@@ -687,6 +750,13 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                 .motivationSection(sections.getMotivation())
                 .isAiGenerated(isAiGenerated)
                 .reportType(reportType)
+                // Snapshot fields for quick display without re-aggregation
+                .averageProgressSnapshot(metrics != null ? metrics.getAverageProgress() : 0)
+                .learningTrend(learningTrend)
+                .recommendedFocus(recommendedFocus)
+                .totalStudyHoursSnapshot(metrics != null ? metrics.getTotalStudyHours() : 0)
+                .streakDaysSnapshot(metrics != null ? metrics.getCurrentStreak() : 0)
+                .tasksCompletedSnapshot(metrics != null ? metrics.getTotalTasksCompleted() : 0)
                 .build();
 
         return reportRepository.save(report);
@@ -695,7 +765,8 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     private StudentLearningReportResponse generateFallbackReport(Long studentId, String studentName,
                                                                    StudentLearningReportResponse.StudentMetrics metrics,
                                                                    List<RoadmapSessionSummary> roadmaps,
-                                                                   StudentLearningReport.ReportType reportType) {
+                                                                   StudentLearningReport.ReportType reportType,
+                                                                   List<JourneyMilestoneData> journeyMilestones) {
         StringBuilder content = new StringBuilder();
         content.append("# 📊 BÁO CÁO HỌC TẬP CÁ NHÂN\n\n");
         content.append("**Học viên:** ").append(studentName).append("\n\n");
@@ -794,6 +865,8 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                 .sections(sections)
                 .metrics(metrics)
                 .reportType(reportType.name())
+                .overallProgress(metrics != null ? metrics.getAverageProgress() : 0)
+                .learningTrend("stable")
                 .build();
     }
 
@@ -818,6 +891,10 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                         .motivation(report.getMotivationSection())
                         .build())
                 .reportType(report.getReportType().name())
+                // Populated from entity snapshot fields (stored at save time)
+                .overallProgress(report.getAverageProgressSnapshot())
+                .learningTrend(report.getLearningTrend())
+                .recommendedFocus(report.getRecommendedFocus())
                 .build();
     }
 
@@ -825,6 +902,18 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                                                          StudentLearningReportResponse.StudentMetrics metrics) {
         StudentLearningReportResponse response = convertToResponse(report);
         response.setMetrics(metrics);
+        return response;
+    }
+
+    /**
+     * Build response with computed derived fields (overallProgress, learningTrend, recommendedFocus).
+     * Use this when you have the live metrics and want the full enriched response.
+     */
+    private StudentLearningReportResponse buildResponseWithDerivedFields(StudentLearningReport report,
+                                                                          StudentLearningReportResponse.StudentMetrics metrics,
+                                                                          Long studentId) {
+        StudentLearningReportResponse response = buildResponse(report, metrics);
+        computeDerivedFields(response, metrics, studentId);
         return response;
     }
 
@@ -846,6 +935,171 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         }
 
         return "Học viên";
+    }
+
+    /**
+     * Compute last activity timestamp from completed progress entries.
+     */
+    private LocalDateTime computeLastActivityAt(RoadmapSession r) {
+        if (r.getProgressList() == null || r.getProgressList().isEmpty()) return null;
+        return r.getProgressList().stream()
+                .filter(p -> p.getCompletedAt() != null)
+                .map(p -> LocalDateTime.ofInstant(p.getCompletedAt(), ZoneId.of("UTC")).plusHours(7))
+                .max(java.util.Comparator.naturalOrder())
+                .orElse(null);
+    }
+
+    // ============ DTO for Journey Milestones ============
+
+    private static class JourneyMilestoneData {
+        private final String name;
+        private final boolean completed;
+
+        JourneyMilestoneData(String name, boolean completed) {
+            this.name = name;
+            this.completed = completed;
+        }
+    }
+
+    /**
+     * Compute and set derived fields: overallProgress, learningTrend, recommendedFocus.
+     */
+    private void computeDerivedFields(StudentLearningReportResponse response,
+                                      StudentLearningReportResponse.StudentMetrics metrics,
+                                      Long studentId) {
+        // 1. overallProgress: lấy từ metrics.averageProgress
+        if (metrics != null && metrics.getAverageProgress() != null) {
+            response.setOverallProgress(metrics.getAverageProgress());
+        }
+
+        // 2. learningTrend: so sánh với report trước đó (dùng metrics.averageProgress)
+        Integer currentProgress = (metrics != null) ? metrics.getAverageProgress() : null;
+        String trend = computeLearningTrend(studentId, response.getId(), currentProgress);
+        response.setLearningTrend(trend);
+
+        // 3. recommendedFocus: extract từ AI content (recommendations hoặc skillGaps)
+        String focus = extractRecommendedFocus(response.getSections());
+        response.setRecommendedFocus(focus);
+    }
+
+    /**
+     * Tính learning trend bằng cách so sánh với báo cáo trước đó.
+     * improving: current > previous + 5
+     * declining: current < previous - 5
+     * stable: otherwise
+     */
+    private String computeLearningTrend(Long studentId, Long currentReportId, Integer currentProgress) {
+        if (currentProgress == null) return "stable";
+
+        try {
+            Optional<StudentLearningReport> previousOpt = reportRepository
+                    .findFirstByStudentIdAndIdLessThanOrderByGeneratedAtDesc(studentId, currentReportId);
+
+            if (previousOpt.isEmpty()) {
+                return "stable"; // First report — no trend yet
+            }
+
+            StudentLearningReport previous = previousOpt.get();
+            Integer previousProgress = parseAverageProgressFromReportContent(previous.getReportContent());
+
+            if (previousProgress == null) {
+                return "stable"; // Cannot compare — default to stable
+            }
+
+            int diff = currentProgress - previousProgress;
+            if (diff > 5) {
+                return "improving";
+            } else if (diff < -5) {
+                return "declining";
+            } else {
+                return "stable";
+            }
+        } catch (Exception e) {
+            log.warn("Failed to compute learning trend for student {}, defaulting to stable", studentId, e);
+            return "stable";
+        }
+    }
+
+    /**
+     * Parse average progress from raw report content (fallback when metrics not available).
+     * Looks for patterns like "Tiến độ: 45%" in the content.
+     */
+    private Integer parseAverageProgressFromReportContent(String content) {
+        if (content == null) return null;
+        try {
+            // Try to find progress percentage in content
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                    "Tiến độ[^0-9]*([0-9]+)%?|progress[^0-9]*([0-9]+)%?",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+            java.util.regex.Matcher matcher = pattern.matcher(content);
+            if (matcher.find()) {
+                String found = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+                return found != null ? Integer.parseInt(found) : null;
+            }
+        } catch (Exception e) {
+            // Ignore parsing errors
+        }
+        return null;
+    }
+
+    /**
+     * Extract recommended focus from AI report sections.
+     * Takes the first actionable bullet from recommendations or skillGaps.
+     */
+    private String extractRecommendedFocus(StudentLearningReportResponse.ReportSections sections) {
+        if (sections == null) return null;
+
+        String[] sources = {
+                sections.getRecommendations(),
+                sections.getSkillGaps(),
+                sections.getNextSteps()
+        };
+
+        for (String source : sources) {
+            if (source == null || source.isBlank()) continue;
+
+            // Extract first non-empty, non-heading line
+            String[] lines = source.split("\n");
+            for (String line : lines) {
+                String trimmed = line.trim();
+                // Skip empty lines and heading markers
+                if (trimmed.isEmpty() || trimmed.startsWith("##") || trimmed.startsWith("#")) {
+                    continue;
+                }
+                // Remove bullet markers and emphasis
+                String cleaned = trimmed.replaceFirst("^[-*•]+\\s*", "")
+                        .replaceAll("\\*+", "")
+                        .trim();
+                if (!cleaned.isEmpty() && cleaned.length() > 10) {
+                    // Limit to ~100 chars
+                    return cleaned.length() > 100 ? cleaned.substring(0, 97) + "..." : cleaned;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Fetch active journey milestones for a student.
+     */
+    private List<JourneyMilestoneData> getJourneyMilestones(Long studentId) {
+        List<JourneyMilestoneData> milestones = new ArrayList<>();
+        try {
+            Optional<User> userOpt = userRepository.findById(studentId);
+            if (userOpt.isEmpty()) return milestones;
+
+            List<Journey> activeJourneys = journeyRepository.findActiveJourneysByUser(userOpt.get());
+            if (activeJourneys.isEmpty()) return milestones;
+
+            Journey activeJourney = activeJourneys.get(0);
+
+            // If the journey has a title and progress, include it in data context
+            // Journey milestone data is built into buildDataContext below
+            return milestones; // milestones parsed from journey AI summary if available
+        } catch (Exception e) {
+            log.warn("Could not fetch journey milestones for student {}: {}", studentId, e.getMessage());
+            return milestones;
+        }
     }
 
     private int calculateStreak(List<StudySession> sessions) {

@@ -106,6 +106,31 @@ public class StudentLearningReport {
     @Builder.Default
     private ReportType reportType = ReportType.COMPREHENSIVE;
 
+    /** Snapshot tiến độ trung bình tại thời điểm tạo báo cáo */
+    @Column(name = "average_progress_snapshot")
+    private Integer averageProgressSnapshot;
+
+    /** Xu hướng học tập tại thời điểm tạo */
+    @Column(name = "learning_trend", length = 20)
+    private String learningTrend;
+
+    /** Đề xuất tập trung (extracted từ AI content) */
+    @Lob
+    @Column(name = "recommended_focus", columnDefinition = "TEXT")
+    private String recommendedFocus;
+
+    /** Tổng giờ học tại thời điểm tạo */
+    @Column(name = "total_study_hours_snapshot")
+    private Integer totalStudyHoursSnapshot;
+
+    /** Streak ngày tại thời điểm tạo */
+    @Column(name = "streak_days_snapshot")
+    private Integer streakDaysSnapshot;
+
+    /** Số tasks hoàn thành tại thời điểm tạo */
+    @Column(name = "tasks_completed_snapshot")
+    private Integer tasksCompletedSnapshot;
+
     /**
      * Loại báo cáo học tập cá nhân.
      */

@@ -4,6 +4,8 @@ import com.exe.skillverse_backend.student_learning_report_service.dto.request.Ge
 import com.exe.skillverse_backend.student_learning_report_service.dto.response.StudentLearningReportResponse;
 import com.exe.skillverse_backend.student_learning_report_service.service.StudentLearningReportService;
 import io.swagger.v3.oas.annotations.Operation;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -164,20 +166,24 @@ public class StudentLearningReportController {
 
     @GetMapping("/can-generate")
     @PreAuthorize("isAuthenticated()")
-    @Operation(summary = "Kiểm tra có thể tạo báo cáo", 
+    @Operation(summary = "Kiểm tra có thể tạo báo cáo",
                description = "Kiểm tra xem học viên có thể tạo báo cáo mới không (rate limit check)")
     public ResponseEntity<Map<String, Object>> canGenerateNewReport(
             @AuthenticationPrincipal Jwt jwt) {
         Long userId = extractUserId(jwt);
         boolean canGenerate = learningReportService.canGenerateNewReport(userId);
-        
-        return ResponseEntity.ok(Map.of(
-                "canGenerate", canGenerate,
-                "cooldownHours", 6,
-                "message", canGenerate 
-                        ? "Bạn có thể tạo báo cáo mới" 
-                        : "Vui lòng đợi để tạo báo cáo toàn diện mới"
-        ));
+        int remainingMinutes = learningReportService.getCooldownRemainingMinutes(userId);
+
+        java.util.Map<String, Object> response = new java.util.LinkedHashMap<>();
+        response.put("canGenerate", canGenerate);
+        response.put("cooldownHours", 6);
+        response.put("remainingCooldownMinutes", remainingMinutes);
+        response.put("nextAvailableAt", LocalDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh")).plusMinutes(remainingMinutes).toString());
+        response.put("message", canGenerate
+                ? "Bạn có thể tạo báo cáo mới"
+                : "Vui lòng đợi " + remainingMinutes + " phút để tạo báo cáo toàn diện mới");
+
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/count")

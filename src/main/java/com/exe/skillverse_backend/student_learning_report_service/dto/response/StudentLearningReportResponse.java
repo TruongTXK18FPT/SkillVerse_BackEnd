@@ -27,6 +27,14 @@ public class StudentLearningReportResponse {
     private StudentMetrics metrics;
     private String reportType;
 
+    // --- Derived/Computed fields ---
+    /** Tiến độ tổng thể (0-100), computed từ metrics.averageProgress */
+    private Integer overallProgress;
+    /** Xu hướng học tập: improving / stable / declining, computed từ so sánh với report trước */
+    private String learningTrend;
+    /** Đề xuất tập trung, extracted từ AI report content (recommendations/skillGaps) */
+    private String recommendedFocus;
+
     /**
      * Các phần báo cáo được parse từ AI response.
      */
@@ -70,6 +78,7 @@ public class StudentLearningReportResponse {
         private Integer totalTasksCompleted;  // Alias cho completedTasks (frontend expectation)
         private Integer totalEnrolledCourses;
         private Integer completedCourses;
+        private Integer totalTasksPending;       // = totalTasks - completedTasks
         private List<SkillInfo> topSkills;
         private List<RoadmapProgress> roadmapDetails;
     }
@@ -102,6 +111,7 @@ public class StudentLearningReportResponse {
         private Integer totalQuests;
         private Integer completedQuests;
         private Integer progressPercent;
+        private Double totalEstimatedHours;   // từ RoadmapSession.totalEstimatedHours
         private Instant createdAt;
         private LocalDateTime lastActivityAt;
     }
