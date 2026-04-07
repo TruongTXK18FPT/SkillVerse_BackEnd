@@ -94,11 +94,9 @@ class StudentLearningReportServiceImplTest {
     void generateLearningReport_ShouldEnforceTheComprehensiveReportCooldown() {
         User student = User.builder().id(1L).email("student@skillverse.vn").firstName("Student").lastName("One").build();
         when(userRepository.findById(1L)).thenReturn(Optional.of(student));
-        when(reportRepository.existsByStudentIdAndReportTypeAndGeneratedAtAfter(
-                any(Long.class),
-                any(StudentLearningReport.ReportType.class),
-                any(LocalDateTime.class)))
-                .thenReturn(true);
+        // Report was generated 1 hour ago — still within 6-hour cooldown
+        when(reportRepository.findLatestComprehensiveGeneratedAt(1L))
+                .thenReturn(LocalDateTime.now().minusHours(1));
 
         ApiException exception = assertThrows(ApiException.class,
                 () -> service.generateLearningReport(1L, GenerateStudentReportRequest.builder().build()));
@@ -127,11 +125,7 @@ class StudentLearningReportServiceImplTest {
                 .build();
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(student));
-        when(reportRepository.existsByStudentIdAndReportTypeAndGeneratedAtAfter(
-                any(Long.class),
-                any(StudentLearningReport.ReportType.class),
-                any(LocalDateTime.class)))
-                .thenReturn(false);
+        when(reportRepository.findLatestComprehensiveGeneratedAt(1L)).thenReturn(null);
         when(roadmapSessionRepository.findByUserIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(roadmap));
         when(studySessionRepository.findByUserId(1L)).thenReturn(List.of(StudySession.builder()
                 .id(UUID.randomUUID())
