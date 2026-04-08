@@ -24,6 +24,7 @@ import com.exe.skillverse_backend.study_service.repository.StudySessionRepositor
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -45,6 +46,8 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class StudentLearningReportServiceImplTest {
+
+    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     @Mock
     private StudentLearningReportRepository reportRepository;
@@ -96,7 +99,7 @@ class StudentLearningReportServiceImplTest {
         when(userRepository.findById(1L)).thenReturn(Optional.of(student));
         // Report was generated 1 hour ago — still within 6-hour cooldown
         when(reportRepository.findLatestComprehensiveGeneratedAt(1L))
-                .thenReturn(LocalDateTime.now().minusHours(1));
+                .thenReturn(LocalDateTime.now(VN_ZONE).minusHours(1));
 
         GenerateStudentReportRequest request = GenerateStudentReportRequest.builder()
                 .reportType(StudentLearningReport.ReportType.COMPREHENSIVE)
