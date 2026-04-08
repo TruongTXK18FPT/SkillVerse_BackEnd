@@ -5,9 +5,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.support.TransactionTemplate;
 
 import java.security.MessageDigest;
 
@@ -35,7 +32,6 @@ public class DatabaseSchemaFixer {
     private static final long SCHEMA_FIXER_LOCK_KEY = 2026031501L;
 
     private final JdbcTemplate jdbcTemplate;
-    private final PlatformTransactionManager transactionManager;
 
     @PostConstruct
     public void fixDatabaseConstraints() {
@@ -45,13 +41,9 @@ public class DatabaseSchemaFixer {
             return;
         }
 
-        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
-        transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-        transactionTemplate.setName("database-schema-fixer");
-
         try {
             log.info("Initializing PostgreSQL schema patch system...");
-            transactionTemplate.executeWithoutResult(status -> applySchemaPatchesWithLock());
+            applySchemaPatchesWithLock();
         } catch (Exception ex) {
             log.error("Schema patching failed: {}", ex.getMessage(), ex);
             throw new IllegalStateException("Database schema patching failed", ex);
@@ -63,17 +55,20 @@ public class DatabaseSchemaFixer {
     private void applySchemaPatchesWithLock() {
         ensurePatchHistoryTable();
         acquireAdvisoryLock();
+        try {
+            applyPatch("fix-quizzes-description-oid", "Cast quizzes.description from TEXT to TEXT to resolve Hibernate oid cast failure",
+                    this::patchQuizzesDescriptionOid,
+                    this::verifyQuizzesDescriptionOid);
 
-        applyPatch("fix-quizzes-description-oid", "Cast quizzes.description from TEXT to TEXT to resolve Hibernate oid cast failure",
-                this::patchQuizzesDescriptionOid,
-                this::verifyQuizzesDescriptionOid);
+            applyPatch("add-student-learning-report-snapshots",
+                    "Add missing snapshot columns to student_learning_reports for Hibernate schema validation",
+                    this::patchStudentLearningReportSnapshotColumns,
+                    this::verifyStudentLearningReportSnapshotColumns);
 
-        applyPatch("add-student-learning-report-snapshots",
-                "Add missing snapshot columns to student_learning_reports for Hibernate schema validation",
-                this::patchStudentLearningReportSnapshotColumns,
-                this::verifyStudentLearningReportSnapshotColumns);
-
-        log.info("Schema patch infrastructure ready.");
+            log.info("Schema patch infrastructure ready.");
+        } finally {
+            releaseAdvisoryLock();
+        }
     }
 
     private void patchQuizzesDescriptionOid() {
@@ -150,9 +145,12 @@ public class DatabaseSchemaFixer {
     }
 
     private void acquireAdvisoryLock() {
-        // PostgreSQL advisory lock: ensures only one instance runs patches at a time
-        // Auto-released when session disconnects
-        jdbcTemplate.execute("SELECT pg_advisory_xact_lock(" + SCHEMA_FIXER_LOCK_KEY + ")");
+        // Session-level advisory lock: ensures only one instance runs patches at a time.
+        jdbcTemplate.execute("SELECT pg_advisory_lock(" + SCHEMA_FIXER_LOCK_KEY + ")");
+    }
+
+    private void releaseAdvisoryLock() {
+        jdbcTemplate.execute("SELECT pg_advisory_unlock(" + SCHEMA_FIXER_LOCK_KEY + ")");
     }
 
     // ─── Patch Helpers ────────────────────────────────────────────────────────
