@@ -9,7 +9,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
 /**
@@ -69,6 +68,11 @@ public class DatabaseSchemaFixer {
                 this::patchQuizzesDescriptionOid,
                 this::verifyQuizzesDescriptionOid);
 
+        applyPatch("add-student-learning-report-snapshots",
+                "Add missing snapshot columns to student_learning_reports for Hibernate schema validation",
+                this::patchStudentLearningReportSnapshotColumns,
+                this::verifyStudentLearningReportSnapshotColumns);
+
         log.info("Schema patch infrastructure ready.");
     }
 
@@ -90,6 +94,33 @@ public class DatabaseSchemaFixer {
             "SELECT data_type FROM information_schema.columns WHERE table_name = 'quizzes' AND column_name = 'description'"
         );
         return !results.isEmpty() && "text".equalsIgnoreCase((String) results.get(0).get("data_type"));
+    }
+
+    private void patchStudentLearningReportSnapshotColumns() {
+        if (!hasTable("student_learning_reports")) {
+            log.debug("Table student_learning_reports does not exist yet, skipping patch.");
+            return;
+        }
+
+        executeSql("""
+            ALTER TABLE student_learning_reports
+                ADD COLUMN IF NOT EXISTS average_progress_snapshot INTEGER,
+                ADD COLUMN IF NOT EXISTS learning_trend VARCHAR(20),
+                ADD COLUMN IF NOT EXISTS recommended_focus TEXT,
+                ADD COLUMN IF NOT EXISTS total_study_hours_snapshot INTEGER,
+                ADD COLUMN IF NOT EXISTS streak_days_snapshot INTEGER,
+                ADD COLUMN IF NOT EXISTS tasks_completed_snapshot INTEGER
+        """);
+    }
+
+    private boolean verifyStudentLearningReportSnapshotColumns() {
+        return hasTable("student_learning_reports")
+                && hasColumn("student_learning_reports", "average_progress_snapshot")
+                && hasColumn("student_learning_reports", "learning_trend")
+                && hasColumn("student_learning_reports", "recommended_focus")
+                && hasColumn("student_learning_reports", "total_study_hours_snapshot")
+                && hasColumn("student_learning_reports", "streak_days_snapshot")
+                && hasColumn("student_learning_reports", "tasks_completed_snapshot");
     }
 
     // ─── Infrastructure ─────────────────────────────────────────────────────
