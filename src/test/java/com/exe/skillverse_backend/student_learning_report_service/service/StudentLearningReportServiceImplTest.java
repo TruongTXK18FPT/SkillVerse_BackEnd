@@ -98,8 +98,12 @@ class StudentLearningReportServiceImplTest {
         when(reportRepository.findLatestComprehensiveGeneratedAt(1L))
                 .thenReturn(LocalDateTime.now().minusHours(1));
 
+        GenerateStudentReportRequest request = GenerateStudentReportRequest.builder()
+                .reportType(StudentLearningReport.ReportType.COMPREHENSIVE)
+                .build();
+
         ApiException exception = assertThrows(ApiException.class,
-                () -> service.generateLearningReport(1L, GenerateStudentReportRequest.builder().build()));
+                () -> service.generateLearningReport(1L, request));
 
         assertEquals(ErrorCode.BAD_REQUEST, exception.getErrorCode());
     }
