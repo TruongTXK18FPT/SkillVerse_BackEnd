@@ -100,6 +100,7 @@ class ViolationReportControllerTest {
         createRequest = CreateViolationReportRequest.builder()
                 .title("Test Report")
                 .reportedUserId(2L)
+                .reportedUserName("Reported User")
                 .reportType("HARASSMENT")
                 .severity("HIGH")
                 .description("This is a test violation report with sufficient detail.")

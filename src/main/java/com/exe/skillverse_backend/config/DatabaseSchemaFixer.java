@@ -65,6 +65,16 @@ public class DatabaseSchemaFixer {
                     this::patchStudentLearningReportSnapshotColumns,
                     this::verifyStudentLearningReportSnapshotColumns);
 
+            applyPatch("create-contract-signatures-table",
+                    "Create contract_signatures table for digital signature tracking",
+                    this::patchContractSignaturesTable,
+                    this::verifyContractSignaturesTable);
+
+            applyPatch("add-violation-reports-reported-user-name",
+                    "Add reported_user_name column to violation_reports for storing reported user's display name",
+                    this::patchViolationReportsReportedUserName,
+                    this::verifyViolationReportsReportedUserName);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -116,6 +126,50 @@ public class DatabaseSchemaFixer {
                 && hasColumn("student_learning_reports", "total_study_hours_snapshot")
                 && hasColumn("student_learning_reports", "streak_days_snapshot")
                 && hasColumn("student_learning_reports", "tasks_completed_snapshot");
+    }
+
+    private void patchContractSignaturesTable() {
+        if (hasTable("contract_signatures")) {
+            log.debug("Table contract_signatures already exists, skipping patch.");
+            return;
+        }
+        executeSql("""
+            CREATE TABLE contract_signatures (
+                id BIGSERIAL PRIMARY KEY,
+                contract_id BIGINT NOT NULL,
+                signed_by BIGINT NOT NULL,
+                signed_by_name VARCHAR(200),
+                signed_by_role VARCHAR(20) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'NOT_SIGNED',
+                signature_image_url VARCHAR(500),
+                signed_at TIMESTAMP,
+                ip_address VARCHAR(50),
+                user_agent VARCHAR(500)
+            )
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_contract_signatures_contract_id ON contract_signatures(contract_id)");
+    }
+
+    private boolean verifyContractSignaturesTable() {
+        if (!hasTable("contract_signatures")) return false;
+        return hasColumn("contract_signatures", "id")
+                && hasColumn("contract_signatures", "contract_id")
+                && hasColumn("contract_signatures", "signed_by")
+                && hasColumn("contract_signatures", "signed_by_role")
+                && hasColumn("contract_signatures", "status");
+    }
+
+    private void patchViolationReportsReportedUserName() {
+        if (!hasTable("violation_reports")) {
+            log.debug("Table violation_reports does not exist yet, skipping patch.");
+            return;
+        }
+        executeSql("ALTER TABLE violation_reports ADD COLUMN IF NOT EXISTS reported_user_name VARCHAR(100)");
+    }
+
+    private boolean verifyViolationReportsReportedUserName() {
+        return hasTable("violation_reports")
+                && hasColumn("violation_reports", "reported_user_name");
     }
 
     // ─── Infrastructure ─────────────────────────────────────────────────────

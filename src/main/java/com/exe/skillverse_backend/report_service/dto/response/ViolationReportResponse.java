@@ -60,7 +60,9 @@ public class ViolationReportResponse {
                 .title(report.getTitle())
                 // Reporter
                 .reporterId(report.getReporter() != null ? report.getReporter().getId() : null)
-                .reporterName(report.getReporter() != null ? report.getReporter().getFullName() : null)
+                .reportedUserName(report.getReportedUserName() != null
+                        ? report.getReportedUserName()
+                        : (report.getReportedUser() != null ? report.getReportedUser().getFullName() : null))
                 .reporterEmail(report.getReporter() != null ? report.getReporter().getEmail() : null)
                 // Reported user
                 .reportedUserId(report.getReportedUser() != null ? report.getReportedUser().getId() : null)

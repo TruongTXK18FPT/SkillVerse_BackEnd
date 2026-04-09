@@ -23,10 +23,15 @@ public class CreateViolationReportRequest {
     @Size(max = 255, message = "Title must be less than 255 characters")
     private String title;
 
-    // Either reportedUserId or reportedUserEmail must be provided
+    // Name of the user being reported (required)
+    @NotBlank(message = "Reported user name is required")
+    @Size(max = 100, message = "Reported user name must be less than 100 characters")
+    private String reportedUserName;
+
+    // Either reportedUserId or reportedUserEmail must be provided (optional)
     private Long reportedUserId;
-    
-    // Email of the user being reported (alternative to ID)
+
+    // Email of the user being reported (alternative to ID, optional)
     private String reportedUserEmail;
 
     @NotNull(message = "Report type is required")

@@ -64,7 +64,7 @@ public class ViolationReportServiceImpl implements ViolationReportService {
         User reporter = userRepository.findById(reporterId)
                 .orElseThrow(() -> new NotFoundException("Reporter user not found with id: " + reporterId));
 
-        // Validate reported user exists - support both ID and Email
+        // Validate reported user exists - support both ID, Email, or neither (anonymous report)
         User reportedUser = null;
         if (request.getReportedUserId() != null && request.getReportedUserId() > 0) {
             reportedUser = userRepository.findById(request.getReportedUserId())
@@ -72,12 +72,11 @@ public class ViolationReportServiceImpl implements ViolationReportService {
         } else if (request.getReportedUserEmail() != null && !request.getReportedUserEmail().isBlank()) {
             reportedUser = userRepository.findByEmail(request.getReportedUserEmail())
                     .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng với email: " + request.getReportedUserEmail()));
-        } else {
-            throw new BadRequestException("Either reportedUserId or reportedUserEmail must be provided");
         }
+        // If neither is provided, reportedUser remains null (anonymous report) - allowed
 
         // Prevent self-reporting
-        if (reporterId.equals(reportedUser.getId())) {
+        if (reportedUser != null && reporterId.equals(reportedUser.getId())) {
             throw new BadRequestException("You cannot report yourself");
         }
 
@@ -89,8 +88,8 @@ public class ViolationReportServiceImpl implements ViolationReportService {
             throw new BadRequestException("Invalid report type: " + request.getReportType());
         }
 
-        // Check for duplicate pending reports
-        if (reportRepository.existsPendingReport(reporterId, reportedUser.getId(), reportType)) {
+        // Check for duplicate pending reports (only if reportedUser is known)
+        if (reportedUser != null && reportRepository.existsPendingReport(reporterId, reportedUser.getId(), reportType)) {
             throw new BadRequestException(
                     "You already have a pending report of this type against this user. Please wait for it to be processed.");
         }
@@ -109,6 +108,11 @@ public class ViolationReportServiceImpl implements ViolationReportService {
         String reportCode = generateReportCode();
 
         // Build the report
+        // Use reportedUserName from request if provided, otherwise use the reported user's full name (if found)
+        String displayReportedName = (request.getReportedUserName() != null && !request.getReportedUserName().isBlank())
+                ? request.getReportedUserName()
+                : (reportedUser != null ? reportedUser.getFullName() : null);
+
         ViolationReport report = ViolationReport.builder()
                 .reportCode(reportCode)
                 .title(request.getTitle())
@@ -118,6 +122,7 @@ public class ViolationReportServiceImpl implements ViolationReportService {
                 .severity(severity)
                 .description(request.getDescription())
                 .status(ReportStatus.PENDING)
+                .reportedUserName(displayReportedName)
                 .evidences(new HashSet<>())
                 .build();
 

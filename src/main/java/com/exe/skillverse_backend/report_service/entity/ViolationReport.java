@@ -64,11 +64,17 @@ public class ViolationReport {
     private User reporter;
 
     /**
-     * The user being reported (reported user)
+     * The user being reported (reported user) - nullable for anonymous reports
      */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "reported_user_id", nullable = false)
+    @JoinColumn(name = "reported_user_id", nullable = true)
     private User reportedUser;
+
+    /**
+     * Name of the reported user (captured at submission time)
+     */
+    @Column(name = "reported_user_name", length = 100)
+    private String reportedUserName;
 
     /**
      * Type/Category of the violation
