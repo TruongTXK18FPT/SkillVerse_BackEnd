@@ -19,6 +19,7 @@ import lombok.NoArgsConstructor;
 public class StudentLearningReportResponse {
     
     private Long id;
+    private String reportName;
     private LocalDateTime generatedAt;
     private Long studentId;
     private String studentName;

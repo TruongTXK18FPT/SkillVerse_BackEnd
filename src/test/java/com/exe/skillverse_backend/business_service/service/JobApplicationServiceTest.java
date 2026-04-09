@@ -11,6 +11,7 @@ import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus;
 import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
 import com.exe.skillverse_backend.business_service.repository.JobApplicationRepository;
+import com.exe.skillverse_backend.business_service.repository.JobContractRepository;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.service.impl.JobApplicationServiceImpl;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
@@ -50,6 +51,9 @@ class JobApplicationServiceTest {
 
     @Mock
     private JobApplicationRepository jobApplicationRepository;
+
+    @Mock
+    private JobContractRepository jobContractRepository;
 
     @Mock
     private JobPostingRepository jobPostingRepository;
@@ -125,6 +129,9 @@ class JobApplicationServiceTest {
         // 6. Request
         applyRequest = new ApplyJobRequest();
         applyRequest.setCoverLetter("I am interested");
+
+        // Mock jobContractRepository to avoid NPE
+        when(jobContractRepository.findByApplicationId(anyLong())).thenReturn(Optional.empty());
     }
 
     // ==================== APPLY TO JOB TESTS ====================

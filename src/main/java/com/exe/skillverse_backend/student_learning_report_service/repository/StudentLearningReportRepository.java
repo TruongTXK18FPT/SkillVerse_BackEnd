@@ -21,27 +21,27 @@ public interface StudentLearningReportRepository extends JpaRepository<StudentLe
     /**
      * Tìm tất cả báo cáo của một học viên theo thứ tự mới nhất.
      */
-    List<StudentLearningReport> findByStudentIdOrderByGeneratedAtDesc(Long studentId);
+    List<StudentLearningReport> findByStudentIdOrderByGeneratedAtDescIdDesc(Long studentId);
 
     /**
      * Tìm tất cả báo cáo của học viên (phân trang).
      */
-    Page<StudentLearningReport> findByStudentIdOrderByGeneratedAtDesc(Long studentId, Pageable pageable);
+    Page<StudentLearningReport> findByStudentIdOrderByGeneratedAtDescIdDesc(Long studentId, Pageable pageable);
 
     /**
      * Tìm báo cáo mới nhất của học viên.
      */
-    Optional<StudentLearningReport> findFirstByStudentIdOrderByGeneratedAtDesc(Long studentId);
+    Optional<StudentLearningReport> findFirstByStudentIdOrderByGeneratedAtDescIdDesc(Long studentId);
 
     /**
      * Tìm báo cáo mới nhất trước một ID cho trước (dùng để so sánh trend với báo cáo trước đó).
      */
-    Optional<StudentLearningReport> findFirstByStudentIdAndIdLessThanOrderByGeneratedAtDesc(Long studentId, Long reportId);
+    Optional<StudentLearningReport> findFirstByStudentIdAndIdLessThanOrderByGeneratedAtDescIdDesc(Long studentId, Long reportId);
 
     /**
      * Tìm báo cáo mới nhất theo loại.
      */
-    Optional<StudentLearningReport> findFirstByStudentIdAndReportTypeOrderByGeneratedAtDesc(
+    Optional<StudentLearningReport> findFirstByStudentIdAndReportTypeOrderByGeneratedAtDescIdDesc(
             Long studentId, StudentLearningReport.ReportType reportType);
 
     /**
@@ -69,7 +69,7 @@ public interface StudentLearningReportRepository extends JpaRepository<StudentLe
     /**
      * Tìm các báo cáo trong khoảng thời gian.
      */
-    List<StudentLearningReport> findByStudentIdAndGeneratedAtBetweenOrderByGeneratedAtDesc(
+    List<StudentLearningReport> findByStudentIdAndGeneratedAtBetweenOrderByGeneratedAtDescIdDesc(
             Long studentId, LocalDateTime start, LocalDateTime end);
 
     /**
@@ -90,7 +90,7 @@ public interface StudentLearningReportRepository extends JpaRepository<StudentLe
         SELECT slr.generated_at
         FROM student_learning_reports slr
         WHERE slr.student_id = :studentId AND slr.report_type = 'COMPREHENSIVE'
-        ORDER BY slr.generated_at DESC
+        ORDER BY slr.generated_at DESC, slr.id DESC
         FETCH FIRST 1 ROWS ONLY
         """, nativeQuery = true)
     LocalDateTime findLatestComprehensiveGeneratedAt(@Param("studentId") Long studentId);

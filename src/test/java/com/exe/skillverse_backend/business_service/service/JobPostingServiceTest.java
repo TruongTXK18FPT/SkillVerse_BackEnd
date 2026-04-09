@@ -155,7 +155,7 @@ public class JobPostingServiceTest {
         savedJob.setId(1L);
         savedJob.setTitle("Java Developer");
         savedJob.setRecruiterProfile(recruiterProfile);
-        savedJob.setStatus(JobStatus.PENDING_APPROVAL);
+        savedJob.setStatus(JobStatus.IN_PROGRESS);
         savedJob.setRequiredSkills("[\"java\",\"spring\"]");
         savedJob.setExperienceLevel("Junior");
         savedJob.setJobType("FULL_TIME");
@@ -170,40 +170,33 @@ public class JobPostingServiceTest {
         JobPostingResponse response = jobPostingService.createJob(100L, createJobRequest);
 
         assertNotNull(response);
-        assertEquals(JobStatus.PENDING_APPROVAL, response.getStatus());
+        assertEquals(JobStatus.IN_PROGRESS, response.getStatus());
         assertEquals("Junior", response.getExperienceLevel());
         assertEquals("FULL_TIME", response.getJobType());
         assertEquals(5, response.getHiringQuantity());
         assertEquals("Free lunch", response.getBenefits());
-        verify(walletService).deductCash(
-                eq(100L),
-                eq(new BigDecimal("50000")),
-                anyString(),
-                eq(WalletTransaction.TransactionType.JOB_POSTING_FEE),
-                eq("JOB_POSTING"),
-                eq("new"));
+        verify(walletService, never()).deductCash(anyLong(), any(BigDecimal.class), anyString(), any(), anyString(), anyString());
     }
 
     // 2. Case: Tạo tin thất bại do không đủ tiền
     // Input: Ví không đủ số dư
     // Expected: Ném ra IllegalStateException
     @Test
-    void createJob_InsufficientFunds() {
+    void createJob_InsufficientFunds() throws Exception {
         when(recruiterProfileRepository.findByUserId(100L)).thenReturn(Optional.of(recruiterProfile));
+        when(objectMapper.writeValueAsString(any())).thenReturn("[]");
         JobPosting savedJob = new JobPosting();
         savedJob.setId(1L);
+        savedJob.setRecruiterProfile(recruiterProfile);
+        savedJob.setStatus(JobStatus.IN_PROGRESS);
+        savedJob.setRequiredSkills("[]");
         when(jobPostingRepository.save(any(JobPosting.class))).thenReturn(savedJob);
+        when(objectMapper.readValue(anyString(), eq(String[].class))).thenReturn(new String[] {});
 
-        doThrow(new IllegalStateException("Insufficient funds"))
-                .when(walletService).deductCash(
-                        anyLong(),
-                        any(BigDecimal.class),
-                        anyString(),
-                        any(WalletTransaction.TransactionType.class),
-                        anyString(),
-                        anyString());
-
-        assertThrows(IllegalStateException.class, () -> jobPostingService.createJob(100L, createJobRequest));
+        // createJob no longer deducts wallet (fee is charged on submitForApproval)
+        assertDoesNotThrow(() -> jobPostingService.createJob(100L, createJobRequest));
+        // Verify wallet was NOT called
+        verify(walletService, never()).deductCash(anyLong(), any(BigDecimal.class), anyString(), any(), anyString(), anyString());
     }
 
     // 3. Case: Không tìm thấy hồ sơ nhà tuyển dụng
@@ -281,22 +274,21 @@ public class JobPostingServiceTest {
     // Input: WalletService ném RuntimeException
     // Expected: Ném ra IllegalStateException
     @Test
-    void createJob_WalletGenericError() {
+    void createJob_WalletGenericError() throws Exception {
+        // createJob no longer deducts wallet (fee is charged on submitForApproval)
         when(recruiterProfileRepository.findByUserId(100L)).thenReturn(Optional.of(recruiterProfile));
+        when(objectMapper.writeValueAsString(any())).thenReturn("[]");
         JobPosting savedJob = new JobPosting();
         savedJob.setId(1L);
+        savedJob.setRecruiterProfile(recruiterProfile);
+        savedJob.setStatus(JobStatus.IN_PROGRESS);
+        savedJob.setRequiredSkills("[]");
         when(jobPostingRepository.save(any(JobPosting.class))).thenReturn(savedJob);
+        when(objectMapper.readValue(anyString(), eq(String[].class))).thenReturn(new String[] {});
 
-        doThrow(new RuntimeException("Database error"))
-                .when(walletService).deductCash(
-                        anyLong(),
-                        any(BigDecimal.class),
-                        anyString(),
-                        any(WalletTransaction.TransactionType.class),
-                        anyString(),
-                        anyString());
-
-        assertThrows(IllegalStateException.class, () -> jobPostingService.createJob(100L, createJobRequest));
+        // createJob succeeds without touching wallet
+        assertDoesNotThrow(() -> jobPostingService.createJob(100L, createJobRequest));
+        verify(walletService, never()).deductCash(anyLong(), any(BigDecimal.class), anyString(), any(), anyString(), anyString());
     }
 
     // 10. Case: Cập nhật tin tuyển dụng thành công

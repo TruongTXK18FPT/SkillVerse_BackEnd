@@ -56,28 +56,14 @@ public class JobPostingServiceImpl implements JobPostingService {
     private static final long REOPEN_GRACE_SECONDS = 300; // 5 minutes = 300 seconds
 
     /**
-     * Create a new job posting (status = OPEN — self-service model, no admin approval needed)
+     * Create a new job posting (status = IN_PROGRESS — recruiter creates draft, then submits for approval)
+     * Fee is NOT charged at creation time — only when recruiter submits for approval
      * If recruiter has premium subscription — uses quota (free)
-     * If not — deducts 50,000 VND from wallet
+     * If not — deducts 50,000 VND from wallet on submission
      */
     @Transactional
     public JobPostingResponse createJob(Long userId, CreateJobRequest request) {
-        log.info("Creating job for recruiter user ID: {}", userId);
-
-        // Try subscription quota first, fall back to direct wallet payment
-        boolean usedSubscription = recruiterSubscriptionService.tryUseSubscriptionQuota(userId);
-        if (!usedSubscription) {
-            try {
-                log.info("No subscription — deducting {} VND from wallet for user {}", JOB_POSTING_FEE, userId);
-                walletService.deductCash(userId, JOB_POSTING_FEE,
-                    "Phí đăng tin tuyển dụng full-time", WalletTransaction.TransactionType.JOB_POSTING_FEE,
-                    "JOB_POSTING", "new");
-            } catch (IllegalStateException ex) {
-                throw ex; // keep insufficient funds as-is
-            } catch (Exception ex) {
-                throw new IllegalStateException("Wallet service error", ex);
-            }
-        }
+        log.info("Creating job draft for recruiter user ID: {}", userId);
 
         // Validate budget
         if (request.getMaxBudget().compareTo(request.getMinBudget()) < 0) {
@@ -108,7 +94,7 @@ public class JobPostingServiceImpl implements JobPostingService {
         // Convert skills to JSON
         String skillsJson = convertSkillsToJson(normalizedSkills);
 
-        // Build job posting
+        // Build job posting as draft (IN_PROGRESS) — NO fee charged yet
         JobPosting job = JobPosting.builder()
                 .title(request.getTitle())
                 .description(request.getDescription())
@@ -118,7 +104,7 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .deadline(request.getDeadline())
                 .isRemote(request.getIsRemote())
                 .location(request.getLocation())
-                .status(JobStatus.OPEN) // Self-service: job is immediately visible
+                .status(JobStatus.IN_PROGRESS) // Draft — not visible until admin approves
                 .applicantCount(0)
                 .experienceLevel(request.getExperienceLevel())
                 .jobType(request.getJobType())
@@ -126,14 +112,64 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .benefits(request.getBenefits())
                 .genderRequirement(request.getGenderRequirement())
                 .isNegotiable(request.getIsNegotiable() != null ? request.getIsNegotiable() : false)
-                .isHighlighted(usedSubscription && recruiterSubscriptionService.canHighlightJob(userId))
-                .paidViaSubscription(usedSubscription)
+                .isHighlighted(false)
+                .paidViaSubscription(false)
+                .postingFeeCharged(false)
                 .recruiterProfile(recruiterProfile)
                 .build();
 
         JobPosting savedJob = jobPostingRepository.save(job);
 
-        log.info("Job created successfully with ID: {}", savedJob.getId());
+        log.info("Job draft created successfully with ID: {} (status: IN_PROGRESS)", savedJob.getId());
+
+        return mapToResponse(savedJob);
+    }
+
+    /**
+     * Submit job for admin approval.
+     * Charges fee (subscription quota or 50k wallet) and transitions IN_PROGRESS → PENDING_APPROVAL.
+     */
+    @Transactional
+    public JobPostingResponse submitForApproval(Long userId, Long jobId) {
+        log.info("Submitting job ID: {} for approval by user ID: {}", jobId, userId);
+
+        // Find job and validate ownership
+        JobPosting job = jobPostingRepository.findByIdAndRecruiterProfileUserId(jobId, userId)
+                .orElseThrow(() -> new NotFoundException("Job not found or you don't have permission"));
+
+        // Validate status — only IN_PROGRESS jobs can be submitted
+        if (job.getStatus() != JobStatus.IN_PROGRESS) {
+            throw new IllegalStateException("Only draft jobs (IN_PROGRESS) can be submitted for approval. Current status: " + job.getStatus());
+        }
+
+        // Validate not already submitted
+        if (job.getPostingFeeCharged() != null && job.getPostingFeeCharged()) {
+            throw new IllegalStateException("Job has already been submitted for approval");
+        }
+
+        // Charge fee: try subscription quota first, then wallet
+        boolean usedSubscription = recruiterSubscriptionService.tryUseSubscriptionQuota(userId);
+        if (!usedSubscription) {
+            try {
+                log.info("No subscription — deducting {} VND from wallet for user {}", JOB_POSTING_FEE, userId);
+                walletService.deductCash(userId, JOB_POSTING_FEE,
+                    "Phí đăng tin tuyển dụng full-time", WalletTransaction.TransactionType.JOB_POSTING_FEE,
+                    "JOB_POSTING", String.valueOf(jobId));
+            } catch (IllegalStateException ex) {
+                throw ex; // keep insufficient funds as-is
+            } catch (Exception ex) {
+                throw new IllegalStateException("Wallet service error", ex);
+            }
+        }
+
+        // Update status and fee flag
+        job.setPostingFeeCharged(true);
+        job.setPaidViaSubscription(usedSubscription);
+        job.setIsHighlighted(usedSubscription && recruiterSubscriptionService.canHighlightJob(userId));
+        job.setStatus(JobStatus.PENDING_APPROVAL);
+
+        JobPosting savedJob = jobPostingRepository.save(job);
+        log.info("Job ID: {} submitted for approval — fee charged: {}, subscription: {}", jobId, !usedSubscription, usedSubscription);
 
         return mapToResponse(savedJob);
     }

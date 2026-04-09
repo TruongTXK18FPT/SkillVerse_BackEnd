@@ -25,6 +25,7 @@ import com.exe.skillverse_backend.study_service.repository.StudySessionRepositor
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -51,6 +52,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class StudentLearningReportServiceImpl implements StudentLearningReportService {
 
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+    private static final DateTimeFormatter REPORT_NAME_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     
     // Rate limit: 1 báo cáo comprehensive mỗi 6 giờ
     private static final int REPORT_COOLDOWN_HOURS = 6;
@@ -127,6 +129,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
 
         String reportContent;
         StudentLearningReportResponse.ReportSections sections;
+        boolean isAiGenerated = aiEnabled;
 
         try {
             if (aiEnabled) {
@@ -138,47 +141,30 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                         .content();
                 sections = parseSections(reportContent);
             } else {
-                // Fallback if AI is disabled
-                StudentLearningReportResponse fallback = generateFallbackReport(studentId, studentName, metrics, roadmaps, request.getReportType(), journeyMilestones);
-                computeDerivedFields(fallback, metrics, studentId);
-                return fallback;
+                StudentLearningReportResponse fallback = generateFallbackReport(
+                        studentId, studentName, metrics, roadmaps, request.getReportType(), journeyMilestones);
+                reportContent = fallback.getReportContent();
+                sections = fallback.getSections();
+                isAiGenerated = false;
             }
         } catch (Exception e) {
             log.error("Failed to generate learning report with AI for student {}", studentId, e);
-            StudentLearningReportResponse fallback = generateFallbackReport(studentId, studentName, metrics, roadmaps, request.getReportType(), journeyMilestones);
-            computeDerivedFields(fallback, metrics, studentId);
-            return fallback;
+            StudentLearningReportResponse fallback = generateFallbackReport(
+                    studentId, studentName, metrics, roadmaps, request.getReportType(), journeyMilestones);
+            reportContent = fallback.getReportContent();
+            sections = fallback.getSections();
+            isAiGenerated = false;
         }
 
-        // Save report
-        // Pre-compute derived fields so we can store them in DB and return them in response
-        StudentLearningReportResponse tempResponse = StudentLearningReportResponse.builder()
-                .generatedAt(LocalDateTime.now(VN_ZONE))
-                .studentId(studentId)
-                .studentName(studentName)
-                .reportContent(reportContent)
-                .sections(sections)
-                .metrics(metrics)
-                .reportType(request.getReportType().name())
-                .build();
-        computeDerivedFields(tempResponse, metrics, studentId);
-
-        try {
-            StudentLearningReport savedReport = saveReport(student, studentName, reportContent, sections,
-                    true, request.getReportType(), metrics, tempResponse.getLearningTrend(), tempResponse.getRecommendedFocus());
-            log.info("✅ Student learning report saved with ID: {}", savedReport.getId());
-
-            StudentLearningReportResponse response = buildResponse(savedReport, metrics);
-            // Copy pre-computed derived fields (no re-computation needed)
-            response.setOverallProgress(tempResponse.getOverallProgress());
-            response.setLearningTrend(tempResponse.getLearningTrend());
-            response.setRecommendedFocus(tempResponse.getRecommendedFocus());
-            response.setMetrics(metrics); // ensure metrics is attached
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to persist learning report for student {}", studentId, e);
-            return tempResponse; // return pre-computed response
-        }
+        return persistGeneratedReport(
+                student,
+                studentId,
+                studentName,
+                reportContent,
+                sections,
+                isAiGenerated,
+                request.getReportType(),
+                metrics);
     }
 
     @Override
@@ -195,7 +181,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     @Transactional(readOnly = true)
     public List<StudentLearningReportResponse> getReportHistory(Long studentId) {
         StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
-        return reportRepository.findByStudentIdOrderByGeneratedAtDesc(studentId).stream()
+        return reportRepository.findByStudentIdOrderByGeneratedAtDescIdDesc(studentId).stream()
                 .map(report -> buildResponse(report, metrics))
                 .collect(Collectors.toList());
     }
@@ -204,7 +190,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     @Transactional(readOnly = true)
     public List<StudentLearningReportResponse> getReportHistory(Long studentId, int page, int size) {
         StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
-        return reportRepository.findByStudentIdOrderByGeneratedAtDesc(studentId, PageRequest.of(page, size))
+        return reportRepository.findByStudentIdOrderByGeneratedAtDescIdDesc(studentId, PageRequest.of(page, size))
                 .getContent().stream()
                 .map(report -> buildResponse(report, metrics))
                 .collect(Collectors.toList());
@@ -213,7 +199,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     @Override
     @Transactional(readOnly = true)
     public StudentLearningReportResponse getLatestReport(Long studentId) {
-        return reportRepository.findFirstByStudentIdOrderByGeneratedAtDesc(studentId)
+        return reportRepository.findFirstByStudentIdOrderByGeneratedAtDescIdDesc(studentId)
                 .map(report -> {
                     StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
                     return buildResponse(report, metrics);
@@ -280,6 +266,53 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     }
 
     // ============ PRIVATE HELPER METHODS ============
+
+    private StudentLearningReportResponse persistGeneratedReport(User student,
+                                                                 Long studentId,
+                                                                 String studentName,
+                                                                 String reportContent,
+                                                                 StudentLearningReportResponse.ReportSections sections,
+                                                                 boolean isAiGenerated,
+                                                                 StudentLearningReport.ReportType reportType,
+                                                                 StudentLearningReportResponse.StudentMetrics metrics) {
+        LocalDateTime generatedAt = LocalDateTime.now(VN_ZONE);
+
+        StudentLearningReportResponse tempResponse = StudentLearningReportResponse.builder()
+                .generatedAt(generatedAt)
+                .reportName(buildReportName(generatedAt))
+                .studentId(studentId)
+                .studentName(studentName)
+                .reportContent(reportContent)
+                .sections(sections)
+                .metrics(metrics)
+                .reportType(reportType.name())
+                .build();
+        computeDerivedFields(tempResponse, metrics, studentId);
+
+        try {
+            StudentLearningReport savedReport = saveReport(
+                    student,
+                    studentName,
+                    reportContent,
+                    sections,
+                    isAiGenerated,
+                    reportType,
+                    metrics,
+                    tempResponse.getLearningTrend(),
+                    tempResponse.getRecommendedFocus(),
+                    generatedAt);
+
+            StudentLearningReportResponse response = buildResponse(savedReport, metrics);
+            response.setOverallProgress(tempResponse.getOverallProgress());
+            response.setLearningTrend(tempResponse.getLearningTrend());
+            response.setRecommendedFocus(tempResponse.getRecommendedFocus());
+            response.setMetrics(metrics);
+            return response;
+        } catch (Exception e) {
+            log.error("Failed to persist learning report for student {}", studentId, e);
+            return tempResponse;
+        }
+    }
 
     private StudentLearningReportResponse.StudentMetrics collectStudentMetrics(Long studentId) {
         LocalDateTime now = LocalDateTime.now(VN_ZONE);
@@ -734,7 +767,8 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                                               StudentLearningReportResponse.ReportSections sections,
                                               boolean isAiGenerated, StudentLearningReport.ReportType reportType,
                                               StudentLearningReportResponse.StudentMetrics metrics,
-                                              String learningTrend, String recommendedFocus) {
+                                              String learningTrend, String recommendedFocus,
+                                              LocalDateTime generatedAt) {
         StudentLearningReport report = StudentLearningReport.builder()
                 .student(student)
                 .studentName(studentName)
@@ -757,6 +791,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                 .totalStudyHoursSnapshot(metrics != null ? metrics.getTotalStudyHours() : 0)
                 .streakDaysSnapshot(metrics != null ? metrics.getCurrentStreak() : 0)
                 .tasksCompletedSnapshot(metrics != null ? metrics.getTotalTasksCompleted() : 0)
+                .generatedAt(generatedAt)
                 .build();
 
         return reportRepository.save(report);
@@ -857,8 +892,11 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         String reportContent = content.toString();
         StudentLearningReportResponse.ReportSections sections = parseSections(reportContent);
 
+        LocalDateTime generatedAt = LocalDateTime.now(VN_ZONE);
+
         return StudentLearningReportResponse.builder()
-                .generatedAt(LocalDateTime.now(VN_ZONE))
+                .generatedAt(generatedAt)
+                .reportName(buildReportName(generatedAt))
                 .studentId(studentId)
                 .studentName(studentName)
                 .reportContent(reportContent)
@@ -875,6 +913,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
 
         return StudentLearningReportResponse.builder()
                 .id(report.getId())
+                .reportName(buildReportName(report.getGeneratedAt()))
                 .generatedAt(report.getGeneratedAt())
                 .studentId(report.getStudent().getId())
                 .studentName(resolvedName)
@@ -992,8 +1031,9 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         if (currentProgress == null) return "stable";
 
         try {
-            Optional<StudentLearningReport> previousOpt = reportRepository
-                    .findFirstByStudentIdAndIdLessThanOrderByGeneratedAtDesc(studentId, currentReportId);
+            Optional<StudentLearningReport> previousOpt = currentReportId == null
+                    ? reportRepository.findFirstByStudentIdOrderByGeneratedAtDescIdDesc(studentId)
+                    : reportRepository.findFirstByStudentIdAndIdLessThanOrderByGeneratedAtDescIdDesc(studentId, currentReportId);
 
             if (previousOpt.isEmpty()) {
                 return "stable"; // First report — no trend yet
@@ -1040,6 +1080,11 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
             // Ignore parsing errors
         }
         return null;
+    }
+
+    private String buildReportName(LocalDateTime generatedAt) {
+        LocalDateTime safeGeneratedAt = generatedAt != null ? generatedAt : LocalDateTime.now(VN_ZONE);
+        return "Báo cáo " + safeGeneratedAt.format(REPORT_NAME_FORMATTER);
     }
 
     /**
@@ -1186,3 +1231,4 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         return dateTime.plusHours(7);
     }
 }
+

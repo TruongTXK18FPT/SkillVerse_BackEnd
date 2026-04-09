@@ -102,6 +102,7 @@ public class AdminJobServiceTest {
         job.setMaxBudget(new BigDecimal("2000"));
         job.setDeadline(LocalDate.now().plusDays(10));
         job.setIsRemote(true);
+        job.setPostingFeeCharged(true);
     }
 
     // 1. Case: Duyệt tin tuyển dụng thành công

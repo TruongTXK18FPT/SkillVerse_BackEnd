@@ -107,7 +107,26 @@ public class FeatureLimitsDataInitializer implements CommandLineRunner {
                                                         "'BULK_IMPORT_CANDIDATES', 'API_ACCESS', 'RECRUITER_PRIORITY_SUPPORT'))");
                         log.info("✅ plan_feature_limits feature_type constraint updated");
                 } catch (Exception e) {
-                        log.warn("⚠️ Could not fix feature_type constraint: {}", e.getMessage());
+                        log.warn("⚠️ Could not fix plan_feature_limits feature_type constraint: {}", e.getMessage());
+                }
+
+                // Also fix the constraint on user_usage_tracking table
+                try {
+                        log.info("🔧 Fixing user_usage_tracking feature_type constraint...");
+                        jdbcTemplate.execute(
+                                        "ALTER TABLE user_usage_tracking DROP CONSTRAINT IF EXISTS user_usage_tracking_feature_type_check");
+                        jdbcTemplate.execute(
+                                        "ALTER TABLE user_usage_tracking ADD CONSTRAINT user_usage_tracking_feature_type_check " +
+                                                        "CHECK (feature_type IN (" +
+                                                        "'AI_CHATBOT_REQUESTS', 'AI_ROADMAP_GENERATION', 'MENTOR_BOOKING_MONTHLY', " +
+                                                        "'COIN_EARNING_MULTIPLIER', 'PRIORITY_SUPPORT', " +
+                                                        "'JOB_POSTING_MONTHLY', 'SHORT_TERM_JOB_POSTING', 'HIGHLIGHT_JOB_POST', " +
+                                                        "'AI_CANDIDATE_SUGGESTION', 'COMPANY_PROFILE_PREMIUM', 'ANALYTICS_DASHBOARD', " +
+                                                        "'CANDIDATE_DATABASE_ACCESS', 'JOB_BOOST_MONTHLY', 'AUTOMATED_OUTREACH', " +
+                                                        "'BULK_IMPORT_CANDIDATES', 'API_ACCESS', 'RECRUITER_PRIORITY_SUPPORT'))");
+                        log.info("✅ user_usage_tracking feature_type constraint updated");
+                } catch (Exception e) {
+                        log.warn("⚠️ Could not fix user_usage_tracking feature_type constraint: {}", e.getMessage());
                 }
         }
 

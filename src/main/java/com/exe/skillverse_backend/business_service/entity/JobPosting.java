@@ -92,6 +92,9 @@ public class JobPosting {
     @Column(name = "paid_via_subscription")
     private Boolean paidViaSubscription = false;
 
+    @Column(name = "posting_fee_charged")
+    private Boolean postingFeeCharged = false;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "recruiter_id", nullable = false)
     private RecruiterProfile recruiterProfile;

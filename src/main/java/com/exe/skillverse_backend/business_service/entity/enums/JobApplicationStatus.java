@@ -4,5 +4,6 @@ public enum JobApplicationStatus {
     PENDING, // Application submitted, waiting for recruiter review
     REVIEWED, // Application has been reviewed by recruiter
     ACCEPTED, // Application accepted by recruiter (with message)
-    REJECTED // Application rejected by recruiter (with reason)
+    REJECTED, // Application rejected by recruiter (with reason)
+    CONTRACT_SIGNED  // Contract has been signed by both parties
 }

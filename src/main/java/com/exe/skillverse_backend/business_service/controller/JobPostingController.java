@@ -155,6 +155,23 @@ public class JobPostingController {
     }
 
     /**
+     * POST /api/jobs/{id}/submit - Submit job for admin approval
+     * Charges fee and transitions IN_PROGRESS → PENDING_APPROVAL
+     */
+    @PostMapping("/{id}/submit")
+    @PreAuthorize("hasRole('RECRUITER')")
+    public ResponseEntity<JobPostingResponse> submitForApproval(
+            @PathVariable Long id,
+            Authentication authentication) {
+
+        Long userId = Long.parseLong(authentication.getName());
+        log.info("POST /api/jobs/{}/submit - Submitting for approval by user ID: {}", id, userId);
+
+        JobPostingResponse response = jobPostingService.submitForApproval(userId, id);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * POST /api/jobs/{id}/reopen - Reopen a closed job
      * FEE: 20,000 VND (unless reopened within 5 mins of closing)
      */

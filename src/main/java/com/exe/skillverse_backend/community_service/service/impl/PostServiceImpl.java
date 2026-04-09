@@ -90,10 +90,10 @@ public class PostServiceImpl implements PostService {
             }
         }
 
-        return toResponse(saved);
+        return toResponse(saved, userId);
     }
 
-    public Page<PostResponse> listPosts(PostStatus status, Long authorId, String search, Pageable pageable) {
+    public Page<PostResponse> listPosts(PostStatus status, Long authorId, String search, Pageable pageable, Long currentUserId) {
         // Remap sort properties for Native Query
         Sort sort = pageable.getSort();
         Sort newSort = Sort.unsorted();
@@ -119,12 +119,12 @@ public class PostServiceImpl implements PostService {
 
         String statusName = status != null ? status.name() : null;
         Page<Post> page = postRepository.search(statusName, authorId, search, nativePageable);
-        return page.map(this::toResponse);
+        return page.map(p -> toResponse(p, currentUserId));
     }
 
     public Page<PostResponse> listSavedPosts(Long userId, Pageable pageable) {
         Page<SavedPost> saved = savedPostRepository.findByUser_Id(userId, pageable);
-        return saved.map(sp -> toResponse(sp.getPost()));
+        return saved.map(sp -> toResponse(sp.getPost(), userId));
     }
 
     public Map<String, Object> getStats() {
@@ -187,11 +187,11 @@ public class PostServiceImpl implements PostService {
         return res;
     }
 
-    public PostResponse getPost(Long id) {
+    public PostResponse getPost(Long id, Long currentUserId) {
         Post post = postRepository.findById(id).orElseThrow();
         post.setViewCount(post.getViewCount() + 1);
         postRepository.save(post);
-        return toResponse(post);
+        return toResponse(post, currentUserId);
     }
 
     @Transactional
@@ -212,7 +212,7 @@ public class PostServiceImpl implements PostService {
         if (req.getStatus() != null)
             post.setStatus(req.getStatus());
         Post saved = postRepository.save(post);
-        return toResponse(saved);
+        return toResponse(saved, userId);
     }
 
     @Transactional
@@ -255,7 +255,7 @@ public class PostServiceImpl implements PostService {
             }
         }
         postRepository.save(post);
-        return toResponse(post);
+        return toResponse(post, userId);
     }
 
     @Transactional
@@ -282,7 +282,7 @@ public class PostServiceImpl implements PostService {
             post.setDislikeCount(post.getDislikeCount() + 1);
         }
         postRepository.save(post);
-        return toResponse(post);
+        return toResponse(post, userId);
     }
 
     @Transactional
@@ -425,10 +425,17 @@ public class PostServiceImpl implements PostService {
         commentRepository.save(comment);
     }
 
-    private PostResponse toResponse(Post p) {
+    private PostResponse toResponse(Post p, Long currentUserId) {
         List<String> tags = p.getTags() != null && !p.getTags().isEmpty()
                 ? Arrays.asList(p.getTags().split(","))
                 : new ArrayList<>();
+
+        boolean likedByCurrentUser = false;
+        boolean dislikedByCurrentUser = false;
+        if (currentUserId != null) {
+            likedByCurrentUser = postLikeRepository.findByPost_IdAndUser_Id(p.getId(), currentUserId).isPresent();
+            dislikedByCurrentUser = postDislikeRepository.findByPost_IdAndUser_Id(p.getId(), currentUserId).isPresent();
+        }
 
         return PostResponse.builder()
                 .id(p.getId())
@@ -443,6 +450,8 @@ public class PostServiceImpl implements PostService {
                 .status(p.getStatus())
                 .likeCount(p.getLikeCount())
                 .dislikeCount(p.getDislikeCount())
+                .likedByCurrentUser(likedByCurrentUser)
+                .dislikedByCurrentUser(dislikedByCurrentUser)
                 .commentCount(p.getCommentCount())
                 .viewCount(p.getViewCount())
                 .createdAt(p.getCreatedAt())

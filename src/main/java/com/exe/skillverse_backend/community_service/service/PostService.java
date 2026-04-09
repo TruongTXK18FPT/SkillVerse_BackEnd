@@ -13,7 +13,7 @@ import org.springframework.data.domain.Pageable;
 public interface PostService {
     PostResponse createPost(Long userId, PostCreateRequest req);
 
-    Page<PostResponse> listPosts(PostStatus status, Long authorId, String search, Pageable pageable);
+    Page<PostResponse> listPosts(PostStatus status, Long authorId, String search, Pageable pageable, Long currentUserId);
 
     Page<PostResponse> listSavedPosts(Long userId, Pageable pageable);
 
@@ -21,7 +21,7 @@ public interface PostService {
 
     Map<String, Object> getTrends();
 
-    PostResponse getPost(Long id);
+    PostResponse getPost(Long id, Long currentUserId);
 
     PostResponse updatePost(Long id, Long userId, PostUpdateRequest req);
 

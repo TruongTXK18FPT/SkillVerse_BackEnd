@@ -6,10 +6,12 @@ import com.exe.skillverse_backend.business_service.dto.request.ApplyJobRequest;
 import com.exe.skillverse_backend.business_service.dto.request.UpdateApplicationStatusRequest;
 import com.exe.skillverse_backend.business_service.dto.response.JobApplicationResponse;
 import com.exe.skillverse_backend.business_service.entity.JobApplication;
+import com.exe.skillverse_backend.business_service.entity.JobContract;
 import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus;
 import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
 import com.exe.skillverse_backend.business_service.repository.JobApplicationRepository;
+import com.exe.skillverse_backend.business_service.repository.JobContractRepository;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.service.JobApplicationService;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
@@ -39,6 +41,7 @@ public class JobApplicationServiceImpl implements JobApplicationService {
 
     private final JobApplicationRepository jobApplicationRepository;
     private final JobPostingRepository jobPostingRepository;
+    private final JobContractRepository jobContractRepository;
     private final UserRepository userRepository;
     private final EmailService emailService;
     private final UsageLimitService usageLimitService;
@@ -289,6 +292,7 @@ public class JobApplicationServiceImpl implements JobApplicationService {
         Optional<PortfolioExtendedProfile> portfolioProfile = portfolioExtendedProfileRepository.findByUserId(user.getId());
         String portfolioSlug = portfolioProfile.map(PortfolioExtendedProfile::getCustomUrlSlug).orElse(null);
         String professionalTitle = portfolioProfile.map(PortfolioExtendedProfile::getProfessionalTitle).orElse(null);
+        Optional<JobContract> contract = jobContractRepository.findByApplicationId(application.getId());
 
         return JobApplicationResponse.builder()
                 .id(application.getId())
@@ -314,6 +318,8 @@ public class JobApplicationServiceImpl implements JobApplicationService {
                 .location(job.getLocation())
                 .isHighlighted(isHighlighted)
                 .portfolioSlug(portfolioSlug)
+                .contractId(contract.map(JobContract::getId).orElse(null))
+                .contractStatus(contract.map(value -> value.getStatus().name()).orElse(null))
                 .build();
     }
 }

@@ -21,6 +21,8 @@ public class PostResponse {
     private PostStatus status;
     private Integer likeCount;
     private Integer dislikeCount;
+    private Boolean likedByCurrentUser;
+    private Boolean dislikedByCurrentUser;
     private Integer commentCount;
     private Integer viewCount;
     private LocalDateTime createdAt;

@@ -42,4 +42,8 @@ public class JobApplicationResponse {
 
     // Portfolio link
     private String portfolioSlug;
+
+    // Contract link
+    private Long contractId;
+    private String contractStatus;
 }

@@ -85,6 +85,7 @@ public class MeowlRoleGuidanceService {
         String nextBestAction;
         List<String> whatYouCanDo;
         List<MeowlOnboardingContextResponse.QuickAction> quickActions;
+        List<MeowlOnboardingContextResponse.QuickAction> megaMenuRoutes;
         List<String> suggestedPrompts;
         Map<String, String> contextSummary;
         String promptSection;
@@ -179,12 +180,14 @@ public class MeowlRoleGuidanceService {
 
     private RoleGuidanceContext buildGuestContext(String language) {
         boolean isVi = "vi".equals(language);
+        List<MeowlOnboardingContextResponse.QuickAction> megaMenuRoutes =
+                buildMegaMenuRoutes(MeowlRoleMode.GENERAL, language);
         String welcome = isVi
                 ? "Xin chào bạn, Meowl đây nè! Mình sẽ giúp bạn khám phá SkillVerse ngắn gọn, rõ ràng và luôn có bước tiếp theo cụ thể."
                 : "Hi, I am Meowl. I can guide you through SkillVerse and suggest the next best action.";
         String nextAction = isVi
-                ? "Đăng nhập để Meowl hỗ trợ đúng vai trò Learner, Mentor hoặc Recruiter nhé."
-                : "Sign in so Meowl can guide you based on Learner, Mentor, or Recruiter mode.";
+                ? "Bắt đầu từ Trợ Lý AI (/chatbot), Lộ Trình Học Tập (/roadmap), hoặc Khóa Học (/courses) trong mega-menu để làm quen với SkillVerse."
+                : "Start from AI Assistant (/chatbot), Learning Roadmap (/roadmap), or Courses (/courses) in the mega-menu to explore SkillVerse.";
 
         List<String> whatYouCanDo = isVi
                 ? List.of(
@@ -196,21 +199,22 @@ public class MeowlRoleGuidanceService {
                         "Receive practical learning or career starting guidance",
                         "Jump to relevant pages through concrete CTA actions");
 
-        List<MeowlOnboardingContextResponse.QuickAction> actions = isVi
-                ? List.of(
-                        quickAction("login", "Đăng nhập", "Mở trang đăng nhập để dùng trợ lý theo vai trò", "NAVIGATE", "/login"),
-                        quickAction("courses", "Khám phá khóa học", "Xem các khóa học đang có trên SkillVerse", "NAVIGATE", "/courses"))
-                : List.of(
-                        quickAction("login", "Sign in", "Open login to use role-aware assistant", "NAVIGATE", "/login"),
-                        quickAction("courses", "Explore courses", "Browse available courses on SkillVerse", "NAVIGATE", "/courses"));
+        List<MeowlOnboardingContextResponse.QuickAction> actions = selectQuickActions(
+                megaMenuRoutes,
+                "chatbot",
+                "roadmap",
+                "courses",
+                "jobs");
 
         List<String> prompts = isVi
                 ? List.of(
-                        "Giới thiệu nhanh SkillVerse cho người mới bắt đầu.",
-                        "Mình nên bắt đầu từ đâu để học hiệu quả trên SkillVerse?")
+                        "Giới thiệu nhanh các khu chính trong mega-menu của SkillVerse.",
+                        "Tôi nên bắt đầu từ Trợ Lý AI, Roadmap hay Khóa Học?",
+                        "Tóm tắt các tính năng học, mentor, portfolio và việc làm đang có trên SkillVerse.")
                 : List.of(
-                        "Give me a quick SkillVerse walkthrough for new users.",
-                        "Where should I start learning on SkillVerse?");
+                        "Give me a quick walkthrough of the main mega-menu areas on SkillVerse.",
+                        "Should I start with AI Assistant, Roadmap, or Courses?",
+                        "Summarize the current learning, mentorship, portfolio, and job features on SkillVerse.");
 
         Map<String, String> summary = Map.of("account", "guest");
 
@@ -225,9 +229,10 @@ public class MeowlRoleGuidanceService {
                 .nextBestAction(nextAction)
                 .whatYouCanDo(whatYouCanDo)
                 .quickActions(actions)
+                .megaMenuRoutes(megaMenuRoutes)
                 .suggestedPrompts(prompts)
                 .contextSummary(summary)
-                .promptSection(buildPromptSection(MeowlRoleMode.GENERAL, language, summary, nextAction))
+                .promptSection(buildRolePromptSection(MeowlRoleMode.GENERAL, language, summary, nextAction, megaMenuRoutes))
                 .build();
     }
 
@@ -238,6 +243,8 @@ public class MeowlRoleGuidanceService {
             MeowlUserPreference preference) {
         boolean isVi = "vi".equals(language);
         Long userId = user.getId();
+        List<MeowlOnboardingContextResponse.QuickAction> megaMenuRoutes =
+                buildMegaMenuRoutes(MeowlRoleMode.RECRUITER, language);
 
         boolean hasProfile = recruiterProfileRepository.existsByUserId(userId);
         ApplicationStatus profileStatus = recruiterProfileRepository.findByUserId(userId)
@@ -262,33 +269,33 @@ public class MeowlRoleGuidanceService {
         String nextAction;
         if (!hasProfile) {
             nextAction = isVi
-                    ? "Hoàn thiện hồ sơ recruiter tại /profile/business trước khi đăng job."
-                    : "Complete your recruiter profile at /profile/business before posting jobs.";
+                    ? "Bắt đầu từ Việc Làm (/jobs). Nếu full flow tuyển dụng chưa mở, bạn cần hoàn thiện recruiter profile trước."
+                    : "Start from Jobs (/jobs). If the full hiring flow is still locked, your recruiter profile still needs completion.";
         } else if (profileStatus == ApplicationStatus.PENDING) {
             nextAction = isVi
-                    ? "Hồ sơ của bạn đang chờ duyệt. Trong lúc này, hãy chuẩn bị mô tả job thật rõ để đăng ngay khi được duyệt."
-                    : "Your profile is pending approval. Prepare clear job descriptions so you can post immediately.";
+                    ? "Mở Việc Làm (/jobs) để chuẩn bị JD thật rõ trong lúc hồ sơ recruiter đang chờ duyệt."
+                    : "Open Jobs (/jobs) and prepare clear job descriptions while your recruiter profile is pending approval.";
         } else if (totalJobs == 0) {
             nextAction = isVi
-                    ? "Tạo job đầu tiên trong Business dashboard để bắt đầu nhận ứng viên."
-                    : "Create your first job in Business dashboard to start receiving applicants.";
+                    ? "Mở Việc Làm (/jobs) để tạo và chuẩn bị job đầu tiên."
+                    : "Open Jobs (/jobs) to create and prepare your first job.";
         } else if (openJobs > 0 && totalApplicants > 0) {
             nextAction = isVi
-                    ? "Ưu tiên xem applicants của các job đang mở và shortlist ứng viên phù hợp."
-                    : "Prioritize reviewing applicants on open jobs and shortlist strong candidates.";
+                    ? "Mở Việc Làm (/jobs) để review applicants và shortlist ứng viên phù hợp."
+                    : "Open Jobs (/jobs) to review applicants and shortlist strong candidates.";
         } else if (openJobs == 0 && pendingJobs > 0) {
             nextAction = isVi
-                    ? "Theo dõi các job đang chờ duyệt và chuẩn bị thêm job mới để giữ pipeline tuyển dụng."
-                    : "Track pending jobs and prepare additional postings to keep your hiring pipeline moving.";
+                    ? "Tiếp tục theo dõi Việc Làm (/jobs) để giữ pipeline tuyển dụng luôn sẵn."
+                    : "Keep tracking Jobs (/jobs) so your hiring pipeline stays ready.";
         } else {
             nextAction = isVi
-                    ? "Dùng Candidate Search để chủ động tìm ứng viên phù hợp và thêm vào shortlist."
-                    : "Use Candidate Search to proactively find suitable candidates and shortlist them.";
+                    ? "Dùng Việc Làm (/jobs) để rà lại pipeline tuyển dụng, rồi dùng Cộng Đồng (/community) nếu cần mở rộng kết nối."
+                    : "Use Jobs (/jobs) to review your hiring pipeline, then Community (/community) if you need wider outreach.";
         }
 
         String welcome = isVi
-                ? "Chào bạn, Meowl đang ở chế độ Recruiter Assistant nè. Mình sẽ hỗ trợ vận hành tuyển dụng theo từng bước: hồ sơ, job, applicants, candidate search và shortlist."
-                : "You are now in Recruiter Assistant mode. I will guide hiring operations step by step: profile, jobs, applicants, candidate search, and shortlist.";
+                ? "Chào bạn, Meowl đang ở chế độ Recruiter Assistant nè. Mình sẽ hỗ trợ vận hành tuyển dụng theo từng bước: job pipeline, applicants, candidate sourcing và shortlist."
+                : "You are now in Recruiter Assistant mode. I will guide hiring operations step by step: job pipeline, applicants, candidate sourcing, and shortlist.";
 
         List<String> whatYouCanDo = isVi
                 ? List.of(
@@ -300,51 +307,20 @@ public class MeowlRoleGuidanceService {
                         "Recommend practical applicant review and shortlist workflow",
                         "Suggest next steps based on your current job pipeline");
 
-        List<MeowlOnboardingContextResponse.QuickAction> actions = isVi
-                ? List.of(
-                        quickAction("recruiter-profile", "Hồ sơ Recruiter", "Mở hồ sơ business/recruiter", "NAVIGATE", "/profile/business"),
-                        quickAction("create-job", "Tạo job đầu tiên", "Bắt đầu đăng tuyển trong Business dashboard", "NAVIGATE", "/business"),
-                        quickAction("review-applicants", "Xem Applicants", "Kiểm tra ứng viên đã apply", "NAVIGATE", "/business"),
-                        quickAction("search-candidates", "Tìm ứng viên", "Mở Candidate Search để source hồ sơ", "NAVIGATE", "/business"))
-                : List.of(
-                        quickAction("recruiter-profile", "Recruiter profile", "Open business/recruiter profile", "NAVIGATE", "/profile/business"),
-                        quickAction("create-job", "Create first job", "Start posting from Business dashboard", "NAVIGATE", "/business"),
-                        quickAction("review-applicants", "Review applicants", "Check candidate applications", "NAVIGATE", "/business"),
-                        quickAction("search-candidates", "Search candidates", "Open Candidate Search for sourcing", "NAVIGATE", "/business"));
+        List<MeowlOnboardingContextResponse.QuickAction> actions = selectQuickActions(
+                megaMenuRoutes,
+                "jobs",
+                "community");
 
         List<String> prompts = isVi
                 ? List.of(
-                        "Hướng dẫn tôi tạo job đầu tiên từ đầu đến lúc publish.",
-                        "Tôi nên xử lý applicants thế nào để shortlist nhanh?",
-                        "Cho tôi checklist tuyển dụng tuần này theo trạng thái job hiện tại.")
+                        "Trong role Recruiter, tôi nên bắt đầu từ Việc Làm hay Cộng Đồng?",
+                        "Hướng dẫn tôi dùng Việc Làm để theo dõi job, applicants và shortlist.",
+                        "Tôi muốn hiểu nhanh các tính năng tuyển dụng hiện có của SkillVerse.")
                 : List.of(
-                        "Guide me to create and publish my first job posting.",
-                        "What is the fastest way to review applicants and shortlist?",
-                        "Give me a weekly hiring checklist from my current job statuses.");
-
-        List<MeowlOnboardingContextResponse.QuickAction> recruiterActions = new ArrayList<>(actions);
-        recruiterActions.add(isVi
-                ? quickAction(
-                        "recruiter-premium-benefits",
-                        "Quyền lợi Premium",
-                        "Xem quyền lợi recruiter premium và quota hiện tại",
-                        "NAVIGATE",
-                        "/business/premium")
-                : quickAction(
-                        "recruiter-premium-benefits",
-                        "Premium benefits",
-                        "View recruiter premium benefits and quotas",
-                        "NAVIGATE",
-                        "/business/premium"));
-
-        List<String> recruiterPrompts = new ArrayList<>(prompts);
-        recruiterPrompts.add(isVi
-                ? (hasRecruiterPremium
-                        ? "Tóm tắt nhanh quyền lợi gói premium recruiter tôi đang có và bước nên dùng ngay."
-                        : "Giải thích quyền lợi Premium Recruiter (job boost, candidate search, analytics) và khi nào nên nâng cấp.")
-                : (hasRecruiterPremium
-                        ? "Summarize my active recruiter premium benefits and the best next action."
-                        : "Explain Recruiter Premium benefits (job boost, candidate search, analytics) and when to upgrade."));
+                        "In Recruiter mode, should I start from Jobs or Community?",
+                        "Guide me to use Jobs for postings, applicants, and shortlist flow.",
+                        "Summarize the current hiring features available on SkillVerse.");
 
         Map<String, String> summary = new LinkedHashMap<>();
         summary.put("profile_ready", String.valueOf(hasProfile));
@@ -369,10 +345,11 @@ public class MeowlRoleGuidanceService {
                 .welcomeMessage(welcome)
                 .nextBestAction(nextAction)
                 .whatYouCanDo(whatYouCanDo)
-                .quickActions(recruiterActions)
-                .suggestedPrompts(recruiterPrompts)
+                .quickActions(actions)
+                .megaMenuRoutes(megaMenuRoutes)
+                .suggestedPrompts(prompts)
                 .contextSummary(summary)
-                .promptSection(buildPromptSection(MeowlRoleMode.RECRUITER, language, summary, nextAction))
+                .promptSection(buildRolePromptSection(MeowlRoleMode.RECRUITER, language, summary, nextAction, megaMenuRoutes))
                 .build();
     }
 
@@ -383,6 +360,8 @@ public class MeowlRoleGuidanceService {
             MeowlUserPreference preference) {
         boolean isVi = "vi".equals(language);
         Long userId = user.getId();
+        List<MeowlOnboardingContextResponse.QuickAction> megaMenuRoutes =
+                buildMegaMenuRoutes(MeowlRoleMode.MENTOR, language);
 
         boolean hasProfile = mentorProfileRepository.existsByUserId(userId);
         ApplicationStatus profileStatus = mentorProfileRepository.findByUserId(userId)
@@ -400,24 +379,24 @@ public class MeowlRoleGuidanceService {
         String nextAction;
         if (!hasProfile) {
             nextAction = isVi
-                    ? "Hoàn thiện mentor profile tại /profile/mentor để mở đầy đủ tính năng mentoring."
-                    : "Complete your mentor profile at /profile/mentor to unlock mentoring operations.";
+                    ? "Mở Hồ Sơ (/profile/mentor) để hoàn thiện mentor profile."
+                    : "Open Profile (/profile/mentor) to complete your mentor profile.";
         } else if (totalCourses == 0) {
             nextAction = isVi
-                    ? "Tạo course đầu tiên tại /mentor/courses/create để bắt đầu onboarding mentor."
-                    : "Create your first course at /mentor/courses/create to start mentor onboarding.";
+                    ? "Mở Khóa Học (/courses) để bắt đầu course đầu tiên."
+                    : "Open Courses (/courses) to start your first course.";
         } else if (publicCourses == 0 && pendingCourses == 0) {
             nextAction = isVi
-                    ? "Chuẩn bị và submit ít nhất 1 course để có nội dung public cho learner."
-                    : "Prepare and submit at least one course so learners can access your content.";
+                    ? "Tiếp tục ở Khóa Học (/courses) để hoàn thiện và submit course đầu tiên."
+                    : "Stay in Courses (/courses) to finish and submit your first course.";
         } else if (availabilitySlots == 0) {
             nextAction = isVi
-                    ? "Thiết lập availability trong Mentorship để learner có thể booking với bạn."
-                    : "Set your availability in Mentorship so learners can book sessions.";
+                    ? "Mở Cố Vấn (/mentorship) để thiết lập lịch mentoring."
+                    : "Open Mentorship (/mentorship) to configure your mentoring availability.";
         } else {
             nextAction = isVi
-                    ? "Theo dõi booking confirmed/ongoing và tối ưu course cùng lịch mentoring theo nhu cầu learner."
-                    : "Track confirmed/ongoing bookings and optimize your courses and mentoring schedule.";
+                    ? "Theo dõi Cố Vấn (/mentorship) và Khóa Học (/courses) để tối ưu booking và nội dung."
+                    : "Track Mentorship (/mentorship) and Courses (/courses) to optimize bookings and content.";
         }
 
         String welcome = isVi
@@ -434,27 +413,23 @@ public class MeowlRoleGuidanceService {
                         "Recommend availability and booking setup from your current state",
                         "Suggest next actions to support more learners effectively");
 
-        List<MeowlOnboardingContextResponse.QuickAction> actions = isVi
-                ? List.of(
-                        quickAction("mentor-profile", "Hồ sơ Mentor", "Mở trang hồ sơ mentor", "NAVIGATE", "/profile/mentor"),
-                        quickAction("create-course", "Tạo Course", "Vào course builder để tạo khóa học", "NAVIGATE", "/mentor/courses/create"),
-                        quickAction("mentor-dashboard", "Quản lý Course", "Xem dashboard mentor và danh sách course", "NAVIGATE", "/mentor"),
-                        quickAction("booking-setup", "Setup Booking", "Thiết lập lịch mentoring và booking", "NAVIGATE", "/mentorship"))
-                : List.of(
-                        quickAction("mentor-profile", "Mentor profile", "Open mentor profile page", "NAVIGATE", "/profile/mentor"),
-                        quickAction("create-course", "Create course", "Open course builder to create a course", "NAVIGATE", "/mentor/courses/create"),
-                        quickAction("mentor-dashboard", "Manage courses", "Open mentor dashboard and course list", "NAVIGATE", "/mentor"),
-                        quickAction("booking-setup", "Setup booking", "Configure mentoring availability and booking", "NAVIGATE", "/mentorship"));
+        List<MeowlOnboardingContextResponse.QuickAction> actions = selectQuickActions(
+                megaMenuRoutes,
+                "courses",
+                "mentorship",
+                "profile-mentor",
+                "chatbot",
+                "community");
 
         List<String> prompts = isVi
                 ? List.of(
-                        "Hướng dẫn tôi trình tự từ tạo course đến publish.",
-                        "Tôi đã có course nhưng chưa có booking, tôi nên làm gì tiếp?",
-                        "Cho tôi checklist vận hành mentor tuần này.")
+                        "Trong role Mentor, tôi nên bắt đầu từ Khóa Học hay Cố Vấn?",
+                        "Hướng dẫn tôi dùng Khóa Học để chuẩn bị course đầu tiên.",
+                        "Tôi muốn mở lịch mentoring, nên đi từ Cố Vấn như thế nào?")
                 : List.of(
-                        "Guide the sequence from course creation to publish.",
-                        "I have courses but no bookings yet. What should I do next?",
-                        "Give me a practical weekly mentor operations checklist.");
+                        "In Mentor mode, should I start from Courses or Mentorship?",
+                        "Guide me to use Courses to prepare my first course.",
+                        "I want to open mentoring availability. How should I use Mentorship?");
 
         Map<String, String> summary = new LinkedHashMap<>();
         summary.put("profile_ready", String.valueOf(hasProfile));
@@ -479,9 +454,10 @@ public class MeowlRoleGuidanceService {
                 .nextBestAction(nextAction)
                 .whatYouCanDo(whatYouCanDo)
                 .quickActions(actions)
+                .megaMenuRoutes(megaMenuRoutes)
                 .suggestedPrompts(prompts)
                 .contextSummary(summary)
-                .promptSection(buildPromptSection(MeowlRoleMode.MENTOR, language, summary, nextAction))
+                .promptSection(buildRolePromptSection(MeowlRoleMode.MENTOR, language, summary, nextAction, megaMenuRoutes))
                 .build();
     }
 
@@ -492,6 +468,8 @@ public class MeowlRoleGuidanceService {
             MeowlUserPreference preference) {
         boolean isVi = "vi".equals(language);
         Long userId = user.getId();
+        List<MeowlOnboardingContextResponse.QuickAction> megaMenuRoutes =
+                buildMegaMenuRoutes(MeowlRoleMode.LEARNER, language);
 
         List<Journey> journeys = journeyRepository.findByUser(user).stream()
                 .sorted(Comparator.comparing(Journey::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())).reversed())
@@ -517,20 +495,20 @@ public class MeowlRoleGuidanceService {
         String nextAction;
         if (latestJourney == null) {
             nextAction = isVi
-                    ? "Bắt đầu bằng bài test đầu vào tại /journey/create để hệ thống tạo roadmap cá nhân hóa."
-                    : "Start with the entry assessment at /journey/create so the system can generate your personalized roadmap.";
+                    ? "Mở Hành Trình (/journey) để bắt đầu bài test đầu vào và tạo roadmap cá nhân hóa."
+                    : "Open Journey (/journey) to start the entry assessment and create your personalized roadmap.";
         } else if (latestResult == null && latestJourney.getStatus() != null && ENTRY_TEST_PENDING_STATUSES.contains(latestJourney.getStatus())) {
             nextAction = isVi
-                    ? "Vào /journey để hoàn thành bài test đầu vào và nhận kết quả đánh giá kỹ năng."
-                    : "Open /journey to complete your entry assessment and receive your skill evaluation.";
+                    ? "Quay lại Hành Trình (/journey) để hoàn thành assessment và nhận kết quả kỹ năng."
+                    : "Return to Journey (/journey) to finish the assessment and receive your skill result.";
         } else if (latestJourney.getRoadmapSessionId() == null) {
             nextAction = isVi
-                    ? "Từ kết quả test, tạo roadmap trong Journey để có lộ trình học rõ ràng theo level hiện tại."
-                    : "From your test result, generate a roadmap in Journey for a clear level-based learning path.";
+                    ? "Tiếp tục từ Hành Trình (/journey) để tạo roadmap từ kết quả assessment."
+                    : "Continue in Journey (/journey) to generate the roadmap from your assessment result.";
         } else {
             nextAction = isVi
-                    ? "Tiếp tục học theo roadmap và chọn course hoặc mentor phù hợp với skill gap hiện tại."
-                    : "Continue learning from your roadmap and choose courses/mentors based on current skill gaps.";
+                    ? "Mở Lộ Trình Học Tập (/roadmap), rồi dùng Khóa Học (/courses) hoặc Cố Vấn (/mentorship) theo skill gap hiện tại."
+                    : "Open Learning Roadmap (/roadmap), then use Courses (/courses) or Mentorship (/mentorship) based on your current skill gaps.";
         }
 
         String welcome = isVi
@@ -545,53 +523,26 @@ public class MeowlRoleGuidanceService {
                 : List.of(
                         "Provide clear step-by-step entry assessment guidance",
                         "Explain assessment results and roadmap creation flow",
-                        "Recommend courses/mentors and next actions from your skill gaps");
+                        "Recommend courses or mentors and next actions from your skill gaps");
 
-        List<MeowlOnboardingContextResponse.QuickAction> actions = isVi
-                ? List.of(
-                        quickAction("entry-test-start", "Tạo bài test đầu vào", "Bắt đầu flow Journey assessment", "NAVIGATE", "/journey/create"),
-                        quickAction("entry-test-continue", "Tiếp tục Journey", "Quay lại Journey để làm test hoặc xem kết quả", "NAVIGATE", "/journey"),
-                        quickAction("view-roadmap", "Xem Roadmap", "Mở lộ trình học cá nhân hóa", "NAVIGATE", "/roadmap"),
-                        quickAction("explore-courses", "Khám phá Course", "Tìm khóa học phù hợp với lộ trình", "NAVIGATE", "/courses"))
-                : List.of(
-                        quickAction("entry-test-start", "Start entry test", "Begin Journey assessment flow", "NAVIGATE", "/journey/create"),
-                        quickAction("entry-test-continue", "Continue journey", "Return to Journey for test/result", "NAVIGATE", "/journey"),
-                        quickAction("view-roadmap", "View roadmap", "Open your personalized roadmap", "NAVIGATE", "/roadmap"),
-                        quickAction("explore-courses", "Explore courses", "Find courses aligned to your roadmap", "NAVIGATE", "/courses"));
+        List<MeowlOnboardingContextResponse.QuickAction> actions = selectQuickActions(
+                megaMenuRoutes,
+                "journey",
+                "dashboard",
+                "roadmap",
+                "chatbot",
+                "study-planner",
+                "courses");
 
         List<String> prompts = isVi
                 ? List.of(
-                        "Hướng dẫn từng bước làm bài test đầu vào, thật cụ thể theo UI.",
-                        "Sau khi có kết quả assessment thì tôi nên làm gì tiếp theo?",
-                        "Giúp tôi chọn course đầu tiên dựa trên roadmap hiện tại.")
+                        "Hướng dẫn tôi bắt đầu từ Hành Trình và Lộ Trình Học Tập.",
+                        "Tôi nên dùng Dashboard, Roadmap và Kế Hoạch AI theo thứ tự nào?",
+                        "Tôi muốn chuyển từ học sang portfolio và việc làm thì nên đi trong mega-menu ra sao?")
                 : List.of(
-                        "Guide me through the entry assessment step by step using the UI flow.",
-                        "What should I do right after receiving the assessment result?",
-                        "Help me pick the first course based on my roadmap.");
-
-        List<MeowlOnboardingContextResponse.QuickAction> learnerActions = new ArrayList<>(actions);
-        learnerActions.add(isVi
-                ? quickAction(
-                        "learner-premium-benefits",
-                        "Quyền lợi Premium",
-                        "Xem quyền lợi gói premium cho learner",
-                        "NAVIGATE",
-                        "/premium")
-                : quickAction(
-                        "learner-premium-benefits",
-                        "Premium benefits",
-                        "View learner premium benefits",
-                        "NAVIGATE",
-                        "/premium"));
-
-        List<String> learnerPrompts = new ArrayList<>(prompts);
-        learnerPrompts.add(isVi
-                ? (learnerPremiumActive
-                        ? "Tóm tắt quyền lợi premium hiện tại của tôi và cách tận dụng cho roadmap hoặc journey."
-                        : "Giải thích quyền lợi Premium cho learner (roadmap, mentor booking, expert chat) và nên nâng cấp khi nào.")
-                : (learnerPremiumActive
-                        ? "Summarize my active premium benefits and how to use them for journey/roadmap."
-                        : "Explain learner premium benefits (roadmap, mentor booking, expert chat) and when to upgrade."));
+                        "Guide me to start from Journey and Learning Roadmap.",
+                        "What order should I use Dashboard, Roadmap, and Study Planner?",
+                        "How should I move from learning into portfolio and jobs through the mega-menu?");
 
         Map<String, String> summary = new LinkedHashMap<>();
         summary.put("journeys_total", String.valueOf(totalJourneys));
@@ -618,53 +569,181 @@ public class MeowlRoleGuidanceService {
                 .welcomeMessage(welcome)
                 .nextBestAction(nextAction)
                 .whatYouCanDo(whatYouCanDo)
-                .quickActions(learnerActions)
-                .suggestedPrompts(learnerPrompts)
+                .quickActions(actions)
+                .megaMenuRoutes(megaMenuRoutes)
+                .suggestedPrompts(prompts)
                 .contextSummary(summary)
-                .promptSection(buildPromptSection(MeowlRoleMode.LEARNER, language, summary, nextAction))
+                .promptSection(buildRolePromptSection(MeowlRoleMode.LEARNER, language, summary, nextAction, megaMenuRoutes))
                 .build();
+    }
+
+    private String buildRolePromptSection(
+            MeowlRoleMode role,
+            String language,
+            Map<String, String> contextSummary,
+            String nextBestAction,
+            List<MeowlOnboardingContextResponse.QuickAction> megaMenuRoutes) {
+        boolean isVi = "vi".equals(language);
+        StringBuilder section = new StringBuilder();
+
+        section.append(isVi ? "=== CHE DO HUONG DAN THEO VAI TRO ===\n" : "=== ROLE-AWARE GUIDANCE MODE ===\n");
+        section.append(isVi ? "Vai tro hien tai: " : "Resolved role: ").append(role.name()).append('\n');
+        section.append(isVi
+                ? "Phong cach bat buoc: ro rang, than thien, chuyen nghiep; uu tien hanh dong; tranh dai dong; luon chot buoc tiep theo cu the.\n"
+                : "Required style: clear, friendly, professional; action-first; avoid long explanations; always end with one concrete next step.\n");
+        section.append(isVi
+                ? "Khong duoc bịa tinh nang. Neu thieu du lieu, hay noi ro gioi han va dua ra buoc hanh dong kha thi.\n"
+                : "Do not invent features. If data is missing, state the limit clearly and propose a practical action.\n");
+        section.append(isVi
+                ? "Nguon route duoc phep la mega-menu cua frontend cho vai tro hien tai. Chi duoc goi y, gan link, CTA, hoac huong dan click vao cac route nam trong danh sach hop le ben duoi.\n"
+                : "The source of truth for allowed routes is the frontend mega-menu for the current role. Only suggest, link, CTA, or tell users to click routes that appear in the allowed list below.\n");
+        section.append(isVi
+                ? "Tuyet doi khong dieu huong sang route cua role khac hoac route an/noi bo nhu /business, /business/premium, /mentor, /mentor/courses/create, /journey/create, /premium, /chatbot/general, /chatbot/expert, /profile/business, /profile/user, /wallet, /my-wallet, /my-bookings, /business/contracts, /my-contracts, /messages, /notifications.\n"
+                : "Never route users to another role's pages or hidden/internal routes such as /business, /business/premium, /mentor, /mentor/courses/create, /journey/create, /premium, /chatbot/general, /chatbot/expert, /profile/business, /profile/user, /wallet, /my-wallet, /my-bookings, /business/contracts, /my-contracts, /messages, or /notifications.\n");
+        section.append(isVi
+                ? "Khong gioi thieu seminar, gamification, parent, hoac admin trong phien ban huong dan nay.\n"
+                : "Do not recommend seminar, gamification, parent, or admin areas as part of this assistant scope.\n");
+        section.append(isVi
+                ? "Neu user hoi ve mot tinh nang co that nhung route cua no khong nam trong mega-menu cua role hien tai, hay giai thich tong quan ma KHONG neu route do.\n"
+                : "If the user asks about a real feature whose route is outside the current role's mega-menu, explain the feature at a high level without naming that route.\n");
+
+        if (role == MeowlRoleMode.LEARNER) {
+            section.append(isVi
+                    ? "Voi learner: uu tien flow test dau vao, Journey, roadmap, study planner, khoa hoc, mentor, portfolio, va cong viec. Khi duoc hoi onboarding, hay noi ro: buoc bat dau, ly do, ket qua nhan duoc, va buoc tiep theo.\n"
+                    : "For learners: prioritize entry assessment, Journey, roadmap, study planner, courses, mentors, portfolio, and jobs. When onboarding is requested, explain the start point, why it matters, the outcome, and the next step.\n");
+        } else if (role == MeowlRoleMode.RECRUITER) {
+            section.append(isVi
+                    ? "Voi recruiter: noi theo boi canh van hanh tuyen dung thuc te (job pipeline, applicants, shortlist, candidate sourcing), khong mo ta chung chung.\n"
+                    : "For recruiters: speak in practical hiring operations context (job pipeline, applicants, shortlist, candidate sourcing), not generic feature descriptions.\n");
+        } else if (role == MeowlRoleMode.MENTOR) {
+            section.append(isVi
+                    ? "Voi mentor: huong dan theo trinh tu van hanh thuc te (profile -> course -> publish -> availability -> booking) nhung chi gan route thuoc mega-menu hien tai.\n"
+                    : "For mentors: guide in practical sequence (profile -> course -> publish -> availability -> booking), but only attach routes that belong to the current mega-menu.\n");
+        }
+
+        section.append(isVi ? "Route hop le trong mega-menu cua role nay:\n" : "Allowed mega-menu routes for this role:\n");
+        if (megaMenuRoutes != null) {
+            megaMenuRoutes.forEach(route -> section.append("- ")
+                    .append(route.getLabel())
+                    .append(": ")
+                    .append(route.getActionValue())
+                    .append(" - ")
+                    .append(route.getDescription())
+                    .append('\n'));
+        }
+
+        section.append(isVi ? "Ngu canh user hien tai:\n" : "Current user context:\n");
+        if (role == MeowlRoleMode.LEARNER || role == MeowlRoleMode.RECRUITER) {
+            section.append(isVi
+                    ? "Khi user hoi ve Premium, chi neu dung quyen loi dang co trong he thong va giai thich ngan gon theo use-case thuc te, nhung khong day route Premium neu route do khong nam trong mega-menu.\n"
+                    : "When users ask about Premium, mention only existing in-system benefits and explain briefly with practical use cases, but do not push a Premium route when it is outside the mega-menu.\n");
+        }
+        contextSummary.forEach((k, v) -> section.append("- ").append(k).append(": ").append(v).append('\n'));
+        section.append(isVi ? "Buoc tiep theo:\n- " : "Next best action:\n- ").append(nextBestAction).append('\n');
+        return section.toString();
     }
 
     private String buildPromptSection(
             MeowlRoleMode role,
             String language,
             Map<String, String> contextSummary,
-            String nextBestAction) {
+            String nextBestAction,
+            List<MeowlOnboardingContextResponse.QuickAction> megaMenuRoutes) {
+        return buildRolePromptSection(role, language, contextSummary, nextBestAction, megaMenuRoutes);
+    }
+
+    private List<MeowlOnboardingContextResponse.QuickAction> buildMegaMenuRoutes(
+            MeowlRoleMode role,
+            String language) {
         boolean isVi = "vi".equals(language);
-        StringBuilder section = new StringBuilder();
+        return switch (role) {
+            case RECRUITER -> isVi
+                    ? List.of(
+                            quickAction("jobs", "Việc Làm", "Tìm kiếm và quản lý tin tuyển dụng", "NAVIGATE", "/jobs"),
+                            quickAction("community", "Cộng Đồng", "Tham gia cộng đồng học tập sôi động", "NAVIGATE", "/community"))
+                    : List.of(
+                            quickAction("jobs", "Jobs", "Search and manage job postings", "NAVIGATE", "/jobs"),
+                            quickAction("community", "Community", "Join the active learning community", "NAVIGATE", "/community"));
+            case MENTOR -> isVi
+                    ? List.of(
+                            quickAction("courses", "Khóa Học", "Quản lý nội dung khóa học của bạn", "NAVIGATE", "/courses"),
+                            quickAction("community", "Cộng Đồng", "Tương tác cùng cộng đồng học tập", "NAVIGATE", "/community"),
+                            quickAction("mentorship", "Cố Vấn", "Quản lý hồ sơ và lịch mentoring", "NAVIGATE", "/mentorship"),
+                            quickAction("profile-mentor", "Hồ Sơ", "Quản lý hồ sơ mentor của bạn", "NAVIGATE", "/profile/mentor"),
+                            quickAction("chatbot", "Trợ Lý AI", "Nhận hỗ trợ từ trợ lý AI", "NAVIGATE", "/chatbot"))
+                    : List.of(
+                            quickAction("courses", "Courses", "Manage your course content", "NAVIGATE", "/courses"),
+                            quickAction("community", "Community", "Interact with the learning community", "NAVIGATE", "/community"),
+                            quickAction("mentorship", "Mentorship", "Manage mentoring profile and schedule", "NAVIGATE", "/mentorship"),
+                            quickAction("profile-mentor", "Profile", "Manage your mentor profile", "NAVIGATE", "/profile/mentor"),
+                            quickAction("chatbot", "AI Assistant", "Get support from Meowl", "NAVIGATE", "/chatbot"));
+            case LEARNER -> isVi
+                    ? List.of(
+                            quickAction("journey", "Hành Trình", "Bắt đầu hoặc tiếp tục hành trình học tập", "NAVIGATE", "/journey"),
+                            quickAction("dashboard", "Bảng Điều Khiển", "Theo dõi tiến độ học tập và thành tích", "NAVIGATE", "/dashboard"),
+                            quickAction("roadmap", "Lộ Trình Học Tập", "Khám phá lộ trình học tập và kỹ năng", "NAVIGATE", "/roadmap"),
+                            quickAction("chatbot", "Trợ Lý AI", "Nhận hỗ trợ từ trợ lý AI", "NAVIGATE", "/chatbot"),
+                            quickAction("study-planner", "Kế Hoạch AI", "Quản lý và tiếp tục kế hoạch học tập cá nhân", "NAVIGATE", "/study-planner"),
+                            quickAction("courses", "Khóa Học", "Khám phá các khóa học chất lượng cao", "NAVIGATE", "/courses"),
+                            quickAction("mentorship", "Cố Vấn", "Kết nối với chuyên gia trong ngành", "NAVIGATE", "/mentorship"),
+                            quickAction("community", "Cộng Đồng", "Tham gia cộng đồng học tập sôi động", "NAVIGATE", "/community"),
+                            quickAction("meowl-shop", "Meowl Shop", "Cửa hàng skin Meowl", "NAVIGATE", "/meowl-shop"),
+                            quickAction("portfolio", "Portfolio", "Quản lý và chia sẻ thành tích của bạn", "NAVIGATE", "/portfolio"),
+                            quickAction("my-applications", "Trung Tâm Công Việc", "Quản lý toàn bộ đơn ứng tuyển của bạn", "NAVIGATE", "/my-applications"),
+                            quickAction("jobs", "Việc Làm", "Tìm kiếm cơ hội việc làm phù hợp", "NAVIGATE", "/jobs"))
+                    : List.of(
+                            quickAction("journey", "Journey", "Start or continue your learning journey", "NAVIGATE", "/journey"),
+                            quickAction("dashboard", "Dashboard", "Track learning progress and achievements", "NAVIGATE", "/dashboard"),
+                            quickAction("roadmap", "Learning Roadmap", "Explore your skill roadmap", "NAVIGATE", "/roadmap"),
+                            quickAction("chatbot", "AI Assistant", "Get support from Meowl", "NAVIGATE", "/chatbot"),
+                            quickAction("study-planner", "Study Planner", "Manage your personal study plan", "NAVIGATE", "/study-planner"),
+                            quickAction("courses", "Courses", "Explore available courses", "NAVIGATE", "/courses"),
+                            quickAction("mentorship", "Mentorship", "Connect with mentors", "NAVIGATE", "/mentorship"),
+                            quickAction("community", "Community", "Join the learning community", "NAVIGATE", "/community"),
+                            quickAction("meowl-shop", "Meowl Shop", "Browse Meowl skins", "NAVIGATE", "/meowl-shop"),
+                            quickAction("portfolio", "Portfolio", "Showcase your achievements", "NAVIGATE", "/portfolio"),
+                            quickAction("my-applications", "Job Hub", "Manage your applications and work hub", "NAVIGATE", "/my-applications"),
+                            quickAction("jobs", "Jobs", "Find matching job opportunities", "NAVIGATE", "/jobs"));
+            case GENERAL -> isVi
+                    ? List.of(
+                            quickAction("chatbot", "Trợ Lý AI", "Nhận hỗ trợ từ trợ lý AI", "NAVIGATE", "/chatbot"),
+                            quickAction("study-planner", "Kế Hoạch AI", "Xem khu kế hoạch học tập", "NAVIGATE", "/study-planner"),
+                            quickAction("roadmap", "Lộ Trình Học Tập", "Khám phá lộ trình học tập", "NAVIGATE", "/roadmap"),
+                            quickAction("courses", "Khóa Học", "Khám phá khóa học đang có", "NAVIGATE", "/courses"),
+                            quickAction("mentorship", "Cố Vấn", "Xem khu mentorship", "NAVIGATE", "/mentorship"),
+                            quickAction("community", "Cộng Đồng", "Xem cộng đồng học tập", "NAVIGATE", "/community"),
+                            quickAction("jobs", "Việc Làm", "Khám phá cơ hội việc làm", "NAVIGATE", "/jobs"),
+                            quickAction("portfolio", "Portfolio", "Xem khu portfolio", "NAVIGATE", "/portfolio"),
+                            quickAction("meowl-shop", "Meowl Shop", "Khám phá cửa hàng skin Meowl", "NAVIGATE", "/meowl-shop"))
+                    : List.of(
+                            quickAction("chatbot", "AI Assistant", "Get help from Meowl", "NAVIGATE", "/chatbot"),
+                            quickAction("study-planner", "Study Planner", "Open the study planning area", "NAVIGATE", "/study-planner"),
+                            quickAction("roadmap", "Learning Roadmap", "Explore learning roadmap", "NAVIGATE", "/roadmap"),
+                            quickAction("courses", "Courses", "Browse available courses", "NAVIGATE", "/courses"),
+                            quickAction("mentorship", "Mentorship", "Open the mentorship area", "NAVIGATE", "/mentorship"),
+                            quickAction("community", "Community", "Open the learning community", "NAVIGATE", "/community"),
+                            quickAction("jobs", "Jobs", "Explore job opportunities", "NAVIGATE", "/jobs"),
+                            quickAction("portfolio", "Portfolio", "Open the portfolio area", "NAVIGATE", "/portfolio"),
+                            quickAction("meowl-shop", "Meowl Shop", "Explore Meowl skins", "NAVIGATE", "/meowl-shop"));
+        };
+    }
 
-        section.append(isVi ? "=== CHẾ ĐỘ HƯỚNG DẪN THEO VAI TRÒ ===\n" : "=== ROLE-AWARE GUIDANCE MODE ===\n");
-        section.append(isVi ? "Vai trò hiện tại: " : "Resolved role: ").append(role.name()).append('\n');
-        section.append(isVi
-                ? "Bắt buộc phong cách: rõ ràng, thân thiện, chuyên nghiệp; ưu tiên hành động; tránh dài dòng; luôn chốt bước tiếp theo cụ thể.\n"
-                : "Required style: clear, friendly, professional; action-first; avoid long explanations; always end with one concrete next step.\n");
-        section.append(isVi
-                ? "Không bịa tính năng. Nếu thiếu dữ liệu thì nói rõ giới hạn và đưa phương án hành động khả thi.\n"
-                : "Do not invent features. If data is missing, state the limit clearly and propose a practical action.\n");
-
-        if (role == MeowlRoleMode.LEARNER) {
-            section.append(isVi
-                    ? "Với learner: ưu tiên flow test đầu vào. Khi được hỏi onboarding, hãy nêu: test là gì, vì sao nên làm, mất bao lâu, từng bước thao tác UI, kết quả trả về và bước kế tiếp.\n"
-                    : "For learners: prioritize entry-test flow. When onboarding is requested, explain: what it is, why it matters, expected time, exact UI steps, returned result, and next action.\n");
-        } else if (role == MeowlRoleMode.RECRUITER) {
-            section.append(isVi
-                    ? "Với recruiter: nói theo ngữ cảnh vận hành tuyển dụng thực tế (pipeline job, applicants, shortlist), không mô tả chung chung.\n"
-                    : "For recruiters: speak in practical hiring operations context (job pipeline, applicants, shortlist), not generic feature descriptions.\n");
-        } else if (role == MeowlRoleMode.MENTOR) {
-            section.append(isVi
-                    ? "Với mentor: hướng dẫn theo trình tự vận hành thật (profile -> course -> publish -> availability -> booking).\n"
-                    : "For mentors: guide in practical sequence (profile -> course -> publish -> availability -> booking).\n");
+    private List<MeowlOnboardingContextResponse.QuickAction> selectQuickActions(
+            List<MeowlOnboardingContextResponse.QuickAction> routes,
+            String... ids) {
+        Map<String, MeowlOnboardingContextResponse.QuickAction> byId = new LinkedHashMap<>();
+        if (routes != null) {
+            routes.forEach(route -> byId.put(route.getId(), route));
         }
 
-        section.append(isVi ? "Ngữ cảnh user hiện tại:\n" : "Current user context:\n");
-        if (role == MeowlRoleMode.LEARNER || role == MeowlRoleMode.RECRUITER) {
-            section.append(isVi
-                    ? "Khi user hỏi về Premium, chỉ nêu đúng quyền lợi đang có trong hệ thống và giải thích ngắn gọn theo use-case thực tế.\n"
-                    : "When users ask about Premium, mention only existing in-system benefits and explain briefly with practical use cases.\n");
+        List<MeowlOnboardingContextResponse.QuickAction> selected = new ArrayList<>();
+        for (String id : ids) {
+            MeowlOnboardingContextResponse.QuickAction action = byId.get(id);
+            if (action != null) {
+                selected.add(action);
+            }
         }
-        contextSummary.forEach((k, v) -> section.append("- ").append(k).append(": ").append(v).append('\n'));
-        section.append(isVi ? "Bước tiếp theo:\n- " : "Next best action:\n- ").append(nextBestAction).append('\n');
-        return section.toString();
+        return selected;
     }
 
     private LinkedHashSet<MeowlRoleMode> resolveAvailableRoles(User user) {
@@ -732,3 +811,4 @@ public class MeowlRoleGuidanceService {
                 .build();
     }
 }
+

@@ -28,4 +28,6 @@ public interface JobPostingService {
     void deleteJob(Long userId, Long jobId);
 
     JobPostingResponse reopenJob(Long userId, Long jobId, ReopenJobRequest request);
+
+    JobPostingResponse submitForApproval(Long userId, Long jobId);
 }

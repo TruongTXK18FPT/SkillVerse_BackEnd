@@ -71,8 +71,9 @@ public class AdminJobServiceImpl implements AdminJobService {
             throw new IllegalStateException("Job is not in pending status");
         }
 
-        // Refund if recruiter paid via wallet (not subscription)
-        if (job.getPaidViaSubscription() == null || !job.getPaidViaSubscription()) {
+        // Refund if recruiter paid via wallet (postingFeeCharged=true && paidViaSubscription=false)
+        if (job.getPostingFeeCharged() != null && job.getPostingFeeCharged()
+                && (job.getPaidViaSubscription() == null || !job.getPaidViaSubscription())) {
             Long recruiterId = job.getRecruiterProfile().getUser().getId();
             try {
                 walletService.processRefund(
@@ -87,7 +88,7 @@ public class AdminJobServiceImpl implements AdminJobService {
                 throw new IllegalStateException("Refund failed", ex);
             }
         }
-        // If paid via subscription, quota is consumed — no refund
+        // If paid via subscription quota, quota is consumed — no refund
 
         job.setStatus(JobStatus.REJECTED);
         JobPosting savedJob = jobPostingRepository.save(job);

@@ -50,8 +50,10 @@ public class PostController {
             @RequestParam(required = false) PostStatus status,
             @RequestParam(required = false) Long authorId,
             @RequestParam(required = false) String search,
-            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        Page<PostResponse> res = postService.listPosts(status, authorId, search, pageable);
+            @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable,
+            Authentication auth) {
+        Long userId = auth != null ? Long.parseLong(auth.getName()) : null;
+        Page<PostResponse> res = postService.listPosts(status, authorId, search, pageable, userId);
         return ResponseEntity.ok(res);
     }
 
@@ -75,8 +77,9 @@ public class PostController {
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<PostResponse> getPost(@PathVariable Long id) {
-        return ResponseEntity.ok(postService.getPost(id));
+    public ResponseEntity<PostResponse> getPost(@PathVariable Long id, Authentication auth) {
+        Long userId = auth != null ? Long.parseLong(auth.getName()) : null;
+        return ResponseEntity.ok(postService.getPost(id, userId));
     }
 
     @PutMapping("/{id}")

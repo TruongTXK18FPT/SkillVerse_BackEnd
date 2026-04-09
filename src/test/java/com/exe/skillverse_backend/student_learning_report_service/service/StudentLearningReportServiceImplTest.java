@@ -42,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -133,6 +134,7 @@ class StudentLearningReportServiceImplTest {
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(student));
         when(reportRepository.findLatestComprehensiveGeneratedAt(1L)).thenReturn(null);
+        when(reportRepository.findFirstByStudentIdOrderByGeneratedAtDescIdDesc(1L)).thenReturn(Optional.empty());
         when(roadmapSessionRepository.findByUserIdOrderByCreatedAtDesc(1L)).thenReturn(List.of(roadmap));
         when(studySessionRepository.findByUserId(1L)).thenReturn(List.of(StudySession.builder()
                 .id(UUID.randomUUID())
@@ -153,18 +155,27 @@ class StudentLearningReportServiceImplTest {
                 .sessionId(50L)
                 .title("Career chat")
                 .build()));
+        when(reportRepository.save(any(StudentLearningReport.class))).thenAnswer(invocation -> {
+            StudentLearningReport savedReport = invocation.getArgument(0);
+            savedReport.setId(101L);
+            savedReport.setGeneratedAt(LocalDateTime.now(VN_ZONE));
+            return savedReport;
+        });
 
         StudentLearningReportResponse response = service.generateLearningReport(
                 1L,
                 GenerateStudentReportRequest.builder().build());
 
+        assertEquals(101L, response.getId());
         assertEquals("COMPREHENSIVE", response.getReportType());
         assertEquals("Student One", response.getStudentName());
+        assertNotNull(response.getReportName());
         assertEquals(1, response.getMetrics().getTotalRoadmaps());
         assertEquals(50, response.getMetrics().getAverageProgress());
         assertEquals(2, response.getMetrics().getTotalTasks());
         assertEquals(1, response.getMetrics().getCompletedCourses());
         assertNotNull(response.getSections());
+        verify(reportRepository).save(any(StudentLearningReport.class));
     }
 
     @Test

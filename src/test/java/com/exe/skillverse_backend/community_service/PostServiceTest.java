@@ -62,7 +62,7 @@ public class PostServiceTest {
         commentReq.setContent("Nice");
         CommentResponse comment = postService.addComment(created.getId(), userId, commentReq);
         assertNotNull(comment.getId());
-        PostResponse afterComment = postService.getPost(created.getId());
+        PostResponse afterComment = postService.getPost(created.getId(), null);
         assertEquals(1, afterComment.getCommentCount());
     }
 }
