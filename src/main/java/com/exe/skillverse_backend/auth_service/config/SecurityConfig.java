@@ -158,6 +158,7 @@ public class SecurityConfig {
 
                                 // Public GET endpoints for specific user operations
                                 .requestMatchers(HttpMethod.GET, "/api/user/profile/public/**").permitAll()
+                                .requestMatchers(HttpMethod.GET, "/api/business/*/profile").permitAll()
 
                                 // All other requests require authentication
                                 .anyRequest().authenticated());
