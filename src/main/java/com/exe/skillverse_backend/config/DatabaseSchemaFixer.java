@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.config;
 
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -7,6 +8,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.security.MessageDigest;
+import java.util.Arrays;
+import java.util.stream.Collectors;
 
 /**
  * DatabaseSchemaFixer — runtime idempotent patches for PostgreSQL.
@@ -84,6 +87,11 @@ public class DatabaseSchemaFixer {
                     "Add posting_fee_charged column to job_postings for Hibernate schema validation",
                     this::patchJobPostingsPostingFeeCharged,
                     this::verifyJobPostingsPostingFeeCharged);
+
+                applyPatch("sync-notifications-type-check-constraint",
+                    "Sync notifications.type check constraint with NotificationType enum values",
+                    this::patchNotificationsTypeConstraint,
+                    this::verifyNotificationsTypeConstraint);
 
             log.info("Schema patch infrastructure ready.");
         } finally {
@@ -295,6 +303,53 @@ public class DatabaseSchemaFixer {
     private boolean verifyJobPostingsPostingFeeCharged() {
         return hasTable("job_postings")
                 && hasColumn("job_postings", "posting_fee_charged");
+    }
+
+    private void patchNotificationsTypeConstraint() {
+        if (!hasTable("notifications")) {
+            log.debug("Table notifications does not exist yet, skipping patch.");
+            return;
+        }
+
+        String allowedTypes = Arrays.stream(NotificationType.values())
+                .map(NotificationType::name)
+                .map(this::toSqlLiteral)
+                .collect(Collectors.joining(","));
+
+        executeSql("ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check");
+        executeSql("ALTER TABLE notifications ADD CONSTRAINT notifications_type_check CHECK (type IN (" + allowedTypes + "))");
+    }
+
+    private boolean verifyNotificationsTypeConstraint() {
+        if (!hasTable("notifications")) {
+            return false;
+        }
+
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) AS constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'notifications'
+              AND c.conname = 'notifications_type_check'
+        """);
+
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) {
+            return false;
+        }
+
+        String constraintDef = results.get(0).get("constraint_def").toString();
+        for (NotificationType notificationType : NotificationType.values()) {
+            if (!constraintDef.contains(toSqlLiteral(notificationType.name()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private String toSqlLiteral(String rawValue) {
+        return "'" + rawValue.replace("'", "''") + "'";
     }
 
     private String getDatabaseProductName() {
