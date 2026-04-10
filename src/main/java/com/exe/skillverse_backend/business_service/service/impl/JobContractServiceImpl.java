@@ -21,6 +21,8 @@ import com.exe.skillverse_backend.business_service.repository.JobContractReposit
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.business_service.service.JobContractService;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +44,7 @@ public class JobContractServiceImpl implements JobContractService {
     private final JobPostingRepository jobPostingRepository;
     private final UserRepository userRepository;
     private final RecruiterProfileRepository recruiterProfileRepository;
+    private final NotificationService notificationService;
 
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final String ROLE_EMPLOYER = "EMPLOYER";
@@ -176,7 +179,133 @@ public class JobContractServiceImpl implements JobContractService {
         saved.setContractNumber(generateContractNumber(saved.getId()));
         saved = contractRepository.save(saved);
 
+        // Notify employer: draft created
+        notifyContractCreated(saved, employer.getId());
+
         return mapToResponse(saved);
+    }
+
+    // ======= Notify on contract creation (draft ready) =======
+    private void notifyContractCreated(JobContract contract, Long employerId) {
+        notificationService.createNotification(
+            employerId,
+            "Hợp đồng đã được tạo",
+            "Hợp đồng cho vị trí '" + contract.getJobTitle() + "' đã được tạo dưới dạng bản nháp.",
+            NotificationType.CONTRACT_SENT_FOR_SIGNATURE,
+            contract.getId().toString()
+        );
+    }
+
+    // ======= Notify on send for signature (candidate) =======
+    private void notifySentForSignature(JobContract contract) {
+        notificationService.createNotification(
+            contract.getCandidateId(),
+            "Hợp đồng chờ ký",
+            "Hợp đồng '" + contract.getJobTitle() + "' đang chờ bạn ký. Vui lòng xem và ký trong 72 giờ.",
+            NotificationType.CONTRACT_SENT_FOR_SIGNATURE,
+            contract.getId().toString(),
+            contract.getEmployerId()
+        );
+        // Also notify employer that contract was sent
+        notificationService.createNotification(
+            contract.getEmployerId(),
+            "Đã gửi hợp đồng",
+            "Hợp đồng '" + contract.getJobTitle() + "' đã được gửi đến ứng viên để ký.",
+            NotificationType.CONTRACT_SENT_FOR_SIGNATURE,
+            contract.getId().toString()
+        );
+    }
+
+    // ======= Notify on partial sign (other party needs to sign) =======
+    private void notifyPendingEmployerSignature(JobContract contract) {
+        notificationService.createNotification(
+            contract.getEmployerId(),
+            "Hợp đồng chờ ký",
+            "Ứng viên đã ký hợp đồng '" + contract.getJobTitle() + "'. Bạn cần đối ký để hoàn tất.",
+            NotificationType.CONTRACT_SIGNED,
+            contract.getId().toString(),
+            contract.getCandidateId()
+        );
+    }
+
+    private void notifyPendingCandidateSignature(JobContract contract) {
+        notificationService.createNotification(
+            contract.getCandidateId(),
+            "Hợp đồng chờ ký",
+            "Nhà tuyển dụng đã ký hợp đồng '" + contract.getJobTitle() + "'. Bạn cần ký để hoàn tất.",
+            NotificationType.CONTRACT_SIGNED,
+            contract.getId().toString(),
+            contract.getEmployerId()
+        );
+    }
+
+    // ======= Notify on fully signed =======
+    private void notifyContractSigned(JobContract contract) {
+        // Notify both parties
+        notificationService.createNotification(
+            contract.getEmployerId(),
+            "Hợp đồng đã ký thành công",
+            "Hợp đồng '" + contract.getJobTitle() + "' đã được cả hai bên ký và có hiệu lực.",
+            NotificationType.CONTRACT_SIGNED,
+            contract.getId().toString(),
+            contract.getCandidateId()
+        );
+        notificationService.createNotification(
+            contract.getCandidateId(),
+            "Hợp đồng đã ký thành công",
+            "Hợp đồng '" + contract.getJobTitle() + "' đã được cả hai bên ký và có hiệu lực.",
+            NotificationType.CONTRACT_SIGNED,
+            contract.getId().toString(),
+            contract.getEmployerId()
+        );
+    }
+
+    // ======= Notify on rejection =======
+    private void notifyContractRejected(JobContract contract, Long rejectedByUserId) {
+        Long recipientId = rejectedByUserId.equals(contract.getEmployerId())
+            ? contract.getCandidateId() : contract.getEmployerId();
+        String rejecterLabel = rejectedByUserId.equals(contract.getEmployerId()) ? "Nhà tuyển dụng" : "Ứng viên";
+        notificationService.createNotification(
+            recipientId,
+            "Hợp đồng bị từ chối",
+            rejecterLabel + " đã từ chối ký hợp đồng '" + contract.getJobTitle() + "'.",
+            NotificationType.CONTRACT_REJECTED,
+            contract.getId().toString(),
+            rejectedByUserId
+        );
+    }
+
+    // ======= Notify on cancellation =======
+    private void notifyContractCancelled(JobContract contract, Long cancelledByUserId) {
+        Long recipientId = cancelledByUserId.equals(contract.getEmployerId())
+            ? contract.getCandidateId() : contract.getEmployerId();
+        String cancellerLabel = cancelledByUserId.equals(contract.getEmployerId()) ? "Nhà tuyển dụng" : "Ứng viên";
+        notificationService.createNotification(
+            recipientId,
+            "Hợp đồng bị hủy",
+            cancellerLabel + " đã hủy hợp đồng '" + contract.getJobTitle() + "'.",
+            NotificationType.CONTRACT_CANCELLED,
+            contract.getId().toString(),
+            cancelledByUserId
+        );
+    }
+
+    // ======= Notify on expiration =======
+    private void notifyContractExpired(JobContract contract) {
+        notificationService.createNotification(
+            contract.getEmployerId(),
+            "Hợp đồng đã hết hạn ký",
+            "Hợp đồng '" + contract.getJobTitle() + "' đã hết hạn ký (72 giờ) và không còn hiệu lực.",
+            NotificationType.CONTRACT_EXPIRED,
+            contract.getId().toString()
+        );
+        notificationService.createNotification(
+            contract.getCandidateId(),
+            "Hợp đồng đã hết hạn ký",
+            "Hợp đồng '" + contract.getJobTitle() + "' đã hết hạn ký (72 giờ) và không còn hiệu lực.",
+            NotificationType.CONTRACT_EXPIRED,
+            contract.getId().toString()
+        );
     }
 
     @Override
@@ -194,6 +323,10 @@ public class JobContractServiceImpl implements JobContractService {
 
         contract.setStatus(ContractStatus.PENDING_SIGNER);
         JobContract saved = contractRepository.save(contract);
+
+        // Notify candidate: contract awaiting their signature
+        notifySentForSignature(saved);
+
         return mapToResponse(saved);
     }
 
@@ -270,6 +403,13 @@ public class JobContractServiceImpl implements JobContractService {
         JobContract saved = contractRepository.saveAndFlush(contract);
         if (saved.getStatus() == ContractStatus.SIGNED) {
             finalizeJobWhenHiringTargetReached(saved);
+            notifyContractSigned(saved);
+        } else if (saved.getStatus() == ContractStatus.PENDING_EMPLOYER) {
+            notifyPendingEmployerSignature(saved);
+        } else if (saved.getStatus() == ContractStatus.PENDING_SIGNER) {
+            notifyPendingCandidateSignature(saved);
+        } else if (saved.getStatus() == ContractStatus.REJECTED) {
+            notifyContractRejected(saved, userId);
         }
         return mapToResponse(saved);
     }
@@ -288,6 +428,10 @@ public class JobContractServiceImpl implements JobContractService {
 
         contract.setStatus(ContractStatus.REJECTED);
         JobContract saved = contractRepository.save(contract);
+
+        // Notify the other party of rejection
+        notifyContractRejected(saved, userId);
+
         return mapToResponse(saved);
     }
 
@@ -306,6 +450,10 @@ public class JobContractServiceImpl implements JobContractService {
 
         contract.setStatus(ContractStatus.CANCELLED);
         JobContract saved = contractRepository.save(contract);
+
+        // Notify candidate: contract was cancelled
+        notifyContractCancelled(saved, userId);
+
         return mapToResponse(saved);
     }
 

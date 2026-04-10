@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.business_service.enums.ContractStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -17,4 +18,5 @@ public interface JobContractRepository extends JpaRepository<JobContract, Long> 
     boolean existsByApplicationId(Long applicationId);
     long countByApplicationJobPostingIdAndStatus(Long jobPostingId, ContractStatus status);
     List<JobContract> findByApplicationJobPostingIdAndStatusIn(Long jobPostingId, Collection<ContractStatus> statuses);
+    List<JobContract> findByStatusInAndUpdatedAtBefore(Collection<ContractStatus> statuses, LocalDateTime before);
 }
