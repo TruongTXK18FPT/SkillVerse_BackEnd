@@ -75,6 +75,11 @@ public class DatabaseSchemaFixer {
                     this::patchViolationReportsReportedUserName,
                     this::verifyViolationReportsReportedUserName);
 
+            applyPatch("create-job-contracts-table",
+                    "Create job_contracts table for managing employment contracts with digital signatures",
+                    this::patchJobContractsTable,
+                    this::verifyJobContractsTable);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -170,6 +175,93 @@ public class DatabaseSchemaFixer {
     private boolean verifyViolationReportsReportedUserName() {
         return hasTable("violation_reports")
                 && hasColumn("violation_reports", "reported_user_name");
+    }
+
+    private void patchJobContractsTable() {
+        if (hasTable("job_contracts")) {
+            log.debug("Table job_contracts already exists, skipping patch.");
+            return;
+        }
+        executeSql("""
+            CREATE TABLE job_contracts (
+                id BIGSERIAL PRIMARY KEY,
+                application_id BIGINT NOT NULL UNIQUE,
+                status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+                contract_type VARCHAR(20) NOT NULL,
+                contract_number VARCHAR(50),
+                job_title VARCHAR(300),
+                working_location VARCHAR(500),
+                candidate_position VARCHAR(200),
+                job_description TEXT,
+                probation_months INTEGER,
+                probation_salary NUMERIC(15, 2),
+                probation_salary_text VARCHAR(500),
+                probation_evaluation_criteria TEXT,
+                probation_objectives TEXT,
+                salary NUMERIC(15, 2),
+                salary_text VARCHAR(500),
+                salary_payment_date INTEGER,
+                payment_method VARCHAR(100),
+                meal_allowance NUMERIC(15, 2),
+                transport_allowance NUMERIC(15, 2),
+                housing_allowance NUMERIC(15, 2),
+                other_allowances TEXT,
+                bonus_policy TEXT,
+                working_hours_per_day INTEGER,
+                working_hours_per_week INTEGER,
+                working_schedule VARCHAR(300),
+                remote_work_policy TEXT,
+                annual_leave_days INTEGER,
+                leave_policy TEXT,
+                insurance_policy TEXT,
+                health_checkup_annual BOOLEAN,
+                training_policy TEXT,
+                other_benefits TEXT,
+                legal_text TEXT,
+                confidentiality_clause TEXT,
+                ip_clause TEXT,
+                non_compete_clause TEXT,
+                non_compete_duration_months INTEGER,
+                termination_notice_days INTEGER,
+                termination_clause TEXT,
+                employer_id BIGINT NOT NULL,
+                employer_name VARCHAR(200),
+                employer_company_name VARCHAR(300),
+                employer_address VARCHAR(500),
+                employer_tax_id VARCHAR(50),
+                employer_email VARCHAR(200),
+                candidate_id BIGINT NOT NULL,
+                candidate_name VARCHAR(200),
+                candidate_email VARCHAR(200),
+                candidate_phone VARCHAR(30),
+                candidate_address VARCHAR(500),
+                candidate_date_of_birth DATE,
+                candidate_id_card_number VARCHAR(50),
+                candidate_id_card_place VARCHAR(200),
+                start_date DATE NOT NULL,
+                end_date DATE,
+                signed_pdf_url VARCHAR(500),
+                signed_at TIMESTAMP,
+                version BIGINT DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_job_contracts_application_id ON job_contracts(application_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_job_contracts_employer_id ON job_contracts(employer_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_job_contracts_candidate_id ON job_contracts(candidate_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_job_contracts_status ON job_contracts(status)");
+    }
+
+    private boolean verifyJobContractsTable() {
+        if (!hasTable("job_contracts")) return false;
+        return hasColumn("job_contracts", "id")
+                && hasColumn("job_contracts", "application_id")
+                && hasColumn("job_contracts", "status")
+                && hasColumn("job_contracts", "contract_type")
+                && hasColumn("job_contracts", "employer_id")
+                && hasColumn("job_contracts", "candidate_id")
+                && hasColumn("job_contracts", "start_date");
     }
 
     // ─── Infrastructure ─────────────────────────────────────────────────────
