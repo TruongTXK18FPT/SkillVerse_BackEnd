@@ -49,9 +49,13 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
                     WHEN 'STUDENT_PACK' THEN 3 
                     WHEN 'FREE_TIER' THEN 4 
                     ELSE 5 
-                END
+                END, s.createdAt DESC, s.id DESC
         """)
-        Optional<UserSubscription> findCurrentActiveSubscription(@Param("user") User user);
+        List<UserSubscription> findCurrentActiveSubscriptions(@Param("user") User user);
+
+        default Optional<UserSubscription> findCurrentActiveSubscription(User user) {
+                return findCurrentActiveSubscriptions(user).stream().findFirst();
+        }
 
         @Lock(LockModeType.PESSIMISTIC_WRITE)
         @Query("""
@@ -69,9 +73,13 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
                     WHEN 'STUDENT_PACK' THEN 3 
                     WHEN 'FREE_TIER' THEN 4 
                     ELSE 5 
-                END
+                END, s.createdAt DESC, s.id DESC
         """)
-        Optional<UserSubscription> findCurrentActiveSubscriptionForUpdate(@Param("user") User user);
+        List<UserSubscription> findCurrentActiveSubscriptionsForUpdate(@Param("user") User user);
+
+        default Optional<UserSubscription> findCurrentActiveSubscriptionForUpdate(User user) {
+                return findCurrentActiveSubscriptionsForUpdate(user).stream().findFirst();
+        }
 
         /**
          * Check if user has an active RECRUITER_PRO subscription
@@ -104,9 +112,13 @@ public interface UserSubscriptionRepository extends JpaRepository<UserSubscripti
                     WHEN 'PREMIUM_PLUS' THEN 2
                     WHEN 'PREMIUM_BASIC' THEN 3
                     ELSE 4
-                END, p.price DESC
+                END, p.price DESC, s.createdAt DESC, s.id DESC
         """)
-        Optional<UserSubscription> findActiveRecruiterSubscription(@Param("user") User user);
+        List<UserSubscription> findActiveRecruiterSubscriptions(@Param("user") User user);
+
+        default Optional<UserSubscription> findActiveRecruiterSubscription(User user) {
+                return findActiveRecruiterSubscriptions(user).stream().findFirst();
+        }
 
         /**
          * @deprecated Use {@link #findCurrentActiveSubscription(User)} instead for proper validation
