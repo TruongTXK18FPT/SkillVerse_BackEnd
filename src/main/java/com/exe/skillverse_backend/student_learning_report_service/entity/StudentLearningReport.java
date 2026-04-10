@@ -1,7 +1,6 @@
 package com.exe.skillverse_backend.student_learning_report_service.entity;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
-import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
 import jakarta.persistence.Column;
@@ -93,7 +92,6 @@ public class StudentLearningReport {
     @Column(name = "motivation_section", columnDefinition = "TEXT")
     private String motivationSection;
 
-    @CreationTimestamp
     @Column(name = "generated_at", nullable = false, updatable = false)
     private LocalDateTime generatedAt;
 

@@ -85,13 +85,14 @@ public interface StudentLearningReportRepository extends JpaRepository<StudentLe
 
     /**
      * Lấy timestamp của báo cáo comprehensive mới nhất (dùng projection, tránh load LOB fields).
+     * ORDER BY generated_at DESC, id DESC đảm bảo deterministic: báo cáo mới nhất luôn được trả về.
      */
     @Query(value = """
         SELECT slr.generated_at
         FROM student_learning_reports slr
         WHERE slr.student_id = :studentId AND slr.report_type = 'COMPREHENSIVE'
         ORDER BY slr.generated_at DESC, slr.id DESC
-        FETCH FIRST 1 ROWS ONLY
+        LIMIT 1
         """, nativeQuery = true)
     LocalDateTime findLatestComprehensiveGeneratedAt(@Param("studentId") Long studentId);
 }

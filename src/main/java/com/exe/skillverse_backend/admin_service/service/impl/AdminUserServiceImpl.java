@@ -588,20 +588,123 @@ public class AdminUserServiceImpl implements AdminUserService {
                                         .setParameter(1, userId).executeUpdate();
 
                         // Course Service
-                        entityManager.createNativeQuery("DELETE FROM lesson_progress WHERE user_id = ?1")
-                                        .setParameter(1, userId).executeUpdate();
-                        entityManager.createNativeQuery("DELETE FROM module_progress WHERE user_id = ?1")
-                                        .setParameter(1, userId).executeUpdate();
-                        entityManager.createNativeQuery("DELETE FROM certificates WHERE user_id = ?1")
-                                        .setParameter(1, userId).executeUpdate();
-                        entityManager.createNativeQuery("DELETE FROM course_purchase WHERE user_id = ?1")
-                                        .setParameter(1, userId).executeUpdate();
-                        entityManager.createNativeQuery("DELETE FROM course_enrollment WHERE user_id = ?1")
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM lesson_progress WHERE user_id = ?1 " +
+                                                        "OR lesson_id IN (SELECT l.id FROM lessons l " +
+                                                        "JOIN modules m ON l.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
                                         .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery(
-                                        "DELETE FROM assignment_submissions WHERE user_id = ?1 OR graded_by = ?1")
+                                        "DELETE FROM module_progress WHERE user_id = ?1 " +
+                                                        "OR module_id IN (SELECT m.id FROM modules m " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
                                         .setParameter(1, userId).executeUpdate();
-                        entityManager.createNativeQuery("DELETE FROM coding_submissions WHERE user_id = ?1")
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM certificates WHERE user_id = ?1 " +
+                                                        "OR course_id IN (SELECT id FROM courses WHERE author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM course_purchase WHERE user_id = ?1 " +
+                                                        "OR course_id IN (SELECT id FROM courses WHERE author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM course_enrollment WHERE user_id = ?1 " +
+                                                        "OR course_id IN (SELECT id FROM courses WHERE author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM submission_criteria_scores WHERE submission_id IN " +
+                                                        "(SELECT id FROM assignment_submissions WHERE user_id = ?1 OR graded_by = ?1 " +
+                                                        "OR assignment_id IN (SELECT a.id FROM assignments a " +
+                                                        "JOIN modules m ON a.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1))")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM assignment_submissions WHERE user_id = ?1 OR graded_by = ?1 " +
+                                                        "OR assignment_id IN (SELECT a.id FROM assignments a " +
+                                                        "JOIN modules m ON a.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM assignment_criteria WHERE assignment_id IN (SELECT a.id FROM assignments a " +
+                                                        "JOIN modules m ON a.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM assignments WHERE module_id IN (SELECT m.id FROM modules m " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM quiz_attempt_answer_snapshots WHERE attempt_id IN " +
+                                                        "(SELECT qa.id FROM quiz_attempts qa WHERE qa.user_id = ?1 " +
+                                                        "OR qa.quiz_id IN (SELECT q.id FROM quizzes q " +
+                                                        "JOIN modules m ON q.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1))")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM quiz_attempt_sessions WHERE user_id = ?1 " +
+                                                        "OR quiz_id IN (SELECT q.id FROM quizzes q " +
+                                                        "JOIN modules m ON q.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM quiz_attempts WHERE user_id = ?1 " +
+                                                        "OR quiz_id IN (SELECT q.id FROM quizzes q " +
+                                                        "JOIN modules m ON q.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM quiz_options WHERE question_id IN (SELECT qq.id FROM quiz_questions qq " +
+                                                        "JOIN quizzes q ON qq.quiz_id = q.id " +
+                                                        "JOIN modules m ON q.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM quiz_questions WHERE quiz_id IN (SELECT q.id FROM quizzes q " +
+                                                        "JOIN modules m ON q.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM quizzes WHERE module_id IN (SELECT m.id FROM modules m " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM coding_submissions WHERE user_id = ?1 " +
+                                                        "OR exercise_id IN (SELECT ce.id FROM coding_exercises ce " +
+                                                        "JOIN modules m ON ce.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM coding_test_cases WHERE exercise_id IN (SELECT ce.id FROM coding_exercises ce " +
+                                                        "JOIN modules m ON ce.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM coding_exercises WHERE module_id IN (SELECT m.id FROM modules m " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM lesson_attachments WHERE lesson_id IN (SELECT l.id FROM lessons l " +
+                                                        "JOIN modules m ON l.module_id = m.id " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM lessons WHERE module_id IN (SELECT m.id FROM modules m " +
+                                                        "JOIN courses c ON m.course_id = c.id WHERE c.author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM course_skill WHERE course_id IN (SELECT id FROM courses WHERE author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM course_revisions WHERE course_id IN (SELECT id FROM courses WHERE author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM course_learning_objectives WHERE course_id IN (SELECT id FROM courses WHERE author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM course_requirements WHERE course_id IN (SELECT id FROM courses WHERE author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM modules WHERE course_id IN (SELECT id FROM courses WHERE author_id = ?1)")
                                         .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM courses WHERE author_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
