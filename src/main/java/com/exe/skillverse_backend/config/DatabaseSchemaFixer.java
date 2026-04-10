@@ -80,6 +80,11 @@ public class DatabaseSchemaFixer {
                     this::patchJobContractsTable,
                     this::verifyJobContractsTable);
 
+            applyPatch("add-job-postings-posting-fee-charged",
+                    "Add posting_fee_charged column to job_postings for Hibernate schema validation",
+                    this::patchJobPostingsPostingFeeCharged,
+                    this::verifyJobPostingsPostingFeeCharged);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -265,6 +270,32 @@ public class DatabaseSchemaFixer {
     }
 
     // ─── Infrastructure ─────────────────────────────────────────────────────
+
+    private void patchJobPostingsPostingFeeCharged() {
+        if (!hasTable("job_postings")) {
+            log.debug("Table job_postings does not exist yet, skipping patch.");
+            return;
+        }
+
+        executeSql("""
+            ALTER TABLE job_postings
+                ADD COLUMN IF NOT EXISTS posting_fee_charged BOOLEAN DEFAULT FALSE
+        """);
+        executeSql("""
+            UPDATE job_postings
+            SET posting_fee_charged = FALSE
+            WHERE posting_fee_charged IS NULL
+        """);
+        executeSql("""
+            ALTER TABLE job_postings
+                ALTER COLUMN posting_fee_charged SET DEFAULT FALSE
+        """);
+    }
+
+    private boolean verifyJobPostingsPostingFeeCharged() {
+        return hasTable("job_postings")
+                && hasColumn("job_postings", "posting_fee_charged");
+    }
 
     private String getDatabaseProductName() {
         try {
