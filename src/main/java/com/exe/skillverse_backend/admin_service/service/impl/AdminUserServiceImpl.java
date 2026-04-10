@@ -503,6 +503,15 @@ public class AdminUserServiceImpl implements AdminUserService {
                                         .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM external_certificates WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM project_attachments WHERE project_id IN (SELECT id FROM portfolio_projects WHERE user_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM project_outcomes WHERE project_id IN (SELECT id FROM portfolio_projects WHERE user_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM project_tools WHERE project_id IN (SELECT id FROM portfolio_projects WHERE user_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM portfolio_projects WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM portfolio_extended_profiles WHERE user_id = ?1")
@@ -574,9 +583,6 @@ public class AdminUserServiceImpl implements AdminUserService {
                         entityManager.createNativeQuery("DELETE FROM user_profiles WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
 
-                        entityManager.createNativeQuery("DELETE FROM media WHERE uploaded_by = ?1")
-                                        .setParameter(1, userId).executeUpdate();
-
                         // User Service (remaining)
                         entityManager.createNativeQuery("DELETE FROM user_skills WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
@@ -598,6 +604,22 @@ public class AdminUserServiceImpl implements AdminUserService {
                         entityManager.createNativeQuery("DELETE FROM coding_submissions WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM courses WHERE author_id = ?1")
+                                        .setParameter(1, userId).executeUpdate();
+
+                        // Detach remaining cross-user references to this user's media before deleting it.
+                        entityManager.createNativeQuery(
+                                        "UPDATE courses SET thumbnail_media_id = NULL WHERE thumbnail_media_id IN (SELECT id FROM media WHERE uploaded_by = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "UPDATE lessons SET video_media_id = NULL WHERE video_media_id IN (SELECT id FROM media WHERE uploaded_by = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "UPDATE lesson_attachments SET media_id = NULL WHERE media_id IN (SELECT id FROM media WHERE uploaded_by = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "UPDATE assignment_submissions SET file_media_id = NULL WHERE file_media_id IN (SELECT id FROM media WHERE uploaded_by = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM media WHERE uploaded_by = ?1")
                                         .setParameter(1, userId).executeUpdate();
 
                         // Auth Service
