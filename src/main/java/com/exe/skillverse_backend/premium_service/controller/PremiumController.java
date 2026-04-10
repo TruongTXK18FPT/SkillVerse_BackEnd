@@ -258,7 +258,7 @@ public class PremiumController {
                 refundAmount
             ));
         } catch (RuntimeException e) {
-            log.error("Failed to cancel subscription with refund: {}", e.getMessage());
+            log.error("Failed to cancel subscription with refund", e);
             return ResponseEntity.badRequest().body(new RefundResponse(
                 false,
                 e.getMessage(),
