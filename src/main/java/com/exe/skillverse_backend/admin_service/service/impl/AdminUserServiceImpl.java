@@ -440,7 +440,11 @@ public class AdminUserServiceImpl implements AdminUserService {
                                         .setParameter(1, userId).executeUpdate();
 
                         // AI Service
-                        entityManager.createNativeQuery("DELETE FROM chat_messages WHERE user_id = ?1")
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM chat_messages WHERE user_id = ?1 " +
+                                                        "OR session_id IN (SELECT id FROM chat_sessions WHERE user_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery("DELETE FROM chat_sessions WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery(
                                         "DELETE FROM user_roadmap_progress WHERE roadmap_session_id IN (SELECT id FROM roadmap_sessions WHERE user_id = ?1)")
@@ -588,6 +592,21 @@ public class AdminUserServiceImpl implements AdminUserService {
                                         .setParameter(1, userId).executeUpdate();
 
                         // Course Service
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM group_chat_messages WHERE sender_id = ?1 " +
+                                                        "OR group_id IN (SELECT gc.id FROM group_chats gc WHERE gc.mentor_id = ?1 " +
+                                                        "OR gc.course_id IN (SELECT id FROM courses WHERE author_id = ?1))")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM group_chat_members WHERE user_id = ?1 " +
+                                                        "OR group_id IN (SELECT gc.id FROM group_chats gc WHERE gc.mentor_id = ?1 " +
+                                                        "OR gc.course_id IN (SELECT id FROM courses WHERE author_id = ?1))")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM group_chats WHERE mentor_id = ?1 " +
+                                                        "OR course_id IN (SELECT id FROM courses WHERE author_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+
                         entityManager.createNativeQuery(
                                         "DELETE FROM lesson_progress WHERE user_id = ?1 " +
                                                         "OR lesson_id IN (SELECT l.id FROM lessons l " +
