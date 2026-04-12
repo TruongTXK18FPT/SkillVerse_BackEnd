@@ -76,6 +76,11 @@ public class DatabaseSchemaFixer {
                     this::patchCourseEnrollmentLearningColumns,
                     this::verifyCourseEnrollmentLearningColumns);
 
+                applyPatch("create-module-prerequisites-table",
+                    "Create module_prerequisites table for Hibernate schema validation",
+                    this::patchModulePrerequisitesTable,
+                    this::verifyModulePrerequisitesTable);
+
             applyPatch("create-contract-signatures-table",
                     "Create contract_signatures table for digital signature tracking",
                     this::patchContractSignaturesTable,
@@ -286,6 +291,29 @@ public class DatabaseSchemaFixer {
                 && hasColumn("course_enrollment", "upgrade_policy_snapshot")
                 && hasColumn("course_enrollment", "last_upgraded_at")
                 && hasColumn("course_enrollment", "completed_at");
+    }
+
+    // ─── module_prerequisites table ─────────────────────────────────────────
+
+    private void patchModulePrerequisitesTable() {
+        if (hasTable("module_prerequisites")) {
+            return;
+        }
+
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS module_prerequisites (
+                module_id BIGINT NOT NULL,
+                prerequisite_module_id BIGINT
+            )
+        """);
+    }
+
+    private boolean verifyModulePrerequisitesTable() {
+        if (!hasTable("module_prerequisites")) {
+            return false;
+        }
+        return hasColumn("module_prerequisites", "module_id")
+                && hasColumn("module_prerequisites", "prerequisite_module_id");
     }
 
     // ─── Course-related oid → TEXT patches ────────────────────────────────────
