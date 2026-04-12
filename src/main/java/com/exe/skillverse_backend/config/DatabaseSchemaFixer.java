@@ -71,6 +71,11 @@ public class DatabaseSchemaFixer {
                     this::patchStudentLearningReportSnapshotColumns,
                     this::verifyStudentLearningReportSnapshotColumns);
 
+            applyPatch("add-course-enrollment-learning-columns",
+                    "Add missing learning-tracking columns to course_enrollment for Hibernate schema validation",
+                    this::patchCourseEnrollmentLearningColumns,
+                    this::verifyCourseEnrollmentLearningColumns);
+
             applyPatch("create-contract-signatures-table",
                     "Create contract_signatures table for digital signature tracking",
                     this::patchContractSignaturesTable,
@@ -233,6 +238,54 @@ public class DatabaseSchemaFixer {
                 && hasColumn("student_learning_reports", "total_study_hours_snapshot")
                 && hasColumn("student_learning_reports", "streak_days_snapshot")
                 && hasColumn("student_learning_reports", "tasks_completed_snapshot");
+    }
+
+    // ─── course_enrollment learning tracking columns ─────────────────────────
+
+    private void patchCourseEnrollmentLearningColumns() {
+        if (!hasTable("course_enrollment")) {
+            log.debug("Table course_enrollment does not exist yet, skipping patch.");
+            return;
+        }
+
+        executeSql("""
+            ALTER TABLE course_enrollment
+                ADD COLUMN IF NOT EXISTS entitlement_source VARCHAR(20),
+                ADD COLUMN IF NOT EXISTS entitlement_ref VARCHAR(64),
+                ADD COLUMN IF NOT EXISTS learning_revision_id BIGINT,
+                ADD COLUMN IF NOT EXISTS upgrade_policy_snapshot VARCHAR(32),
+                ADD COLUMN IF NOT EXISTS last_upgraded_at TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ
+        """);
+
+        executeSql("""
+            UPDATE course_enrollment
+            SET entitlement_source = 'PURCHASE'
+            WHERE entitlement_source IS NULL
+        """);
+
+        executeSql("""
+            ALTER TABLE course_enrollment
+                ALTER COLUMN entitlement_source SET DEFAULT 'PURCHASE'
+        """);
+
+        executeSql("""
+            ALTER TABLE course_enrollment
+                ALTER COLUMN entitlement_source SET NOT NULL
+        """);
+    }
+
+    private boolean verifyCourseEnrollmentLearningColumns() {
+        if (!hasTable("course_enrollment")) {
+            return true;
+        }
+
+        return hasColumn("course_enrollment", "entitlement_source")
+                && hasColumn("course_enrollment", "entitlement_ref")
+                && hasColumn("course_enrollment", "learning_revision_id")
+                && hasColumn("course_enrollment", "upgrade_policy_snapshot")
+                && hasColumn("course_enrollment", "last_upgraded_at")
+                && hasColumn("course_enrollment", "completed_at");
     }
 
     // ─── Course-related oid → TEXT patches ────────────────────────────────────
