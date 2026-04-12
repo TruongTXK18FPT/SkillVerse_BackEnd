@@ -77,6 +77,9 @@ class AssignmentServiceImplTest {
     @Mock
     private NotificationService notificationService;
 
+        @Mock
+        private org.springframework.context.ApplicationEventPublisher eventPublisher;
+
     @Mock
     private AssignmentMapper assignmentMapper;
 

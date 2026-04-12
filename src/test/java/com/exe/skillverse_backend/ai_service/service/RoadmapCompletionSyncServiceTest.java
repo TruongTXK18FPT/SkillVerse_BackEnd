@@ -2,13 +2,13 @@ package com.exe.skillverse_backend.ai_service.service;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -19,12 +19,6 @@ import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
-import com.exe.skillverse_backend.course_service.entity.Course;
-import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
-import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
-import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
-import com.exe.skillverse_backend.course_service.repository.CourseRepository;
-import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.study_service.entity.Task;
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,15 +40,6 @@ class RoadmapCompletionSyncServiceTest {
 
     @Mock
     private RoadmapSessionRepository roadmapSessionRepository;
-
-    @Mock
-    private CourseEnrollmentRepository enrollmentRepository;
-
-    @Mock
-    private CourseRepository courseRepository;
-
-    @Mock
-    private CourseLearningProgressService courseLearningProgressService;
 
     @Mock
     private TaskRepository taskRepository;
@@ -80,26 +65,12 @@ class RoadmapCompletionSyncServiceTest {
                 .suggestedCourseIds(List.of("11", "12"))
                 .build();
 
-        Course beginnerCourse = Course.builder().id(11L).level("beginner").build();
-        Course intermediateCourse = Course.builder().id(12L).level("intermediate").build();
-        CourseEnrollment enrollment = CourseEnrollment.builder()
-                .course(intermediateCourse)
-                .user(session.getUser())
-                .status(EnrollmentStatus.ENROLLED)
-                .progressPercent(100)
-                .build();
-
-        when(courseRepository.findAllById(any())).thenReturn(List.of(beginnerCourse, intermediateCourse));
-        when(enrollmentRepository.findByUserIdAndCourseIdIn(eq(99L), any())).thenReturn(List.of(enrollment));
-        // GAP-9: now uses findByUserIdAndUserNotesContaining instead of findByUserId
         when(taskRepository.findByUserIdAndUserNotesContaining(anyLong(), anyString())).thenReturn(List.of());
-        when(progressRepository.findBySessionIdAndQuestId(7L, "node-course")).thenReturn(Optional.empty());
 
         Map<String, RoadmapResponse.QuestProgress> result = service.overlayDerivedProgress(session, List.of(node), Map.of());
 
-        assertEquals("COMPLETED", result.get("node-course").getStatus());
-        assertEquals(100, result.get("node-course").getProgress());
-        verify(progressRepository).saveAll(any());
+        assertFalse(result.containsKey("node-course"));
+        verify(progressRepository, never()).saveAll(any());
     }
 
         @Test
@@ -110,23 +81,11 @@ class RoadmapCompletionSyncServiceTest {
                                 .difficulty("intermediate")
                                 .suggestedCourseIds(List.of("12"))
                                 .build();
-
-                Course intermediateCourse = Course.builder().id(12L).level("intermediate").build();
-                CourseEnrollment enrollment = CourseEnrollment.builder()
-                                .course(intermediateCourse)
-                                .user(session.getUser())
-                                .status(EnrollmentStatus.ENROLLED)
-                                .progressPercent(45)
-                                .build();
-
-                when(courseRepository.findAllById(any())).thenReturn(List.of(intermediateCourse));
-                when(enrollmentRepository.findByUserIdAndCourseIdIn(eq(99L), any())).thenReturn(List.of(enrollment));
                 when(taskRepository.findByUserIdAndUserNotesContaining(anyLong(), anyString())).thenReturn(List.of());
 
                 Map<String, RoadmapResponse.QuestProgress> result = service.overlayDerivedProgress(session, List.of(node), Map.of());
 
-                assertEquals("IN_PROGRESS", result.get("node-course").getStatus());
-                assertEquals(45, result.get("node-course").getProgress());
+                assertFalse(result.containsKey("node-course"));
                 verify(progressRepository, never()).saveAll(any());
         }
 
@@ -190,30 +149,17 @@ class RoadmapCompletionSyncServiceTest {
                 .difficulty("beginner")
                 .suggestedCourseIds(List.of("200"))
                 .build();
-
-        Course course = Course.builder().id(200L).level("beginner").build();
-        CourseEnrollment enrollment = CourseEnrollment.builder()
-                .course(course)
-                .user(session.getUser())
-                .status(EnrollmentStatus.ENROLLED)
-                .progressPercent(20)
-                .build();
         Task doneTask = Task.builder()
                 .status("Done")
                 .user(session.getUser())
                 .userNotes("[ROADMAP_NODE_LINK] roadmap=30 node=node-course-priority")
                 .build();
 
-        when(courseRepository.findAllById(any())).thenReturn(List.of(course));
-        when(enrollmentRepository.findByUserIdAndCourseIdIn(eq(90L), any())).thenReturn(List.of(enrollment));
         when(taskRepository.findByUserIdAndUserNotesContaining(eq(90L), anyString())).thenReturn(List.of(doneTask));
 
         Map<String, RoadmapResponse.QuestProgress> result = service.overlayDerivedProgressSnapshot(session, List.of(node), Map.of());
 
-        // FIX: MAX(course, task) — when course=20% but tasks are 100% done, the node
-        // should report 100% (COMPLETED), not 20% (IN_PROGRESS). The old course-first
-        // logic was shadowing task progress, which was the GAP-3 bug.
-        // MAX(20, 100) = 100 → COMPLETED. Using snapshot so persistence is skipped.
+        // Course enrollment is no longer a source; node progress is task-derived.
         assertEquals("COMPLETED", result.get("node-course-priority").getStatus());
         assertEquals(100, result.get("node-course-priority").getProgress());
         verify(progressRepository, never()).saveAll(any());

@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.admin_service.controller;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionDTO;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.service.CourseRevisionService;
+import com.exe.skillverse_backend.course_service.service.impl.CourseRevisionDiffService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,6 +40,9 @@ class AdminCourseRevisionControllerIntegrationTest {
 
     @MockBean
     private CourseRevisionService courseRevisionService;
+
+    @MockBean
+    private CourseRevisionDiffService courseRevisionDiffService;
 
     @TestConfiguration
     @EnableMethodSecurity

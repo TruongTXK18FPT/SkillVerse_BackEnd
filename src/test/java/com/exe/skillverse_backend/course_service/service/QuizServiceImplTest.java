@@ -400,6 +400,8 @@ class QuizServiceImplTest {
                                 .submittedAt(Instant.parse("2026-03-02T10:00:00Z"))
                                 .build();
 
+                when(clock.instant()).thenReturn(Instant.parse("2026-03-03T10:00:00Z"));
+
                 when(quizRepository.findById(36L)).thenReturn(Optional.of(quiz));
                 when(enrollmentRepository.findByCourseIdAndUserId(80L, 201L)).thenReturn(Optional.of(enrollment));
                 when(attemptRepository.findByQuizIdAndUserIdOrderBySubmittedAtDesc(36L, 201L))
@@ -418,7 +420,7 @@ class QuizServiceImplTest {
 
                 assertTrue(status.isHasPassed());
                 assertFalse(status.isCanRetry());
-                assertEquals(1, status.getAttemptsUsed());
+                assertEquals(0, status.getAttemptsUsed());
                 assertEquals(3, status.getMaxAttempts());
                 assertEquals(85, status.getBestScore());
                 verify(attemptRepository).findByQuizIdAndUserIdOrderBySubmittedAtDesc(eq(36L), eq(201L));

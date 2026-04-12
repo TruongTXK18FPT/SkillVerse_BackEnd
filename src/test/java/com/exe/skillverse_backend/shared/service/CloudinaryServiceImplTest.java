@@ -3,9 +3,7 @@ package com.exe.skillverse_backend.shared.service;
 import com.cloudinary.Cloudinary;
 import com.cloudinary.Uploader;
 import com.exe.skillverse_backend.shared.service.impl.CloudinaryServiceImpl;
-import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,7 +14,6 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -57,18 +54,13 @@ class CloudinaryServiceImplTest {
     }
 
     @Test
-    @DisplayName("uploadVideo should use chunked upload for files larger than 100MB")
-    void uploadVideo_ShouldUseChunkedUploadForFilesLargerThan100Mb() throws Exception {
+    @DisplayName("uploadVideo should reject files larger than 100MB")
+    void uploadVideo_ShouldRejectFilesLargerThan100Mb() throws Exception {
         MultipartFile file = oversizedVideo();
-        when(cloudinary.uploader()).thenReturn(uploader);
-        when(uploader.uploadLarge(any(InputStream.class), anyMap())).thenReturn(Map.of(
-                "public_id", "video-public-id",
-                "secure_url", "https://cdn.skillverse.vn/video.mp4"));
 
-        Map<String, Object> result = service.uploadVideo(file, "courses");
+        assertThrows(IllegalArgumentException.class, () -> service.uploadVideo(file, "courses"));
 
-        assertEquals("video-public-id", result.get("public_id"));
-        verify(uploader).uploadLarge(any(InputStream.class), anyMap());
+        verify(uploader, never()).uploadLarge(any(InputStream.class), anyMap());
         verify(uploader, never()).upload(any(byte[].class), anyMap());
     }
 
@@ -84,7 +76,6 @@ class CloudinaryServiceImplTest {
         when(file.getOriginalFilename()).thenReturn("clip.mp4");
         when(file.getContentType()).thenReturn("video/mp4");
         when(file.getSize()).thenReturn(101L * 1024 * 1024);
-        when(file.getInputStream()).thenReturn(new ByteArrayInputStream(new byte[] {1, 2, 3}));
         return file;
     }
 }

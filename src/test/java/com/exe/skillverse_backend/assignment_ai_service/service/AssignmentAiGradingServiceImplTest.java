@@ -7,6 +7,7 @@ import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
@@ -70,6 +71,9 @@ class AssignmentAiGradingServiceImplTest {
     @Mock
     private ChatModel chatModel;
 
+        @Mock
+        private CourseLearningProgressService courseLearningProgressService;
+
     private AssignmentAiGradingServiceImpl service;
 
     private Course course;
@@ -88,7 +92,8 @@ class AssignmentAiGradingServiceImplTest {
                 gradingPromptService,
                 fileExtractor,
                 notificationService,
-                chatModel
+                chatModel,
+                courseLearningProgressService
         );
 
         User mentor = User.builder().id(7L).firstName("Mentor").lastName("One").build();
@@ -284,7 +289,7 @@ class AssignmentAiGradingServiceImplTest {
     @DisplayName("requestMentorReview sets dispute fields and sends 2 notifications")
     void requestMentorReview_setsDisputeFlag_andNotifies() {
         submission.setDisputeFlag(false);
-        when(submissionRepository.findById(100L)).thenReturn(Optional.of(submission));
+                when(submissionRepository.findByIdWithFullChain(100L)).thenReturn(Optional.of(submission));
         when(submissionRepository.save(any(AssignmentSubmission.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
 
@@ -307,7 +312,7 @@ class AssignmentAiGradingServiceImplTest {
     @Test
     @DisplayName("requestMentorReview throws AccessDeniedException for non-owner")
     void requestMentorReview_byNonOwner_throwsAccessDenied() {
-        when(submissionRepository.findById(100L)).thenReturn(Optional.of(submission));
+                when(submissionRepository.findByIdWithFullChain(100L)).thenReturn(Optional.of(submission));
 
         assertThrows(
                 org.springframework.security.access.AccessDeniedException.class,

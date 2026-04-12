@@ -78,7 +78,7 @@ class AiCourseCatalogServiceImplTest {
         when(taxonomyService.expandQueryWithTaxonomy(eq("microservice orchestration"), anySet(), anyInt()))
                 .thenReturn(new LinkedHashSet<>(List.of("microservice", "orchestration", "spring")));
         when(tfIdfVectorizer.computeCosineScores(anyList(), anySet(), anyMap(), anyMap(), anyInt()))
-                .thenReturn(Map.of());
+                .thenReturn(Map.of(1L, 0.5));
 
         List<CourseCatalogEntry> results = service.preSelectCourses("microservice orchestration", 5);
 
@@ -101,7 +101,7 @@ class AiCourseCatalogServiceImplTest {
         when(taxonomyService.expandQueryWithTaxonomy(anyString(), anySet(), anyInt()))
                 .thenAnswer(invocation -> new LinkedHashSet<>((Set<String>) invocation.getArgument(1)));
         when(tfIdfVectorizer.computeCosineScores(anyList(), anySet(), anyMap(), anyMap(), anyInt()))
-                .thenReturn(Map.of());
+                .thenReturn(Map.of(1L, 0.5, 2L, 0.5));
 
         List<CourseCatalogEntry> results = service.preSelectCourses("backend", 2);
 
@@ -142,7 +142,7 @@ class AiCourseCatalogServiceImplTest {
         when(taxonomyService.expandQueryWithTaxonomy(anyString(), anySet(), anyInt()))
                 .thenAnswer(invocation -> new LinkedHashSet<>((Set<String>) invocation.getArgument(1)));
         when(tfIdfVectorizer.computeCosineScores(anyList(), anySet(), anyMap(), anyMap(), anyInt()))
-                .thenReturn(Map.of());
+                .thenReturn(Map.of(1L, 0.5, 2L, 0.5));
 
         CourseEnrollment completedEnrollment = CourseEnrollment.builder()
                 .course(Course.builder().id(2L).build())
