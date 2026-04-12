@@ -190,6 +190,56 @@ public class DatabaseSchemaFixer {
                     this::patchNotificationsTypeConstraint,
                     this::verifyNotificationsTypeConstraint);
 
+            applyPatch("create-interview-schedules-table",
+                    "Create interview_schedules table for managing interview sessions",
+                    this::patchInterviewSchedulesTable,
+                    this::verifyInterviewSchedulesTable);
+
+            applyPatch("add-job-applications-interview-result",
+                    "Add interview_result column to job_applications for storing interview notes",
+                    this::patchJobApplicationsInterviewResult,
+                    this::verifyJobApplicationsInterviewResult);
+
+            applyPatch("add-notification-types-interview-scheduling",
+                    "Add INTERVIEW_SCHEDULED and INTERVIEW_COMPLETED to notification type check constraint",
+                    this::patchNotificationTypesInterviewScheduling,
+                    this::verifyNotificationTypesInterviewScheduling);
+
+            applyPatch("add-job-applications-interview-statuses",
+                    "Add INTERVIEW_SCHEDULED, INTERVIEWED, OFFER_SENT, OFFER_ACCEPTED, OFFER_REJECTED, CONTRACT_SIGNED to job_applications status check constraint",
+                    this::patchJobApplicationsInterviewStatuses,
+                    this::verifyJobApplicationsInterviewStatuses);
+
+            applyPatch("drop-interview-schedules-app-id-unique",
+                    "Drop unique constraint on interview_schedules.application_id to allow re-scheduling cancelled interviews",
+                    this::patchInterviewSchedulesDropUnique,
+                    this::verifyInterviewSchedulesDropUnique);
+
+            applyPatch("add-interview-schedules-no-show-status",
+                    "Add NO_SHOW to interview_schedules status check constraint",
+                    this::patchInterviewSchedulesNoShowStatus,
+                    this::verifyInterviewSchedulesNoShowStatus);
+
+            applyPatch("add-job-applications-offer-columns",
+                    "Add offer_details, candidate_offer_response, offer_round columns to job_applications",
+                    this::patchJobApplicationsOfferColumns,
+                    this::verifyJobApplicationsOfferColumns);
+
+            applyPatch("add-prechat-messages-booking-id",
+                    "Add booking_id FK column to prechat_messages for booking-scoped chat",
+                    this::patchPrechatMessagesBookingId,
+                    this::verifyPrechatMessagesBookingId);
+
+            applyPatch("fix-short-term-jobs-status-width",
+                    "Widen short_term_jobs.status to VARCHAR(30) and sync check constraint",
+                    this::patchShortTermJobsStatusWidth,
+                    this::verifyShortTermJobsStatusWidth);
+
+            applyPatch("fix-short-term-applications-status-width",
+                    "Widen short_term_job_applications.status to VARCHAR(30) and sync check constraint",
+                    this::patchShortTermApplicationsStatusWidth,
+                    this::verifyShortTermApplicationsStatusWidth);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -796,6 +846,298 @@ public class DatabaseSchemaFixer {
             }
         }
         return true;
+    }
+
+    private void patchInterviewSchedulesTable() {
+        if (hasTable("interview_schedules")) {
+            log.debug("Table interview_schedules already exists, skipping patch.");
+            return;
+        }
+        executeSql("""
+            CREATE TABLE interview_schedules (
+                id BIGSERIAL PRIMARY KEY,
+                application_id BIGINT NOT NULL UNIQUE,
+                scheduled_at TIMESTAMP NOT NULL,
+                duration_minutes INTEGER DEFAULT 60,
+                meeting_type VARCHAR(20) NOT NULL,
+                meeting_link VARCHAR(500),
+                skillverse_room_id VARCHAR(100),
+                location VARCHAR(500),
+                interviewer_name VARCHAR(200),
+                interview_notes TEXT,
+                status VARCHAR(20) DEFAULT 'PENDING',
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_interview_schedules_application_id ON interview_schedules(application_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_interview_schedules_status ON interview_schedules(status)");
+    }
+
+    private boolean verifyInterviewSchedulesTable() {
+        if (!hasTable("interview_schedules")) return false;
+        return hasColumn("interview_schedules", "id")
+                && hasColumn("interview_schedules", "application_id")
+                && hasColumn("interview_schedules", "scheduled_at")
+                && hasColumn("interview_schedules", "meeting_type")
+                && hasColumn("interview_schedules", "status");
+    }
+
+    private void patchJobApplicationsInterviewResult() {
+        if (!hasTable("job_applications")) {
+            log.debug("Table job_applications does not exist yet, skipping patch.");
+            return;
+        }
+        executeSql("ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS interview_result VARCHAR(500)");
+    }
+
+    private boolean verifyJobApplicationsInterviewResult() {
+        return hasTable("job_applications")
+                && hasColumn("job_applications", "interview_result");
+    }
+
+    private void patchNotificationTypesInterviewScheduling() {
+        if (!hasTable("notifications")) {
+            log.debug("Table notifications does not exist yet, skipping patch.");
+            return;
+        }
+        // Drop existing constraint and recreate to include new types
+        executeSql("ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_type_check");
+        String allowedTypes = Arrays.stream(NotificationType.values())
+                .map(NotificationType::name)
+                .map(this::toSqlLiteral)
+                .collect(Collectors.joining(","));
+        executeSql("ALTER TABLE notifications ADD CONSTRAINT notifications_type_check CHECK (type IN (" + allowedTypes + "))");
+    }
+
+    private boolean verifyNotificationTypesInterviewScheduling() {
+        if (!hasTable("notifications")) return false;
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) AS constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'notifications'
+              AND c.conname = 'notifications_type_check'
+        """);
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) return false;
+        String constraintDef = results.get(0).get("constraint_def").toString();
+        return constraintDef.contains(toSqlLiteral("INTERVIEW_SCHEDULED"))
+                && constraintDef.contains(toSqlLiteral("INTERVIEW_COMPLETED"));
+    }
+
+    private void patchJobApplicationsInterviewStatuses() {
+        if (!hasTable("job_applications")) {
+            log.debug("Table job_applications does not exist yet, skipping patch.");
+            return;
+        }
+        String constraintName = "job_applications_status_check";
+        // Drop existing constraint and recreate with all current enum values
+        executeSql("ALTER TABLE job_applications DROP CONSTRAINT IF EXISTS " + constraintName);
+        executeSql("ALTER TABLE job_applications ADD CONSTRAINT " + constraintName
+                + " CHECK (status IN ('PENDING','REVIEWED','ACCEPTED','REJECTED',"
+                + "'INTERVIEW_SCHEDULED','INTERVIEWED','OFFER_SENT','OFFER_ACCEPTED','OFFER_REJECTED','CONTRACT_SIGNED'))");
+    }
+
+    private boolean verifyJobApplicationsInterviewStatuses() {
+        if (!hasTable("job_applications")) return false;
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) AS constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'job_applications'
+              AND c.conname = 'job_applications_status_check'
+        """);
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) return false;
+        String constraintDef = results.get(0).get("constraint_def").toString();
+        return constraintDef.contains(toSqlLiteral("INTERVIEW_SCHEDULED"))
+                && constraintDef.contains(toSqlLiteral("OFFER_SENT"));
+    }
+
+    private void patchInterviewSchedulesDropUnique() {
+        if (!hasTable("interview_schedules")) {
+            log.debug("Table interview_schedules does not exist yet, skipping patch.");
+            return;
+        }
+        try {
+            executeSql("ALTER TABLE interview_schedules DROP CONSTRAINT IF EXISTS interview_schedules_application_id_key");
+        } catch (Exception e) {
+            log.debug("Constraint interview_schedules_application_id_key does not exist, skipping drop: {}", e.getMessage());
+        }
+    }
+
+    private boolean verifyInterviewSchedulesDropUnique() {
+        if (!hasTable("interview_schedules")) return false;
+        try {
+            var results = jdbcTemplate.queryForList("""
+                SELECT 1 FROM pg_constraint c
+                JOIN pg_class t ON t.oid = c.conrelid
+                JOIN pg_namespace n ON n.oid = t.relnamespace
+                WHERE n.nspname = 'public'
+                  AND t.relname = 'interview_schedules'
+                  AND c.conname = 'interview_schedules_application_id_key'
+            """);
+            // Return true if constraint no longer exists (was dropped or never existed)
+            return results.isEmpty();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // ─── interview_schedules: add NO_SHOW to status check ────────────────────
+
+    private void patchInterviewSchedulesNoShowStatus() {
+        if (!hasTable("interview_schedules")) {
+            log.debug("Table interview_schedules does not exist yet, skipping patch.");
+            return;
+        }
+        try {
+            executeSql("ALTER TABLE interview_schedules DROP CONSTRAINT IF EXISTS interview_schedules_status_check");
+            executeSql("""
+                ALTER TABLE interview_schedules ADD CONSTRAINT interview_schedules_status_check
+                CHECK (status IN ('PENDING','CONFIRMED','CANCELLED','COMPLETED','NO_SHOW'))
+            """);
+        } catch (Exception e) {
+            log.debug("Status check constraint patch skipped: {}", e.getMessage());
+        }
+    }
+
+    private boolean verifyInterviewSchedulesNoShowStatus() {
+        if (!hasTable("interview_schedules")) return false;
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) AS constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'interview_schedules'
+              AND c.conname = 'interview_schedules_status_check'
+        """);
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) return false;
+        return results.get(0).get("constraint_def").toString().contains("NO_SHOW");
+    }
+
+    // ─── job_applications: add offer columns ───────────────────────────────────
+
+    private void patchJobApplicationsOfferColumns() {
+        if (!hasTable("job_applications")) {
+            log.debug("Table job_applications does not exist yet, skipping patch.");
+            return;
+        }
+        executeSql("ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS offer_details TEXT");
+        executeSql("ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS candidate_offer_response TEXT");
+        executeSql("ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS offer_round INTEGER NOT NULL DEFAULT 0");
+    }
+
+    private boolean verifyJobApplicationsOfferColumns() {
+        return hasTable("job_applications")
+                && hasColumn("job_applications", "offer_details")
+                && hasColumn("job_applications", "candidate_offer_response")
+                && hasColumn("job_applications", "offer_round");
+    }
+
+    // ─── prechat_messages: add booking_id FK ──────────────────────────────────
+
+    private void patchPrechatMessagesBookingId() {
+        if (!hasTable("prechat_messages")) {
+            log.debug("Table prechat_messages does not exist yet, skipping patch.");
+            return;
+        }
+        if (hasColumn("prechat_messages", "booking_id")) {
+            log.debug("Column booking_id already exists in prechat_messages, skipping patch.");
+            return;
+        }
+        executeSql("""
+            ALTER TABLE prechat_messages
+                ADD COLUMN booking_id BIGINT,
+                ADD CONSTRAINT fk_prechat_messages_booking
+                FOREIGN KEY (booking_id) REFERENCES mentor_bookings(id) ON DELETE SET NULL
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_prechat_messages_booking_id ON prechat_messages(booking_id)");
+    }
+
+    private boolean verifyPrechatMessagesBookingId() {
+        if (!hasTable("prechat_messages")) return false;
+        return hasColumn("prechat_messages", "booking_id")
+                && hasForeignKey("prechat_messages", "fk_prechat_messages_booking");
+    }
+
+    // ─── short_term_jobs: widen status to VARCHAR(30) and sync constraint ──────
+
+    private void patchShortTermJobsStatusWidth() {
+        if (!hasTable("short_term_jobs")) {
+            log.debug("Table short_term_jobs does not exist yet, skipping patch.");
+            return;
+        }
+        // Widen column
+        executeSql("ALTER TABLE short_term_jobs ALTER COLUMN status TYPE VARCHAR(30)");
+        // Drop existing constraint
+        executeSql("ALTER TABLE short_term_jobs DROP CONSTRAINT IF EXISTS short_term_jobs_status_check");
+        // Recreate with all current enum values
+        executeSql("""
+            ALTER TABLE short_term_jobs ADD CONSTRAINT short_term_jobs_status_check
+            CHECK (status IN (
+                'DRAFT','PENDING_APPROVAL','PUBLISHED','APPLIED','IN_PROGRESS',
+                'SUBMITTED','UNDER_REVIEW','AUTO_APPROVED','CANCELLATION_REQUESTED',
+                'AUTO_CANCELLED','DISPUTED','ESCALATED','APPROVED','REJECTED',
+                'COMPLETED','PAID','CANCELLED','CLOSED'
+            ))
+        """);
+    }
+
+    private boolean verifyShortTermJobsStatusWidth() {
+        if (!hasTable("short_term_jobs")) return false;
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) AS constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'short_term_jobs'
+              AND c.conname = 'short_term_jobs_status_check'
+        """);
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) return false;
+        String def = results.get(0).get("constraint_def").toString();
+        return def.contains("PENDING_APPROVAL") && def.contains("AUTO_APPROVED");
+    }
+
+    // ─── short_term_job_applications: widen status and sync constraint ──────────
+
+    private void patchShortTermApplicationsStatusWidth() {
+        if (!hasTable("short_term_job_applications")) {
+            log.debug("Table short_term_job_applications does not exist yet, skipping patch.");
+            return;
+        }
+        executeSql("ALTER TABLE short_term_job_applications ALTER COLUMN status TYPE VARCHAR(30)");
+        executeSql("ALTER TABLE short_term_job_applications DROP CONSTRAINT IF EXISTS short_term_job_applications_status_check");
+        executeSql("""
+            ALTER TABLE short_term_job_applications ADD CONSTRAINT short_term_job_applications_status_check
+            CHECK (status IN (
+                'PENDING','ACCEPTED','REJECTED','WORKING','SUBMITTED','SUBMITTED_OVERDUE',
+                'REVISION_REQUIRED','REVISION_RESPONSE_OVERDUE','CANCELLATION_REQUESTED',
+                'AUTO_CANCELLED','APPROVED','COMPLETED','DISPUTE_OPENED',
+                'CANCELLED','WITHDRAWN'
+            ))
+        """);
+    }
+
+    private boolean verifyShortTermApplicationsStatusWidth() {
+        if (!hasTable("short_term_job_applications")) return false;
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) AS constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'short_term_job_applications'
+              AND c.conname = 'short_term_job_applications_status_check'
+        """);
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) return false;
+        String def = results.get(0).get("constraint_def").toString();
+        return def.contains("SUBMITTED_OVERDUE") && def.contains("WITHDRAWN");
     }
 
     private String toSqlLiteral(String rawValue) {

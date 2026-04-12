@@ -33,10 +33,10 @@ public class JobApplicationController {
     private final JobApplicationService jobApplicationService;
 
     /**
-     * POST /api/jobs/{jobId}/apply - Apply to a job (USER only)
+     * POST /api/jobs/{jobId}/apply - Apply to a job (USER or ADMIN)
      */
     @PostMapping("/{jobId}/apply")
-    @PreAuthorize("hasRole('USER')")
+    @PreAuthorize("hasRole('USER') or hasRole('ADMIN')")
     public ResponseEntity<JobApplicationResponse> applyToJob(
             @PathVariable Long jobId,
             @Valid @RequestBody ApplyJobRequest request,
@@ -50,10 +50,10 @@ public class JobApplicationController {
     }
 
     /**
-     * GET /api/jobs/my-applications - Get all applications for current user
+     * GET /api/jobs/my-applications - Get all applications for current user (USER or ADMIN)
      */
     @GetMapping("/my-applications")
-    @PreAuthorize("hasRole('USER')")
+    @PreAuthorize("hasRole('USER') or hasRole('ADMIN')")
     public ResponseEntity<List<JobApplicationResponse>> getMyApplications(Authentication authentication) {
 
         Long userId = Long.parseLong(authentication.getName());

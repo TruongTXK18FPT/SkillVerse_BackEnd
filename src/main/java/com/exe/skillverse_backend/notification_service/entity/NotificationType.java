@@ -67,5 +67,11 @@ public enum NotificationType {
     CONTRACT_SIGNED,
     CONTRACT_REJECTED,
     CONTRACT_CANCELLED,
-    CONTRACT_EXPIRED
+    CONTRACT_EXPIRED,
+    // Interview scheduling (full-time job pipeline)
+    INTERVIEW_SCHEDULED,
+    INTERVIEW_COMPLETED,
+    OFFER_SENT,
+    OFFER_ACCEPTED,
+    OFFER_REJECTED
 }

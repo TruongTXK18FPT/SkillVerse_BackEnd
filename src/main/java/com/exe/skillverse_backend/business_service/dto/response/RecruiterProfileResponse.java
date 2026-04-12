@@ -17,8 +17,14 @@ public class RecruiterProfileResponse {
     private String companyName;
     private String companyWebsite;
     private String companyAddress;
+    private String companyPhone;
+    private String companyLogoUrl;
     private String taxCodeOrBusinessRegistrationNumber;
     private String companyDocumentsUrl;
+    private String contactPersonPhone;
+    private String contactPersonPosition;
+    private String companySize;
+    private String industry;
     private ApplicationStatus applicationStatus;
     private LocalDateTime applicationDate;
     private LocalDateTime approvalDate;

@@ -1193,7 +1193,23 @@ public class BookingServiceImpl implements BookingService {
                 .learnerName(learnerName)
                 .learnerAvatar(learnerAvatar)
                 .disputeId(disputeRepository.findByBooking_Id(booking.getId()).map(d -> d.getId()).orElse(null))
+                .chatAllowed(isChatAllowed(booking))
                 .build();
+    }
+
+    private boolean isChatAllowed(Booking booking) {
+        if (booking == null || booking.getEndTime() == null) {
+            return false;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (!booking.getEndTime().isAfter(now)) {
+            return false;
+        }
+
+        return booking.getStatus() == BookingStatus.PENDING
+                || booking.getStatus() == BookingStatus.CONFIRMED
+                || booking.getStatus() == BookingStatus.ONGOING;
     }
 
     private String generateMeetingLink(Booking booking) {

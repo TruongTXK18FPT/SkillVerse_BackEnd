@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.prechat_service.entity;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -23,7 +24,8 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "prechat_messages", indexes = {
-        @Index(columnList = "mentor_id, learner_id, created_at")
+        @Index(columnList = "mentor_id, learner_id, created_at"),
+        @Index(columnList = "booking_id, created_at")
 })
 @Getter
 @Setter
@@ -47,6 +49,10 @@ public class PreChatMessage {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "sender_id", nullable = false)
     private User sender;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "booking_id")
+    private Booking booking;
 
     @Column(name = "content", nullable = false, length = 1000)
     private String content;

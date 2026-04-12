@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.business_service.service.impl;
 
+import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.business_service.dto.request.ApplyJobRequest;
@@ -149,14 +150,23 @@ public class JobApplicationServiceImpl implements JobApplicationService {
         JobApplication application = jobApplicationRepository.findById(applicationId)
                 .orElseThrow(() -> new NotFoundException("Application not found with ID: " + applicationId));
 
-        // Validate ownership (recruiter owns the job)
         JobPosting job = application.getJobPosting();
-        if (!job.getRecruiterProfile().getUser().getId().equals(userId)) {
+        JobApplicationStatus newStatus = request.getStatus();
+
+        // Permission: recruiter owns the job for most transitions
+        // Candidate can respond to OFFER_SENT (OFFER_ACCEPTED / OFFER_REJECTED)
+        boolean isRecruiter = job.getRecruiterProfile().getUser().getId().equals(userId);
+        boolean isCandidate = application.getUser().getId().equals(userId);
+        boolean isCandidateOfferResponse =
+                isCandidate
+                && (newStatus == JobApplicationStatus.OFFER_ACCEPTED
+                        || newStatus == JobApplicationStatus.OFFER_REJECTED);
+
+        if (!isRecruiter && !isCandidateOfferResponse) {
             throw new IllegalStateException("You don't have permission to update this application");
         }
 
         // Validate required fields based on status
-        JobApplicationStatus newStatus = request.getStatus();
         if (newStatus == JobApplicationStatus.ACCEPTED) {
             if (request.getAcceptanceMessage() == null || request.getAcceptanceMessage().trim().isEmpty()) {
                 throw new IllegalArgumentException("Acceptance message is required when accepting an application");
@@ -165,6 +175,22 @@ public class JobApplicationServiceImpl implements JobApplicationService {
         if (newStatus == JobApplicationStatus.REJECTED) {
             if (request.getRejectionReason() == null || request.getRejectionReason().trim().isEmpty()) {
                 throw new IllegalArgumentException("Rejection reason is required when rejecting an application");
+            }
+        }
+
+        // Validate status transitions (for REMOTE jobs only)
+        JobApplicationStatus currentStatus = application.getStatus();
+        if (Boolean.TRUE.equals(job.getIsRemote())) {
+            validateRemoteStatusTransition(currentStatus, newStatus);
+        } else {
+            // ONSITE jobs: only allow REVIEWED, ACCEPTED, INTERVIEW_SCHEDULED, INTERVIEWED transitions
+            // After INTERVIEWED, recruiter creates contract directly (no OFFER_SENT step)
+            if (newStatus != JobApplicationStatus.REVIEWED
+                    && newStatus != JobApplicationStatus.ACCEPTED
+                    && newStatus != JobApplicationStatus.INTERVIEW_SCHEDULED
+                    && newStatus != JobApplicationStatus.INTERVIEWED
+                    && newStatus != JobApplicationStatus.REJECTED) {
+                throw new IllegalArgumentException("ONSITE jobs only support REVIEWED, ACCEPTED, INTERVIEW_SCHEDULED, INTERVIEWED, and REJECTED transitions.");
             }
         }
 
@@ -179,6 +205,59 @@ public class JobApplicationServiceImpl implements JobApplicationService {
             application.setProcessedAt(LocalDateTime.now());
         } else if (newStatus == JobApplicationStatus.REJECTED) {
             application.setRejectionReason(request.getRejectionReason());
+            application.setProcessedAt(LocalDateTime.now());
+        } else if (newStatus == JobApplicationStatus.INTERVIEWED) {
+            if (request.getInterviewResult() != null) {
+                application.setInterviewResult(request.getInterviewResult());
+            }
+        // === OFFER ROUND LOGIC ===
+        // Rules:
+        // - Round 1 (offerRound=1): Recruiter sends OFFER_SENT → candidate accepts or rejects
+        // - If candidate rejects round 1: recruiter can send ONE more offer (round 2, offerRound=2)
+        // - If candidate rejects round 2: application is permanently REJECTED (no more offers)
+        // - If candidate accepts either round: apply the salary from that offer
+        } else if (newStatus == JobApplicationStatus.OFFER_SENT) {
+            int currentRound = application.getOfferRound() == null ? 0 : application.getOfferRound();
+
+            if (currentStatus == JobApplicationStatus.OFFER_REJECTED) {
+                // Candidate is rejecting a re-offer: only allow if round < 2
+                if (currentRound >= 2) {
+                    throw new IllegalArgumentException(
+                            "You have already sent 2 offers. This application is now closed.");
+                }
+                // Round 2: increment counter for the new offer
+                application.setOfferRound(currentRound + 1);
+                log.info("Offering round {} for application ID: {}", currentRound + 1, applicationId);
+            } else if (currentStatus == JobApplicationStatus.INTERVIEWED) {
+                // Round 1: set offer round to 1
+                application.setOfferRound(1);
+                log.info("Sending first offer (round 1) for application ID: {}", applicationId);
+            }
+            // Save offer letter details
+            if (request.getOfferDetails() != null) {
+                application.setOfferDetails(request.getOfferDetails());
+            }
+        } else if (newStatus == JobApplicationStatus.OFFER_REJECTED) {
+            // Candidate rejects offer: check if recruiter can re-offer
+            int currentRound = application.getOfferRound() == null ? 0 : application.getOfferRound();
+            // Save candidate's response
+            if (request.getCandidateOfferResponse() != null) {
+                application.setCandidateOfferResponse(request.getCandidateOfferResponse());
+            }
+            application.setProcessedAt(LocalDateTime.now());
+
+            // If round >= 2, this is the FINAL rejection — transition to REJECTED
+            if (currentRound >= 2) {
+                application.setStatus(JobApplicationStatus.REJECTED);
+                application.setRejectionReason("Ứng viên từ chối đề nghị lần 2. Không còn đề nghị nào được gửi.");
+                log.info("Application ID {} permanently rejected after 2 offer rounds", applicationId);
+            }
+            // If round < 2, leave status as OFFER_REJECTED (recruiter can re-offer once)
+        } else if (newStatus == JobApplicationStatus.OFFER_ACCEPTED) {
+            // Candidate accepts: apply the salary from this offer round
+            if (request.getCandidateOfferResponse() != null) {
+                application.setCandidateOfferResponse(request.getCandidateOfferResponse());
+            }
             application.setProcessedAt(LocalDateTime.now());
         }
 
@@ -227,11 +306,13 @@ public class JobApplicationServiceImpl implements JobApplicationService {
         JobApplication application = jobApplicationRepository.findById(applicationId)
                 .orElseThrow(() -> new NotFoundException("Application not found"));
 
-        // Check if user is the applicant OR the recruiter
+        // Check if user is the applicant OR the recruiter OR an admin
         boolean isApplicant = application.getUser().getId().equals(userId);
         boolean isRecruiter = application.getJobPosting().getRecruiterProfile().getUser().getId().equals(userId);
+        User user = userRepository.findById(userId).orElse(null);
+        boolean isAdmin = user != null && user.getPrimaryRole() == PrimaryRole.ADMIN;
 
-        if (!isApplicant && !isRecruiter) {
+        if (!isApplicant && !isRecruiter && !isAdmin) {
             throw new RuntimeException("Unauthorized access to application");
         }
 
@@ -310,16 +391,93 @@ public class JobApplicationServiceImpl implements JobApplicationService {
                 .processedAt(application.getProcessedAt())
                 .acceptanceMessage(application.getAcceptanceMessage())
                 .rejectionReason(application.getRejectionReason())
+                .interviewResult(application.getInterviewResult())
+                // Offer letter fields
+                .offerDetails(application.getOfferDetails())
+                .candidateOfferResponse(application.getCandidateOfferResponse())
+                .offerRound(application.getOfferRound())
                 // Job details for user's application view
                 .recruiterCompanyName(job.getRecruiterProfile().getCompanyName())
                 .minBudget(job.getMinBudget())
                 .maxBudget(job.getMaxBudget())
                 .isRemote(job.getIsRemote())
                 .location(job.getLocation())
+                .isNegotiable(job.getIsNegotiable())
                 .isHighlighted(isHighlighted)
                 .portfolioSlug(portfolioSlug)
                 .contractId(contract.map(JobContract::getId).orElse(null))
                 .contractStatus(contract.map(value -> value.getStatus().name()).orElse(null))
                 .build();
+    }
+
+    // ==================== STATUS TRANSITION VALIDATION ====================
+
+    /**
+     * Validate status transitions for REMOTE jobs.
+     * Full pipeline (round 1): INTERVIEWED → OFFER_SENT → OFFER_ACCEPTED | OFFER_REJECTED
+     * Round 2: OFFER_REJECTED → OFFER_SENT → OFFER_ACCEPTED | OFFER_REJECTED → REJECTED (terminal)
+     */
+    private void validateRemoteStatusTransition(JobApplicationStatus current, JobApplicationStatus target) {
+        switch (current) {
+            case PENDING:
+                if (target != JobApplicationStatus.REVIEWED && target != JobApplicationStatus.REJECTED) {
+                    throw new IllegalArgumentException(
+                            "From PENDING, only REVIEWED or REJECTED transitions are allowed");
+                }
+                break;
+            case REVIEWED:
+                if (target != JobApplicationStatus.ACCEPTED && target != JobApplicationStatus.REJECTED) {
+                    throw new IllegalArgumentException(
+                            "From REVIEWED, only ACCEPTED or REJECTED transitions are allowed");
+                }
+                break;
+            case ACCEPTED:
+                if (target != JobApplicationStatus.REJECTED) {
+                    throw new IllegalArgumentException(
+                            "After ACCEPTED, schedule an interview first. "
+                                    + "Direct transition to " + target + " is not allowed here.");
+                }
+                break;
+            case INTERVIEW_SCHEDULED:
+                if (target != JobApplicationStatus.INTERVIEWED && target != JobApplicationStatus.REJECTED) {
+                    throw new IllegalArgumentException(
+                            "From INTERVIEW_SCHEDULED, only INTERVIEWED or REJECTED transitions are allowed");
+                }
+                break;
+            case INTERVIEWED:
+                if (target != JobApplicationStatus.OFFER_SENT
+                        && target != JobApplicationStatus.ACCEPTED
+                        && target != JobApplicationStatus.REJECTED) {
+                    throw new IllegalArgumentException(
+                            "After INTERVIEWED, only OFFER_SENT, ACCEPTED (non-negotiable), or REJECTED transitions are allowed");
+                }
+                break;
+            case OFFER_SENT:
+                if (target != JobApplicationStatus.OFFER_ACCEPTED
+                        && target != JobApplicationStatus.OFFER_REJECTED) {
+                    throw new IllegalArgumentException(
+                            "From OFFER_SENT, only OFFER_ACCEPTED or OFFER_REJECTED transitions are allowed");
+                }
+                break;
+            case OFFER_REJECTED:
+                // Round 2 re-offer: recruiter can send OFFER_SENT again (only once — offerRound < 2)
+                // Validation for max rounds is done in updateApplicationStatus, not here
+                if (target != JobApplicationStatus.OFFER_SENT) {
+                    throw new IllegalArgumentException(
+                            "After OFFER_REJECTED (round 1), only OFFER_SENT (round 2) is allowed. "
+                                    + "The application will be permanently rejected after round 2 rejection.");
+                }
+                break;
+            // Terminal statuses — no further transitions allowed
+            case OFFER_ACCEPTED:
+            case CONTRACT_SIGNED:
+                throw new IllegalArgumentException(
+                        "Application has reached a terminal status. No further transitions allowed.");
+            case REJECTED:
+                throw new IllegalArgumentException(
+                        "Application has been rejected. No further transitions allowed.");
+            default:
+                throw new IllegalArgumentException("Unknown status: " + current);
+        }
     }
 }

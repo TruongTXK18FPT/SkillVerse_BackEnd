@@ -58,8 +58,10 @@ public class JobContractServiceImpl implements JobContractService {
         JobApplication application = applicationRepository.findById(request.getApplicationId())
                 .orElseThrow(() -> new IllegalArgumentException("Application not found"));
 
-        if (application.getStatus() != JobApplicationStatus.ACCEPTED) {
-            throw new IllegalStateException("Can only create contract for ACCEPTED application");
+        if (application.getStatus() != JobApplicationStatus.ACCEPTED
+                && application.getStatus() != JobApplicationStatus.INTERVIEWED) {
+            throw new IllegalStateException(
+                    "Can only create contract for ACCEPTED or INTERVIEWED application. Current: " + application.getStatus());
         }
 
         if (application.getJobPosting() == null ||

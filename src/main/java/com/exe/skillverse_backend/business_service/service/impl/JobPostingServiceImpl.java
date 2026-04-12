@@ -487,10 +487,21 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .isNegotiable(job.getIsNegotiable())
                 .isHighlighted(job.getIsHighlighted())
                 .recruiterCompanyName(job.getRecruiterProfile().getCompanyName())
+                .recruiterCompanyLogoUrl(resolveRecruiterCompanyLogo(job.getRecruiterProfile()))
                 .recruiterEmail(job.getRecruiterProfile().getUser().getEmail())
                 .recruiterUserId(job.getRecruiterProfile().getUser().getId())
                 .createdAt(job.getCreatedAt())
                 .updatedAt(job.getUpdatedAt())
                 .build();
+    }
+
+    private String resolveRecruiterCompanyLogo(RecruiterProfile recruiterProfile) {
+        if (recruiterProfile == null) {
+            return null;
+        }
+        if (recruiterProfile.getCompanyLogoUrl() != null && !recruiterProfile.getCompanyLogoUrl().isBlank()) {
+            return recruiterProfile.getCompanyLogoUrl();
+        }
+        return recruiterProfile.getUser() != null ? recruiterProfile.getUser().getAvatarUrl() : null;
     }
 }

@@ -29,6 +29,12 @@ public class JobApplicationResponse {
     private String rejectionReason;
     private LocalDateTime reviewedAt;
     private LocalDateTime processedAt;
+    private String interviewResult; // Interview notes after INTERVIEWED status
+
+    // Offer letter fields
+    private String offerDetails; // Recruiter's offer letter when status = OFFER_SENT
+    private String candidateOfferResponse; // Candidate's counter-offer/acceptance when status = OFFER_ACCEPTED/REJECTED
+    private Integer offerRound; // Current offer round (1 or 2); 0 means no offer sent yet
 
     // Job details for user's application view
     private String recruiterCompanyName;
@@ -36,6 +42,7 @@ public class JobApplicationResponse {
     private BigDecimal maxBudget;
     private Boolean isRemote;
     private String location;
+    private Boolean isNegotiable; // Whether the job has negotiable salary
 
     // Premium feature
     private Boolean isHighlighted;

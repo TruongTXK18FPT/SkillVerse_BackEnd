@@ -78,6 +78,7 @@ public class ShortTermJobResponse {
     public static class RecruiterInfo {
         private Long id;
         private String companyName;
+        private String companyLogoUrl;
         private BigDecimal rating;
         private Integer totalJobsPosted;
         private BigDecimal completionRate;

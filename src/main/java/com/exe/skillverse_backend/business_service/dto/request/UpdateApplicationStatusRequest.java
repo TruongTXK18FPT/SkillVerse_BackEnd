@@ -19,4 +19,11 @@ public class UpdateApplicationStatusRequest {
     private String acceptanceMessage; // Required if status = ACCEPTED
 
     private String rejectionReason; // Required if status = REJECTED
+
+    private String interviewResult; // Optional — interview notes when marking INTERVIEWED
+
+    private String offerDetails; // Optional — offer letter content when sending OFFER_SENT
+
+    // Candidate's response after receiving OFFER_SENT
+    private String candidateOfferResponse; // Optional — counter-offer or acceptance message
 }

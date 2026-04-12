@@ -18,6 +18,11 @@ public class UserDto {
     private Set<String> roles;
 
     /**
+     * Primary role of the user (USER, MENTOR, RECRUITER, PARENT, ADMIN)
+     */
+    private String primaryRole;
+
+    /**
      * Primary authentication method (LOCAL or GOOGLE)
      */
     private String authProvider;

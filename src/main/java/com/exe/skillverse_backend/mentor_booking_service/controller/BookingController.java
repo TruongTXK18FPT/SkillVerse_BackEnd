@@ -9,6 +9,7 @@ import com.exe.skillverse_backend.mentor_booking_service.service.BookingService;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.payment_service.service.InvoiceService;
+import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -22,6 +23,7 @@ import java.util.List;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
 import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
+import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
@@ -46,6 +48,7 @@ public class BookingController {
     private final BookingDisputeRepository disputeRepository;
     private final InvoiceService invoiceService;
     private final MentorProfileRepository mentorProfileRepository;
+    private final UserProfileService userProfileService;
 
     @PostMapping("/wallet")
     @Operation(summary = "Tạo booking và đóng băng tiền trong ví")
@@ -203,6 +206,8 @@ public class BookingController {
     private BookingResponse toResponse(Booking booking) {
         String mentorName = booking.getMentor().getFullName();
         String mentorAvatar = booking.getMentor().getAvatarUrl();
+        String learnerName = booking.getLearner().getFullName();
+        String learnerAvatar = booking.getLearner().getAvatarUrl();
 
         MentorProfile profile = mentorProfileRepository.findById(booking.getMentor().getId()).orElse(null);
         if (profile != null) {
@@ -212,6 +217,19 @@ public class BookingController {
             if (profile.getAvatarUrl() != null && !profile.getAvatarUrl().isEmpty()) {
                 mentorAvatar = profile.getAvatarUrl();
             }
+        }
+
+        try {
+            if (userProfileService.hasProfile(booking.getLearner().getId())) {
+                var learnerProfile = userProfileService.getProfile(booking.getLearner().getId());
+                if (learnerProfile.getFullName() != null && !learnerProfile.getFullName().isBlank()) {
+                    learnerName = learnerProfile.getFullName().trim();
+                }
+                if (learnerProfile.getAvatarMediaUrl() != null && !learnerProfile.getAvatarMediaUrl().isBlank()) {
+                    learnerAvatar = learnerProfile.getAvatarMediaUrl().trim();
+                }
+            }
+        } catch (Exception ignored) {
         }
 
         return BookingResponse.builder()
@@ -233,9 +251,25 @@ public class BookingController {
                 .completionDeadline(booking.getCompletionDeadline())
                 .mentorName(mentorName)
                 .mentorAvatar(mentorAvatar)
-                .learnerName(booking.getLearner().getFullName())
-                .learnerAvatar(booking.getLearner().getAvatarUrl())
+                .learnerName(learnerName)
+                .learnerAvatar(learnerAvatar)
                 .disputeId(disputeRepository.findByBooking_Id(booking.getId()).map(d -> d.getId()).orElse(null))
+                .chatAllowed(isChatAllowed(booking))
                 .build();
+    }
+
+    private boolean isChatAllowed(Booking booking) {
+        if (booking == null || booking.getEndTime() == null) {
+            return false;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (!booking.getEndTime().isAfter(now)) {
+            return false;
+        }
+
+        return booking.getStatus() == BookingStatus.PENDING
+                || booking.getStatus() == BookingStatus.CONFIRMED
+                || booking.getStatus() == BookingStatus.ONGOING;
     }
 }

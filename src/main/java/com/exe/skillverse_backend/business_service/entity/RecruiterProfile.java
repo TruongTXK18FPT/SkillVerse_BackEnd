@@ -52,6 +52,12 @@ public class RecruiterProfile {
     @Column(name = "company_phone", length = 20)
     private String companyPhone;
 
+    @Column(name = "company_logo_url", length = 1000)
+    private String companyLogoUrl;
+
+    @Column(name = "company_logo_public_id", length = 500)
+    private String companyLogoPublicId;
+
     @Column(name = "company_documents_url", nullable = false)
     private String companyDocumentsUrl; // URL to uploaded company documents
 

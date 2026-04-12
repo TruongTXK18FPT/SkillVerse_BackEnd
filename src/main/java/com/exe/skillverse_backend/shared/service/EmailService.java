@@ -48,6 +48,19 @@ public interface EmailService {
 
     CompletableFuture<Boolean> sendHtmlEmailAsync(String to, String subject, String htmlContent);
 
+    // Interview scheduling email (full-time job pipeline)
+    void sendInterviewScheduled(
+            String email,
+            String fullName,
+            String jobTitle,
+            java.time.LocalDateTime scheduledAt,
+            Integer durationMinutes,
+            String meetingType,
+            String meetingLink,
+            String skillverseRoomId,
+            String location,
+            String interviewerName);
+
     CompletableFuture<EmailSendingResult> sendBulkEmailAsync(
             List<String> recipients,
             String subject,

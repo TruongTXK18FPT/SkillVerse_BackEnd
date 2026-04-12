@@ -12,10 +12,13 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class PreChatMessageResponse {
     private Long id;
+    private Long bookingId;
     private Long mentorId;
     private Long learnerId;
     private Long senderId;
+    private String senderName;
+    private String senderAvatar;
     private String content;
     private LocalDateTime createdAt;
+    private boolean chatEnabled;
 }
-

@@ -1,8 +1,10 @@
 package com.exe.skillverse_backend.prechat_service.repository;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
 import com.exe.skillverse_backend.prechat_service.entity.PreChatMessage;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -12,7 +14,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface PreChatMessageRepository extends JpaRepository<PreChatMessage, Long> {
     Page<PreChatMessage> findByMentorAndLearnerOrderByCreatedAtAsc(User mentor, User learner, Pageable pageable);
+    Page<PreChatMessage> findByBookingOrderByCreatedAtAsc(Booking booking, Pageable pageable);
     long countByMentorAndLearner(User mentor, User learner);
+    long countByBookingAndSenderAndReadByMentorFalse(Booking booking, User sender);
+    long countByBookingAndSenderAndReadByLearnerFalse(Booking booking, User sender);
 
     long countByMentorAndLearnerAndSenderAndReadByMentorFalse(User mentor, User learner, User sender);
     long countByMentorAndLearnerAndSenderAndReadByLearnerFalse(User mentor, User learner, User sender);
@@ -25,9 +30,19 @@ public interface PreChatMessageRepository extends JpaRepository<PreChatMessage, 
     @Query("update PreChatMessage m set m.readByLearner=true where m.mentor=?1 and m.learner=?2 and m.sender=?1 and m.readByLearner=false")
     int markLearnerRead(User mentor, User learner);
 
+    @Modifying
+    @Query("update PreChatMessage m set m.readByMentor=true where m.booking=:booking and m.sender<>:viewer and m.readByMentor=false")
+    int markMentorReadByBooking(@Param("booking") Booking booking, @Param("viewer") User viewer);
+
+    @Modifying
+    @Query("update PreChatMessage m set m.readByLearner=true where m.booking=:booking and m.sender<>:viewer and m.readByLearner=false")
+    int markLearnerReadByBooking(@Param("booking") Booking booking, @Param("viewer") User viewer);
+
     @Query("SELECT m FROM PreChatMessage m WHERE (m.mentor.id = :userId1 AND m.learner.id = :userId2) OR (m.mentor.id = :userId2 AND m.learner.id = :userId1) ORDER BY m.createdAt ASC")
     Page<PreChatMessage> findConversation(@Param("userId1") Long userId1, @Param("userId2") Long userId2, Pageable pageable);
 
     @Query(value = "select m.* from prechat_messages m join (select mentor_id, learner_id, max(created_at) last_created from prechat_messages where mentor_id=?1 or learner_id=?1 group by mentor_id, learner_id) t on m.mentor_id=t.mentor_id and m.learner_id=t.learner_id and m.created_at=t.last_created order by m.created_at desc", nativeQuery = true)
     List<PreChatMessage> findLastThreads(Long userId);
+
+    Optional<PreChatMessage> findTopByBookingOrderByCreatedAtDesc(Booking booking);
 }

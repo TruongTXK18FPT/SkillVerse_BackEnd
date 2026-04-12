@@ -246,6 +246,9 @@ class JobApplicationServiceTest {
 
     @Test
     void updateApplicationStatus_Accepted_Success() {
+        // REMOTE job: must go REVIEWED -> ACCEPTED (pipeline requires intermediate review step)
+        jobApplication.setStatus(JobApplicationStatus.REVIEWED);
+
         UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
         request.setStatus(JobApplicationStatus.ACCEPTED);
         request.setAcceptanceMessage("Welcome!");
@@ -314,5 +317,314 @@ class JobApplicationServiceTest {
         // User 1 (Applicant) tries to update status
         assertThrows(IllegalStateException.class,
                 () -> jobApplicationService.updateApplicationStatus(1L, 500L, request));
+    }
+
+    // ==================== REMOTE JOB STATUS TRANSITION TESTS ====================
+
+    @Test
+    void updateApplicationStatus_Remote_AcceptedToInterviewScheduled_Fail() {
+        // REMOTE job: cannot go directly from ACCEPTED to any status other than REJECTED
+        // Must schedule interview first via InterviewScheduleService
+        jobApplication.setStatus(JobApplicationStatus.ACCEPTED);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.INTERVIEWED);
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
+        assertTrue(exception.getMessage().contains("After ACCEPTED, schedule an interview first"));
+    }
+
+    @Test
+    void updateApplicationStatus_Remote_PendingToReviewed_Success() {
+        jobApplication.setStatus(JobApplicationStatus.PENDING);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.REVIEWED);
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+        when(jobApplicationRepository.save(any(JobApplication.class))).thenReturn(jobApplication);
+        when(usageLimitService.canUseFeature(any(), any()))
+                .thenReturn(UsageCheckResult.builder().allowed(false).build());
+
+        JobApplicationResponse response = jobApplicationService.updateApplicationStatus(2L, 500L, request);
+
+        assertEquals(JobApplicationStatus.REVIEWED, response.getStatus());
+    }
+
+    @Test
+    void updateApplicationStatus_Remote_PendingToRejected_Success() {
+        jobApplication.setStatus(JobApplicationStatus.PENDING);
+        jobApplication.setCoverLetter("I am interested");
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.REJECTED);
+        request.setRejectionReason("Not enough experience");
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+        when(jobApplicationRepository.save(any(JobApplication.class))).thenReturn(jobApplication);
+        when(usageLimitService.canUseFeature(any(), any()))
+                .thenReturn(UsageCheckResult.builder().allowed(false).build());
+
+        JobApplicationResponse response = jobApplicationService.updateApplicationStatus(2L, 500L, request);
+
+        assertEquals(JobApplicationStatus.REJECTED, response.getStatus());
+        assertEquals("Not enough experience", response.getRejectionReason());
+    }
+
+    @Test
+    void updateApplicationStatus_Remote_PendingToAccepted_Fail() {
+        // Cannot go from PENDING directly to ACCEPTED — must REVIEW first
+        jobApplication.setStatus(JobApplicationStatus.PENDING);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.ACCEPTED);
+        request.setAcceptanceMessage("Welcome!");
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
+        assertTrue(exception.getMessage().contains("only REVIEWED or REJECTED transitions are allowed"));
+    }
+
+    @Test
+    void updateApplicationStatus_Remote_ReviewedToAccepted_Success() {
+        jobApplication.setStatus(JobApplicationStatus.REVIEWED);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.ACCEPTED);
+        request.setAcceptanceMessage("Congratulations!");
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+        when(jobApplicationRepository.save(any(JobApplication.class))).thenReturn(jobApplication);
+        when(usageLimitService.canUseFeature(any(), any()))
+                .thenReturn(UsageCheckResult.builder().allowed(false).build());
+
+        JobApplicationResponse response = jobApplicationService.updateApplicationStatus(2L, 500L, request);
+
+        assertEquals(JobApplicationStatus.ACCEPTED, response.getStatus());
+        assertEquals("Congratulations!", response.getAcceptanceMessage());
+    }
+
+    @Test
+    void updateApplicationStatus_Remote_ReviewedToInterviewed_Fail() {
+        jobApplication.setStatus(JobApplicationStatus.REVIEWED);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.INTERVIEWED);
+        request.setInterviewResult("Great performance");
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
+        assertTrue(exception.getMessage().contains("only ACCEPTED or REJECTED transitions are allowed"));
+    }
+
+    @Test
+    void updateApplicationStatus_Remote_AcceptedToInterviewScheduled_Fail_DirectStatusUpdate() {
+        jobApplication.setStatus(JobApplicationStatus.ACCEPTED);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.INTERVIEW_SCHEDULED);
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
+    }
+
+    @Test
+    void updateApplicationStatus_Remote_TerminalStatus_Fail() {
+        // OFFER_ACCEPTED is terminal — no further transitions allowed
+        jobApplication.setStatus(JobApplicationStatus.OFFER_ACCEPTED);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.CONTRACT_SIGNED);
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
+        assertTrue(exception.getMessage().contains("terminal status"));
+    }
+
+    @Test
+    void updateApplicationStatus_Remote_AcceptedToOfferSent_Fail() {
+        // After ACCEPTED on REMOTE job, must go through interview pipeline
+        // Cannot skip to OFFER_SENT directly
+        jobApplication.setStatus(JobApplicationStatus.ACCEPTED);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.OFFER_SENT);
+        request.setOfferDetails("We offer 50M VND/year");
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
+        assertTrue(exception.getMessage().contains("After ACCEPTED, schedule an interview first"));
+    }
+
+    // ==================== ONSITE JOB STATUS RESTRICTION TESTS ====================
+
+    // Note: PENDING -> INTERVIEW_SCHEDULED is blocked at the service layer by
+    // validateRemoteStatusTransition (all jobs must go PENDING->REVIEWED first).
+    // This transition is impossible to reach directly — frontend enforces ACCEPTED status
+    // before showing the interview scheduling modal.
+
+    @Test
+    void updateApplicationStatus_Onsite_PendingToReviewed_Success() {
+        jobPosting.setIsRemote(false);
+        jobApplication.setStatus(JobApplicationStatus.PENDING);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.REVIEWED);
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+        when(jobApplicationRepository.save(any(JobApplication.class))).thenReturn(jobApplication);
+        when(usageLimitService.canUseFeature(any(), any()))
+                .thenReturn(UsageCheckResult.builder().allowed(false).build());
+
+        JobApplicationResponse response = jobApplicationService.updateApplicationStatus(2L, 500L, request);
+
+        assertEquals(JobApplicationStatus.REVIEWED, response.getStatus());
+    }
+
+    @Test
+    void updateApplicationStatus_Onsite_AcceptedToOfferSent_Fail() {
+        // ONSITE: after ACCEPTED, can only schedule interview (INTERVIEW_SCHEDULED) then mark INTERVIEWED
+        // Cannot go to OFFER_SENT — ONSITE jobs have no offer step; contract is created after INTERVIEWED
+        jobPosting.setIsRemote(false);
+        jobApplication.setStatus(JobApplicationStatus.ACCEPTED);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.OFFER_SENT);
+        request.setOfferDetails("Contract offer");
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
+        assertTrue(exception.getMessage().contains("ONSITE jobs only support"));
+    }
+
+    @Test
+    void updateApplicationStatus_Onsite_AcceptedToInterviewScheduled_Success() {
+        // ONSITE: ACCEPTED -> INTERVIEW_SCHEDULED is allowed (via InterviewScheduleService)
+        // After interview is completed -> INTERVIEWED, then contract can be created
+        jobPosting.setIsRemote(false);
+        jobApplication.setStatus(JobApplicationStatus.ACCEPTED);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.INTERVIEW_SCHEDULED);
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+        when(jobApplicationRepository.save(any(JobApplication.class))).thenReturn(jobApplication);
+        when(usageLimitService.canUseFeature(any(), any()))
+                .thenReturn(UsageCheckResult.builder().allowed(false).build());
+
+        JobApplicationResponse response = jobApplicationService.updateApplicationStatus(2L, 500L, request);
+
+        assertEquals(JobApplicationStatus.INTERVIEW_SCHEDULED, response.getStatus());
+    }
+
+    @Test
+    void updateApplicationStatus_Onsite_Interviewed_CanCreateContract() {
+        // ONSITE: after INTERVIEWED, contract can be created directly (no OFFER_SENT step)
+        jobPosting.setIsRemote(false);
+        jobApplication.setStatus(JobApplicationStatus.INTERVIEW_SCHEDULED);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.INTERVIEWED);
+        request.setInterviewResult("Good performance, recommended for hire");
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+        when(jobApplicationRepository.save(any(JobApplication.class))).thenReturn(jobApplication);
+        when(usageLimitService.canUseFeature(any(), any()))
+                .thenReturn(UsageCheckResult.builder().allowed(false).build());
+
+        JobApplicationResponse response = jobApplicationService.updateApplicationStatus(2L, 500L, request);
+
+        assertEquals(JobApplicationStatus.INTERVIEWED, response.getStatus());
+        assertEquals("Good performance, recommended for hire", response.getInterviewResult());
+    }
+
+    // ==================== INTERVIEW RESULT FIELD TESTS ====================
+
+    @Test
+    void updateApplicationStatus_Interviewed_SetsInterviewResult() {
+        // Remote pipeline: Reviewed -> Accepted -> (interview scheduled) -> Interviewed
+        jobApplication.setStatus(JobApplicationStatus.INTERVIEW_SCHEDULED);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.INTERVIEWED);
+        request.setInterviewResult("Strong technical skills, recommended for offer");
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+        when(jobApplicationRepository.save(any(JobApplication.class))).thenReturn(jobApplication);
+        when(usageLimitService.canUseFeature(any(), any()))
+                .thenReturn(UsageCheckResult.builder().allowed(false).build());
+
+        JobApplicationResponse response = jobApplicationService.updateApplicationStatus(2L, 500L, request);
+
+        assertEquals(JobApplicationStatus.INTERVIEWED, response.getStatus());
+        assertEquals("Strong technical skills, recommended for offer", response.getInterviewResult());
+    }
+
+    @Test
+    void updateApplicationStatus_OfferSent_SetsOfferDetails() {
+        // Remote pipeline: after INTERVIEWED -> OFFER_SENT
+        jobApplication.setStatus(JobApplicationStatus.INTERVIEWED);
+
+        UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
+        request.setStatus(JobApplicationStatus.OFFER_SENT);
+        request.setOfferDetails("Annual salary: 80M VND, start date: 2026-05-01");
+
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+        when(jobApplicationRepository.save(any(JobApplication.class))).thenReturn(jobApplication);
+        when(usageLimitService.canUseFeature(any(), any()))
+                .thenReturn(UsageCheckResult.builder().allowed(false).build());
+
+        JobApplicationResponse response = jobApplicationService.updateApplicationStatus(2L, 500L, request);
+
+        assertEquals(JobApplicationStatus.OFFER_SENT, response.getStatus());
+        // Note: sendStatusEmail only sends for REVIEWED/ACCEPTED/REJECTED — OFFER_SENT has no email
+    }
+
+    @Test
+    void getApplicationById_Success_AsApplicant() {
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+        when(usageLimitService.canUseFeature(any(), any()))
+                .thenReturn(UsageCheckResult.builder().allowed(false).build());
+
+        JobApplicationResponse response = jobApplicationService.getApplicationById(1L, 500L);
+
+        assertNotNull(response);
+        assertEquals(500L, response.getId());
+        assertEquals(1L, response.getUserId());
+    }
+
+    @Test
+    void getApplicationById_Success_AsRecruiter() {
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+        when(usageLimitService.canUseFeature(any(), any()))
+                .thenReturn(UsageCheckResult.builder().allowed(false).build());
+
+        JobApplicationResponse response = jobApplicationService.getApplicationById(2L, 500L);
+
+        assertNotNull(response);
+        assertEquals(500L, response.getId());
+    }
+
+    @Test
+    void getApplicationById_Fail_Unauthorized() {
+        when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
+
+        assertThrows(RuntimeException.class,
+                () -> jobApplicationService.getApplicationById(999L, 500L));
     }
 }

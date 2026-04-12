@@ -1472,4 +1472,123 @@ public class EmailServiceImpl implements EmailService {
                 </html>
                 """.formatted(workerName, jobTitle, budget != null ? budget : "Thỏa thuận");
     }
+
+    @Override
+    public void sendInterviewScheduled(
+            String email,
+            String fullName,
+            String jobTitle,
+            java.time.LocalDateTime scheduledAt,
+            Integer durationMinutes,
+            String meetingType,
+            String meetingLink,
+            String skillverseRoomId,
+            String location,
+            String interviewerName) {
+        try {
+            String htmlContent = buildInterviewScheduledHtmlContent(
+                    fullName, jobTitle, scheduledAt, durationMinutes,
+                    meetingType, meetingLink, skillverseRoomId, location, interviewerName);
+            sendHtmlEmail(email, "📅 Lịch phỏng vấn đã được xếp — SkillVerse", htmlContent);
+            log.info("📅 EMAIL SERVICE: Interview scheduled email sent to {} for job: {}", email, jobTitle);
+        } catch (Exception e) {
+            log.error("❌ Failed to send interview scheduled email to {}: {}", email, e.getMessage());
+            log.info("📅 [FALLBACK] EMAIL SERVICE: Interview scheduled email to {}", email);
+        }
+    }
+
+    private String buildInterviewScheduledHtmlContent(
+            String fullName,
+            String jobTitle,
+            java.time.LocalDateTime scheduledAt,
+            Integer durationMinutes,
+            String meetingType,
+            String meetingLink,
+            String skillverseRoomId,
+            String location,
+            String interviewerName) {
+        String dateTimeStr = scheduledAt != null
+                ? scheduledAt.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm, 'ngày' dd/MM/yyyy"))
+                : "Chưa xác định";
+        String durationStr = durationMinutes != null ? durationMinutes + " phút" : "60 phút";
+        String meetingLinkBlock = meetingLink != null && !meetingLink.isBlank()
+                ? "<div class=\"meeting-link\"><a href=\"" + meetingLink + "\" class=\"btn-meet\">Tham gia cuộc họp</a></div>"
+                : "";
+        String roomBlock = skillverseRoomId != null && !skillverseRoomId.isBlank()
+                ? "<div class=\"room-info\"><strong>SkillVerse Room:</strong> <code>" + skillverseRoomId + "</code></div>"
+                : "";
+        String interviewerBlock = interviewerName != null && !interviewerName.isBlank()
+                ? "<div class=\"interviewer-info\"><strong>Người phỏng vấn:</strong> " + interviewerName + "</div>"
+                : "";
+        String locationBlock = location != null && !location.isBlank()
+                ? "<div class=\"location-info\"><strong>Địa điểm:</strong> " + location + "</div>"
+                : "";
+        return """
+                <!DOCTYPE html>
+                <html lang="vi">
+                <head>
+                  <meta charset="UTF-8"/>
+                  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                  <title>Lịch phỏng vấn đã được xếp — SkillVerse</title>
+                  <style>
+                    body{margin:0;padding:0;background:#f0f4ff;font-family:Inter,Roboto,Helvetica,Arial,sans-serif;color:#1f2937}
+                    .container{max-width:600px;margin:24px auto;padding:0 16px}
+                    .card{background:#ffffff;border-radius:16px;box-shadow:0 8px 24px rgba(31,41,55,0.08);overflow:hidden}
+                    .header{background:linear-gradient(135deg,#0066ff,#00c6ff);padding:32px 28px;text-align:center;color:#fff}
+                    .header img{display:block;margin:0 auto 12px;height:44px}
+                    .header h1{font-size:22px;font-weight:700;margin:0 0 6px}
+                    .emoji{font-size:48px;margin-bottom:8px}
+                    .badge{display:inline-block;margin-top:8px;padding:5px 14px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);border-radius:999px;font-size:13px}
+                    .body{padding:28px 28px}
+                    .greeting{font-size:16px;font-weight:600;color:#111827;margin:0 0 12px}
+                    p{line-height:1.7;margin:10px 0;color:#374151;font-size:14px}
+                    .info-grid{background:#f0f7ff;border:1px solid #cce4ff;border-radius:12px;padding:18px;margin:18px 0}
+                    .info-row{display:flex;align-items:center;margin:8px 0;font-size:14px;color:#1e40af}
+                    .info-row .icon{margin-right:10px;font-size:18px}
+                    .info-row strong{min-width:140px;color:#1e3a8a}
+                    .meeting-link{text-align:center;margin:20px 0}
+                    .btn-meet{display:inline-block;background:linear-gradient(135deg,#0066ff,#00c6ff);color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px}
+                    .room-info{background:#f5f0ff;border:1px solid #e0c8ff;border-radius:8px;padding:12px 16px;margin:12px 0;font-size:14px;text-align:center}
+                    .room-info code{background:#f5f0ff;color:#7c3aed;font-weight:700;font-size:15px;padding:4px 12px;border-radius:6px;font-family:monospace}
+                    .interviewer-info,.location-info{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;margin:8px 0;font-size:14px}
+                    .divider{border:none;border-top:1px solid #e5e7eb;margin:20px 0}
+                    .footer{padding:18px 28px 22px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center}
+                    .footer-text{font-size:12px;color:#6b7280;margin:0}
+                  </style>
+                </head>
+                <body>
+                  <div class="container">
+                    <div class="card">
+                      <div class="header">
+                        <img src="cid:skillverse-logo" alt="SkillVerse" style="height:44px;display:block;margin:0 auto 12px"/>
+                        <div class="emoji">📅</div>
+                        <h1>Lịch phỏng vấn đã được xếp!</h1>
+                        <div class="badge">Xác nhận lịch hẹn</div>
+                      </div>
+                      <div class="body">
+                        <p class="greeting">Xin chào <strong>%s</strong>,</p>
+                        <p>Chúc mừng bạn! Nhà tuyển dụng đã xếp lịch phỏng vấn cho vị trí <strong>%s</strong>.</p>
+                        <div class="info-grid">
+                          <div class="info-row"><span class="icon">🗓</span><strong>Thời gian:</strong> %s</div>
+                          <div class="info-row"><span class="icon">⏱</span><strong>Thời lượng:</strong> %s</div>
+                          <div class="info-row"><span class="icon">💻</span><strong>Hình thức:</strong> %s</div>
+                          %s
+                          %s
+                          %s
+                        </div>
+                        %s
+                        <div class="divider"></div>
+                        <p style="text-align:center;font-size:14px;margin:0">Vui lòng đăng nhập đúng giờ và chuẩn bị sẵn các câu hỏi của bạn. Chúc bạn phỏng vấn thành công!</p>
+                      </div>
+                      <div class="footer">
+                        <p class="footer-text">© SkillVerse — Cộng đồng học tập và nghề nghiệp.</p>
+                      </div>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(fullName, jobTitle, dateTimeStr, durationStr,
+                        meetingType != null ? meetingType.replace("_", " ") : "Chưa xác định",
+                        interviewerBlock, roomBlock, locationBlock, meetingLinkBlock);
+    }
 }

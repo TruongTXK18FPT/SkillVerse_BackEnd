@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.business_service.service.impl.RecruiterProfileServiceImpl;
 import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -32,9 +33,12 @@ class RecruiterProfileServiceImplTest {
 
     private RecruiterProfileServiceImpl service;
 
+    @Mock
+    private CloudinaryService cloudinaryService;
+
     @BeforeEach
     void setUp() {
-        service = new RecruiterProfileServiceImpl(recruiterProfileRepository, userRepository);
+        service = new RecruiterProfileServiceImpl(recruiterProfileRepository, userRepository, cloudinaryService);
         lenient().when(recruiterProfileRepository.save(any(RecruiterProfile.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
     }

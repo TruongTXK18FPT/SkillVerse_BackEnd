@@ -118,6 +118,30 @@ class BookingServiceImplTest {
     }
 
     @Test
+    @DisplayName("getBookingDetail should allow chat for active future bookings")
+    void getBookingDetail_ShouldExposeChatAllowedForActiveBooking() {
+        Booking booking = booking(200L, BookingStatus.CONFIRMED, LocalDateTime.now().plusHours(2));
+        when(bookingRepository.findById(booking.getId())).thenReturn(Optional.of(booking));
+        when(mentorProfileRepository.findById(booking.getMentor().getId())).thenReturn(Optional.empty());
+
+        var response = service.getBookingDetail(booking.getLearner().getId(), booking.getId());
+
+        assertTrue(Boolean.TRUE.equals(response.getChatAllowed()));
+    }
+
+    @Test
+    @DisplayName("getBookingDetail should close chat after the booking has ended")
+    void getBookingDetail_ShouldExposeChatClosedAfterBookingEnd() {
+        Booking booking = booking(200L, BookingStatus.ONGOING, LocalDateTime.now().minusHours(2));
+        when(bookingRepository.findById(booking.getId())).thenReturn(Optional.of(booking));
+        when(mentorProfileRepository.findById(booking.getMentor().getId())).thenReturn(Optional.empty());
+
+        var response = service.getBookingDetail(booking.getLearner().getId(), booking.getId());
+
+        assertEquals(Boolean.FALSE, response.getChatAllowed());
+    }
+
+    @Test
     @DisplayName("createBookingWithWallet should reject self-booking")
     void createBookingWithWallet_ShouldRejectSelfBooking() {
         User sameUser = User.builder()

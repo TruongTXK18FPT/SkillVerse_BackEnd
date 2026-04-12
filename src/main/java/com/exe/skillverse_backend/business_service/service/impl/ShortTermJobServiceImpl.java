@@ -1249,6 +1249,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
             recruiterInfo = ShortTermJobResponse.RecruiterInfo.builder()
                     .id(rp.getUserId())
                     .companyName(rp.getCompanyName())
+                    .companyLogoUrl(resolveRecruiterCompanyLogo(rp))
                     .build();
         }
 
@@ -1396,6 +1397,16 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
             log.error("Error parsing JSON", e);
             return null;
         }
+    }
+
+    private String resolveRecruiterCompanyLogo(RecruiterProfile recruiterProfile) {
+        if (recruiterProfile == null) {
+            return null;
+        }
+        if (recruiterProfile.getCompanyLogoUrl() != null && !recruiterProfile.getCompanyLogoUrl().isBlank()) {
+            return recruiterProfile.getCompanyLogoUrl();
+        }
+        return recruiterProfile.getUser() != null ? recruiterProfile.getUser().getAvatarUrl() : null;
     }
 
     private String getDisplayName(User user) {

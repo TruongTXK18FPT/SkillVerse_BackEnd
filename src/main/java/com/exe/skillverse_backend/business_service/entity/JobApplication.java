@@ -66,6 +66,24 @@ public class JobApplication {
     @Column(name = "processed_at")
     private LocalDateTime processedAt; // Nullable - timestamp when ACCEPTED or REJECTED
 
+    @Column(name = "interview_result", columnDefinition = "TEXT")
+    private String interviewResult; // Nullable - interview notes after completion
+
+    // Offer letter — recruiter's offer details when status = OFFER_SENT
+    @Column(name = "offer_details", columnDefinition = "TEXT")
+    private String offerDetails; // Nullable - salary, start date, conditions from recruiter
+
+    // Candidate's response after OFFER_SENT
+    @Column(name = "candidate_offer_response", columnDefinition = "TEXT")
+    private String candidateOfferResponse; // Nullable - candidate's counter-offer or acceptance message
+
+    // Offer round counter: tracks how many times the recruiter has sent an offer.
+    // 0 = no offer sent yet, 1 = first offer, 2 = second (final) offer.
+    // After round 2 is rejected the application is permanently REJECTED.
+    @Builder.Default
+    @Column(name = "offer_round")
+    private Integer offerRound = 0;
+
     @PrePersist
     protected void onCreate() {
         appliedAt = LocalDateTime.now();

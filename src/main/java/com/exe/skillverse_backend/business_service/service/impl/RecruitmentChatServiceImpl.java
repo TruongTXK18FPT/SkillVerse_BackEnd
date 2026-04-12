@@ -249,7 +249,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
                 buildNotificationTitle(session, isRecruiter),
                 request.getContent());
 
-        return mapToMessageResponse(savedMessage);
+        return mapToMessageResponse(savedMessage, resolveRecruiterDisplayAvatar(session.getRecruiter()));
     }
 
     @Override
@@ -260,8 +260,9 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
         assertSessionParticipant(session, userId);
 
         Page<RecruitmentMessage> messages = messageRepository.findBySessionIdOrderByCreatedAtDesc(sessionId, pageable);
+        String recruiterAvatar = resolveRecruiterDisplayAvatar(session.getRecruiter());
         List<RecruitmentMessageResponse> responses = messages.getContent().stream()
-                .map(this::mapToMessageResponse)
+                .map(message -> mapToMessageResponse(message, recruiterAvatar))
                 .collect(Collectors.toList());
 
         return new PageImpl<>(responses, pageable, messages.getTotalElements());
@@ -471,12 +472,13 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
         RecruitmentJobContextType contextType = resolveContextType(session);
         Long contextJobId = resolveContextJobId(session);
         ChatAvailability availability = resolveChatAvailability(session);
+        String recruiterAvatar = resolveRecruiterDisplayAvatar(session.getRecruiter());
 
         return RecruitmentSessionResponse.builder()
                 .id(session.getId())
                 .recruiterId(session.getRecruiter().getId())
                 .recruiterName(session.getRecruiter().getFullName())
-                .recruiterAvatar(session.getRecruiter().getAvatarUrl())
+                .recruiterAvatar(recruiterAvatar)
                 .recruiterCompany(session.getRecruiterCompany())
                 .candidateId(session.getCandidate().getId())
                 .candidateFullName(session.getCandidate().getFullName())
@@ -504,13 +506,16 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
                 .build();
     }
 
-    private RecruitmentMessageResponse mapToMessageResponse(RecruitmentMessage message) {
+    private RecruitmentMessageResponse mapToMessageResponse(RecruitmentMessage message, String recruiterAvatar) {
+        String senderAvatar = "RECRUITER".equalsIgnoreCase(message.getSenderRole())
+                ? recruiterAvatar
+                : message.getSender().getAvatarUrl();
         return RecruitmentMessageResponse.builder()
                 .id(message.getId())
                 .sessionId(message.getSession().getId())
                 .senderId(message.getSender().getId())
                 .senderName(message.getSender().getFullName())
-                .senderAvatar(message.getSender().getAvatarUrl())
+                .senderAvatar(senderAvatar)
                 .senderRole(message.getSenderRole())
                 .content(message.getContent())
                 .messageType(message.getMessageType())
@@ -520,6 +525,21 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
                 .readAt(message.getReadAt())
                 .createdAt(message.getCreatedAt())
                 .build();
+    }
+
+    private String resolveRecruiterDisplayAvatar(User recruiter) {
+        if (recruiter == null) {
+            return null;
+        }
+
+        RecruiterProfile recruiterProfile = recruiterProfileRepository.findByUserId(recruiter.getId()).orElse(null);
+        if (recruiterProfile != null
+                && recruiterProfile.getCompanyLogoUrl() != null
+                && !recruiterProfile.getCompanyLogoUrl().isBlank()) {
+            return recruiterProfile.getCompanyLogoUrl();
+        }
+
+        return recruiter.getAvatarUrl();
     }
 
     private RecruitmentJobContextType resolveContextType(RecruitmentSession session) {

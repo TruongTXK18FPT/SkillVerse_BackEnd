@@ -190,6 +190,9 @@ public class AuthServiceImpl implements AuthService {
                         userDto.setRoles(user.getRoles().stream()
                                         .map(role -> role.getName())
                                         .collect(Collectors.toSet()));
+                        userDto.setPrimaryRole(user.getPrimaryRole() != null
+                                ? user.getPrimaryRole().name()
+                                : null);
                         userDto.setAuthProvider(user.getAuthProvider().toString());
                         userDto.setGoogleLinked(user.isGoogleLinked());
 

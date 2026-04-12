@@ -10,6 +10,8 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface BookingRepository extends JpaRepository<Booking, Long> {
     Page<Booking> findByLearnerAndStatusInOrderByStartTimeDesc(User learner, List<BookingStatus> statuses, Pageable pageable);
@@ -29,4 +31,23 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     List<Booking> findByStatusAndMentorCompletedAtBefore(BookingStatus status, LocalDateTime deadline);
     List<Booking> findByStatusAndCompletionDeadlineBefore(BookingStatus status, LocalDateTime deadline);
     List<Booking> findByMentorAndStatusInAndStartTimeBetween(User mentor, List<BookingStatus> statuses, LocalDateTime from, LocalDateTime to);
+
+    @Query("""
+            select b from Booking b
+            where (b.mentor.id = :userId or b.learner.id = :userId)
+              and b.status in :statuses
+              and b.endTime > :now
+            order by b.startTime desc
+            """)
+    List<Booking> findChatEligibleBookings(
+            @Param("userId") Long userId,
+            @Param("statuses") Collection<BookingStatus> statuses,
+            @Param("now") LocalDateTime now);
+
+    @Query("""
+            select b from Booking b
+            where b.id = :bookingId
+              and (b.mentor.id = :userId or b.learner.id = :userId)
+            """)
+    Optional<Booking> findAccessibleBooking(@Param("bookingId") Long bookingId, @Param("userId") Long userId);
 }

@@ -38,4 +38,7 @@ public class BookingResponse {
 
     // Dispute info
     private Long disputeId;
+
+    // Chat availability
+    private Boolean chatAllowed;
 }

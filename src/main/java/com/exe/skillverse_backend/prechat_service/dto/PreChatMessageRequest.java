@@ -13,8 +13,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class PreChatMessageRequest {
     @NotNull
-    private Long mentorId;
+    private Long bookingId;
     @Size(min = 1, max = 1000)
     private String content;
 }
-
