@@ -1,11 +1,13 @@
 package com.exe.skillverse_backend.shared.exception;
 
 import com.exe.skillverse_backend.premium_service.exception.UsageLimitExceededException;
+import com.exe.skillverse_backend.shared.exception.AuthenticationException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Global exception handler for REST controllers.
@@ -34,6 +37,22 @@ public class GlobalExceptionHandler {
         public ResponseEntity<ErrorResponse> handleApiException(
                         ApiException ex, HttpServletRequest req) {
                 var ec = ex.getErrorCode();
+                String traceId = resolveTraceId(req);
+                if (ec.status.is5xxServerError()) {
+                        log.error("API exception [trace={}] path={} code={} status={} message={}",
+                                        traceId,
+                                        req.getRequestURI(),
+                                        ec.code,
+                                        ec.status.value(),
+                                        ex.getMessage());
+                } else {
+                        log.warn("API exception [trace={}] path={} code={} status={} message={}",
+                                        traceId,
+                                        req.getRequestURI(),
+                                        ec.code,
+                                        ec.status.value(),
+                                        ex.getMessage());
+                }
                 var body = ErrorResponse.builder()
                                 .code(ec.code)
                                 .message(ex.getMessage())
@@ -143,9 +162,9 @@ public class GlobalExceptionHandler {
          * @param req the HTTP request
          * @return error response entity
          */
-        @ExceptionHandler(com.exe.skillverse_backend.shared.exception.AuthenticationException.class)
+        @ExceptionHandler(AuthenticationException.class)
         public ResponseEntity<ErrorResponse> handleCustomAuthentication(
-                        com.exe.skillverse_backend.shared.exception.AuthenticationException ex,
+                        AuthenticationException ex,
                         HttpServletRequest req) {
                 HttpStatus status = HttpStatus.resolve(ex.getHttpStatus());
                 if (status == null) {
@@ -220,7 +239,7 @@ public class GlobalExceptionHandler {
                         MaxUploadSizeExceededException ex, HttpServletRequest req) {
                 var body = ErrorResponse.builder()
                                 .code(ErrorCode.BAD_REQUEST.code)
-                                .message("File size exceeds the maximum allowed limit of 500MB")
+                                .message("File size exceeds the maximum allowed upload limit")
                                 .status(ErrorCode.BAD_REQUEST.status.value())
                                 .timestamp(Instant.now())
                                 .path(req.getRequestURI())
@@ -283,6 +302,23 @@ public class GlobalExceptionHandler {
         }
 
         /**
+         * Handles missing endpoint/static resource routes.
+         * Returns 404 instead of routing to generic 500 handler.
+         */
+        @ExceptionHandler(NoResourceFoundException.class)
+        public ResponseEntity<ErrorResponse> handleNoResourceFound(
+                        NoResourceFoundException ex, HttpServletRequest req) {
+                var body = ErrorResponse.builder()
+                                .code(ErrorCode.NOT_FOUND.code)
+                                .message("Resource not found")
+                                .status(ErrorCode.NOT_FOUND.status.value())
+                                .timestamp(Instant.now())
+                                .path(req.getRequestURI())
+                                .build();
+                return ResponseEntity.status(ErrorCode.NOT_FOUND.status).body(body);
+        }
+
+        /**
          * Fallback handler for unexpected exceptions.
          * ✅ SECURITY: Never expose internal exception details to client
          *
@@ -305,6 +341,22 @@ public class GlobalExceptionHandler {
                                 .path(req.getRequestURI())
                                 .build();
                 return ResponseEntity.status(ErrorCode.INTERNAL_ERROR.status).body(body);
+        }
+
+        private String resolveTraceId(HttpServletRequest req) {
+                String requestId = req.getHeader("X-Request-Id");
+                if (requestId != null && !requestId.isBlank()) {
+                        return requestId;
+                }
+                String correlationId = req.getHeader("X-Correlation-Id");
+                if (correlationId != null && !correlationId.isBlank()) {
+                        return correlationId;
+                }
+                String mdcTraceId = MDC.get("traceId");
+                if (mdcTraceId != null && !mdcTraceId.isBlank()) {
+                        return mdcTraceId;
+                }
+                return "n/a";
         }
 
         /**

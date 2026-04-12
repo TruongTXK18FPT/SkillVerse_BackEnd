@@ -1,8 +1,10 @@
 package com.exe.skillverse_backend.course_service.controller;
 
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionDTO;
+import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionDiffDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionUpdateDTO;
 import com.exe.skillverse_backend.course_service.service.CourseRevisionService;
+import com.exe.skillverse_backend.course_service.service.impl.CourseRevisionDiffService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -32,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class CourseRevisionController {
 
     private final CourseRevisionService courseRevisionService;
+    private final CourseRevisionDiffService courseRevisionDiffService;
 
     @GetMapping("/{revisionId}")
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
@@ -43,6 +46,19 @@ public class CourseRevisionController {
         Long actorId = JwtUtils.extractUserId(jwt);
         CourseRevisionDTO revision = courseRevisionService.getRevision(revisionId, actorId);
         return ResponseEntity.ok(revision);
+    }
+
+    @GetMapping("/{revisionId}/diff")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
+    @Operation(summary = "Get revision diff (mentor/admin)")
+    public ResponseEntity<CourseRevisionDiffDTO> getRevisionDiff(
+            @Parameter(description = "Revision ID") @PathVariable @NotNull Long revisionId,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long actorId = JwtUtils.extractUserId(jwt);
+        log.debug("User {} requesting diff for revision {}", actorId, revisionId);
+        CourseRevisionDiffDTO diff = courseRevisionDiffService.computeDiff(revisionId);
+        return ResponseEntity.ok(diff);
     }
 
     @PostMapping("/{revisionId}/submit")

@@ -189,13 +189,14 @@ public class MediaController {
     @GetMapping("/types")
     @Operation(summary = "Get supported media types")
     public ResponseEntity<Map<String, Object>> getSupportedTypes() {
-        // This would typically come from configuration
+        // Cloudinary Free Tier limits: image=10MB, raw=10MB, video=100MB
         Map<String, Object> supportedTypes = Map.of(
             "images", List.of("image/jpeg", "image/png", "image/gif", "image/webp"),
             "videos", List.of("video/mp4", "video/avi", "video/mov", "video/webm"),
             "documents", List.of("application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
-            "maxSizeBytes", 100 * 1024 * 1024, // 100MB
-            "maxSizeMB", 100
+            "imageMaxSizeBytes", 10 * 1024 * 1024,   // 10MB
+            "videoMaxSizeBytes", 100 * 1024 * 1024,  // 100MB
+            "rawMaxSizeBytes",   10 * 1024 * 1024    // 10MB
         );
         
         return ResponseEntity.ok(supportedTypes);

@@ -46,8 +46,6 @@ public class Quiz {
   @Enumerated(EnumType.STRING)
   @Column(name = "grading_method", length = 20)
   private QuizGradingMethod gradingMethod;
-  @Column(name = "is_assessment")
-  private Boolean isAssessment;
   @Column(name = "cooldown_hours")
   private Integer cooldownHours;
   @Column(name = "order_index")

@@ -6,12 +6,14 @@ import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionUpd
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
 import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.LessonAttachment;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.AssignmentCriteria;
 import com.exe.skillverse_backend.course_service.entity.Quiz;
 import com.exe.skillverse_backend.course_service.entity.QuizOption;
 import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
+import com.exe.skillverse_backend.course_service.entity.enums.AttachmentType;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.LessonType;
@@ -171,6 +173,17 @@ class CourseRevisionServiceImplTest {
                 .orderIndex(0)
                 .contentText("Live content")
                 .build();
+
+        LessonAttachment attachment = LessonAttachment.builder()
+                .id(801L)
+                .lesson(lesson)
+                .title("Lesson PDF")
+                .type(AttachmentType.PDF)
+                .externalUrl("https://example.com/lesson-a.pdf")
+                .orderIndex(0)
+                .build();
+
+        lesson.setAttachments(List.of(attachment));
         module.setLessons(List.of(lesson));
 
         Course course = Course.builder()
@@ -213,6 +226,16 @@ class CourseRevisionServiceImplTest {
         assertEquals(1, snapshot.path("snapshotVersion").asInt());
         assertEquals("Module A", snapshot.path("modules").get(0).path("title").asText());
         assertEquals("Lesson A", snapshot.path("modules").get(0).path("lessons").get(0).path("title").asText());
+        assertEquals("Live content", snapshot.path("modules").get(0).path("lessons").get(0).path("contentText").asText());
+        assertEquals(1, snapshot.path("modules").get(0).path("lessons").get(0).path("attachments").size());
+        assertEquals(
+                "Lesson PDF",
+                snapshot.path("modules").get(0).path("lessons").get(0).path("attachments").get(0).path("name").asText()
+        );
+        assertEquals(
+                "https://example.com/lesson-a.pdf",
+                snapshot.path("modules").get(0).path("lessons").get(0).path("attachments").get(0).path("url").asText()
+        );
     }
 
     @Test
@@ -1322,7 +1345,6 @@ class CourseRevisionServiceImplTest {
                 .passScore(80)
                 .maxAttempts(3)
                 .roundingIncrement(1)
-                .isAssessment(false)
                 .orderIndex(0)
                 .questions(List.of(question))
                 .build();
@@ -1488,7 +1510,6 @@ class CourseRevisionServiceImplTest {
                 .title("Quiz ổn định")
                 .description("Mô tả")
                 .passScore(80)
-                .isAssessment(true)
                 .orderIndex(0)
                 .questions(List.of(question))
                 .build();
@@ -1501,7 +1522,6 @@ class CourseRevisionServiceImplTest {
                 .put("title", "Quiz ổn định")
                 .put("quizDescription", "Mô tả")
                 .put("passScore", 80);
-        existingQuizNode.putNull("isAssessment");
         existingQuizNode.set("questions", objectMapper.createArrayNode()
                 .add(objectMapper.createObjectNode()
                         .put("text", "Git là gì?")

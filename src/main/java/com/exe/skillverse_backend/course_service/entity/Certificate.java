@@ -64,7 +64,7 @@ public class Certificate {
   private Instant revokedAt;
 
   /** criteria: JSON text; nếu dùng Postgres jsonb có thể set columnDefinition="jsonb" */
-  @Lob
+  @Column(columnDefinition = "TEXT")
   private String criteria;
 
   @Column(length = 120)

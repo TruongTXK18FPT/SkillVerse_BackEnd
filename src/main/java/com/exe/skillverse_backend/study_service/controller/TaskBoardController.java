@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.study_service.dto.response.ClearOverdueTasksRe
 import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
+import com.exe.skillverse_backend.shared.dto.PageResponse;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +45,21 @@ public class TaskBoardController {
             return ResponseEntity.ok(taskBoardService.getBoard(getUserId(authentication), roadmapSessionId));
         }
         return ResponseEntity.ok(taskBoardService.getBoard(getUserId(authentication)));
+    }
+
+    @GetMapping("/archived")
+    public ResponseEntity<PageResponse<TaskResponse>> getArchivedTasks(
+            @RequestParam(required = false) Long roadmapSessionId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            Authentication authentication) {
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(page, size);
+        return ResponseEntity.ok(taskBoardService.getArchivedTasks(getUserId(authentication), roadmapSessionId, pageable));
+    }
+
+    @PatchMapping("/tasks/{taskId}/unarchive")
+    public ResponseEntity<TaskResponse> unarchiveTask(@PathVariable UUID taskId) {
+        return ResponseEntity.ok(taskBoardService.unarchiveTask(taskId));
     }
 
     @PostMapping("/archive-roadmap/{roadmapSessionId}")

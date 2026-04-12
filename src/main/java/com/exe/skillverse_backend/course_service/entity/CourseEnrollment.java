@@ -20,7 +20,11 @@ import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
 import java.io.Serializable;
 import java.time.Instant;
@@ -28,7 +32,10 @@ import java.time.Instant;
 @Entity
 @Table(name = "course_enrollment", indexes = { @Index(columnList = "course_id, status"),
     @Index(columnList = "user_id, course_id") })
-@Data
+@Getter
+@Setter
+@ToString(exclude = {"user", "course"})
+@EqualsAndHashCode(exclude = {"user", "course"})
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
@@ -87,6 +94,14 @@ public class CourseEnrollment {
 
   @Column(name = "last_upgraded_at")
   private Instant lastUpgradedAt;
+
+  /**
+   * Timestamp when enrollment was marked as COMPLETED.
+   * Used instead of lastUpgradedAt to preserve real completion date.
+   * Schema migration: DatabaseSchemaFixer auto-adds this nullable column.
+   */
+  @Column(name = "completed_at")
+  private Instant completedAt;
 
   // Ensure composite key is populated automatically from relations
   @PrePersist

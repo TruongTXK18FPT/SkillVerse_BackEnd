@@ -17,6 +17,5 @@ public class QuizUpdateDTO {
     private Integer timeLimitMinutes;
     private Integer roundingIncrement;
     private QuizGradingMethod gradingMethod;
-    private Boolean isAssessment;
     private Integer cooldownHours;
 }

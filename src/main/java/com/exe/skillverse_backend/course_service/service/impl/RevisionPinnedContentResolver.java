@@ -37,10 +37,12 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @RequiredArgsConstructor
 @Slf4j
+@Transactional(readOnly = true)
 public class RevisionPinnedContentResolver {
 
     private static final int CONTENT_SNAPSHOT_VERSION_V1 = 1;
@@ -603,7 +605,6 @@ public class RevisionPinnedContentResolver {
                 .timeLimitMinutes(parseInteger(itemNode.path("quizTimeLimitMinutes"), null))
                 .roundingIncrement(parseInteger(itemNode.path("roundingIncrement"), null))
                 .gradingMethod(parseQuizGradingMethod(itemNode.path("gradingMethod")))
-                .isAssessment(parseBoolean(itemNode.path("isAssessment")))
                 .cooldownHours(parseInteger(itemNode.path("cooldownHours"), null))
                 .orderIndex(orderIndex)
                 .questionCount(questionCount)

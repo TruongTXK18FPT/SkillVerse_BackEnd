@@ -13,6 +13,7 @@ import com.exe.skillverse_backend.course_service.repository.CertificateRepositor
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.service.CertificateService;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
+import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -165,8 +166,17 @@ public class CertificateServiceImpl implements CertificateService {
     @Override
     @Transactional(readOnly = true)
     public CertificateDTO getUserCertificate(Long certificateId, Long userId) {
-        Certificate certificate = certificateRepository.findByIdAndUserId(certificateId, userId)
+        // Check if certificate exists at all first (to distinguish 403 vs 404)
+        Certificate certificate = certificateRepository.findById(certificateId)
                 .orElseThrow(() -> new NotFoundException(CERTIFICATE_NOT_FOUND));
+
+        // Then verify ownership (returns 403 if exists but belongs to another user)
+        if (!certificate.getUser().getId().equals(userId)) {
+            log.warn("[CERT_ACCESS_DENIED] user {} attempted to access certificate {} owned by user {}",
+                    userId, certificateId, certificate.getUser().getId());
+            throw new ForbiddenException("CERTIFICATE_ACCESS_DENIED");
+        }
+
         return buildCertificateDto(certificate);
     }
 

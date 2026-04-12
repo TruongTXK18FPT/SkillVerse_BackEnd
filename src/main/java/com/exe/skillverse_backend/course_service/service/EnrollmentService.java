@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollRequest
 import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollmentDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollmentStatsDTO;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
+import java.util.List;
 import org.springframework.data.domain.Pageable;
 
 /**
@@ -106,11 +107,21 @@ public interface EnrollmentService {
 
     /**
      * Get recent enrollments across all courses (admin only)
-     * 
+     *
      * @param pageable pagination parameters
      * @param actorId ID of the requesting user (for authorization)
      * @return paginated recent enrollments
      * @throws AccessDeniedException if not admin
      */
     PageResponse<EnrollmentDetailDTO> getRecentEnrollments(Pageable pageable, Long actorId);
+
+    /**
+     * Get enrollments for a user across multiple courses in one query.
+     * Used by roadmap course enrollment mapping to avoid N+1 pagination issues.
+     *
+     * @param userId ID of the user
+     * @param courseIds list of course IDs to check
+     * @return list of enrollments for the given courses (empty list if none)
+     */
+    List<EnrollmentDetailDTO> getEnrollmentsByCourseIds(Long userId, List<Long> courseIds);
 }

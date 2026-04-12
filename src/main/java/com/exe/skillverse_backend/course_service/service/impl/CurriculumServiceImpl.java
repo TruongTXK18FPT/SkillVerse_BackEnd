@@ -26,6 +26,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -146,6 +147,15 @@ public class CurriculumServiceImpl implements CurriculumService {
                 .stream()
                 .collect(Collectors.toMap(Assignment::getId, a -> a));
 
+        // Preload ALL quiz questions in a single batch query — eliminates N+1
+        Map<Long, List<QuizQuestion>> allQuestionsMap = new HashMap<>();
+        if (!existingQuizzes.isEmpty()) {
+            List<QuizQuestion> allQuestions =
+                    questionRepository.findByQuizIdsWithOptions(existingQuizzes.keySet());
+            allQuestionsMap = allQuestions.stream()
+                    .collect(Collectors.groupingBy(q -> q.getQuiz().getId()));
+        }
+
         Set<Long> keptLessonIds = new HashSet<>();
         Set<Long> keptQuizIds = new HashSet<>();
         Set<Long> keptAssignmentIds = new HashSet<>();
@@ -167,7 +177,7 @@ public class CurriculumServiceImpl implements CurriculumService {
                 Quiz quiz = upsertQuiz(module, item, orderIndex, existingQuizzes);
                 keptQuizIds.add(quiz.getId());
                 List<QuizQuestionCreateDTO> questionResponses = item.getQuestions() != null
-                        ? upsertQuizQuestions(quiz, item.getQuestions(), replaceMissing)
+                        ? upsertQuizQuestions(quiz, item.getQuestions(), replaceMissing, allQuestionsMap)
                         : null;
                 responseItems.add(buildQuizResponse(item, quiz, questionResponses));
             } else if (item.getType() == CurriculumItemType.ASSIGNMENT) {
@@ -278,7 +288,6 @@ public class CurriculumServiceImpl implements CurriculumService {
         quiz.setTimeLimitMinutes(item.getTimeLimitMinutes());
         quiz.setRoundingIncrement(item.getRoundingIncrement());
         quiz.setGradingMethod(item.getGradingMethod());
-        quiz.setIsAssessment(item.getIsAssessment());
         quiz.setCooldownHours(item.getCooldownHours());
         quiz.setOrderIndex(orderIndex);
         quiz.setUpdatedAt(now());
@@ -323,10 +332,11 @@ public class CurriculumServiceImpl implements CurriculumService {
     private List<QuizQuestionCreateDTO> upsertQuizQuestions(
             Quiz quiz,
             List<QuizQuestionCreateDTO> questionDtos,
-            boolean replaceMissing
+            boolean replaceMissing,
+            Map<Long, List<QuizQuestion>> allQuestionsMap
     ) {
         List<QuizQuestionCreateDTO> questions = questionDtos != null ? questionDtos : List.of();
-        List<QuizQuestion> existingQuestions = questionRepository.findByQuizIdWithOptions(quiz.getId());
+        List<QuizQuestion> existingQuestions = allQuestionsMap.getOrDefault(quiz.getId(), List.of());
         Map<Long, QuizQuestion> existingMap = existingQuestions.stream()
                 .filter(q -> q.getId() != null)
                 .collect(Collectors.toMap(QuizQuestion::getId, q -> q));
@@ -549,7 +559,6 @@ public class CurriculumServiceImpl implements CurriculumService {
         response.setTimeLimitMinutes(quiz.getTimeLimitMinutes());
         response.setRoundingIncrement(quiz.getRoundingIncrement());
         response.setGradingMethod(quiz.getGradingMethod());
-        response.setIsAssessment(quiz.getIsAssessment());
         response.setCooldownHours(quiz.getCooldownHours());
         response.setQuestions(questionResponses);
         return response;

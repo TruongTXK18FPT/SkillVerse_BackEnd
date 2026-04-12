@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.ai_service.service;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -66,9 +67,6 @@ class RoadmapCompletionSyncServiceTest {
         service = new RoadmapCompletionSyncService(
                 progressRepository,
                 roadmapSessionRepository,
-                enrollmentRepository,
-                courseRepository,
-                courseLearningProgressService,
                 taskRepository,
                 new ObjectMapper());
     }
@@ -92,8 +90,7 @@ class RoadmapCompletionSyncServiceTest {
                 .build();
 
         when(courseRepository.findAllById(any())).thenReturn(List.of(beginnerCourse, intermediateCourse));
-        when(enrollmentRepository.findByCourseIdAndUserId(11L, 99L)).thenReturn(Optional.empty());
-        when(enrollmentRepository.findByCourseIdAndUserId(12L, 99L)).thenReturn(Optional.of(enrollment));
+        when(enrollmentRepository.findByUserIdAndCourseIdIn(eq(99L), any())).thenReturn(List.of(enrollment));
         // GAP-9: now uses findByUserIdAndUserNotesContaining instead of findByUserId
         when(taskRepository.findByUserIdAndUserNotesContaining(anyLong(), anyString())).thenReturn(List.of());
         when(progressRepository.findBySessionIdAndQuestId(7L, "node-course")).thenReturn(Optional.empty());
@@ -123,7 +120,7 @@ class RoadmapCompletionSyncServiceTest {
                                 .build();
 
                 when(courseRepository.findAllById(any())).thenReturn(List.of(intermediateCourse));
-                when(enrollmentRepository.findByCourseIdAndUserId(12L, 99L)).thenReturn(Optional.of(enrollment));
+                when(enrollmentRepository.findByUserIdAndCourseIdIn(eq(99L), any())).thenReturn(List.of(enrollment));
                 when(taskRepository.findByUserIdAndUserNotesContaining(anyLong(), anyString())).thenReturn(List.of());
 
                 Map<String, RoadmapResponse.QuestProgress> result = service.overlayDerivedProgress(session, List.of(node), Map.of());
@@ -208,7 +205,7 @@ class RoadmapCompletionSyncServiceTest {
                 .build();
 
         when(courseRepository.findAllById(any())).thenReturn(List.of(course));
-        when(enrollmentRepository.findByCourseIdAndUserId(200L, 90L)).thenReturn(Optional.of(enrollment));
+        when(enrollmentRepository.findByUserIdAndCourseIdIn(eq(90L), any())).thenReturn(List.of(enrollment));
         when(taskRepository.findByUserIdAndUserNotesContaining(eq(90L), anyString())).thenReturn(List.of(doneTask));
 
         Map<String, RoadmapResponse.QuestProgress> result = service.overlayDerivedProgressSnapshot(session, List.of(node), Map.of());
@@ -281,6 +278,45 @@ class RoadmapCompletionSyncServiceTest {
         assertEquals(100, result.get("node-manual").getProgress());
         verify(progressRepository, never()).saveAll(any());
         verify(progressRepository, never()).findBySessionIdAndQuestId(eq(22L), eq("node-manual"));
+    }
+
+    @Test
+    void difficultyToRank_handlesEdgeCaseVariations() {
+        // Test edge-case difficulty strings don't throw
+        // The overlayDerivedProgress exercises difficultyToRank via selectPrimaryCourse
+        assertDoesNotThrow(() ->
+            service.overlayDerivedProgress(
+                buildSession(1L, 1L),
+                List.of(
+                    RoadmapResponse.RoadmapNode.builder()
+                        .id("test-upper-beginner")
+                        .difficulty("Upper Beginner")
+                        .suggestedCourseIds(List.of("1"))
+                        .build(),
+                    RoadmapResponse.RoadmapNode.builder()
+                        .id("test-pre-advanced")
+                        .difficulty("Pre-Advanced")
+                        .suggestedCourseIds(List.of("1"))
+                        .build(),
+                    RoadmapResponse.RoadmapNode.builder()
+                        .id("test-advanced-beginner")
+                        .difficulty("Advanced Beginner")
+                        .suggestedCourseIds(List.of("1"))
+                        .build(),
+                    RoadmapResponse.RoadmapNode.builder()
+                        .id("test-upper-intermediate")
+                        .difficulty("Upper Intermediate")
+                        .suggestedCourseIds(List.of("1"))
+                        .build(),
+                    RoadmapResponse.RoadmapNode.builder()
+                        .id("test-unknown")
+                        .difficulty("some-unknown-difficulty-label")
+                        .suggestedCourseIds(List.of("1"))
+                        .build()
+                ),
+                Map.of()
+            )
+        );
     }
 
     private RoadmapSession buildSession(Long sessionId, Long userId) {

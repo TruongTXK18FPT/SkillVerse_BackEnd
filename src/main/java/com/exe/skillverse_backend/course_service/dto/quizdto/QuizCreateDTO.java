@@ -18,7 +18,6 @@ public class QuizCreateDTO {
     private Integer timeLimitMinutes;
     private Integer roundingIncrement;
     private QuizGradingMethod gradingMethod;
-    private Boolean isAssessment;
     private Integer cooldownHours;
     private List<QuizQuestionCreateDTO> questions; // Quiz questions to create with the quiz
 }

@@ -36,7 +36,6 @@ public class CurriculumItemUpsertDTO {
     private Integer timeLimitMinutes;
     private Integer roundingIncrement;
     private QuizGradingMethod gradingMethod;
-    private Boolean isAssessment;
     private Integer cooldownHours;
     private List<QuizQuestionCreateDTO> questions;
 

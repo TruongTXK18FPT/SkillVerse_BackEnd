@@ -19,7 +19,6 @@ public class QuizDetailDTO {
     private Integer timeLimitMinutes;
     private Integer roundingIncrement;
     private QuizGradingMethod gradingMethod;
-    private Boolean isAssessment;
     private Integer cooldownHours;
     private Integer orderIndex;
     private Long moduleId;

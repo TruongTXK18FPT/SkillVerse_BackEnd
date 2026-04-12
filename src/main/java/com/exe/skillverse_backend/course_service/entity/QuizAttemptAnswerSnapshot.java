@@ -44,20 +44,17 @@ public class QuizAttemptAnswerSnapshot {
     @Column(name = "question_order_index")
     private Integer questionOrderIndex;
 
-    @Lob
-    @Column(name = "question_text", nullable = false)
+    @Column(name = "question_text", nullable = false, columnDefinition = "TEXT")
     private String questionText;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "question_type", nullable = false, length = 20)
     private QuestionType questionType;
 
-    @Lob
-    @Column(name = "submitted_answer_text")
+    @Column(name = "submitted_answer_text", columnDefinition = "TEXT")
     private String submittedAnswerText;
 
-    @Lob
-    @Column(name = "correct_answer_text")
+    @Column(name = "correct_answer_text", columnDefinition = "TEXT")
     private String correctAnswerText;
 
     @Column(name = "submitted_answer_json", columnDefinition = "jsonb")

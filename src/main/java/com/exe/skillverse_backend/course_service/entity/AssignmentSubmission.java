@@ -43,7 +43,8 @@ public class AssignmentSubmission {
   @JoinColumn(name = "file_media_id")
   private Media fileMedia;
 
-  @Lob private String submissionText;
+  @Column(columnDefinition = "TEXT")
+  private String submissionText;
   @Column(length = 500) private String linkUrl;
 
   @Column(nullable = false)
@@ -56,7 +57,8 @@ public class AssignmentSubmission {
   @JoinColumn(name = "graded_by")
   private User gradedBy;
 
-  @Lob private String feedback;
+  @Column(columnDefinition = "TEXT")
+  private String feedback;
 
   // ===== Version tracking fields (Coursera pattern: keep newest + last) =====
   
@@ -91,4 +93,46 @@ public class AssignmentSubmission {
    */
   @Column(name = "is_passed")
   private Boolean isPassed;
+
+  // ===== AI Grading fields =====
+  @Builder.Default
+  @Column(name = "is_ai_graded", nullable = false)
+  private Boolean isAiGraded = false;
+
+  @Column(name = "ai_graded_at")
+  private Instant aiGradedAt;
+
+  @Column(name = "ai_score", precision = 10, scale = 2)
+  private BigDecimal aiScore;
+
+  @Column(name = "ai_feedback", columnDefinition = "TEXT")
+  private String aiFeedback;
+
+  @Column(name = "ai_confidence")
+  private Double aiConfidence; // 0.0 to 1.0
+
+  @Column(name = "mentor_confirmed")
+  private Boolean mentorConfirmed;
+
+  @Builder.Default
+  @Column(name = "ai_grade_attempt_count", nullable = false)
+  private Integer aiGradeAttemptCount = 0;
+
+  @Builder.Default
+  @Column(name = "dispute_flag", nullable = false)
+  private Boolean disputeFlag = false;
+
+  @Column(name = "dispute_at")
+  private Instant disputeAt;
+
+  @Column(name = "dispute_reason", columnDefinition = "TEXT")
+  private String disputeReason;
+
+  /**
+   * Grading mode for this submission.
+   * null/AI = AI grading (default); MENTOR = skip AI, go straight to mentor queue.
+   */
+  @Column(name = "grading_mode", length = 10)
+  @Builder.Default
+  private String gradingMode = "AI";
 }

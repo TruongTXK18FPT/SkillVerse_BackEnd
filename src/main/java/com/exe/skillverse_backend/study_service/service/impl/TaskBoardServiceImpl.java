@@ -15,6 +15,7 @@ import com.exe.skillverse_backend.study_service.entity.TaskColumn;
 import com.exe.skillverse_backend.study_service.repository.TaskColumnRepository;
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
+import com.exe.skillverse_backend.shared.dto.PageResponse;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -24,6 +25,10 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
@@ -82,6 +87,55 @@ public class TaskBoardServiceImpl implements TaskBoardService {
                             .build();
                 })
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TaskResponse> getArchivedTasks(Long userId, Long roadmapSessionId) {
+        List<Task> archived = taskRepository.findByUserId(userId).stream()
+                .filter(t -> Boolean.TRUE.equals(t.getArchived()))
+                .filter(t -> roadmapSessionId == null || (t.getUserNotes() != null && t.getUserNotes().contains("roadmap=" + roadmapSessionId)))
+                .collect(Collectors.toList());
+
+        return archived.stream()
+                .map(this::mapToTaskResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public PageResponse<TaskResponse> getArchivedTasks(Long userId, Long roadmapSessionId, Pageable pageable) {
+        // Filter at SQL level to ensure pagination works correctly.
+        // Previous in-memory filtering caused empty pages when roadmapSessionId tasks
+        // were spread across DB pages — page 1 might contain 0 matching items.
+        Page<Task> page;
+        if (roadmapSessionId != null) {
+            String marker = "roadmap=" + roadmapSessionId;
+            page = taskRepository.findByUserIdAndArchivedTrueAndUserNotesContaining(userId, marker, pageable);
+        } else {
+            page = taskRepository.findByUserIdAndArchivedTrue(userId, pageable);
+        }
+
+        List<TaskResponse> items = page.getContent().stream()
+                .map(this::mapToTaskResponse)
+                .collect(Collectors.toList());
+
+        return PageResponse.<TaskResponse>builder()
+                .items(items)
+                .page(page.getNumber())
+                .size(page.getSize())
+                .total(page.getTotalElements())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public TaskResponse unarchiveTask(UUID taskId) {
+        Task task = taskRepository.findById(taskId)
+                .orElseThrow(() -> new RuntimeException("Task not found"));
+        task.setArchived(false);
+        Task saved = taskRepository.save(task);
+        roadmapCompletionSyncService.syncTaskProgress(saved);
+        return mapToTaskResponse(saved);
     }
 
     /**
@@ -249,6 +303,9 @@ public class TaskBoardServiceImpl implements TaskBoardService {
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new RuntimeException("Task not found"));
 
+        // Save old userNotes BEFORE any modifications so we can sync both source and target nodes
+        String oldUserNotes = task.getUserNotes();
+
         if (request.getTitle() != null) task.setTitle(request.getTitle());
         if (request.getDescription() != null) task.setFullDescription(request.getDescription());
         if (request.getStartDate() != null) task.setStartDate(request.getStartDate());
@@ -273,13 +330,32 @@ public class TaskBoardServiceImpl implements TaskBoardService {
         }
 
         Task savedTask = taskRepository.save(task);
-        roadmapCompletionSyncService.syncTaskProgress(savedTask);
+
+        // Sync roadmap progress for old linkage (source node loses this task)
+        if (oldUserNotes != null && !oldUserNotes.isBlank()) {
+            Task oldTaskStub = Task.builder()
+                    .user(task.getUser())
+                    .userNotes(oldUserNotes)
+                    .build();
+            roadmapCompletionSyncService.syncTaskProgress(oldTaskStub);
+        }
+
+        // Sync roadmap progress for new linkage (target node gains this task)
+        if (savedTask.getUserNotes() != null && !savedTask.getUserNotes().isBlank()) {
+            roadmapCompletionSyncService.syncTaskProgress(savedTask);
+        }
+
         return mapToTaskResponse(savedTask);
     }
 
     @Override
     @Transactional
     public void deleteTask(UUID taskId) {
+        Task task = taskRepository.findById(taskId).orElse(null);
+        if (task != null) {
+            // Recalculate roadmap progress BEFORE deleting so the task is excluded from derivation
+            roadmapCompletionSyncService.syncTaskProgress(task);
+        }
         taskRepository.deleteById(taskId);
     }
 
@@ -418,6 +494,7 @@ public class TaskBoardServiceImpl implements TaskBoardService {
                 .satisfactionLevel(task.getSatisfactionLevel())
                 .userNotes(task.getUserNotes())
                 .linkedSessionIds(linkedSessionIds)
+                .archived(task.getArchived())
                 .build();
     }
 }

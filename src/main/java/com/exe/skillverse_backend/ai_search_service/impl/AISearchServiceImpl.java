@@ -157,7 +157,7 @@ public class AISearchServiceImpl implements AISearchService {
 
         try {
             // Get short-term job and candidate data
-            com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob =
+            ShortTermJob shortTermJob =
                     shortTermJobRepository.findById(shortTermJobId)
                     .orElseThrow(() -> new RuntimeException("Short-term job not found"));
 
@@ -197,7 +197,7 @@ public class AISearchServiceImpl implements AISearchService {
     }
 
     private AICandidateMatchRequest buildShortTermMatchRequest(
-            com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob,
+            ShortTermJob shortTermJob,
             User candidate,
             PortfolioExtendedProfile profile) {
         return AICandidateMatchRequest.builder()
@@ -226,7 +226,7 @@ public class AISearchServiceImpl implements AISearchService {
         log.debug("Using fallback rule-based matching for short-term job {} candidate {}", shortTermJobId, candidateId);
 
         try {
-            com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob =
+            ShortTermJob shortTermJob =
                     shortTermJobRepository.findById(shortTermJobId).orElse(null);
             PortfolioExtendedProfile profile = portfolioRepository.findById(candidateId).orElse(null);
 
@@ -268,7 +268,7 @@ public class AISearchServiceImpl implements AISearchService {
     }
 
     private double calculateSkillMatchForShortTermJob(
-            com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob,
+            ShortTermJob shortTermJob,
             PortfolioExtendedProfile profile) {
         if (shortTermJob == null || shortTermJob.getRequiredSkills() == null || shortTermJob.getRequiredSkills().isBlank()) {
             return 0.5;
@@ -293,7 +293,7 @@ public class AISearchServiceImpl implements AISearchService {
     }
 
     private List<AICandidateMatchResponse.SkillSignal> extractMatchingSkillsForShortTermJob(
-            com.exe.skillverse_backend.business_service.entity.ShortTermJob shortTermJob,
+            ShortTermJob shortTermJob,
             PortfolioExtendedProfile profile) {
         List<AICandidateMatchResponse.SkillSignal> signals = new ArrayList<>();
         if (shortTermJob == null || profile == null) return signals;

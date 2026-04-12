@@ -298,6 +298,72 @@ public class CourseServiceImpl implements CourseService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public PageResponse<CourseSummaryDTO> listCoursesByAuthor(Long authorId, CourseStatus status, Pageable pageable) {
+        log.debug("Listing courses by author {} with status {}, page {}", authorId, status, pageable.getPageNumber());
+
+        Page<Course> page = courseRepository.findByAuthorIdAndStatus(authorId, status, pageable);
+
+        Map<Long, Integer> moduleCountMap = getModuleCountMap(page.getContent());
+        Map<Long, CourseRevision> activeRevisionMap = loadActiveRevisionsForReadPath(page.getContent());
+
+        List<CourseSummaryDTO> courseSummaries = page.getContent().stream()
+                .map(course -> {
+                    CourseSummaryDTO summary = courseMapper.toSummaryDto(course);
+                    applyRevisionToSummary(summary, activeRevisionMap.get(course.getActiveRevisionId()));
+                    summary.setModuleCount(moduleCountMap.getOrDefault(course.getId(), 0));
+                    return summary;
+                })
+                .toList();
+
+        return PageResponse.<CourseSummaryDTO>builder()
+                .items(courseSummaries)
+                .page(page.getNumber())
+                .size(page.getSize())
+                .total(page.getTotalElements())
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<CourseSummaryDTO> listCoursesByAuthorNonArchived(Long authorId, Pageable pageable) {
+        log.debug("Listing non-archived courses by author {}, page {}", authorId, pageable.getPageNumber());
+
+        Page<Course> page = courseRepository.findByAuthorIdNonArchived(authorId, pageable);
+
+        Map<Long, Integer> moduleCountMap = getModuleCountMap(page.getContent());
+        Map<Long, CourseRevision> activeRevisionMap = loadActiveRevisionsForReadPath(page.getContent());
+
+        List<CourseSummaryDTO> courseSummaries = page.getContent().stream()
+                .map(course -> {
+                    CourseSummaryDTO summary = courseMapper.toSummaryDto(course);
+                    applyRevisionToSummary(summary, activeRevisionMap.get(course.getActiveRevisionId()));
+                    summary.setModuleCount(moduleCountMap.getOrDefault(course.getId(), 0));
+                    return summary;
+                })
+                .toList();
+
+        return PageResponse.<CourseSummaryDTO>builder()
+                .items(courseSummaries)
+                .page(page.getNumber())
+                .size(page.getSize())
+                .total(page.getTotalElements())
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<String, Long> getCourseStatsByAuthor(Long authorId) {
+        log.debug("Fetching course statistics by status for author {}", authorId);
+        Map<String, Long> stats = new HashMap<>();
+        for (CourseStatus status : CourseStatus.values()) {
+            stats.put(status.name(), courseRepository.countByAuthorIdAndStatus(authorId, status));
+        }
+        stats.put("ALL", courseRepository.countByAuthorId(authorId));
+        return stats;
+    }
+
+    @Override
     @Transactional
     public CourseDetailDTO submitCourseForApproval(Long courseId, Long actorId) {
         log.info("Submitting course {} for approval by actor {}", courseId, actorId);

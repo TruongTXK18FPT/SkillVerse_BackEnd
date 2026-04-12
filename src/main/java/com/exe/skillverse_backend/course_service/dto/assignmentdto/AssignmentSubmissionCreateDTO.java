@@ -8,8 +8,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AssignmentSubmissionCreateDTO {
-    //Long fileMediaId, String submissionText, String linkUrl
     private Long fileMediaId;
     private String submissionText;
     private String linkUrl;
+    private GradingMode gradingMode; // null = AI default
 }

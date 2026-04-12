@@ -8,7 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Component
 @RequiredArgsConstructor
@@ -19,10 +19,10 @@ public class CourseLearningRevisionBackfillScheduler {
 
     private final CourseEnrollmentRepository enrollmentRepository;
     private final CourseLearningRevisionBackfillProperties properties;
+    private final TransactionTemplate transactionTemplate;
     private final MeterRegistry meterRegistry;
 
     @Scheduled(fixedDelayString = "${app.course.revision.learning-revision-backfill.fixed-delay-ms:60000}")
-    @Transactional
     public void backfillLearningRevisionId() {
         if (!properties.isEnabled()) {
             return;
@@ -31,14 +31,24 @@ public class CourseLearningRevisionBackfillScheduler {
         int normalizedBatchSize = Math.max(1, properties.getBatchSize());
         int maxBatches = Math.max(1, properties.getMaxBatchesPerRun());
         int totalUpdated = 0;
+        int totalSkipped = 0;
 
         for (int i = 0; i < maxBatches; i++) {
-            int updated = enrollmentRepository.backfillLearningRevisionBatch(normalizedBatchSize);
-            if (updated <= 0) {
-                break;
+            try {
+                Integer updated = transactionTemplate.execute(status -> {
+                    return enrollmentRepository.backfillLearningRevisionBatch(normalizedBatchSize);
+                });
+                if (updated == null || updated <= 0) {
+                    break;
+                }
+                totalUpdated += updated;
+                incrementCounter("updated", "none", updated);
+            } catch (Exception e) {
+                totalSkipped++;
+                incrementCounter("skipped", "batch_failed", 1);
+                log.warn("Backfill batch {} failed, skipping: {}", i + 1, e.getMessage());
+                // Continue to next batch — don't fail entire run
             }
-            totalUpdated += updated;
-            incrementCounter("updated", "none", updated);
         }
 
         long remaining = enrollmentRepository.countLearningRevisionBackfillRemaining();
@@ -47,15 +57,17 @@ public class CourseLearningRevisionBackfillScheduler {
         if (noTarget > 0) {
             incrementCounter("skipped", "baseline_not_found", noTarget);
             log.warn(
-                    "course_learning_revision_backfill_event result=skipped reasonCode=baseline_not_found updated={} remaining={} noTarget={}",
+                    "course_learning_revision_backfill_event result=skipped reasonCode=baseline_not_found updated={} skipped={} remaining={} noTarget={}",
                     totalUpdated,
+                    totalSkipped,
                     remaining,
                     noTarget
             );
         } else {
             log.info(
-                    "course_learning_revision_backfill_event result=ok reasonCode=none updated={} remaining={} noTarget={}",
+                    "course_learning_revision_backfill_event result=ok reasonCode=none updated={} skipped={} remaining={} noTarget={}",
                     totalUpdated,
+                    totalSkipped,
                     remaining,
                     noTarget
             );

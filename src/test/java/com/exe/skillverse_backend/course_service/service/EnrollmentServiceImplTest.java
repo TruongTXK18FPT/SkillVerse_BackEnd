@@ -36,10 +36,12 @@ import org.springframework.data.domain.PageRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -178,6 +180,7 @@ class EnrollmentServiceImplTest {
         assertEquals(100, enrollment.getProgressPercent());
         assertEquals(EnrollmentStatus.COMPLETED, enrollment.getStatus());
         verify(enrollmentRepository).save(enrollment);
+        assertNotNull(enrollment.getCompletedAt());
     }
 
     @Test
@@ -199,6 +202,7 @@ class EnrollmentServiceImplTest {
 
         assertEquals(EnrollmentStatus.COMPLETED, enrollment.getStatus());
         assertEquals(100, enrollment.getProgressPercent());
+        assertNotNull(enrollment.getCompletedAt());
     }
 
     @Test
@@ -210,6 +214,9 @@ class EnrollmentServiceImplTest {
         when(courseRepository.findById(course.getId())).thenReturn(Optional.of(course));
         when(enrollmentRepository.countByCourseId(course.getId())).thenReturn(10L);
         when(enrollmentRepository.countActiveEnrollmentsByCourseId(course.getId())).thenReturn(7L);
+        when(enrollmentRepository.findAverageProgressByCourseId(course.getId())).thenReturn(62.5);
+        when(enrollmentRepository.countEnrollmentsSinceByCourseId(eq(course.getId()), any(Instant.class))).thenReturn(3L);
+        when(enrollmentRepository.countCompletionsSinceByCourseId(eq(course.getId()), any(Instant.class))).thenReturn(1L);
 
         EnrollmentStatsDTO stats = service.getEnrollmentStats(course.getId(), author.getId());
 
@@ -217,6 +224,9 @@ class EnrollmentServiceImplTest {
         assertEquals(7L, stats.getActiveEnrollments());
         assertEquals(3L, stats.getCompletedEnrollments());
         assertEquals(30.0, stats.getCompletionRate());
+        assertEquals(62.5, stats.getAverageProgress());
+        assertEquals(3L, stats.getEnrollmentsThisMonth());
+        assertEquals(1L, stats.getCompletionsThisMonth());
     }
 
     @Test

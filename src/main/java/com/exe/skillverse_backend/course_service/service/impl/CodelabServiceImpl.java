@@ -35,9 +35,15 @@ import com.exe.skillverse_backend.course_service.repository.CodingTestCaseReposi
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 
+/**
+ * CODELAB_LEGACY: This feature is deprecated.
+ * No code execution engine is integrated — submissions are stored as QUEUED and never evaluated.
+ * @deprecated since 2026-04-08 — will be removed in a future release
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@Deprecated
 public class CodelabServiceImpl implements CodelabService {
 
     private final CodingExerciseRepository exerciseRepository;

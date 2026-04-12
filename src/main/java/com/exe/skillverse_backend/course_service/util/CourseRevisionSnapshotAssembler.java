@@ -153,11 +153,6 @@ public final class CourseRevisionSnapshotAssembler {
         putNullableInteger(node, "quizTimeLimitMinutes", quiz.getTimeLimitMinutes());
         putNullableInteger(node, "roundingIncrement", quiz.getRoundingIncrement());
         putNullableText(node, "gradingMethod", quiz.getGradingMethod() != null ? quiz.getGradingMethod().name() : null);
-        if (quiz.getIsAssessment() != null) {
-            node.put("isAssessment", quiz.getIsAssessment());
-        } else {
-            node.putNull("isAssessment");
-        }
         putNullableInteger(node, "cooldownHours", quiz.getCooldownHours());
 
         ArrayNode questionsNode = node.putArray("questions");
@@ -239,6 +234,14 @@ public final class CourseRevisionSnapshotAssembler {
             putNullableDecimal(criteriaItem, "passingPoints", assignmentCriteria.getPassingPoints());
             criteriaItem.put("isRequired", assignmentCriteria.isRequired());
         }
+
+        // AI Grading fields — always write, including false values (absent vs false is ambiguous)
+        node.put("aiGradingEnabled",
+                Boolean.TRUE.equals(assignment.getAiGradingEnabled()));
+        putNullableText(node, "gradingStyle", assignment.getGradingStyle());
+        putNullableText(node, "aiGradingPrompt", assignment.getAiGradingPrompt());
+        node.put("trustAiEnabled",
+                Boolean.TRUE.equals(assignment.getTrustAiEnabled()));
 
         return node;
     }

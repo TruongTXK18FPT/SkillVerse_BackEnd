@@ -37,4 +37,27 @@ public class GenerateScheduleRequest {
      * beyond the primary node's scope (GAP-6 fix).
      */
     private List<String> childBranchTitles;
+
+    /**
+     * Module IDs of the course(s) suggested for this roadmap node.
+     * Used by AiStudySupportServiceImpl to load module + lesson content
+     * for the AI Study Planner prompt.
+     *
+     * <p>When set, AiStudySupportServiceImpl fetches actual module titles,
+     * lesson titles, and content from the course_service layer and injects
+     * them into the prompt so the AI generates sessions based on real course content.
+     *
+     * <p>Populated by {@code JourneyServiceImpl.createStudyPlanForRoadmapNode()}
+     * when the roadmap node has suggestedModuleIds from course matching.
+     */
+    private List<String> suggestedModuleIds;
+
+    /**
+     * Course module + lesson content context for the AI Study Planner.
+     * Built lazily by {@code AiStudySupportServiceImpl.buildCourseModulesContext()}
+     * when suggestedModuleIds is set.
+     * Contains a formatted text block with module titles, lesson titles,
+     * durations, and content summaries.
+     */
+    private String courseModulesContext;
 }

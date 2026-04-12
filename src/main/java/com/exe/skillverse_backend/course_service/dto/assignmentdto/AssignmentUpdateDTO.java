@@ -24,5 +24,8 @@ public class AssignmentUpdateDTO {
     private String learningOutcome;
     private String gradingCriteria;
     private List<AssignmentCriteriaDTO> criteria;
-
+    private Boolean aiGradingEnabled;
+    private String aiGradingPrompt;
+    private String gradingStyle;
+    private Boolean trustAiEnabled;
 }

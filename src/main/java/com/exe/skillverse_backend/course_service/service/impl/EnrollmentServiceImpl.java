@@ -22,6 +22,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -92,8 +94,10 @@ public class EnrollmentServiceImpl implements EnrollmentService {
         CourseEnrollment enrollment = enrollmentRepository.findByCourseIdAndUserId(courseId, userId)
                 .orElseThrow(() -> new NotFoundException(ENROLLMENT_NOT_FOUND));
 
-        enrollmentRepository.delete(enrollment);
-        log.info("User {} successfully unenrolled from course {}", userId, courseId);
+        // Soft-delete: preserve enrollment history instead of hard delete
+        enrollment.setStatus(EnrollmentStatus.DROPPED);
+        enrollmentRepository.save(enrollment);
+        log.info("User {} successfully unenrolled from course {} (status=DROPPED)", userId, courseId);
     }
 
     @Override
@@ -156,6 +160,9 @@ public class EnrollmentServiceImpl implements EnrollmentService {
         enrollment.setStatus(completed ? EnrollmentStatus.COMPLETED : EnrollmentStatus.ENROLLED);
         if (completed) {
             enrollment.setProgressPercent(100);
+            enrollment.setCompletedAt(Instant.now(clock));
+        } else {
+            enrollment.setCompletedAt(null);
         }
 
         enrollmentRepository.save(enrollment);
@@ -178,6 +185,7 @@ public class EnrollmentServiceImpl implements EnrollmentService {
         // Auto-complete if progress reaches 100%
         if (progressPercentage == 100) {
             enrollment.setStatus(EnrollmentStatus.COMPLETED);
+            enrollment.setCompletedAt(Instant.now(clock));
         }
 
         enrollmentRepository.save(enrollment);
@@ -201,6 +209,12 @@ public class EnrollmentServiceImpl implements EnrollmentService {
         long completedEnrollments = totalEnrollments - activeEnrollments;
         double completionRate = totalEnrollments > 0 ? (double) completedEnrollments / totalEnrollments * 100 : 0.0;
 
+        // Real stats queries (replaced dummy hardcoded values)
+        Instant thirtyDaysAgo = Instant.now(clock).minus(30, java.time.temporal.ChronoUnit.DAYS);
+        Double avgProgress = enrollmentRepository.findAverageProgressByCourseId(courseId);
+        long enrollmentsThisMonth = enrollmentRepository.countEnrollmentsSinceByCourseId(courseId, thirtyDaysAgo);
+        long completionsThisMonth = enrollmentRepository.countCompletionsSinceByCourseId(courseId, thirtyDaysAgo);
+
         return EnrollmentStatsDTO.builder()
                 .courseId(courseId)
                 .courseTitle(course.getTitle())
@@ -208,9 +222,9 @@ public class EnrollmentServiceImpl implements EnrollmentService {
                 .activeEnrollments(activeEnrollments)
                 .completedEnrollments(completedEnrollments)
                 .completionRate(completionRate)
-                .averageProgress(50.0) // Simplified - would need complex query
-                .enrollmentsThisMonth(0L) // Simplified - would need date filtering
-                .completionsThisMonth(0L) // Simplified - would need date filtering
+                .averageProgress(avgProgress != null ? avgProgress : 0.0)
+                .enrollmentsThisMonth(enrollmentsThisMonth)
+                .completionsThisMonth(completionsThisMonth)
                 .build();
     }
 
@@ -235,8 +249,10 @@ public class EnrollmentServiceImpl implements EnrollmentService {
     private EnrollmentDetailDTO mapToDetailDTO(CourseEnrollment enrollment) {
         Course course = enrollment.getCourse();
         LocalDateTime enrolledAt = LocalDateTime.ofInstant(enrollment.getEnrollDate(), ZoneId.systemDefault());
-        LocalDateTime completedAt = enrollment.getStatus() == EnrollmentStatus.COMPLETED ? enrolledAt.plusDays(7)
-                : null; // Simplified
+        // Use real completedAt timestamp from entity (set when status becomes COMPLETED)
+        LocalDateTime completedAt = enrollment.getCompletedAt() != null
+                ? LocalDateTime.ofInstant(enrollment.getCompletedAt(), ZoneId.systemDefault())
+                : null;
 
         return EnrollmentDetailDTO.builder()
                 .id(course.getId()) // Using courseId as id for simplicity
@@ -257,6 +273,21 @@ public class EnrollmentServiceImpl implements EnrollmentService {
                 .completedAt(completedAt)
                 .completed(enrollment.getStatus() == EnrollmentStatus.COMPLETED)
                 .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EnrollmentDetailDTO> getEnrollmentsByCourseIds(Long userId, List<Long> courseIds) {
+        if (userId == null || courseIds == null || courseIds.isEmpty()) {
+            return List.of();
+        }
+
+        List<CourseEnrollment> enrollments =
+            enrollmentRepository.findByUserIdAndCourseIdIn(userId, courseIds);
+
+        return enrollments.stream()
+                .map(this::mapToDetailDTO)
+                .collect(Collectors.toList());
     }
 
     private Long resolveInitialLearningRevisionId(Course course) {

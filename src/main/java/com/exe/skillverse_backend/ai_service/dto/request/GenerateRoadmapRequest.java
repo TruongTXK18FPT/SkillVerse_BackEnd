@@ -128,6 +128,29 @@ public class GenerateRoadmapRequest {
         return roadmapType;
     }
 
+    private String normalizeDurationToken(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = raw.trim();
+        if (value.isBlank()) {
+            return null;
+        }
+
+        String upper = value.toUpperCase();
+        if (upper.equals("3M")) {
+            return "3 tháng";
+        }
+        if (upper.equals("6M")) {
+            return "6 tháng";
+        }
+        if (upper.equals("12M")) {
+            return "12 tháng";
+        }
+
+        return value;
+    }
+
     public String getTarget() {
         if (roadmapMode == RoadmapMode.SKILL_BASED) {
             if (skillName != null && !skillName.isBlank()) return skillName;
@@ -139,16 +162,46 @@ public class GenerateRoadmapRequest {
     }
 
     public String getDailyTime() {
-        if (dailyLearningTime != null && !dailyLearningTime.isBlank()) return dailyLearningTime;
+        if (dailyLearningTime != null && !dailyLearningTime.isBlank()) {
+            return dailyLearningTime;
+        }
+        if (dailyTime != null && !dailyTime.isBlank()) {
+            return dailyTime;
+        }
+        if (roadmapMode == RoadmapMode.SKILL_BASED || roadmapMode == RoadmapMode.CAREER_BASED) {
+            return "1_HOUR";
+        }
         return dailyTime;
     }
 
     public String getDesiredDuration() {
-        if (desiredDuration != null && !desiredDuration.isBlank()) return desiredDuration;
-        if (timelineToWork != null && !timelineToWork.isBlank()) return timelineToWork;
-        // Skill mode: default 1 tháng nếu có dailyLearningTime
-        if (dailyLearningTime != null && !dailyLearningTime.isBlank()) return "1 tháng";
+        if (desiredDuration != null && !desiredDuration.isBlank()) {
+            return normalizeDurationToken(desiredDuration);
+        }
+        if (roadmapMode == RoadmapMode.CAREER_BASED) {
+            if (timelineToWork != null && !timelineToWork.isBlank()) {
+                return normalizeDurationToken(timelineToWork);
+            }
+            return "6 tháng";
+        }
+        if (roadmapMode == RoadmapMode.SKILL_BASED) {
+            return "1 tháng";
+        }
+        if (timelineToWork != null && !timelineToWork.isBlank()) {
+            return normalizeDurationToken(timelineToWork);
+        }
+        if (dailyLearningTime != null && !dailyLearningTime.isBlank()) {
+            return "1 tháng";
+        }
         return null;
+    }
+
+    public String getDuration() {
+        String desired = getDesiredDuration();
+        if (desired != null && !desired.isBlank()) {
+            return desired;
+        }
+        return duration;
     }
 
     public String getCurrentLevel() {

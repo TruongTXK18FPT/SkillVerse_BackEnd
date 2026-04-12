@@ -59,10 +59,13 @@ public class DatabaseSchemaFixer {
         ensurePatchHistoryTable();
         acquireAdvisoryLock();
         try {
-            applyPatch("fix-quizzes-description-oid", "Cast quizzes.description from TEXT to TEXT to resolve Hibernate oid cast failure",
+            // ─── quizzes.description oid → TEXT ─────────────────────────────────
+            applyPatch("fix-quizzes-description-oid",
+                    "Cast quizzes.description from TEXT to TEXT to resolve Hibernate oid cast failure",
                     this::patchQuizzesDescriptionOid,
                     this::verifyQuizzesDescriptionOid);
 
+            // ─── student_learning_reports snapshot columns ──────────────────────
             applyPatch("add-student-learning-report-snapshots",
                     "Add missing snapshot columns to student_learning_reports for Hibernate schema validation",
                     this::patchStudentLearningReportSnapshotColumns,
@@ -88,7 +91,91 @@ public class DatabaseSchemaFixer {
                     this::patchJobPostingsPostingFeeCharged,
                     this::verifyJobPostingsPostingFeeCharged);
 
-                applyPatch("sync-notifications-type-check-constraint",
+            applyPatch("sync-notifications-type-check-constraint",
+                    "Sync notifications.type check constraint with NotificationType enum values",
+                    this::patchNotificationsTypeConstraint,
+                    this::verifyNotificationsTypeConstraint);
+
+            // ─── Course-related entity oid → TEXT patches ────────────────────────
+            // Hibernate @Lob on String maps to oid in PostgreSQL.
+            // These patches convert oid columns to TEXT so Hibernate reads them correctly.
+            applyPatch("fix-courses-oid",
+                    "Convert course-related oid columns to TEXT",
+                    this::patchCoursesOid, this::verifyCoursesOid);
+
+            applyPatch("fix-coding-exercises-oid",
+                    "Convert coding_exercises oid columns to TEXT",
+                    this::patchCodingExercisesOid, this::verifyCodingExercisesOid);
+
+            applyPatch("fix-coding-test-cases-oid",
+                    "Convert coding_test_cases oid columns to TEXT",
+                    this::patchCodingTestCasesOid, this::verifyCodingTestCasesOid);
+
+            applyPatch("fix-coding-submissions-oid",
+                    "Convert coding_submissions oid columns to TEXT",
+                    this::patchCodingSubmissionsOid, this::verifyCodingSubmissionsOid);
+
+            applyPatch("fix-lessons-oid",
+                    "Convert lessons oid columns to TEXT",
+                    this::patchLessonsOid, this::verifyLessonsOid);
+
+            applyPatch("fix-quiz-questions-oid",
+                    "Convert quiz_questions oid columns to TEXT",
+                    this::patchQuizQuestionsOid, this::verifyQuizQuestionsOid);
+
+            applyPatch("fix-quiz-options-oid",
+                    "Convert quiz_options oid columns to TEXT",
+                    this::patchQuizOptionsOid, this::verifyQuizOptionsOid);
+
+            applyPatch("fix-assignments-oid",
+                    "Convert assignments oid columns to TEXT",
+                    this::patchAssignmentsOid, this::verifyAssignmentsOid);
+
+            applyPatch("fix-assignment-submissions-oid",
+                    "Convert assignment_submissions oid columns to TEXT",
+                    this::patchAssignmentSubmissionsOid, this::verifyAssignmentSubmissionsOid);
+
+            applyPatch("fix-certificates-oid",
+                    "Convert certificates oid columns to TEXT",
+                    this::patchCertificatesOid, this::verifyCertificatesOid);
+
+            applyPatch("fix-quiz-attempt-answer-snapshots-oid",
+                    "Convert quiz_attempt_answer_snapshots oid columns to TEXT",
+                    this::patchQuizAttemptAnswerSnapshotsOid, this::verifyQuizAttemptAnswerSnapshotsOid);
+
+            // ─── AI Grading fields — assignments table ────────────────────────────
+            applyPatch("add-assignments-ai-grading-fields",
+                    "Add AI grading columns to assignments table",
+                    this::patchAssignmentsAiGradingFields,
+                    this::verifyAssignmentsAiGradingFields);
+
+            // ─── AI Grading fields — assignment_submissions table ───────────────
+            applyPatch("add-assignment-submissions-ai-grading-fields",
+                    "Add AI grading columns to assignment_submissions table",
+                    this::patchAssignmentSubmissionsAiGradingFields,
+                    this::verifyAssignmentSubmissionsAiGradingFields);
+
+            applyPatch("create-contract-signatures-table",
+                    "Create contract_signatures table for digital signature tracking",
+                    this::patchContractSignaturesTable,
+                    this::verifyContractSignaturesTable);
+
+            applyPatch("add-violation-reports-reported-user-name",
+                    "Add reported_user_name column to violation_reports for storing reported user's display name",
+                    this::patchViolationReportsReportedUserName,
+                    this::verifyViolationReportsReportedUserName);
+
+            applyPatch("create-job-contracts-table",
+                    "Create job_contracts table for managing employment contracts with digital signatures",
+                    this::patchJobContractsTable,
+                    this::verifyJobContractsTable);
+
+            applyPatch("add-job-postings-posting-fee-charged",
+                    "Add posting_fee_charged column to job_postings for Hibernate schema validation",
+                    this::patchJobPostingsPostingFeeCharged,
+                    this::verifyJobPostingsPostingFeeCharged);
+
+            applyPatch("sync-notifications-type-check-constraint",
                     "Sync notifications.type check constraint with NotificationType enum values",
                     this::patchNotificationsTypeConstraint,
                     this::verifyNotificationsTypeConstraint);
@@ -99,13 +186,13 @@ public class DatabaseSchemaFixer {
         }
     }
 
+    // ─── quizzes.description oid ────────────────────────────────────────────────
+
     private void patchQuizzesDescriptionOid() {
         if (!hasTable("quizzes")) {
             log.debug("Table quizzes does not exist yet, skipping patch.");
             return;
         }
-        // Hibernate @Lob on String maps to oid in PostgreSQL.
-        // The column is already TEXT so we cast it explicitly to satisfy Hibernate's DDL.
         executeSql("ALTER TABLE quizzes ALTER COLUMN description TYPE TEXT USING description::text");
     }
 
@@ -118,6 +205,8 @@ public class DatabaseSchemaFixer {
         );
         return !results.isEmpty() && "text".equalsIgnoreCase((String) results.get(0).get("data_type"));
     }
+
+    // ─── student_learning_reports snapshot columns ─────────────────────────────
 
     private void patchStudentLearningReportSnapshotColumns() {
         if (!hasTable("student_learning_reports")) {
@@ -144,6 +233,286 @@ public class DatabaseSchemaFixer {
                 && hasColumn("student_learning_reports", "total_study_hours_snapshot")
                 && hasColumn("student_learning_reports", "streak_days_snapshot")
                 && hasColumn("student_learning_reports", "tasks_completed_snapshot");
+    }
+
+    // ─── Course-related oid → TEXT patches ────────────────────────────────────
+
+    private void patchCoursesOid() {
+        if (!hasTable("courses")) return;
+        executeSql("ALTER TABLE courses ALTER COLUMN description TYPE TEXT USING description::text");
+        if (hasColumn("courses", "rejection_reason"))
+            executeSql("ALTER TABLE courses ALTER COLUMN rejection_reason TYPE TEXT USING rejection_reason::text");
+        if (hasColumn("courses", "suspension_reason"))
+            executeSql("ALTER TABLE courses ALTER COLUMN suspension_reason TYPE TEXT USING suspension_reason::text");
+    }
+
+    private boolean verifyCoursesOid() {
+        if (!hasTable("courses")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'courses' AND column_name IN ('description','rejection_reason','suspension_reason')"
+        );
+        if (cols.isEmpty()) return true;
+        for (var row : cols) {
+            if (!"text".equalsIgnoreCase((String) row.get("data_type"))) return false;
+        }
+        return true;
+    }
+
+    private void patchCodingExercisesOid() {
+        if (!hasTable("coding_exercises")) return;
+        executeSql("ALTER TABLE coding_exercises ALTER COLUMN prompt TYPE TEXT USING prompt::text");
+        if (hasColumn("coding_exercises", "starter_code"))
+            executeSql("ALTER TABLE coding_exercises ALTER COLUMN starter_code TYPE TEXT USING starter_code::text");
+    }
+
+    private boolean verifyCodingExercisesOid() {
+        if (!hasTable("coding_exercises")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'coding_exercises' AND column_name IN ('prompt','starter_code')"
+        );
+        if (cols.isEmpty()) return true;
+        for (var row : cols) {
+            if (!"text".equalsIgnoreCase((String) row.get("data_type"))) return false;
+        }
+        return true;
+    }
+
+    private void patchCodingTestCasesOid() {
+        if (!hasTable("coding_test_cases")) return;
+        executeSql("ALTER TABLE coding_test_cases ALTER COLUMN input TYPE TEXT USING input::text");
+        executeSql("ALTER TABLE coding_test_cases ALTER COLUMN expected_output TYPE TEXT USING expected_output::text");
+    }
+
+    private boolean verifyCodingTestCasesOid() {
+        if (!hasTable("coding_test_cases")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'coding_test_cases' AND column_name IN ('input','expected_output')"
+        );
+        if (cols.isEmpty()) return true;
+        for (var row : cols) {
+            if (!"text".equalsIgnoreCase((String) row.get("data_type"))) return false;
+        }
+        return true;
+    }
+
+    private void patchCodingSubmissionsOid() {
+        if (!hasTable("coding_submissions")) return;
+        executeSql("ALTER TABLE coding_submissions ALTER COLUMN submitted_code TYPE TEXT USING submitted_code::text");
+        if (hasColumn("coding_submissions", "feedback"))
+            executeSql("ALTER TABLE coding_submissions ALTER COLUMN feedback TYPE TEXT USING feedback::text");
+    }
+
+    private boolean verifyCodingSubmissionsOid() {
+        if (!hasTable("coding_submissions")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'coding_submissions' AND column_name IN ('submitted_code','feedback')"
+        );
+        if (cols.isEmpty()) return true;
+        for (var row : cols) {
+            if (!"text".equalsIgnoreCase((String) row.get("data_type"))) return false;
+        }
+        return true;
+    }
+
+    private void patchLessonsOid() {
+        if (!hasTable("lessons")) return;
+        if (hasColumn("lessons", "content_text"))
+            executeSql("ALTER TABLE lessons ALTER COLUMN content_text TYPE TEXT USING content_text::text");
+    }
+
+    private boolean verifyLessonsOid() {
+        if (!hasTable("lessons")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'lessons' AND column_name = 'content_text'"
+        );
+        if (cols.isEmpty()) return true;
+        return "text".equalsIgnoreCase((String) cols.get(0).get("data_type"));
+    }
+
+    private void patchQuizQuestionsOid() {
+        if (!hasTable("quiz_questions")) return;
+        executeSql("ALTER TABLE quiz_questions ALTER COLUMN question_text TYPE TEXT USING question_text::text");
+    }
+
+    private boolean verifyQuizQuestionsOid() {
+        if (!hasTable("quiz_questions")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'quiz_questions' AND column_name = 'question_text'"
+        );
+        if (cols.isEmpty()) return true;
+        return "text".equalsIgnoreCase((String) cols.get(0).get("data_type"));
+    }
+
+    private void patchQuizOptionsOid() {
+        if (!hasTable("quiz_options")) return;
+        executeSql("ALTER TABLE quiz_options ALTER COLUMN option_text TYPE TEXT USING option_text::text");
+    }
+
+    private boolean verifyQuizOptionsOid() {
+        if (!hasTable("quiz_options")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'quiz_options' AND column_name = 'option_text'"
+        );
+        if (cols.isEmpty()) return true;
+        return "text".equalsIgnoreCase((String) cols.get(0).get("data_type"));
+    }
+
+    private void patchAssignmentsOid() {
+        if (!hasTable("assignments")) return;
+        executeSql("ALTER TABLE assignments ALTER COLUMN description TYPE TEXT USING description::text");
+        if (hasColumn("assignments", "grading_criteria"))
+            executeSql("ALTER TABLE assignments ALTER COLUMN grading_criteria TYPE TEXT USING grading_criteria::text");
+        if (hasColumn("assignments", "learning_outcome"))
+            executeSql("ALTER TABLE assignments ALTER COLUMN learning_outcome TYPE TEXT USING learning_outcome::text");
+    }
+
+    private boolean verifyAssignmentsOid() {
+        if (!hasTable("assignments")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'assignments' AND column_name IN ('description','grading_criteria','learning_outcome')"
+        );
+        if (cols.isEmpty()) return true;
+        for (var row : cols) {
+            if (!"text".equalsIgnoreCase((String) row.get("data_type"))) return false;
+        }
+        return true;
+    }
+
+    private void patchAssignmentSubmissionsOid() {
+        if (!hasTable("assignment_submissions")) return;
+        executeSql("ALTER TABLE assignment_submissions ALTER COLUMN submission_text TYPE TEXT USING submission_text::text");
+        if (hasColumn("assignment_submissions", "feedback"))
+            executeSql("ALTER TABLE assignment_submissions ALTER COLUMN feedback TYPE TEXT USING feedback::text");
+    }
+
+    private boolean verifyAssignmentSubmissionsOid() {
+        if (!hasTable("assignment_submissions")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'assignment_submissions' AND column_name IN ('submission_text','feedback')"
+        );
+        if (cols.isEmpty()) return true;
+        for (var row : cols) {
+            if (!"text".equalsIgnoreCase((String) row.get("data_type"))) return false;
+        }
+        return true;
+    }
+
+    private void patchCertificatesOid() {
+        if (!hasTable("certificates")) return;
+        if (hasColumn("certificates", "criteria"))
+            executeSql("ALTER TABLE certificates ALTER COLUMN criteria TYPE TEXT USING criteria::text");
+    }
+
+    private boolean verifyCertificatesOid() {
+        if (!hasTable("certificates")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'certificates' AND column_name = 'criteria'"
+        );
+        if (cols.isEmpty()) return true;
+        return "text".equalsIgnoreCase((String) cols.get(0).get("data_type"));
+    }
+
+    private void patchQuizAttemptAnswerSnapshotsOid() {
+        if (!hasTable("quiz_attempt_answer_snapshots")) return;
+        executeSql("ALTER TABLE quiz_attempt_answer_snapshots ALTER COLUMN question_text TYPE TEXT USING question_text::text");
+        if (hasColumn("quiz_attempt_answer_snapshots", "submitted_answer_text"))
+            executeSql("ALTER TABLE quiz_attempt_answer_snapshots ALTER COLUMN submitted_answer_text TYPE TEXT USING submitted_answer_text::text");
+        if (hasColumn("quiz_attempt_answer_snapshots", "correct_answer_text"))
+            executeSql("ALTER TABLE quiz_attempt_answer_snapshots ALTER COLUMN correct_answer_text TYPE TEXT USING correct_answer_text::text");
+    }
+
+    private boolean verifyQuizAttemptAnswerSnapshotsOid() {
+        if (!hasTable("quiz_attempt_answer_snapshots")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'quiz_attempt_answer_snapshots' AND column_name IN ('question_text','submitted_answer_text','correct_answer_text')"
+        );
+        if (cols.isEmpty()) return true;
+        for (var row : cols) {
+            if (!"text".equalsIgnoreCase((String) row.get("data_type"))) return false;
+        }
+        return true;
+    }
+
+    // ─── AI Grading fields — assignments ─────────────────────────────────────
+
+    private void patchAssignmentsAiGradingFields() {
+        if (!hasTable("assignments")) return;
+
+        if (!hasColumn("assignments", "ai_grading_enabled")) {
+            executeSql("ALTER TABLE assignments ADD COLUMN ai_grading_enabled BOOLEAN NOT NULL DEFAULT FALSE");
+        }
+        if (!hasColumn("assignments", "ai_grading_prompt")) {
+            executeSql("ALTER TABLE assignments ADD COLUMN ai_grading_prompt TEXT");
+        }
+        if (!hasColumn("assignments", "grading_style")) {
+            executeSql("ALTER TABLE assignments ADD COLUMN grading_style VARCHAR(20) DEFAULT 'STANDARD'");
+        }
+        if (!hasColumn("assignments", "trust_ai_enabled")) {
+            executeSql("ALTER TABLE assignments ADD COLUMN trust_ai_enabled BOOLEAN NOT NULL DEFAULT FALSE");
+        }
+    }
+
+    private boolean verifyAssignmentsAiGradingFields() {
+        if (!hasTable("assignments")) return true;
+        return hasColumn("assignments", "ai_grading_enabled")
+                && hasColumn("assignments", "ai_grading_prompt")
+                && hasColumn("assignments", "grading_style")
+                && hasColumn("assignments", "trust_ai_enabled");
+    }
+
+    // ─── AI Grading fields — assignment_submissions ──────────────────────────
+
+    private void patchAssignmentSubmissionsAiGradingFields() {
+        if (!hasTable("assignment_submissions")) return;
+
+        if (!hasColumn("assignment_submissions", "is_ai_graded")) {
+            executeSql("ALTER TABLE assignment_submissions ADD COLUMN is_ai_graded BOOLEAN NOT NULL DEFAULT FALSE");
+        }
+        if (!hasColumn("assignment_submissions", "ai_graded_at")) {
+            executeSql("ALTER TABLE assignment_submissions ADD COLUMN ai_graded_at TIMESTAMPTZ");
+        }
+        if (!hasColumn("assignment_submissions", "ai_score")) {
+            executeSql("ALTER TABLE assignment_submissions ADD COLUMN ai_score NUMERIC(10, 2)");
+        }
+        if (!hasColumn("assignment_submissions", "ai_feedback")) {
+            executeSql("ALTER TABLE assignment_submissions ADD COLUMN ai_feedback TEXT");
+        }
+        if (!hasColumn("assignment_submissions", "ai_confidence")) {
+            executeSql("ALTER TABLE assignment_submissions ADD COLUMN ai_confidence DOUBLE PRECISION");
+        }
+        if (!hasColumn("assignment_submissions", "mentor_confirmed")) {
+            executeSql("ALTER TABLE assignment_submissions ADD COLUMN mentor_confirmed BOOLEAN");
+        }
+        if (!hasColumn("assignment_submissions", "ai_grade_attempt_count")) {
+            executeSql("ALTER TABLE assignment_submissions ADD COLUMN ai_grade_attempt_count INTEGER NOT NULL DEFAULT 0");
+        }
+        if (!hasColumn("assignment_submissions", "dispute_flag")) {
+            executeSql("ALTER TABLE assignment_submissions ADD COLUMN dispute_flag BOOLEAN NOT NULL DEFAULT FALSE");
+        }
+        if (!hasColumn("assignment_submissions", "dispute_at")) {
+            executeSql("ALTER TABLE assignment_submissions ADD COLUMN dispute_at TIMESTAMPTZ");
+        }
+        if (!hasColumn("assignment_submissions", "dispute_reason")) {
+            executeSql("ALTER TABLE assignment_submissions ADD COLUMN dispute_reason TEXT");
+        }
+        if (!hasColumn("assignment_submissions", "grading_mode")) {
+            executeSql("ALTER TABLE assignment_submissions ADD COLUMN grading_mode VARCHAR(10) DEFAULT 'AI'");
+        }
+    }
+
+    private boolean verifyAssignmentSubmissionsAiGradingFields() {
+        if (!hasTable("assignment_submissions")) return true;
+        return hasColumn("assignment_submissions", "is_ai_graded")
+                && hasColumn("assignment_submissions", "ai_graded_at")
+                && hasColumn("assignment_submissions", "ai_score")
+                && hasColumn("assignment_submissions", "ai_feedback")
+                && hasColumn("assignment_submissions", "ai_confidence")
+                && hasColumn("assignment_submissions", "mentor_confirmed")
+                && hasColumn("assignment_submissions", "ai_grade_attempt_count")
+                && hasColumn("assignment_submissions", "dispute_flag")
+                && hasColumn("assignment_submissions", "dispute_at")
+                && hasColumn("assignment_submissions", "dispute_reason")
+                && hasColumn("assignment_submissions", "grading_mode");
     }
 
     private void patchContractSignaturesTable() {
@@ -377,7 +746,6 @@ public class DatabaseSchemaFixer {
     }
 
     private void acquireAdvisoryLock() {
-        // Session-level advisory lock: ensures only one instance runs patches at a time.
         jdbcTemplate.execute("SELECT pg_advisory_lock(" + SCHEMA_FIXER_LOCK_KEY + ")");
     }
 
@@ -455,9 +823,6 @@ public class DatabaseSchemaFixer {
 
     // ─── Schema Utilities ────────────────────────────────────────────────────
 
-    /**
-     * Check if a column exists in a table.
-     */
     protected boolean hasColumn(String tableName, String columnName) {
         try {
             var results = jdbcTemplate.queryForList("""
@@ -472,9 +837,6 @@ public class DatabaseSchemaFixer {
         }
     }
 
-    /**
-     * Check if a table exists.
-     */
     protected boolean hasTable(String tableName) {
         try {
             var results = jdbcTemplate.queryForList("""
@@ -487,9 +849,6 @@ public class DatabaseSchemaFixer {
         }
     }
 
-    /**
-     * Check if an index exists.
-     */
     protected boolean hasIndex(String indexName) {
         try {
             var results = jdbcTemplate.queryForList("""
@@ -501,9 +860,6 @@ public class DatabaseSchemaFixer {
         }
     }
 
-    /**
-     * Check if a foreign key constraint exists.
-     */
     protected boolean hasForeignKey(String tableName, String constraintName) {
         try {
             var results = jdbcTemplate.queryForList("""
@@ -518,9 +874,6 @@ public class DatabaseSchemaFixer {
         }
     }
 
-    /**
-     * Execute raw SQL with error handling.
-     */
     protected void executeSql(String sql) {
         jdbcTemplate.execute(sql);
     }

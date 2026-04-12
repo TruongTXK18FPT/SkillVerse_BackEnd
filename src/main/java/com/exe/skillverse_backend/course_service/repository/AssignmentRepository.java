@@ -4,6 +4,8 @@ import com.exe.skillverse_backend.course_service.entity.Assignment;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -83,4 +85,40 @@ public interface AssignmentRepository extends JpaRepository<Assignment, Long> {
     @Transactional(readOnly = true)
     @Query("SELECT CASE WHEN COUNT(a) > 0 THEN true ELSE false END FROM Assignment a WHERE a.module.id = :moduleId")
     boolean existsByModuleId(@Param("moduleId") Long moduleId);
+
+    @Transactional(readOnly = true)
+    long countByAiGradingEnabledTrue();
+
+    @Transactional(readOnly = true)
+    long countByAiGradingEnabledTrueAndTrustAiEnabledTrue();
+
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(a) FROM Assignment a WHERE a.aiGradingEnabled = true AND a.aiGradingPrompt IS NOT NULL AND TRIM(a.aiGradingPrompt) <> ''")
+    long countCustomPromptEnabledAssignments();
+
+    @Transactional(readOnly = true)
+    long countByAiGradingEnabledTrueAndGradingStyle(String gradingStyle);
+
+    @Transactional(readOnly = true)
+    @Query("""
+        SELECT a FROM Assignment a
+        WHERE a.aiGradingEnabled = true
+          AND ((:search IS NULL) OR (:search = '') OR
+            LOWER(a.title) LIKE LOWER(CONCAT('%', :search, '%')) OR
+            LOWER(a.module.title) LIKE LOWER(CONCAT('%', :search, '%')) OR
+            LOWER(a.module.course.title) LIKE LOWER(CONCAT('%', :search, '%')) OR
+            LOWER(CONCAT(COALESCE(a.module.course.author.firstName, ''), ' ', COALESCE(a.module.course.author.lastName, '')))
+              LIKE LOWER(CONCAT('%', :search, '%')))
+          AND (:trustAiEnabled IS NULL OR a.trustAiEnabled = :trustAiEnabled)
+          AND (:hasCustomPrompt IS NULL OR
+            (:hasCustomPrompt = true AND a.aiGradingPrompt IS NOT NULL AND TRIM(a.aiGradingPrompt) <> '') OR
+            (:hasCustomPrompt = false AND (a.aiGradingPrompt IS NULL OR TRIM(a.aiGradingPrompt) = '')))
+          AND (:gradingStyle IS NULL OR a.gradingStyle = :gradingStyle)
+        """)
+    Page<Assignment> findAiGradingAssignments(
+            @Param("search") String search,
+            @Param("trustAiEnabled") Boolean trustAiEnabled,
+            @Param("hasCustomPrompt") Boolean hasCustomPrompt,
+            @Param("gradingStyle") String gradingStyle,
+            Pageable pageable);
 }

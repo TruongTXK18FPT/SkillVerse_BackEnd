@@ -11,12 +11,12 @@ import lombok.NoArgsConstructor;
 @Builder
 public class EnrollRequestDTO {
     private Long courseId;
-    
+
     // Explicit getter for clarity
     public Long getCourseId() {
         return courseId;
     }
-    
+
     // Explicit setter for clarity
     public void setCourseId(Long courseId) {
         this.courseId = courseId;

@@ -27,4 +27,13 @@ public interface TaxonomyService {
     String detectRoleCategory(String roleOrTarget);
 
     String detectIndustry(String target, String provided);
+
+    /**
+     * Expand query terms with taxonomy-aware domain/role skills/tools.
+     *
+     * <p>Always returns a set containing original terms. Expansion is capped by
+     * {@code maxExpansionTerms} and should gracefully degrade when taxonomy context
+     * is unavailable.
+     */
+    Set<String> expandQueryWithTaxonomy(String rawQuery, Set<String> originalTerms, int maxExpansionTerms);
 }

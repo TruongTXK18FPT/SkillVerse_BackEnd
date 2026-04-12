@@ -53,7 +53,7 @@ public class Lesson {
 
   private Integer orderIndex;
 
-  @Lob
+  @Column(columnDefinition = "TEXT")
   private String contentText; // READING
   @Column(length = 500)
   private String resourceUrl; // READING link

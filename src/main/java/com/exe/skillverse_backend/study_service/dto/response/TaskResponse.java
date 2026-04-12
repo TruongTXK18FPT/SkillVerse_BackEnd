@@ -24,4 +24,6 @@ public class TaskResponse {
     private String userNotes;
     private UUID columnId;
     private List<UUID> linkedSessionIds;
+    /** Soft-delete flag — true if task was archived (hidden from board but preserved in DB). */
+    private Boolean archived;
 }

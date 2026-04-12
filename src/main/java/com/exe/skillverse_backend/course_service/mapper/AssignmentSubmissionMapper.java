@@ -44,6 +44,17 @@ public interface AssignmentSubmissionMapper {
     @Mapping(target = "isNewest", source = "isNewest")
     @Mapping(target = "isPrevious", source = "isPrevious")
     @Mapping(target = "isLate", source = "isLate")
+    // AI Grading fields
+    @Mapping(target = "isAiGraded", source = "isAiGraded")
+    @Mapping(target = "aiGradedAt", source = "aiGradedAt")
+    @Mapping(target = "aiScore", source = "aiScore")
+    @Mapping(target = "aiFeedback", source = "aiFeedback")
+    @Mapping(target = "aiConfidence", source = "aiConfidence")
+    @Mapping(target = "mentorConfirmed", source = "mentorConfirmed")
+    @Mapping(target = "aiGradeAttemptCount", source = "aiGradeAttemptCount")
+    @Mapping(target = "disputeFlag", source = "disputeFlag")
+    @Mapping(target = "disputeAt", source = "disputeAt")
+    @Mapping(target = "disputeReason", source = "disputeReason")
     AssignmentSubmissionDetailDTO toDetailDto(AssignmentSubmission submission);
 
     @Mapping(target = "id", ignore = true)
@@ -61,6 +72,7 @@ public interface AssignmentSubmissionMapper {
     @Mapping(target = "isNewest", constant = "true")
     @Mapping(target = "isPrevious", constant = "false")
     @Mapping(target = "isLate", ignore = true)
+    @Mapping(target = "gradingMode", ignore = true)
     AssignmentSubmission toEntity(AssignmentSubmissionCreateDTO createDto, Assignment assignment, User user, Media fileMedia);
 
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)

@@ -8,7 +8,10 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import org.springframework.web.bind.annotation.RequestBody;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -67,11 +70,12 @@ public class LessonAttachmentController {
     @GetMapping
     @Operation(summary = "List all attachments for a lesson", description = "Get all PDFs, documents, and links attached to a lesson")
     public ResponseEntity<List<LessonAttachmentDTO>> listAttachments(
-            @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId) {
+            @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId,
+            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
 
-        log.debug("[API] GET /api/lessons/{}/attachments", lessonId);
+        log.debug("[API] GET /api/lessons/{}/attachments - actorId={}", lessonId, actorId);
 
-        List<LessonAttachmentDTO> attachments = attachmentService.listAttachments(lessonId);
+        List<LessonAttachmentDTO> attachments = attachmentService.listAttachments(lessonId, actorId);
 
         log.debug("[API] Returning {} attachments", attachments.size());
         return ResponseEntity.ok(attachments);
@@ -117,5 +121,58 @@ public class LessonAttachmentController {
 
         log.info("[API] Attachments reordered successfully");
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Get download URL for an attachment.
+     * Returns a signed URL for Cloudinary-hosted files, direct URL for external links.
+     * GET /api/lessons/{lessonId}/attachments/{attachmentId}/download-url
+     */
+    @GetMapping("/{attachmentId}/download-url")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get download URL for attachment",
+               description = "Returns a signed URL for Cloudinary files or direct URL for external links")
+    public ResponseEntity<Map<String, String>> getDownloadUrl(
+            @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId,
+            @Parameter(description = "Attachment ID") @PathVariable @NotNull Long attachmentId) {
+
+        log.debug("[API] GET /api/lessons/{}/attachments/{}/download-url", lessonId, attachmentId);
+        String url = attachmentService.getDownloadUrlForAttachment(attachmentId);
+        return ResponseEntity.ok(Map.of("downloadUrl", url));
+    }
+
+    /**
+     * Download an attachment as a file with proper Content-Disposition header.
+     * Streams file bytes from Cloudinary so the browser downloads with the correct filename.
+     * GET /api/lessons/{lessonId}/attachments/{attachmentId}/download
+     */
+    @GetMapping("/{attachmentId}/download")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Download attachment file",
+               description = "Streams the attachment file with proper filename for download")
+    public ResponseEntity<byte[]> downloadAttachment(
+            @Parameter(description = "Lesson ID") @PathVariable @NotNull Long lessonId,
+            @Parameter(description = "Attachment ID") @PathVariable @NotNull Long attachmentId) throws IOException {
+
+        log.debug("[API] GET /api/lessons/{}/attachments/{}/download", lessonId, attachmentId);
+        return attachmentService.streamAttachment(attachmentId);
+    }
+
+    /**
+     * Stream an attachment by its download URL (bypasses attachment ID lookup).
+     * Used for snapshot attachments where the attachment ID may be synthetic/negative.
+     * POST /api/lessons/attachments/stream-url
+     */
+    @PostMapping("/stream-url")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Stream attachment by URL",
+               description = "Fetches and streams an attachment using its stored download URL")
+    public ResponseEntity<byte[]> streamAttachmentByUrl(
+            @RequestBody Map<String, String> body) throws IOException {
+
+        String downloadUrl = body.get("downloadUrl");
+        String filename = body.getOrDefault("filename", "attachment");
+        log.debug("[API] POST /api/lessons/attachments/stream-url - filename={}", filename);
+        return attachmentService.streamAttachmentByUrl(downloadUrl, filename);
     }
 }

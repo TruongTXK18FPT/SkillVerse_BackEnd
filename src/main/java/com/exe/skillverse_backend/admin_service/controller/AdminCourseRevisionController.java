@@ -1,8 +1,10 @@
 package com.exe.skillverse_backend.admin_service.controller;
 
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionDTO;
+import com.exe.skillverse_backend.course_service.dto.coursedto.CourseRevisionDiffDTO;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.service.CourseRevisionService;
+import com.exe.skillverse_backend.course_service.service.impl.CourseRevisionDiffService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
@@ -38,6 +40,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminCourseRevisionController {
 
     private final CourseRevisionService courseRevisionService;
+    private final CourseRevisionDiffService courseRevisionDiffService;
 
     @GetMapping
     @Operation(summary = "List course revision queue for admin")
@@ -52,6 +55,15 @@ public class AdminCourseRevisionController {
         return ResponseEntity.ok(revisions);
     }
 
+    @GetMapping("/courses/{courseId}/latest-approved")
+    @Operation(summary = "Get the latest approved revision for a course (for admin preview comparison)")
+    public ResponseEntity<CourseRevisionDTO> getLatestApprovedRevision(
+            @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId) {
+        return courseRevisionService.getLatestApprovedRevision(courseId)
+                .map(r -> ResponseEntity.ok(courseRevisionService.getRevision(r.getId(), null)))
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @PostMapping("/{revisionId}/approve")
     @Operation(summary = "Approve a pending course revision")
     public ResponseEntity<CourseRevisionDTO> approveRevision(
@@ -62,6 +74,14 @@ public class AdminCourseRevisionController {
         log.info("Admin {} approving course revision {}", adminId, revisionId);
         CourseRevisionDTO approved = courseRevisionService.approveRevision(revisionId, adminId);
         return ResponseEntity.ok(approved);
+    }
+
+    @GetMapping("/{revisionId}/diff")
+    @Operation(summary = "Get what changed between revision snapshot and live course content")
+    public ResponseEntity<CourseRevisionDiffDTO> getRevisionDiff(
+            @Parameter(description = "Revision ID") @PathVariable @NotNull Long revisionId) {
+        CourseRevisionDiffDTO diff = courseRevisionDiffService.computeDiff(revisionId);
+        return ResponseEntity.ok(diff);
     }
 
     @PostMapping("/{revisionId}/reject")

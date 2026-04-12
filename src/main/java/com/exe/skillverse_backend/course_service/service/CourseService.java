@@ -25,6 +25,12 @@ public interface CourseService {
     PageResponse<CourseSummaryDTO> listCourses(String q, CourseStatus status, Pageable p);
     
     PageResponse<CourseSummaryDTO> listCoursesByAuthor(Long authorId, Pageable pageable);
+
+    PageResponse<CourseSummaryDTO> listCoursesByAuthor(Long authorId, CourseStatus status, Pageable pageable);
+
+    PageResponse<CourseSummaryDTO> listCoursesByAuthorNonArchived(Long authorId, Pageable pageable);
+
+    Map<String, Long> getCourseStatsByAuthor(Long authorId);
     
     // Course approval workflow methods
     CourseDetailDTO submitCourseForApproval(Long courseId, Long actorId);

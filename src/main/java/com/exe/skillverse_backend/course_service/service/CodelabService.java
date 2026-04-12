@@ -11,6 +11,11 @@ import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseCre
 import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseDTO;
 import com.exe.skillverse_backend.course_service.dto.codingdto.CodingTestCaseUpdateDTO;
 
+/**
+ * CODELAB_LEGACY: This feature is deprecated.
+ * No code execution engine is integrated — submissions are stored as QUEUED and never evaluated.
+ * @deprecated since 2026-04-08 — will be removed in a future release
+ */
 public interface CodelabService {
     
     CodingExerciseDetailDTO createExercise(Long moduleId, CodingExerciseCreateDTO dto, Long actorId);

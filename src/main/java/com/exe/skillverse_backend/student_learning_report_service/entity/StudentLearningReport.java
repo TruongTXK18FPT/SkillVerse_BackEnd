@@ -50,45 +50,35 @@ public class StudentLearningReport {
     @Column(name = "student_name", nullable = false)
     private String studentName;
 
-    @Lob
     @Column(name = "report_content", columnDefinition = "TEXT")
     private String reportContent;
 
     // === Parsed Sections ===
     
-    @Lob
     @Column(name = "current_skills_section", columnDefinition = "TEXT")
     private String currentSkillsSection;
 
-    @Lob
     @Column(name = "learning_goals_section", columnDefinition = "TEXT")
     private String learningGoalsSection;
 
-    @Lob
     @Column(name = "progress_section", columnDefinition = "TEXT")
     private String progressSection;
 
-    @Lob
     @Column(name = "strengths_section", columnDefinition = "TEXT")
     private String strengthsSection;
 
-    @Lob
     @Column(name = "areas_to_improve_section", columnDefinition = "TEXT")
     private String areasToImproveSection;
 
-    @Lob
     @Column(name = "recommendations_section", columnDefinition = "TEXT")
     private String recommendationsSection;
 
-    @Lob
     @Column(name = "skill_gaps_section", columnDefinition = "TEXT")
     private String skillGapsSection;
 
-    @Lob
     @Column(name = "next_steps_section", columnDefinition = "TEXT")
     private String nextStepsSection;
 
-    @Lob
     @Column(name = "motivation_section", columnDefinition = "TEXT")
     private String motivationSection;
 
@@ -113,7 +103,6 @@ public class StudentLearningReport {
     private String learningTrend;
 
     /** Đề xuất tập trung (extracted từ AI content) */
-    @Lob
     @Column(name = "recommended_focus", columnDefinition = "TEXT")
     private String recommendedFocus;
 

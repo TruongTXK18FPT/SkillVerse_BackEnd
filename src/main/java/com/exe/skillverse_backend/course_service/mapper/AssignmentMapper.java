@@ -35,6 +35,11 @@ public interface AssignmentMapper {
     @Mapping(target = "learningOutcome", source = "learningOutcome")
     @Mapping(target = "gradingCriteria", source = "gradingCriteria")
     @Mapping(target = "criteria", source = "criteria")
+    // AI Grading fields
+    @Mapping(target = "aiGradingEnabled", source = "aiGradingEnabled")
+    @Mapping(target = "aiGradingPrompt", source = "aiGradingPrompt")
+    @Mapping(target = "gradingStyle", source = "gradingStyle")
+    @Mapping(target = "trustAiEnabled", source = "trustAiEnabled")
     AssignmentDetailDTO toDetailDto(Assignment assignment);
 
     @Mapping(target = "id", source = "id")
@@ -63,6 +68,10 @@ public interface AssignmentMapper {
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "submissions", ignore = true)
     @Mapping(target = "criteria", ignore = true)
+    @Mapping(target = "aiGradingEnabled", source = "createDto.aiGradingEnabled", defaultValue = "false")
+    @Mapping(target = "aiGradingPrompt", source = "createDto.aiGradingPrompt")
+    @Mapping(target = "gradingStyle", source = "createDto.gradingStyle", defaultValue = "STANDARD")
+    @Mapping(target = "trustAiEnabled", source = "createDto.trustAiEnabled", defaultValue = "false")
     Assignment toEntity(AssignmentCreateDTO createDto, Module module);
 
     @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
@@ -82,6 +91,11 @@ public interface AssignmentMapper {
     @Mapping(target = "updatedAt", ignore = true)
     @Mapping(target = "submissions", ignore = true)
     @Mapping(target = "criteria", ignore = true)
+    // AI Grading fields
+    @Mapping(target = "aiGradingEnabled", source = "updateDto.aiGradingEnabled")
+    @Mapping(target = "aiGradingPrompt", source = "updateDto.aiGradingPrompt")
+    @Mapping(target = "gradingStyle", source = "updateDto.gradingStyle")
+    @Mapping(target = "trustAiEnabled", source = "updateDto.trustAiEnabled")
     void updateEntity(@MappingTarget Assignment assignment, AssignmentUpdateDTO updateDto);
 
     default AssignmentCriteriaDTO toCriteriaDto(AssignmentCriteria criteria) {

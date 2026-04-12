@@ -5,12 +5,6 @@ import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
 import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
-import com.exe.skillverse_backend.course_service.dto.progressdto.CourseLearningStatusDTO;
-import com.exe.skillverse_backend.course_service.entity.Course;
-import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
-import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
-import com.exe.skillverse_backend.course_service.repository.CourseRepository;
-import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.study_service.entity.Task;
 import com.exe.skillverse_backend.study_service.entity.StudySession;
 import com.exe.skillverse_backend.study_service.entity.StudySessionStatus;
@@ -21,7 +15,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -57,9 +50,6 @@ public class RoadmapCompletionSyncService {
 
     private final UserRoadmapProgressRepository progressRepository;
     private final RoadmapSessionRepository roadmapSessionRepository;
-    private final CourseEnrollmentRepository enrollmentRepository;
-    private final CourseRepository courseRepository;
-    private final CourseLearningProgressService courseLearningProgressService;
     private final TaskRepository taskRepository;
     private final ObjectMapper objectMapper;
 
@@ -95,10 +85,7 @@ public class RoadmapCompletionSyncService {
         }
 
         Long userId = session.getUser().getId();
-        Map<Long, Course> courseById = loadCoursesForNodes(nodes);
-        Map<Long, CourseEnrollment> enrollmentByCourseId = loadEnrollments(userId, courseById.keySet());
         Map<String, List<Task>> tasksByNodeId = loadTasksByNodeId(userId, session.getId());
-        Map<Long, Integer> courseProgressCache = new HashMap<>();
         List<String> derivedCompletedNodeIds = new ArrayList<>();
 
         for (RoadmapResponse.RoadmapNode node : nodes) {
@@ -109,10 +96,6 @@ public class RoadmapCompletionSyncService {
             RoadmapResponse.QuestProgress existingProgress = resolved.get(node.getId());
             RoadmapResponse.QuestProgress derivedProgress = deriveSourceDrivenProgress(
                     node,
-                    userId,
-                    courseById,
-                    enrollmentByCourseId,
-                    courseProgressCache,
                     tasksByNodeId,
                     existingProgress);
 
@@ -149,35 +132,12 @@ public class RoadmapCompletionSyncService {
 
     @Transactional
     public void syncCourseProgress(Long userId, Long courseId) {
-        if (userId == null || courseId == null) {
-            return;
-        }
-
-        List<RoadmapSession> sessions = roadmapSessionRepository.findByUserIdAndStatusNotDeleted(userId);
-        if (sessions.isEmpty()) {
-            return;
-        }
-
-        for (RoadmapSession session : sessions) {
-            List<RoadmapResponse.RoadmapNode> nodes = extractNodes(session);
-            if (nodes.isEmpty()) {
-                continue;
-            }
-
-            List<String> affectedNodeIds = nodes.stream()
-                    .filter(node -> node != null && node.getSuggestedCourseIds() != null
-                            && node.getSuggestedCourseIds().stream().anyMatch(courseId.toString()::equals))
-                    .map(RoadmapResponse.RoadmapNode::getId)
-                    .filter(id -> id != null && !id.isBlank())
-                    .toList();
-
-            if (affectedNodeIds.isEmpty()) {
-                continue;
-            }
-
-            Map<String, RoadmapResponse.QuestProgress> stored = loadStoredProgressMap(session.getId());
-            overlayDerivedProgress(session, nodes, stored);
-        }
+        // DEPRECATED: Course enrollment no longer drives roadmap progress directly.
+        // Progress is now derived from Study Planner (Task/StudySession) completion.
+        // This method is kept for API compatibility but is a no-op.
+        log.warn("⚠️ syncCourseProgress(userId={}, courseId={}) is deprecated. "
+                + "Course enrollment no longer drives roadmap progress directly. "
+                + "Use study plan completion instead.", userId, courseId);
     }
 
     @Transactional
@@ -206,11 +166,11 @@ public class RoadmapCompletionSyncService {
 
     @Transactional(readOnly = true)
     public String buildCourseMappingAuditReport(Collection<RoadmapSession> sessions) {
+        // Course enrollment is no longer used for roadmap progress derivation.
+        // This report now only tracks course metadata (suggestedCourseIds) for display purposes.
         int totalNodes = 0;
         int mappedNodes = 0;
         int unmappedNodes = 0;
-        int missingLevelCourses = 0;
-        int mismatchedLevelNodes = 0;
         int duplicateCourseRefs = 0;
 
         for (RoadmapSession session : sessions) {
@@ -230,23 +190,6 @@ public class RoadmapCompletionSyncService {
                 if (uniqueIds.size() < suggestedCourseIds.size()) {
                     duplicateCourseRefs++;
                 }
-
-                Map<Long, Course> courseById = loadCoursesForNode(node);
-                Course primaryCourse = selectPrimaryCourse(node, courseById);
-                if (primaryCourse == null) {
-                    unmappedNodes++;
-                    continue;
-                }
-
-                if (primaryCourse.getLevel() == null || primaryCourse.getLevel().isBlank()) {
-                    missingLevelCourses++;
-                }
-
-                Integer difficultyRank = difficultyToRank(node.getDifficulty());
-                Integer courseRank = courseLevelToRank(primaryCourse.getLevel());
-                if (difficultyRank != null && courseRank != null && !difficultyRank.equals(courseRank)) {
-                    mismatchedLevelNodes++;
-                }
             }
         }
 
@@ -255,15 +198,11 @@ public class RoadmapCompletionSyncService {
                 totalNodes=%d
                 mappedNodes=%d
                 unmappedNodes=%d
-                missingLevelCourses=%d
-                mismatchedLevelNodes=%d
                 duplicateCourseRefs=%d
                 """.formatted(
                 totalNodes,
                 mappedNodes,
                 unmappedNodes,
-                missingLevelCourses,
-                mismatchedLevelNodes,
                 duplicateCourseRefs);
     }
 
@@ -356,81 +295,18 @@ public class RoadmapCompletionSyncService {
 
     private RoadmapResponse.QuestProgress deriveSourceDrivenProgress(
             RoadmapResponse.RoadmapNode node,
-            Long userId,
-            Map<Long, Course> courseById,
-            Map<Long, CourseEnrollment> enrollmentByCourseId,
-            Map<Long, Integer> courseProgressCache,
             Map<String, List<Task>> tasksByNodeId,
             RoadmapResponse.QuestProgress existingProgress) {
 
-        // Try both paths and take the MAX — this ensures task progress is never
-        // shadowed by course progress. Example: course at 50% + all tasks at 100%
-        // should report 100%, not 50%.
-        Integer courseProgress = deriveCourseFirstNodeProgressPercent(
-                node, userId, courseById, enrollmentByCourseId, courseProgressCache);
+        // Course enrollment is no longer used for roadmap progress derivation.
+        // Progress is derived solely from Study Planner (Task/StudySession).
         Integer taskProgress = deriveFallbackNodeProgressPercent(node, tasksByNodeId);
 
-        if (courseProgress == null && taskProgress == null) {
+        if (taskProgress == null) {
             return null;
         }
 
-        int effectiveProgress = Math.max(
-                courseProgress != null ? courseProgress : 0,
-                taskProgress != null ? taskProgress : 0);
-
-        return buildQuestProgress(node.getId(), effectiveProgress, existingProgress);
-    }
-
-    private Integer deriveCourseFirstNodeProgressPercent(
-            RoadmapResponse.RoadmapNode node,
-            Long userId,
-            Map<Long, Course> courseById,
-            Map<Long, CourseEnrollment> enrollmentByCourseId,
-            Map<Long, Integer> courseProgressCache) {
-
-        Course primaryCourse = selectPrimaryCourse(node, courseById);
-        if (primaryCourse == null || primaryCourse.getId() == null) {
-            return null;
-        }
-
-        Long courseId = primaryCourse.getId();
-        return courseProgressCache.computeIfAbsent(
-                courseId,
-                ignored -> resolveCourseProgressPercent(courseId, userId, enrollmentByCourseId));
-    }
-
-    private int resolveCourseProgressPercent(
-            Long courseId,
-            Long userId,
-            Map<Long, CourseEnrollment> enrollmentByCourseId) {
-        int progress = 0;
-
-        CourseEnrollment enrollment = enrollmentByCourseId.get(courseId);
-        if (enrollment != null) {
-            if (enrollment.getStatus() != null
-                    && enrollment.getStatus().name().equalsIgnoreCase("COMPLETED")) {
-                return 100;
-            }
-
-            if (enrollment.getProgressPercent() != null) {
-                progress = Math.max(progress, clampProgress(enrollment.getProgressPercent()));
-            }
-        }
-
-        try {
-            CourseLearningStatusDTO status = courseLearningProgressService.getCourseLearningStatus(courseId, userId);
-            if (status != null) {
-                progress = Math.max(progress, clampProgress(status.getPercent()));
-            }
-        } catch (Exception ex) {
-            log.debug(
-                    "Course learning aggregate unavailable for course {} user {}: {}",
-                    courseId,
-                    userId,
-                    ex.getMessage());
-        }
-
-        return progress;
+        return buildQuestProgress(node.getId(), taskProgress, existingProgress);
     }
 
     private Integer deriveFallbackNodeProgressPercent(
@@ -521,107 +397,6 @@ public class RoadmapCompletionSyncService {
         return tasksByNodeId;
     }
 
-    private Map<Long, Course> loadCoursesForNodes(List<RoadmapResponse.RoadmapNode> nodes) {
-        Set<Long> courseIds = new HashSet<>();
-        for (RoadmapResponse.RoadmapNode node : nodes) {
-            courseIds.addAll(parseCourseIds(node.getSuggestedCourseIds()));
-        }
-        if (courseIds.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        return courseRepository.findAllById(courseIds).stream()
-                .collect(Collectors.toMap(Course::getId, course -> course));
-    }
-
-    private Map<Long, Course> loadCoursesForNode(RoadmapResponse.RoadmapNode node) {
-        Set<Long> courseIds = parseCourseIds(node.getSuggestedCourseIds());
-        if (courseIds.isEmpty()) {
-            return Collections.emptyMap();
-        }
-        return courseRepository.findAllById(courseIds).stream()
-                .collect(Collectors.toMap(Course::getId, course -> course));
-    }
-
-    private Map<Long, CourseEnrollment> loadEnrollments(Long userId, Set<Long> courseIds) {
-        if (userId == null || courseIds == null || courseIds.isEmpty()) {
-            return Collections.emptyMap();
-        }
-
-        Map<Long, CourseEnrollment> enrollmentByCourseId = new HashMap<>();
-        for (Long courseId : courseIds) {
-            enrollmentRepository.findByCourseIdAndUserId(courseId, userId)
-                    .ifPresent(enrollment -> enrollmentByCourseId.put(courseId, enrollment));
-        }
-        return enrollmentByCourseId;
-    }
-
-    private Course selectPrimaryCourse(RoadmapResponse.RoadmapNode node, Map<Long, Course> courseById) {
-        if (node == null || node.getSuggestedCourseIds() == null || node.getSuggestedCourseIds().isEmpty() || courseById.isEmpty()) {
-            return null;
-        }
-
-        Integer targetRank = difficultyToRank(node.getDifficulty());
-        List<CourseCandidate> candidates = new ArrayList<>();
-        int index = 0;
-        for (String courseIdValue : node.getSuggestedCourseIds()) {
-            Long courseId = parseLong(courseIdValue);
-            Course course = courseId != null ? courseById.get(courseId) : null;
-            if (course != null) {
-                Integer courseRank = courseLevelToRank(course.getLevel());
-                int distance = targetRank == null || courseRank == null
-                        ? Integer.MAX_VALUE
-                        : Math.abs(courseRank - targetRank);
-                candidates.add(new CourseCandidate(course, index, distance));
-            }
-            index++;
-        }
-
-        if (candidates.isEmpty()) {
-            return null;
-        }
-
-        return candidates.stream()
-                .sorted(Comparator.comparingInt(CourseCandidate::distance)
-                        .thenComparingInt(CourseCandidate::index))
-                .map(CourseCandidate::course)
-                .findFirst()
-                .orElse(null);
-    }
-
-    private Integer difficultyToRank(String difficulty) {
-        String value = normalize(difficulty);
-        if (value.isEmpty()) {
-            return null;
-        }
-        if (value.contains("beginner") || value.contains("easy") || value.contains("foundation") || value.contains("basic")) {
-            return 0;
-        }
-        if (value.contains("intermediate") || value.contains("medium")) {
-            return 1;
-        }
-        if (value.contains("advanced") || value.contains("expert") || value.contains("hard")) {
-            return 2;
-        }
-        return null;
-    }
-
-    private Integer courseLevelToRank(String level) {
-        String value = normalize(level);
-        if (value.isEmpty()) {
-            return null;
-        }
-        if (value.contains("beginner") || value.contains("easy") || value.contains("basic")) {
-            return 0;
-        }
-        if (value.contains("intermediate") || value.contains("medium")) {
-            return 1;
-        }
-        if (value.contains("advanced") || value.contains("expert") || value.contains("hard")) {
-            return 2;
-        }
-        return null;
-    }
-
     private String normalize(String value) {
         return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
     }
@@ -635,32 +410,6 @@ public class RoadmapCompletionSyncService {
             return 0;
         }
         return Math.max(0, Math.min(100, progress));
-    }
-
-    private Set<Long> parseCourseIds(List<String> suggestedCourseIds) {
-        if (suggestedCourseIds == null || suggestedCourseIds.isEmpty()) {
-            return Collections.emptySet();
-        }
-
-        Set<Long> courseIds = new HashSet<>();
-        for (String courseId : suggestedCourseIds) {
-            Long parsed = parseLong(courseId);
-            if (parsed != null) {
-                courseIds.add(parsed);
-            }
-        }
-        return courseIds;
-    }
-
-    private Long parseLong(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        try {
-            return Long.valueOf(value.trim());
-        } catch (NumberFormatException ex) {
-            return null;
-        }
     }
 
     private List<String> parseStringArray(JsonNode... candidates) {
@@ -697,6 +446,17 @@ public class RoadmapCompletionSyncService {
         return nodeIds;
     }
 
+    private Long parseLong(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value.trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
     private Set<Long> extractRoadmapIds(String notes) {
         if (notes == null || notes.isBlank()) {
             return Collections.emptySet();
@@ -713,31 +473,30 @@ public class RoadmapCompletionSyncService {
     }
 
         private RoadmapResponse.QuestProgress buildQuestProgress(
-            String nodeId,
-            Integer progressPercent,
-            RoadmapResponse.QuestProgress existingProgress) {
-        int normalizedProgress = clampProgress(progressPercent);
-        String status = normalizedProgress >= 100
-            ? UserRoadmapProgress.ProgressStatus.COMPLETED.name()
-            : normalizedProgress > 0
-                ? UserRoadmapProgress.ProgressStatus.IN_PROGRESS.name()
-                : UserRoadmapProgress.ProgressStatus.NOT_STARTED.name();
+                String nodeId,
+                Integer progressPercent,
+                RoadmapResponse.QuestProgress existingProgress) {
+            int normalizedProgress = clampProgress(progressPercent);
+            String status = normalizedProgress >= 100
+                    ? UserRoadmapProgress.ProgressStatus.COMPLETED.name()
+                    : normalizedProgress > 0
+                            ? UserRoadmapProgress.ProgressStatus.IN_PROGRESS.name()
+                            : UserRoadmapProgress.ProgressStatus.NOT_STARTED.name();
 
-        Instant completedAt = null;
-        if (UserRoadmapProgress.ProgressStatus.COMPLETED.name().equals(status)) {
-            completedAt = existingProgress != null && existingProgress.getCompletedAt() != null
-                ? existingProgress.getCompletedAt()
-                : Instant.now();
+            Instant completedAt = null;
+            if (UserRoadmapProgress.ProgressStatus.COMPLETED.name().equals(status)) {
+                completedAt = existingProgress != null && existingProgress.getCompletedAt() != null
+                        ? existingProgress.getCompletedAt()
+                        : Instant.now();
+            }
+
+            return RoadmapResponse.QuestProgress.builder()
+                    .questId(nodeId)
+                    .status(status)
+                    .progress(normalizedProgress)
+                    .completedAt(completedAt)
+                    .build();
         }
 
-        return RoadmapResponse.QuestProgress.builder()
-                .questId(nodeId)
-            .status(status)
-            .progress(normalizedProgress)
-            .completedAt(completedAt)
-                .build();
-    }
 
-    private record CourseCandidate(Course course, int index, int distance) {
-    }
 }

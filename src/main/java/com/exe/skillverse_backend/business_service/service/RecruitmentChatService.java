@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.business_service.dto.request.UpdateRecruitment
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentMessageResponse;
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentSessionResponse;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
+import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -85,6 +86,6 @@ public interface RecruitmentChatService {
      * Trả về session có sẵn hoặc mới tạo
      */
     RecruitmentSessionResponse getOrCreateSession(Long recruiterId, Long candidateId, Long jobId,
-                                                  com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource source,
+                                                  RecruitmentSessionSource source,
                                                   RecruitmentJobContextType jobContextType);
 }

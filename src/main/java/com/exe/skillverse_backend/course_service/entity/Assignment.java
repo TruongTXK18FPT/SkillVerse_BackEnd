@@ -41,7 +41,8 @@ public class Assignment {
   @Column(nullable = false, length = 200)
   private String title;
 
-  @Lob private String description;
+  @Column(columnDefinition = "TEXT")
+  private String description;
 
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 20)
@@ -60,12 +61,10 @@ public class Assignment {
   @Column(name = "is_required", nullable = false)
   private Boolean isRequired = true; // Required or optional assignment
 
-  @Lob
-  @Column(name = "learning_outcome")
+  @Column(name = "learning_outcome", columnDefinition = "TEXT")
   private String learningOutcome; // What students will learn
 
-  @Lob
-  @Column(name = "grading_criteria")
+  @Column(name = "grading_criteria", columnDefinition = "TEXT")
   private String gradingCriteria; // How it will be graded
 
   private Instant dueAt;
@@ -83,4 +82,20 @@ public class Assignment {
   @OrderBy("orderIndex ASC")
   @ToString.Exclude @EqualsAndHashCode.Exclude
   private List<AssignmentCriteria> criteria = new ArrayList<>();
+
+  // ===== AI Grading fields =====
+  @Builder.Default
+  @Column(name = "ai_grading_enabled", nullable = false)
+  private Boolean aiGradingEnabled = false;
+
+  @Column(name = "ai_grading_prompt", columnDefinition = "TEXT")
+  private String aiGradingPrompt;
+
+  @Column(name = "grading_style", length = 20)
+  @Builder.Default
+  private String gradingStyle = "STANDARD"; // STANDARD | STRICT | LENIENT
+
+  @Builder.Default
+  @Column(name = "trust_ai_enabled", nullable = false)
+  private Boolean trustAiEnabled = false;
 }

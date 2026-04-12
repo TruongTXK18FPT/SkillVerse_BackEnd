@@ -83,35 +83,8 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         // Complete purchase: pay mentor + create record + auto-enroll
         CoursePurchase purchase = completePurchaseAndEnroll(user, course);
 
-        try {
-            notificationService.createNotification(
-                    userId,
-                    "Mua khóa học thành công",
-                    "Bạn đã mua khóa học '" + course.getTitle() + "'",
-                    NotificationType.SYSTEM,
-                    "COURSE_" + course.getId());
-        } catch (Exception e) {
-            log.warn("Failed to create notification for wallet course purchase: {}", e.getMessage());
-        }
-
-        try {
-            Optional<WalletTransaction> walletTxOpt = walletTransactionRepository
-                    .findByReferenceIdAndReferenceType("COURSE_" + course.getId(), "COURSE_PURCHASE");
-            if (walletTxOpt.isPresent()) {
-                WalletTransaction walletTx = walletTxOpt.get();
-                byte[] pdf = invoiceService.generateWalletTransactionInvoice(walletTx);
-                String subject = "🎉 Mua khóa học thành công - " + course.getTitle();
-                String html = buildWalletCoursePurchaseEmail(getDisplayName(user), course.getTitle(), course.getPrice(),
-                        String.valueOf(walletTx.getTransactionId()));
-                emailService.sendHtmlEmailWithAttachment(user.getEmail(), subject, html,
-                        "Hoa_don_WAL-" + walletTx.getTransactionId() + ".pdf", pdf, "application/pdf");
-            } else {
-                log.warn("Wallet transaction not found for course purchase invoice: user={}, courseId={}", userId,
-                        course.getId());
-            }
-        } catch (Exception e) {
-            log.warn("Failed to send wallet course purchase email/invoice: {}", e.getMessage());
-        }
+        // Send notifications + invoice outside transaction boundary — non-fatal
+        sendPurchaseNotifications(userId, user, course, purchase);
 
         return mapToDTO(purchase);
     }
@@ -147,7 +120,8 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                 }
 
                 // Complete purchase: pay mentor + create record + auto-enroll
-                completePurchaseAndEnroll(user, course);
+                CoursePurchase purchase = completePurchaseAndEnroll(user, course);
+                sendPurchaseNotifications(userId, user, course, purchase);
 
                 log.info("Course purchase completed via payment gateway for user {} course {}", userId, courseId);
 
@@ -207,6 +181,45 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                 </html>
                 """
                 .formatted(name, courseTitle, courseTitle, amountStr, ref);
+    }
+
+    /**
+     * Send purchase notifications and invoice email.
+     * Non-fatal: failures are logged but do not affect the purchase outcome.
+     * Runs outside the main transaction boundary to avoid holding locks unnecessarily.
+     */
+    private void sendPurchaseNotifications(Long userId, User user, Course course, CoursePurchase purchase) {
+        // Notification
+        try {
+            notificationService.createNotification(
+                    userId,
+                    "Mua khóa học thành công",
+                    "Bạn đã mua khóa học '" + course.getTitle() + "'",
+                    NotificationType.SYSTEM,
+                    "COURSE_" + course.getId());
+        } catch (Exception e) {
+            log.warn("Failed to create notification for wallet course purchase: {}", e.getMessage());
+        }
+
+        // Invoice email
+        try {
+            Optional<WalletTransaction> walletTxOpt = walletTransactionRepository
+                    .findByReferenceIdAndReferenceType("COURSE_" + course.getId(), "COURSE_PURCHASE");
+            if (walletTxOpt.isPresent()) {
+                WalletTransaction walletTx = walletTxOpt.get();
+                byte[] pdf = invoiceService.generateWalletTransactionInvoice(walletTx);
+                String subject = "Mua khóa học thành công - " + course.getTitle();
+                String html = buildWalletCoursePurchaseEmail(getDisplayName(user), course.getTitle(), course.getPrice(),
+                        String.valueOf(walletTx.getTransactionId()));
+                emailService.sendHtmlEmailWithAttachment(user.getEmail(), subject, html,
+                        "Hoa_don_WAL-" + walletTx.getTransactionId() + ".pdf", pdf, "application/pdf");
+            } else {
+                log.warn("Wallet transaction not found for course purchase invoice: user={}, courseId={}", userId,
+                        course.getId());
+            }
+        } catch (Exception e) {
+            log.warn("Failed to send wallet course purchase email/invoice: {}", e.getMessage());
+        }
     }
 
     /**

@@ -38,13 +38,13 @@ import reactor.core.publisher.Mono;
 @Slf4j
 public class AiSpeechServiceImpl implements AiSpeechService {
 
-    @Value("${ai.fpt.api-key:${FPT_AI_KEY:}}")
+    @Value("${spring.ai.fpt.api-key:${FPT_AI_KEY:}}")
     private String fptApiKey;
 
-    @Value("${ai.fpt.stt.endpoint:https://api.fpt.ai/hmi/asr/general}")
+    @Value("${spring.ai.fpt.stt.endpoint:https://api.fpt.ai/hmi/asr/general}")
     private String fptSttEndpoint;
 
-    @Value("${ai.fpt.tts.endpoint:https://api.fpt.ai/hmi/tts/v5}")
+    @Value("${spring.ai.fpt.tts.endpoint:https://api.fpt.ai/hmi/tts/v5}")
     private String fptTtsEndpoint;
 
     private final WebClient webClient = WebClient.builder().build();

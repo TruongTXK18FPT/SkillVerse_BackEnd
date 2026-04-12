@@ -51,6 +51,7 @@ import com.exe.skillverse_backend.course_service.service.impl.QuizServiceImpl;
 import com.exe.skillverse_backend.course_service.service.impl.RevisionPinnedContentResolver;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -141,6 +142,8 @@ class CourseRevisionApprovalRaceIntegrationTest {
     @Mock
     private NotificationService notificationService;
     @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+    @Mock
     private AssignmentMapper assignmentMapper;
     @Mock
     private AssignmentSubmissionMapper assignmentSubmissionMapper;
@@ -150,9 +153,12 @@ class CourseRevisionApprovalRaceIntegrationTest {
     private Clock assignmentClock;
     @Mock
     private MeterRegistry meterRegistry;
-
-        @Mock
-        private RevisionPinnedContentResolver revisionPinnedContentResolver;
+    @Mock
+    private CloudinaryService cloudinaryService;
+    @Mock
+    private RevisionPinnedContentResolver revisionPinnedContentResolver;
+    @Mock
+    private com.exe.skillverse_backend.shared.service.MediaService mediaService;
 
     private CourseRevisionServiceImpl courseRevisionService;
     private QuizServiceImpl quizService;
@@ -202,12 +208,15 @@ class CourseRevisionApprovalRaceIntegrationTest {
                 userRepository,
                 mediaRepository,
                 notificationService,
+                eventPublisher,
                 assignmentMapper,
                 assignmentSubmissionMapper,
                 userProfileRepository,
                 assignmentClock,
-                                courseLearningProgressService,
-                                revisionPinnedContentResolver
+                courseLearningProgressService,
+                revisionPinnedContentResolver,
+                cloudinaryService,
+                mediaService
         );
     }
 

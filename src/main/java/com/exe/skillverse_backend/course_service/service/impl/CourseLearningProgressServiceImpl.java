@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.course_service.service.impl;
 
+import com.exe.skillverse_backend.ai_service.service.RoadmapCompletionSyncService;
 import com.exe.skillverse_backend.course_service.dto.certificatedto.CertificateDTO;
 import com.exe.skillverse_backend.course_service.dto.progressdto.CourseLearningRevisionInfoDTO;
 import com.exe.skillverse_backend.course_service.dto.progressdto.CourseLearningStatusDTO;
@@ -74,7 +75,9 @@ public class CourseLearningProgressServiceImpl implements CourseLearningProgress
     private final AssignmentRepository assignmentRepository;
     private final AssignmentSubmissionRepository assignmentSubmissionRepository;
     private final CertificateService certificateService;
+    private final RoadmapCompletionSyncService roadmapCompletionSyncService;
     private final MeterRegistry meterRegistry;
+    private final java.time.Clock clock = java.time.Clock.systemDefaultZone();
 
     @Override
     @Transactional(readOnly = true)
@@ -335,6 +338,7 @@ public class CourseLearningProgressServiceImpl implements CourseLearningProgress
 
         if (status.getPercent() >= 100 && enrollment.getStatus() != EnrollmentStatus.DROPPED) {
             enrollment.setStatus(EnrollmentStatus.COMPLETED);
+            enrollment.setCompletedAt(Instant.now(clock));
             certificateService.issueCourseCertificate(courseId, userId, status);
         }
 

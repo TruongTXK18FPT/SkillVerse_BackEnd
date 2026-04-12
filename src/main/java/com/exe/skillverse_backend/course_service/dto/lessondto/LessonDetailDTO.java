@@ -1,5 +1,7 @@
 package com.exe.skillverse_backend.course_service.dto.lessondto;
 
+import com.exe.skillverse_backend.course_service.dto.attachmentdto.LessonAttachmentDTO;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,6 +21,7 @@ public class LessonDetailDTO {
     private String resourceUrl;
     private String videoUrl;
     private Long videoMediaId;
+    private List<LessonAttachmentDTO> attachments;
 }
 
 

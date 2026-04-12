@@ -3,12 +3,14 @@ package com.exe.skillverse_backend.business_service.service.impl;
 import com.exe.skillverse_backend.ai_search_service.AISearchService;
 import com.exe.skillverse_backend.ai_search_service.dto.AICandidateMatchResponse;
 import com.exe.skillverse_backend.business_service.dto.request.CandidateSearchRequest;
+import com.exe.skillverse_backend.business_service.dto.request.UpdateRecruitmentStatusRequest;
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentSessionResponse;
 import com.exe.skillverse_backend.business_service.entity.CandidateMatchScore;
 import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.RecruiterShortlist;
 import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
+import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionStatus;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
 import com.exe.skillverse_backend.business_service.repository.CandidateMatchScoreRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
@@ -299,9 +301,9 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
 
         // Update session status to INVITED if job is provided
         if (jobId != null) {
-            com.exe.skillverse_backend.business_service.dto.request.UpdateRecruitmentStatusRequest statusRequest =
-                    com.exe.skillverse_backend.business_service.dto.request.UpdateRecruitmentStatusRequest.builder()
-                            .status(com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionStatus.INVITED)
+            UpdateRecruitmentStatusRequest statusRequest =
+                    UpdateRecruitmentStatusRequest.builder()
+                            .status(RecruitmentSessionStatus.INVITED)
                             .build();
             session = recruitmentChatService.updateSessionStatus(recruiterId, session.getId(), statusRequest);
         }

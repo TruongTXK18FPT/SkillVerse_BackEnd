@@ -28,7 +28,7 @@ public class QuizOption {
   @JoinColumn(name = "question_id", nullable = false)
   private QuizQuestion question;
 
-  @Lob @Column(nullable = false)
+  @Column(nullable = false, columnDefinition = "TEXT")
   private String optionText;
 
   @Column(nullable = false)

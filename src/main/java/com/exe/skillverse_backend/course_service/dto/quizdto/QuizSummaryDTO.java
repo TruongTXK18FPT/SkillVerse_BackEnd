@@ -29,8 +29,6 @@ public class QuizSummaryDTO {
 
     private QuizGradingMethod gradingMethod;
 
-    private Boolean isAssessment;
-
     private Integer cooldownHours;
 
     private Integer orderIndex;

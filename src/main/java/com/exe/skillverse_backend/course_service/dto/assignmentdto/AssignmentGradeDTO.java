@@ -13,4 +13,5 @@ public class AssignmentGradeDTO {
     private BigDecimal score;
     private String feedback;
     private List<CriteriaScoreDTO> criteriaScores;
+    private Boolean isAiGrade;
 }

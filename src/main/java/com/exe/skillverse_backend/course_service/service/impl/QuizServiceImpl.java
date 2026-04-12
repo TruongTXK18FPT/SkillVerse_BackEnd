@@ -83,7 +83,6 @@ import com.exe.skillverse_backend.course_service.dto.quizdto.SubmitQuizDTO;
 public class QuizServiceImpl implements QuizService {
 
     private static final int DEFAULT_ASSESSMENT_COOLDOWN_HOURS = 8;
-    private static final int LEGACY_ASSESSMENT_COOLDOWN_HOURS = 24;
     private static final String QUIZ_RETRY_LOCKED_BY_PASS = "QUIZ_RETRY_LOCKED_BY_PASS";
 
     private final QuizRepository quizRepository;
@@ -683,36 +682,29 @@ public class QuizServiceImpl implements QuizService {
         ensureRetryNotLockedByPass(quizId, userId, attemptEntities);
 
         int maxAttempts = quiz.getMaxAttempts() != null ? quiz.getMaxAttempts() : 3;
-        boolean useWindow = Boolean.TRUE.equals(quiz.getIsAssessment())
-                && quiz.getCooldownHours() != null
-                && quiz.getCooldownHours() > 0;
-        if (useWindow) {
-            Instant windowStart = now().minus(Duration.ofHours(quiz.getCooldownHours()));
-            List<QuizAttempt> windowAttempts = attemptEntities.stream()
-                    .filter(a -> a.getSubmittedAt() != null && !a.getSubmittedAt().isBefore(windowStart))
-                    .toList();
-            if (windowAttempts.size() >= maxAttempts) {
-                Instant earliest = windowAttempts.stream()
-                        .map(QuizAttempt::getSubmittedAt)
-                        .filter(Objects::nonNull)
-                        .min(Instant::compareTo)
-                        .orElse(null);
-                long waitHours = 0;
-                if (earliest != null) {
-                    Instant nextRetryAt = earliest.plus(Duration.ofHours(quiz.getCooldownHours()));
-                    waitHours = Math.max(1, Duration.between(now(), nextRetryAt).toHours());
-                }
-                log.warn("[QUIZ_SUBMIT] User {} exceeded max attempts (window) for quiz {}", userId, quizId);
-                String message = waitHours > 0
-                        ? "Bạn đã hết lượt làm bài. Vui lòng thử lại sau " + waitHours + " giờ."
-                        : "Bạn đã hết lượt làm bài.";
-                throw new BadRequestException(message);
+        int cooldownHours = quiz.getCooldownHours() != null && quiz.getCooldownHours() > 0
+                ? quiz.getCooldownHours()
+                : DEFAULT_ASSESSMENT_COOLDOWN_HOURS;
+        Instant windowStart = now().minus(Duration.ofHours(cooldownHours));
+        List<QuizAttempt> windowAttempts = attemptEntities.stream()
+                .filter(a -> a.getSubmittedAt() != null && !a.getSubmittedAt().isBefore(windowStart))
+                .toList();
+        if (windowAttempts.size() >= maxAttempts) {
+            Instant earliest = windowAttempts.stream()
+                    .map(QuizAttempt::getSubmittedAt)
+                    .filter(Objects::nonNull)
+                    .min(Instant::compareTo)
+                    .orElse(null);
+            long waitHours = 0;
+            if (earliest != null) {
+                Instant nextRetryAt = earliest.plus(Duration.ofHours(cooldownHours));
+                waitHours = Math.max(1, Duration.between(now(), nextRetryAt).toHours());
             }
-        } else {
-            if (attemptEntities.size() >= maxAttempts) {
-                log.warn("[QUIZ_SUBMIT] User {} exceeded max attempts for quiz {}", userId, quizId);
-                throw new BadRequestException("Bạn đã hết lượt làm bài.");
-            }
+            log.warn("[QUIZ_SUBMIT] User {} exceeded max attempts (window) for quiz {}", userId, quizId);
+            String message = waitHours > 0
+                    ? "Bạn đã hết lượt làm bài. Vui lòng thử lại sau " + waitHours + " giờ."
+                    : "Bạn đã hết lượt làm bài.";
+            throw new BadRequestException(message);
         }
 
         List<QuizQuestion> quizQuestions = questionRepository.findByQuizIdWithOptions(quizId);
@@ -865,16 +857,13 @@ public class QuizServiceImpl implements QuizService {
         List<QuizAttemptDTO> allAttempts = getUserAttempts(quizId, userId);
 
         int maxAttempts = quiz.getMaxAttempts() != null ? quiz.getMaxAttempts() : 3;
-        boolean useWindow = Boolean.TRUE.equals(quiz.getIsAssessment())
-                && quiz.getCooldownHours() != null
-                && quiz.getCooldownHours() > 0;
-        List<QuizAttemptDTO> windowAttempts = allAttempts;
-        if (useWindow) {
-            Instant windowStart = now().minus(Duration.ofHours(quiz.getCooldownHours()));
-            windowAttempts = allAttempts.stream()
-                    .filter(a -> a.getSubmittedAt() != null && !a.getSubmittedAt().isBefore(windowStart))
-                    .toList();
-        }
+        int cooldownHours = quiz.getCooldownHours() != null && quiz.getCooldownHours() > 0
+                ? quiz.getCooldownHours()
+                : DEFAULT_ASSESSMENT_COOLDOWN_HOURS;
+        Instant windowStart = now().minus(Duration.ofHours(cooldownHours));
+        List<QuizAttemptDTO> windowAttempts = allAttempts.stream()
+                .filter(a -> a.getSubmittedAt() != null && !a.getSubmittedAt().isBefore(windowStart))
+                .toList();
 
         int attemptsUsed = windowAttempts.size();
         boolean hasPassed = allAttempts.stream().anyMatch(a -> Boolean.TRUE.equals(a.getPassed()));
@@ -882,14 +871,14 @@ public class QuizServiceImpl implements QuizService {
 
         long secondsUntilRetry = 0;
         Instant nextRetryAt = null;
-        if (!canRetry && useWindow && !windowAttempts.isEmpty()) {
+        if (!canRetry && !windowAttempts.isEmpty()) {
             Instant earliest = windowAttempts.stream()
                     .map(QuizAttemptDTO::getSubmittedAt)
                     .filter(Objects::nonNull)
                     .min(Instant::compareTo)
                     .orElse(null);
             if (earliest != null) {
-                nextRetryAt = earliest.plus(Duration.ofHours(quiz.getCooldownHours()));
+                nextRetryAt = earliest.plus(Duration.ofHours(cooldownHours));
                 secondsUntilRetry = Math.max(0, Duration.between(now(), nextRetryAt).toSeconds());
             }
         }
@@ -932,17 +921,8 @@ public class QuizServiceImpl implements QuizService {
         if (quiz.getGradingMethod() == null) {
             quiz.setGradingMethod(QuizGradingMethod.HIGHEST);
         }
-        if (quiz.getIsAssessment() == null) {
-            quiz.setIsAssessment(false);
-        }
-        if (Boolean.TRUE.equals(quiz.getIsAssessment())) {
-            if (quiz.getCooldownHours() == null
-                    || quiz.getCooldownHours() <= 0
-                    || Objects.equals(quiz.getCooldownHours(), LEGACY_ASSESSMENT_COOLDOWN_HOURS)) {
-                quiz.setCooldownHours(DEFAULT_ASSESSMENT_COOLDOWN_HOURS);
-            }
-        } else {
-            quiz.setCooldownHours(null);
+        if (quiz.getCooldownHours() == null || quiz.getCooldownHours() <= 0) {
+            quiz.setCooldownHours(DEFAULT_ASSESSMENT_COOLDOWN_HOURS);
         }
     }
 

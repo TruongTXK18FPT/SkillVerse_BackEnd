@@ -36,7 +36,7 @@ public class CodingSubmission {
   @JoinColumn(name = "user_id", nullable = false)
   private User user;
 
-  @Lob @Column(nullable = false)
+  @Column(nullable = false, columnDefinition = "TEXT")
   private String submittedCode;
 
   @Builder.Default
@@ -45,7 +45,8 @@ public class CodingSubmission {
   private CodeSubmissionStatus status = CodeSubmissionStatus.QUEUED;
 
   @Column(precision = 5, scale = 2) private BigDecimal score;
-  @Lob private String feedback;
+  @Column(columnDefinition = "TEXT")
+  private String feedback;
 
   @Builder.Default
   @Column(nullable = false)

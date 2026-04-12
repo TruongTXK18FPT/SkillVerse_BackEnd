@@ -62,4 +62,6 @@ public interface AiRoadmapService {
         void deleteRoadmap(Long sessionId, Long userId);
 
         void permanentDeleteRoadmap(Long sessionId, Long userId);
+
+        void restoreRoadmap(Long sessionId, Long userId);
 }

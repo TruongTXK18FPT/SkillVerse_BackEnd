@@ -30,6 +30,18 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
                         @Param("userId") Long userId
         );
 
+        /**
+         * Batch version: find all enrollments for a user across multiple courses.
+         * Returns at most one enrollment per course.
+         * Used by RoadmapCompletionSyncService to replace N+1 query pattern.
+         */
+        @Transactional(readOnly = true)
+        @Query("SELECT ce FROM CourseEnrollment ce WHERE ce.user.id = :userId AND ce.course.id IN :courseIds")
+        List<CourseEnrollment> findByUserIdAndCourseIdIn(
+                        @Param("userId") Long userId,
+                        @Param("courseIds") List<Long> courseIds
+        );
+
         @Lock(LockModeType.PESSIMISTIC_WRITE)
         @Query("SELECT ce FROM CourseEnrollment ce WHERE ce.course.id = :courseId AND ce.user.id = :userId")
         Optional<CourseEnrollment> findByCourseIdAndUserIdForUpdate(
@@ -255,4 +267,25 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
                         @Param("courseId") Long courseId,
                         @Param("policySnapshot") String policySnapshot,
                         @Param("requiredStatus") EnrollmentStatus requiredStatus);
+
+        /**
+         * Compute average progress percent across all enrollments for a course.
+         */
+        @Transactional(readOnly = true)
+        @Query("SELECT AVG(ce.progressPercent) FROM CourseEnrollment ce WHERE ce.course.id = :courseId")
+        Double findAverageProgressByCourseId(@Param("courseId") Long courseId);
+
+        /**
+         * Count enrollments for a course since a specific date.
+         */
+        @Transactional(readOnly = true)
+        @Query("SELECT COUNT(ce) FROM CourseEnrollment ce WHERE ce.course.id = :courseId AND ce.enrollDate >= :since")
+        long countEnrollmentsSinceByCourseId(@Param("courseId") Long courseId, @Param("since") Instant since);
+
+        /**
+         * Count completions for a course since a specific date.
+         */
+        @Transactional(readOnly = true)
+        @Query("SELECT COUNT(ce) FROM CourseEnrollment ce WHERE ce.course.id = :courseId AND ce.status = 'COMPLETED' AND ce.completedAt >= :since")
+        long countCompletionsSinceByCourseId(@Param("courseId") Long courseId, @Param("since") Instant since);
 }

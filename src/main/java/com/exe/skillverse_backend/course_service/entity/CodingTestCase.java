@@ -31,8 +31,10 @@ public class CodingTestCase {
   @Column(nullable = false, length = 10)
   private String kind; // PUBLIC/HIDDEN
 
-  @Lob @Column(nullable = false) private String input;
-  @Lob @Column(nullable = false) private String expectedOutput;
+  @Column(nullable = false, columnDefinition = "TEXT")
+  private String input;
+  @Column(nullable = false, columnDefinition = "TEXT")
+  private String expectedOutput;
 
   @Column(nullable = false, precision = 5, scale = 2)
   private BigDecimal scoreWeight;

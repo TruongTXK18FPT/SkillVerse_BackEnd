@@ -4,22 +4,33 @@ import com.exe.skillverse_backend.ai_service.repository.TaxonomyEntryRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
+import java.io.BufferedReader;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import com.exe.skillverse_backend.ai_service.entity.TaxonomyEntry;
 
 @Service
+@Slf4j
 public class TaxonomyServiceImpl implements TaxonomyService {
+    private static final String EXPERT_PACK_PATH_ENV = "SKILLVERSE_EXPERT_PACK_PATH";
+    private static final String EXPERT_PACK_PATH_PROPERTY = "skillverse.expert-pack.path";
+
     private final Map<String, Set<String>> domainKeywords;
     private final Map<String, Set<String>> roleKeywords;
     private final Map<String, Set<String>> industryKeywords;
@@ -89,7 +100,45 @@ public class TaxonomyServiceImpl implements TaxonomyService {
 
     @PostConstruct
     public void initExpertPacks() {
-        loadExpertPacksFromMarkdown("c:\\WorkSpace\\EXE201\\skillverse_expert_packs_12_domains.md");
+        boolean loaded = false;
+
+        String configuredPath = resolveConfiguredExpertPackPath();
+        if (configuredPath != null) {
+            loaded = loadExpertPacksFromMarkdown(configuredPath);
+            if (loaded) {
+                log.info("Loaded taxonomy expert packs from configured path");
+            }
+        }
+
+        if (!loaded) {
+            loaded = loadExpertPacksFromClasspath("ai/skillverse_expert_packs_12_domains.md");
+            if (loaded) {
+                log.info("Loaded taxonomy expert packs from classpath resource");
+            }
+        }
+
+        if (!loaded) {
+            loaded = loadExpertPacksFromMarkdown("skillverse_expert_packs_12_domains.md");
+            if (loaded) {
+                log.info("Loaded taxonomy expert packs from local workspace path");
+            }
+        }
+
+        if (!loaded) {
+            log.warn("Taxonomy expert packs not found; continuing with lightweight taxonomy keywords only");
+        }
+    }
+
+    private String resolveConfiguredExpertPackPath() {
+        String configured = System.getProperty(EXPERT_PACK_PATH_PROPERTY);
+        if (configured == null || configured.isBlank()) {
+            configured = System.getenv(EXPERT_PACK_PATH_ENV);
+        }
+        if (configured == null) {
+            return null;
+        }
+        String trimmed = configured.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private boolean loadFromDb() {
@@ -119,44 +168,90 @@ public class TaxonomyServiceImpl implements TaxonomyService {
         }
     }
 
-    private boolean loadExpertPacksFromMarkdown(String absolutePath) {
+    private boolean loadExpertPacksFromMarkdown(String filePath) {
+        if (filePath == null || filePath.isBlank()) {
+            return false;
+        }
         try {
-            Path p = Path.of(absolutePath);
+            Path p = Path.of(filePath.trim());
             if (!Files.exists(p))
                 return false;
-            List<String> lines = Files.readAllLines(p);
-            StringBuilder sb = new StringBuilder();
-            boolean inJson = false;
-            for (String line : lines) {
-                if (!inJson && line.trim().startsWith("```json")) {
-                    inJson = true;
-                    sb.setLength(0);
-                    continue;
-                }
-                if (inJson && line.trim().startsWith("```")) {
-                    String json = sb.toString();
-                    JsonNode node = objectMapper.readTree(json);
-                    if (node.has("roleId")) {
-                        String roleId = node.path("roleId").asText();
-                        if (roleId != null && !roleId.isBlank())
-                            rolePacks.put(roleId, node);
-                    } else if (node.has("domainId")) {
-                        String domainId = node.path("domainId").asText();
-                        if (domainId != null && !domainId.isBlank())
-                            domainPacks.put(domainId, node);
-                    }
-                    inJson = false;
-                    sb.setLength(0);
-                    continue;
-                }
-                if (inJson) {
-                    sb.append(line).append("\n");
-                }
-            }
-            return !domainPacks.isEmpty();
+            List<String> lines = Files.readAllLines(p, StandardCharsets.UTF_8);
+            return loadExpertPacksFromLines(lines);
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private boolean loadExpertPacksFromClasspath(String resourcePath) {
+        if (resourcePath == null || resourcePath.isBlank()) {
+            return false;
+        }
+        try {
+            ClassPathResource resource = new ClassPathResource(resourcePath.trim());
+            if (!resource.exists()) {
+                return false;
+            }
+            try (InputStream is = resource.getInputStream();
+                 BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                List<String> lines = reader.lines().collect(Collectors.toList());
+                return loadExpertPacksFromLines(lines);
+            }
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean loadExpertPacksFromLines(List<String> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return false;
+        }
+
+        Map<String, JsonNode> parsedDomainPacks = new HashMap<>();
+        Map<String, JsonNode> parsedRolePacks = new HashMap<>();
+
+        StringBuilder sb = new StringBuilder();
+        boolean inJson = false;
+        for (String line : lines) {
+            if (!inJson && line.trim().startsWith("```json")) {
+                inJson = true;
+                sb.setLength(0);
+                continue;
+            }
+            if (inJson && line.trim().startsWith("```")) {
+                String json = sb.toString();
+                try {
+                    JsonNode node = objectMapper.readTree(json);
+                    if (node.has("roleId")) {
+                        String roleId = node.path("roleId").asText();
+                        if (roleId != null && !roleId.isBlank()) {
+                            parsedRolePacks.put(roleId, node);
+                        }
+                    } else if (node.has("domainId")) {
+                        String domainId = node.path("domainId").asText();
+                        if (domainId != null && !domainId.isBlank()) {
+                            parsedDomainPacks.put(domainId, node);
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // Ignore malformed fenced JSON blocks and continue parsing remaining blocks.
+                }
+                inJson = false;
+                sb.setLength(0);
+                continue;
+            }
+            if (inJson) {
+                sb.append(line).append("\n");
+            }
+        }
+
+        if (parsedDomainPacks.isEmpty() && parsedRolePacks.isEmpty()) {
+            return false;
+        }
+
+        domainPacks.putAll(parsedDomainPacks);
+        rolePacks.putAll(parsedRolePacks);
+        return !domainPacks.isEmpty();
     }
 
     private Set<String> splitKeywords(String s) {
@@ -386,4 +481,116 @@ public class TaxonomyServiceImpl implements TaxonomyService {
         }
         return false;
     }
+
+    @Override
+    public Set<String> expandQueryWithTaxonomy(String rawQuery, Set<String> originalTerms, int maxExpansionTerms) {
+        LinkedHashSet<String> expanded = new LinkedHashSet<>();
+        if (originalTerms != null) {
+            for (String term : originalTerms) {
+                String normalized = normalizeCandidate(term);
+                if (!normalized.isBlank()) {
+                    expanded.add(normalized);
+                }
+            }
+        }
+
+        if (expanded.isEmpty() || maxExpansionTerms <= 0) {
+            return expanded;
+        }
+
+        try {
+            String safeRaw = rawQuery != null ? rawQuery : "";
+            String detectedDomain = detectDomain(safeRaw, null, null);
+            String detectedRole = detectRoleCategory(safeRaw);
+            String domainId = mapToDomainPackId(detectedDomain);
+            String roleId = normalizeToRoleId(detectedRole);
+
+            Set<String> candidates = new LinkedHashSet<>();
+            if (domainId != null) {
+                candidates.addAll(getAllowedSkills(domainId, roleId));
+                candidates.addAll(getAllowedTools(domainId));
+            }
+
+            if (detectedDomain != null) {
+                candidates.addAll(domainKeywords.getOrDefault(detectedDomain, Set.of()));
+            }
+            if (detectedRole != null) {
+                candidates.addAll(roleKeywords.getOrDefault(detectedRole, Set.of()));
+            }
+
+            String normalizedRaw = normalize(safeRaw, null, null);
+            List<String> baseTerms = new ArrayList<>(expanded);
+
+            List<String> rankedCandidates = candidates.stream()
+                    .map(this::normalizeCandidate)
+                    .filter(term -> term.length() >= 2)
+                    .filter(term -> !expanded.contains(term))
+                    .map(term -> new RankedTerm(term, scoreCandidate(term, baseTerms, normalizedRaw)))
+                    .filter(rt -> rt.score() > 0)
+                    .sorted((a, b) -> Integer.compare(b.score(), a.score()))
+                    .limit(maxExpansionTerms)
+                    .map(RankedTerm::term)
+                    .collect(Collectors.toList());
+
+            expanded.addAll(rankedCandidates);
+            return expanded;
+        } catch (Exception ex) {
+            return expanded;
+        }
+    }
+
+    private String normalizeCandidate(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9\\s]", " ")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private int scoreCandidate(String candidate, List<String> baseTerms, String normalizedRaw) {
+        int score = 0;
+
+        if (normalizedRaw.contains(candidate)) {
+            score += 4;
+        }
+
+        for (String base : baseTerms) {
+            if (candidate.equals(base)) {
+                score += 5;
+            } else if (candidate.contains(base) || base.contains(candidate)) {
+                score += 3;
+            } else if (sharesToken(candidate, base)) {
+                score += 1;
+            }
+        }
+
+        if (candidate.contains(" ")) {
+            score += 1;
+        }
+
+        return score;
+    }
+
+    private boolean sharesToken(String left, String right) {
+        if (left.isBlank() || right.isBlank()) {
+            return false;
+        }
+
+        Set<String> leftTokens = new HashSet<>();
+        for (String token : left.split("\\s+")) {
+            if (!token.isBlank()) {
+                leftTokens.add(token);
+            }
+        }
+        for (String token : right.split("\\s+")) {
+            if (leftTokens.contains(token)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private record RankedTerm(String term, int score) {}
 }

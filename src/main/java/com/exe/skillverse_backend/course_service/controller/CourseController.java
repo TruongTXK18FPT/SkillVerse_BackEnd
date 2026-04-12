@@ -19,6 +19,7 @@ import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -199,14 +200,57 @@ public class CourseController {
     }
 
     @GetMapping("/by-author/{authorId}")
-    @Operation(summary = "List courses by author")
+    @Operation(summary = "List courses by author",
+            description = "Returns only non-ARCHIVED courses by default. Supports server-side status filter. " +
+                    "The authorId is extracted from the JWT token — the path param is validated against it.")
     public ResponseEntity<PageResponse<CourseSummaryDTO>> listCoursesByAuthor(
-            @Parameter(description = "Author user ID") @PathVariable @NotNull Long authorId,
+            @Parameter(description = "Author user ID (must match JWT subject for non-admin)")
+            @PathVariable @NotNull Long authorId,
+            @Parameter(description = "Filter by a specific status (DRAFT, PENDING, PUBLIC, REJECTED, SUSPENDED).")
+            @RequestParam(required = false) CourseStatus status,
+            @Parameter(description = "If true, exclude ARCHIVED courses. Default: true.")
+            @RequestParam(required = false) Boolean excludeArchived,
+            @Parameter(description = "Filter to archived courses only")
+            @RequestParam(required = false) Boolean archivedOnly,
+            @AuthenticationPrincipal Jwt jwt,
             @PageableDefault(size = 20) Pageable pageable) {
 
-        log.info("Listing courses by author: {}", authorId);
-        PageResponse<CourseSummaryDTO> courses = courseService.listCoursesByAuthor(authorId, pageable);
+        // Extract authorId from JWT — this is the authoritative source
+        Long currentUserId = JwtUtils.extractUserId(jwt);
+
+        // Ownership check: only the author or an admin may view this endpoint
+        ensureOwnershipOrAdmin(jwt, authorId, "list courses by author");
+
+        log.info("Listing courses by author {} (jwt user {}) with status={}, excludeArchived={}, archivedOnly={}",
+                authorId, currentUserId, status, excludeArchived, archivedOnly);
+
+        PageResponse<CourseSummaryDTO> courses;
+        if (Boolean.TRUE.equals(archivedOnly)) {
+            courses = courseService.listCoursesByAuthor(authorId, CourseStatus.ARCHIVED, pageable);
+        } else if (status != null) {
+            courses = courseService.listCoursesByAuthor(authorId, status, pageable);
+        } else if (Boolean.FALSE.equals(excludeArchived)) {
+            // includeArchived=true: return ALL courses including ARCHIVED
+            courses = courseService.listCoursesByAuthor(authorId, pageable);
+        } else {
+            // Default: exclude ARCHIVED courses
+            courses = courseService.listCoursesByAuthorNonArchived(authorId, pageable);
+        }
         return ResponseEntity.ok(courses);
+    }
+
+    @GetMapping("/by-author/{authorId}/stats")
+    @Operation(summary = "Get course stats for a mentor (badge counts per status)")
+    public ResponseEntity<Map<String, Long>> getMentorCourseStats(
+            @Parameter(description = "Author user ID (must match JWT subject for non-admin)")
+            @PathVariable @NotNull Long authorId,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        // Ownership check: only the author or an admin may view this endpoint
+        ensureOwnershipOrAdmin(jwt, authorId, "get course stats");
+
+        log.info("Fetching course stats for author {}", authorId);
+        return ResponseEntity.ok(courseService.getCourseStatsByAuthor(authorId));
     }
 
     // ========== Mentor Workflow Endpoints ==========
@@ -265,6 +309,22 @@ public class CourseController {
         return auth.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
                 .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_CONTENT_ADMIN"));
+    }
+
+    /**
+     * Ensure the JWT holder is the specified author OR has an admin role.
+     * Throws AccessDeniedException if neither condition holds.
+     */
+    private void ensureOwnershipOrAdmin(Jwt jwt, Long authorId, String operation) {
+        if (isAdmin(jwt)) {
+            return; // Admin can access any author's courses
+        }
+        Long currentUserId = JwtUtils.extractUserId(jwt);
+        if (currentUserId == null || !currentUserId.equals(authorId)) {
+            log.warn("Unauthorized attempt to {} for author {} by user {}", operation, authorId, currentUserId);
+            throw new com.exe.skillverse_backend.shared.exception.AccessDeniedException(
+                    "You are not authorized to " + operation + " for author " + authorId);
+        }
     }
 
 }

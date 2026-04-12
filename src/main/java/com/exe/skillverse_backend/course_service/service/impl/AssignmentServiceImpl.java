@@ -28,7 +28,10 @@ import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.exe.skillverse_backend.shared.service.MediaService;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -39,7 +42,9 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
+import org.springframework.http.ResponseEntity;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -51,6 +56,7 @@ import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentCre
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentCriteriaDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentGradeDTO;
+import com.exe.skillverse_backend.course_service.service.dto.AssignmentUpdateResultDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSubmissionDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSummaryDTO;
@@ -58,8 +64,10 @@ import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentUpd
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.CriteriaScoreDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionItemDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionStatsDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.PageResponse;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.PendingSubmissionItemDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
+import com.exe.skillverse_backend.assignment_ai_service.event.SubmissionCreatedEvent;
 
 @Slf4j
 @Service
@@ -75,12 +83,15 @@ public class AssignmentServiceImpl implements AssignmentService {
     private final UserRepository userRepository;
     private final MediaRepository mediaRepository;
     private final NotificationService notificationService;
+    private final ApplicationEventPublisher eventPublisher;
     private final AssignmentMapper assignmentMapper;
     private final AssignmentSubmissionMapper submissionMapper;
     private final UserProfileRepository userProfileRepository;
     private final Clock clock;
     private final CourseLearningProgressService courseLearningProgressService;
     private final RevisionPinnedContentResolver revisionPinnedContentResolver;
+    private final CloudinaryService cloudinaryService;
+    private final MediaService mediaService;
 
     @Override
     @Transactional
@@ -96,6 +107,19 @@ public class AssignmentServiceImpl implements AssignmentService {
         if (assignment.getIsRequired() == null) {
             assignment.setIsRequired(true);
         }
+        if (assignment.getAiGradingEnabled() == null) {
+            assignment.setAiGradingEnabled(false);
+        }
+        if (assignment.getTrustAiEnabled() == null) {
+            assignment.setTrustAiEnabled(false);
+        }
+        if (assignment.getGradingStyle() == null) {
+            assignment.setGradingStyle("STANDARD");
+        }
+        // Auto-enable trustAi when AI grading is enabled — AI chấm xong tự confirm
+        if (Boolean.TRUE.equals(assignment.getAiGradingEnabled())) {
+            assignment.setTrustAiEnabled(true);
+        }
         assignment.setCreatedAt(now());
         assignment.setUpdatedAt(now());
         if (dto.getCriteria() != null) {
@@ -110,17 +134,23 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional
-    public AssignmentDetailDTO updateAssignment(Long assignmentId, AssignmentUpdateDTO dto, Long actorId) {
+    public AssignmentUpdateResultDTO updateAssignment(Long assignmentId, AssignmentUpdateDTO dto, Long actorId) {
         log.info("Updating assignment {} by actor {}", assignmentId, actorId);
-        
+
         Assignment assignment = getAssignmentOrThrow(assignmentId);
         ensureAuthorOrAdmin(actorId, assignment.getModule().getCourse().getAuthor().getId());
-        
+
         validateUpdateAssignmentRequest(dto, assignment);
-        
+
         assignmentMapper.updateEntity(assignment, dto);
+        // Auto-enable trustAi when AI grading is enabled — AI chấm xong tự confirm
+        if (Boolean.TRUE.equals(assignment.getAiGradingEnabled())) {
+            assignment.setTrustAiEnabled(true);
+        }
         assignment.setUpdatedAt(now());
-        if (dto.getCriteria() != null) {
+
+        boolean criteriaChanged = dto.getCriteria() != null;
+        if (criteriaChanged) {
             // Cascade-delete SubmissionCriteriaScore rows that reference old criteria
             // to prevent FK orphans when criteria are replaced
             List<AssignmentCriteria> oldCriteria = criteriaRepository.findByAssignmentIdOrderByOrderIndexAsc(assignmentId);
@@ -132,11 +162,27 @@ public class AssignmentServiceImpl implements AssignmentService {
             assignment.getCriteria().clear();
             assignment.getCriteria().addAll(buildCriteriaEntities(dto.getCriteria(), assignment));
         }
-        
+
         Assignment saved = assignmentRepository.save(assignment);
         log.info("Assignment {} updated by actor {}", assignmentId, actorId);
-        
-        return assignmentMapper.toDetailDto(saved);
+
+        // Count submissions for FE warning modal
+        long gradedCount = submissionRepository.countByAssignmentIdAndScoreIsNotNull(assignmentId);
+        long aiPendingCount = submissionRepository.countByAssignmentIdAndIsAiGradedTrueAndMentorConfirmedNull(assignmentId);
+        long pendingCount = submissionRepository.countByAssignmentIdAndScoreIsNull(assignmentId);
+
+        if (criteriaChanged && (gradedCount > 0 || aiPendingCount > 0)) {
+            log.warn("Assignment {} criteria updated with {} graded submissions "
+                    + "and {} AI-pending submissions. AI suggestions may be invalidated.",
+                assignmentId, gradedCount, aiPendingCount);
+        }
+
+        return new AssignmentUpdateResultDTO(
+                assignmentMapper.toDetailDto(saved),
+                gradedCount,
+                aiPendingCount,
+                pendingCount
+        );
     }
 
     @Override
@@ -229,7 +275,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                 throw new BadRequestException("ASSIGNMENT_ALREADY_PASSED");
             }
             // isPassed == false (FAIL) → allow reattempt, fall through
-            
+
             // Mark current newest as previous (keep all history, just swap flags)
             newest.setIsNewest(false);
             newest.setIsPrevious(true);
@@ -245,26 +291,40 @@ public class AssignmentServiceImpl implements AssignmentService {
             }
         }
         
-        validateSubmissionRequest(dto, assignment);
-        
-        // Load file media if provided
+        // Load file media if provided, then validate
         Media fileMedia = null;
         if (dto.getFileMediaId() != null) {
             fileMedia = mediaRepository.findById(dto.getFileMediaId())
                     .orElseThrow(() -> new NotFoundException("MEDIA_NOT_FOUND"));
         }
-        
+
+        validateSubmissionRequest(dto, assignment, fileMedia);
+
+        // Validate file against AI grading rules when applicable
+        if (fileMedia != null) {
+            mediaService.validateAssignmentFile(
+                    fileMedia.getType(),
+                    fileMedia.getFileSize(),
+                    Boolean.TRUE.equals(assignment.getAiGradingEnabled())
+            );
+        }
+
         AssignmentSubmission submission = submissionMapper.toEntity(dto, assignment, user, fileMedia);
         submission.setSubmittedAt(now());
         submission.setAttemptNumber(nextAttemptNumber);
         submission.setIsNewest(true);
         submission.setIsPrevious(false);
         submission.setIsLate(isLate);
-        
+        // gradingMode: null/AI = AI chấm, MENTOR = skip AI, vào mentor queue ngay
+        String gradingMode = dto.getGradingMode() != null
+                ? dto.getGradingMode().name() : "AI";
+        submission.setGradingMode(gradingMode);
+        boolean skipAi = "MENTOR".equals(gradingMode);
+
         AssignmentSubmission saved = submissionRepository.save(submission);
-        log.info("Assignment {} submitted by user {}, submission id {}, attempt #{}", 
-                assignmentId, userId, saved.getId(), nextAttemptNumber);
-        
+        log.info("Assignment {} submitted by user {}, submission id {}, attempt #{}, gradingMode={}",
+                assignmentId, userId, saved.getId(), nextAttemptNumber, gradingMode);
+
         // Send late submission notification
         if (isLate) {
             notificationService.createNotification(
@@ -275,7 +335,25 @@ public class AssignmentServiceImpl implements AssignmentService {
                     saved.getId().toString()
             );
         }
-        
+
+        // Publish SubmissionCreatedEvent — only if NOT MENTOR mode
+        if (!skipAi) {
+            eventPublisher.publishEvent(new SubmissionCreatedEvent(
+                    this,
+                    saved.getId(),
+                    assignmentId,
+                    userId
+            ));
+        } else {
+            notificationService.createNotification(
+                    userId,
+                    "Bài đã được gửi cho mentor chấm thủ công",
+                    "Bài tập '" + assignment.getTitle() + "' sẽ được mentor xem xét và chấm điểm.",
+                    NotificationType.ASSIGNMENT_GRADED,
+                    saved.getId().toString()
+            );
+        }
+
         return toDetailWithCriteria(saved);
     }
 
@@ -287,7 +365,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         // Merge legacy query-param grading into DTO
         AssignmentGradeDTO payload = grading != null
                 ? grading
-                : new AssignmentGradeDTO(legacyScore, legacyFeedback, null);
+                : new AssignmentGradeDTO(legacyScore, legacyFeedback, null, null);
 
         log.info("Grading submission {} by grader {}", submissionId, graderId);
         
@@ -319,11 +397,37 @@ public class AssignmentServiceImpl implements AssignmentService {
         submission.setGradedBy(grader);
         submission.setGradedAt(now());
 
+        // Mark as AI-graded + mentor-confirmed when mentor confirms an AI pre-grade result
+        if (Boolean.TRUE.equals(payload.getIsAiGrade())) {
+            submission.setIsAiGraded(true);
+            submission.setMentorConfirmed(true);
+        }
+
         // Persist isPassed once at grading time (immune to later criteria edits)
         List<CriteriaScoreDTO> gradedCriteriaScores = loadCriteriaScores(submission.getId());
         boolean passed = computeIsPassed(assignment, gradedCriteriaScores, totalScore);
         submission.setIsPassed(passed);
         
+        // Handle dispute: if this submission was flagged for re-grade
+        if (Boolean.TRUE.equals(submission.getDisputeFlag())) {
+            submission.setDisputeFlag(false);
+            submission.setDisputeAt(null);
+            submission.setDisputeReason(null);
+            log.info("Mentor re-graded disputed submission {}. isPassed recalculated.", submissionId);
+
+            // Notify student about re-grade result
+            String reGradeStatus = passed ? "PASSED ✓" : "Cần cải thiện";
+            notificationService.createNotification(
+                    submission.getUser().getId(),
+                    "Mentor đã xem xét lại bài của bạn",
+                    "Mentor đã xem xét lại bài '" + assignment.getTitle()
+                            + "': " + totalScore + "/" + assignment.getMaxScore() + " - " + reGradeStatus,
+                    NotificationType.ASSIGNMENT_GRADED,
+                    submission.getId().toString(),
+                    graderId
+            );
+        }
+
         AssignmentSubmission saved = submissionRepository.save(submission);
         log.info("Submission {} graded by grader {} with score {}, passed={}", submissionId, graderId, totalScore, passed);
 
@@ -351,22 +455,26 @@ public class AssignmentServiceImpl implements AssignmentService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<AssignmentSubmissionDetailDTO> listSubmissions(Long assignmentId, Pageable pageable) {
+    public PageResponse<AssignmentSubmissionDetailDTO> listSubmissions(Long assignmentId, Pageable pageable) {
         log.debug("Listing submissions for assignment {} with page {}", assignmentId, pageable.getPageNumber());
-        
+
         Assignment assignment = getAssignmentOrThrow(assignmentId);
-        
+
         // Ensure only the course author or admin can list all submissions
         Long actorId = getCurrentUserId();
         ensureAuthorOrAdmin(actorId, assignment.getModule().getCourse().getAuthor().getId());
-        
+
         // Only show newest version per student (avoid duplicates from previous versions)
-        List<AssignmentSubmission> submissions = submissionRepository
-                .findLatestSubmissionsByAssignmentId(assignmentId);
-        
-        return submissions.stream()
-                .map(this::toDetailWithCriteria)
-                .toList();
+        Page<AssignmentSubmission> submissions = submissionRepository
+                .findLatestSubmissionsByAssignmentId(assignmentId, pageable);
+
+        return PageResponse.<AssignmentSubmissionDetailDTO>builder()
+                .content(submissions.map(this::toDetailWithCriteria).getContent())
+                .page(submissions.getNumber())
+                .size(submissions.getSize())
+                .totalElements(submissions.getTotalElements())
+                .totalPages(submissions.getTotalPages())
+                .build();
     }
 
     @Override
@@ -542,7 +650,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .collect(Collectors.toList());
     }
 
-    private void validateSubmissionRequest(AssignmentSubmissionCreateDTO dto, Assignment assignment) {
+    private void validateSubmissionRequest(AssignmentSubmissionCreateDTO dto, Assignment assignment, Media fileMedia) {
         // Type-specific validation based on assignment submission type
         switch (assignment.getSubmissionType()) {
             case TEXT:
@@ -553,6 +661,9 @@ public class AssignmentServiceImpl implements AssignmentService {
             case FILE:
                 if (dto.getFileMediaId() == null) {
                     throw new BadRequestException("File upload is required for FILE type assignments");
+                }
+                if (fileMedia == null) {
+                    throw new NotFoundException("MEDIA_NOT_FOUND");
                 }
                 break;
             case LINK:
@@ -988,5 +1099,55 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .assignmentName(assignment.getTitle())
                 .assignmentDueAt(assignment.getDueAt())
                 .build();
+    }
+
+    @Override
+    public ResponseEntity<byte[]> streamSubmissionFile(Long submissionId) throws IOException {
+        AssignmentSubmission submission = submissionRepository.findById(submissionId)
+                .orElseThrow(() -> new NotFoundException("Submission not found: " + submissionId));
+
+        Media media = submission.getFileMedia();
+        if (media == null) {
+            throw new NotFoundException("No file attached to submission: " + submissionId);
+        }
+
+        byte[] fileBytes = cloudinaryService.fetchFile(
+                media.getCloudinaryPublicId(), media.getCloudinaryResourceType());
+
+        String filename = media.getFileName();
+        String contentType = "application/octet-stream";
+        if (filename != null) {
+            if (filename.endsWith(".pdf")) {
+                contentType = "application/pdf";
+            } else if (filename.endsWith(".docx")) {
+                contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            } else if (filename.endsWith(".doc")) {
+                contentType = "application/msword";
+            } else if (filename.endsWith(".pptx")) {
+                contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+            } else if (filename.endsWith(".ppt")) {
+                contentType = "application/vnd.ms-powerpoint";
+            } else if (filename.endsWith(".xlsx")) {
+                contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+            } else if (filename.endsWith(".xls")) {
+                contentType = "application/vnd.ms-excel";
+            } else if (filename.endsWith(".png")) {
+                contentType = "image/png";
+            } else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) {
+                contentType = "image/jpeg";
+            } else if (filename.endsWith(".webp")) {
+                contentType = "image/webp";
+            }
+        }
+
+        log.debug("[STREAM_SUBMISSION] Streaming submission {}: filename={}, size={} bytes",
+                submissionId, filename, fileBytes.length);
+
+        return ResponseEntity.ok()
+                .header("Content-Type", contentType)
+                .header("Content-Length", String.valueOf(fileBytes.length))
+                .header("Content-Disposition",
+                        "attachment; filename=\"" + (filename != null ? filename : "submission_file") + "\"")
+                .body(fileBytes);
     }
 }

@@ -1,0 +1,395 @@
+package com.exe.skillverse_backend.assignment_ai_service.service.impl;
+
+import com.exe.skillverse_backend.assignment_ai_service.dto.AiGradingResultDTO;
+import com.exe.skillverse_backend.assignment_ai_service.service.AssignmentAiGradingService;
+import com.exe.skillverse_backend.assignment_ai_service.service.AssignmentGradingPromptService;
+import com.exe.skillverse_backend.assignment_ai_service.service.FileTextExtractorService;
+import com.exe.skillverse_backend.course_service.entity.Assignment;
+import com.exe.skillverse_backend.course_service.entity.AssignmentCriteria;
+import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
+import com.exe.skillverse_backend.course_service.entity.SubmissionCriteriaScore;
+import com.exe.skillverse_backend.course_service.repository.AssignmentCriteriaRepository;
+import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
+import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
+import com.exe.skillverse_backend.course_service.repository.SubmissionCriteriaScoreRepository;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.shared.entity.Media;
+import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+@Slf4j
+@Service
+public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingService {
+
+    private static final int MAX_AI_GRADE_ATTEMPTS = 3;
+    private static final double TRUST_AI_CONFIDENCE_THRESHOLD = 0.95;
+
+    private final AssignmentRepository assignmentRepository;
+    private final AssignmentSubmissionRepository submissionRepository;
+    private final AssignmentCriteriaRepository criteriaRepository;
+    private final SubmissionCriteriaScoreRepository criteriaScoreRepository;
+    private final MediaRepository mediaRepository;
+    private final AssignmentGradingPromptService gradingPromptService;
+    private final FileTextExtractorService fileExtractor;
+    private final NotificationService notificationService;
+    private final com.exe.skillverse_backend.course_service.service.CourseLearningProgressService courseLearningProgressService;
+    private final ChatModel chatModel;
+    private final ObjectMapper objectMapper;
+
+    public AssignmentAiGradingServiceImpl(
+            AssignmentRepository assignmentRepository,
+            AssignmentSubmissionRepository submissionRepository,
+            AssignmentCriteriaRepository criteriaRepository,
+            SubmissionCriteriaScoreRepository criteriaScoreRepository,
+            MediaRepository mediaRepository,
+            AssignmentGradingPromptService gradingPromptService,
+            FileTextExtractorService fileExtractor,
+            NotificationService notificationService,
+            @Autowired(required = false) @Qualifier("assignmentAiChatModel") ChatModel chatModel,
+            @Autowired(required = false) com.exe.skillverse_backend.course_service.service.CourseLearningProgressService courseLearningProgressService) {
+        this.assignmentRepository = assignmentRepository;
+        this.submissionRepository = submissionRepository;
+        this.criteriaRepository = criteriaRepository;
+        this.criteriaScoreRepository = criteriaScoreRepository;
+        this.mediaRepository = mediaRepository;
+        this.gradingPromptService = gradingPromptService;
+        this.fileExtractor = fileExtractor;
+        this.notificationService = notificationService;
+        this.chatModel = chatModel;
+        this.courseLearningProgressService = courseLearningProgressService;
+        this.objectMapper = new ObjectMapper();
+    }
+
+    @Override
+    @Transactional
+    public AiGradingResultDTO generateAiGrade(Long submissionId, Long mentorId) {
+        AssignmentSubmission submission = submissionRepository.findById(submissionId)
+                .orElseThrow(() -> new NotFoundException("SUBMISSION_NOT_FOUND"));
+
+        Assignment assignment = submission.getAssignment();
+
+        if (!Boolean.TRUE.equals(assignment.getAiGradingEnabled())) {
+            throw new IllegalStateException("AI grading is not enabled for this assignment");
+        }
+
+        // Idempotency: skip if already AI-graded (prevent duplicate processing)
+        if (Boolean.TRUE.equals(submission.getIsAiGraded())) {
+            log.info("Submission {} already AI-graded, skipping duplicate processing", submissionId);
+            return getAiGradeResult(submissionId);
+        }
+
+        // Check attempt cap
+        if (submission.getAiGradeAttemptCount() != null
+                && submission.getAiGradeAttemptCount() >= MAX_AI_GRADE_ATTEMPTS) {
+            throw new IllegalArgumentException(
+                "AI grading limit reached for this submission (max " + MAX_AI_GRADE_ATTEMPTS + ")");
+        }
+
+        // Increment attempt count
+        int currentCount = submission.getAiGradeAttemptCount() != null
+                ? submission.getAiGradeAttemptCount() : 0;
+        submission.setAiGradeAttemptCount(currentCount + 1);
+        submission.setAiGradedAt(Instant.now());
+
+        // Extract file text
+        String submissionText = "";
+        if (submission.getFileMedia() != null) {
+            Media media = submission.getFileMedia();
+            submissionText = fileExtractor.extractText(media, media.getType());
+        } else if (submission.getSubmissionText() != null) {
+            submissionText = submission.getSubmissionText();
+        }
+
+        if (submissionText.isBlank()) {
+            throw new IllegalArgumentException("No content to grade. Submission is empty.");
+        }
+
+        // Build prompt
+        String gradingStyle = assignment.getGradingStyle() != null
+                ? assignment.getGradingStyle() : "STANDARD";
+        String userPrompt = gradingPromptService.buildGradingPrompt(
+                assignment,
+                submissionText,
+                gradingStyle,
+                assignment.getAiGradingPrompt()
+        );
+
+        // Call AI with 1 retry
+        AiGradingResultDTO result = callAiWithRetry(userPrompt);
+
+        // Save AI results to submission
+        submission.setIsAiGraded(true);
+        submission.setAiScore(result.getTotalScore());
+        submission.setAiFeedback(result.getOverallFeedback());
+        submission.setAiConfidence(result.getOverallConfidence());
+        submissionRepository.save(submission);
+
+        // Save criteriaScores to DB so mentor sees them on grading page.
+        // Strategy:
+        //  1. Match by criteriaId (primary — AI returns IDs from prompt)
+        //  2. Fallback: match by orderIndex if AI returned wrong IDs
+        // This is robust even if AI hallucinates IDs or returns null.
+        List<AssignmentCriteria> criteriaList = criteriaRepository
+                .findByAssignmentIdOrderByOrderIndexAsc(assignment.getId());
+        Map<Long, AssignmentCriteria> criteriaIdMap = criteriaList.stream()
+                .filter(c -> c.getId() != null)
+                .collect(Collectors.toMap(AssignmentCriteria::getId, c -> c));
+
+        for (int i = 0; i < result.getCriteriaScores().size(); i++) {
+            AiGradingResultDTO.CriteriaScoreResult csResult = result.getCriteriaScores().get(i);
+            AssignmentCriteria criteria = null;
+
+            // Primary: try exact criteriaId match
+            if (csResult.getCriteriaId() != null) {
+                criteria = criteriaIdMap.get(csResult.getCriteriaId());
+            }
+
+            // Fallback: match by position (orderIndex) so we never skip due to hallucinated IDs
+            if (criteria == null && i < criteriaList.size()) {
+                criteria = criteriaList.get(i);
+                log.debug("AI returned criteriaId {} not found, falling back to orderIndex match: {}",
+                        csResult.getCriteriaId(), criteria.getId());
+            }
+
+            if (criteria == null) {
+                log.warn("No matching criteria for AI result index {}, skipping", i);
+                continue;
+            }
+
+            BigDecimal score = csResult.getScore() != null ? csResult.getScore() : BigDecimal.ZERO;
+            SubmissionCriteriaScore entity = SubmissionCriteriaScore.builder()
+                    .submission(submission)
+                    .criteria(criteria)
+                    .score(score)
+                    .feedback(csResult.getFeedback())
+                    .build();
+            criteriaScoreRepository.save(entity);
+            log.debug("Saved AI criteria score: submission={}, criteria={}, score={}",
+                    submissionId, criteria.getId(), score);
+        }
+
+        // Trust AI: auto-confirm when confidence >= threshold
+        // Sets score, feedback, gradedAt, isPassed — student sees PASS immediately.
+        // Mentor sees "✅ Tự động duyệt" in the table and is NOT required to take action.
+        if (Boolean.TRUE.equals(assignment.getTrustAiEnabled())
+                && result.getOverallConfidence() != null
+                && result.getOverallConfidence() >= TRUST_AI_CONFIDENCE_THRESHOLD) {
+            submission.setMentorConfirmed(true);
+            submission.setScore(result.getTotalScore());
+            submission.setFeedback(result.getOverallFeedback());
+            submission.setGradedAt(Instant.now());
+            submission.setIsPassed(computeIsPassedFromResult(assignment, result));
+            submissionRepository.save(submission);
+            log.info("AI grade auto-confirmed for submission {} (score={}, isPassed={}, confidence={})",
+                    submissionId, result.getTotalScore(), submission.getIsPassed(), result.getOverallConfidence());
+
+            // Recalculate course progress so the student's learning progress is updated
+            if (courseLearningProgressService != null) {
+                Long courseId = assignment.getModule().getCourse().getId();
+                Long studentId = submission.getUser().getId();
+                courseLearningProgressService.recalculateCourseProgress(courseId, studentId);
+                log.info("Course progress recalculated for student {} in course {} after AI auto-pass",
+                        studentId, courseId);
+            }
+
+            // Notify student of their result
+            if (notificationService != null) {
+                String passStatus = submission.getIsPassed() ? "PASSED ✓" : "Cần cải thiện";
+                notificationService.createNotification(
+                        submission.getUser().getId(),
+                        "Bài tập đã được chấm điểm",
+                        "Bài tập '" + assignment.getTitle() + "' đã được AI chấm: "
+                                + result.getTotalScore() + "/" + assignment.getMaxScore() + " - " + passStatus,
+                        com.exe.skillverse_backend.notification_service.entity.NotificationType.ASSIGNMENT_GRADED,
+                        submissionId.toString(),
+                        null
+                );
+            }
+        }
+
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public void toggleTrustAi(Long assignmentId, boolean enabled) {
+        Assignment assignment = assignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new NotFoundException("ASSIGNMENT_NOT_FOUND"));
+        assignment.setTrustAiEnabled(enabled);
+        assignmentRepository.save(assignment);
+        log.info("Trust AI {} for assignment {}", enabled, assignmentId);
+    }
+
+    @Override
+    @Transactional
+    public void requestMentorReview(Long submissionId, Long studentId, String reason) {
+        AssignmentSubmission submission = submissionRepository.findByIdWithFullChain(submissionId)
+                .orElseThrow(() -> new NotFoundException("SUBMISSION_NOT_FOUND"));
+
+        if (!submission.getUser().getId().equals(studentId)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "You can only dispute your own submission");
+        }
+
+        submission.setDisputeFlag(true);
+        submission.setDisputeAt(Instant.now());
+        submission.setDisputeReason(reason);
+        submissionRepository.save(submission);
+
+        // Notify mentor
+        Assignment assignment = submission.getAssignment();
+        Long mentorId = assignment.getModule().getCourse().getAuthor().getId();
+        String studentName = submission.getUser().getFullName();
+        notificationService.createNotification(
+                mentorId,
+                "Học viên yêu cầu mentor review",
+                "Học viên '" + studentName
+                        + "' yêu cầu bạn xem xét lại bài assignment '"
+                        + assignment.getTitle() + "'",
+                NotificationType.ASSIGNMENT_GRADED,
+                submissionId.toString(),
+                studentId
+        );
+
+        // Also notify student of the request
+        notificationService.createNotification(
+                studentId,
+                "Yêu cầu mentor review đã được gửi",
+                "Yêu cầu xem xét lại bài '" + assignment.getTitle()
+                        + "' đã được gửi. Mentor sẽ xem xét trong thời gian sớm nhất.",
+                NotificationType.ASSIGNMENT_GRADED,
+                submissionId.toString(),
+                null
+        );
+
+        log.info("Dispute requested for submission {} by student {}", submissionId, studentId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AiGradingResultDTO getAiGradeResult(Long submissionId) {
+        AssignmentSubmission submission = submissionRepository.findById(submissionId)
+                .orElseThrow(() -> new NotFoundException("SUBMISSION_NOT_FOUND"));
+
+        if (!Boolean.TRUE.equals(submission.getIsAiGraded())) {
+            throw new IllegalStateException("No AI grade exists for this submission");
+        }
+
+        AiGradingResultDTO dto = new AiGradingResultDTO();
+        dto.setTotalScore(submission.getAiScore());
+        dto.setOverallFeedback(submission.getAiFeedback());
+        dto.setOverallConfidence(submission.getAiConfidence());
+        dto.setCriteriaScores(Collections.emptyList());
+        return dto;
+    }
+
+    private AiGradingResultDTO callAiWithRetry(String userPrompt) {
+        try {
+            return callAi(userPrompt);
+        } catch (Exception e) {
+            log.warn("AI grading attempt 1 failed: {}", e.getMessage());
+            try {
+                return callAi(userPrompt);
+            } catch (Exception retryEx) {
+                log.error("AI grading attempt 2 also failed", retryEx);
+                throw new RuntimeException(
+                    "AI grading failed after 2 attempts. Error: " + retryEx.getMessage(), retryEx);
+            }
+        }
+    }
+
+    private AiGradingResultDTO callAi(String userPrompt) {
+        if (chatModel == null) {
+            throw new IllegalStateException(
+                "AI grading is not available — ASSIGNMENT_AI_API_KEY is not configured. "
+                + "Please configure assignment_ai.api-key in your environment.");
+        }
+        String response = ChatClient.create(chatModel).prompt()
+                .user(userPrompt)
+                .call()
+                .content();
+
+        String json = extractJson(response);
+        AiGradingResultDTO dto;
+        try {
+            dto = objectMapper.readValue(json, AiGradingResultDTO.class);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to parse AI grading response: " + e.getMessage(), e);
+        }
+
+        if (dto.getCriteriaScores() == null || dto.getCriteriaScores().isEmpty()) {
+            throw new RuntimeException("AI returned empty criteria scores");
+        }
+
+        return dto;
+    }
+
+    private String extractJson(String response) {
+        String cleaned = response != null ? response.trim() : "";
+        if (cleaned.startsWith("```json")) {
+            cleaned = cleaned.substring(7);
+        } else if (cleaned.startsWith("```")) {
+            cleaned = cleaned.substring(3);
+        }
+        if (cleaned.endsWith("```")) {
+            cleaned = cleaned.substring(0, cleaned.length() - 3);
+        }
+        return cleaned.trim();
+    }
+
+    /**
+     * Compute isPassed from AI grading result.
+     * Uses Coursera-style criteria logic: if required criteria with passingPoints
+     * exist, every required criterion must individually meet its threshold.
+     * Otherwise falls back to totalScore >= assignment.passingScore (or 70% of maxScore).
+     */
+    private boolean computeIsPassedFromResult(Assignment assignment, AiGradingResultDTO result) {
+        List<AssignmentCriteria> criteria = assignment.getCriteria();
+        if (criteria != null && !criteria.isEmpty()) {
+            // Build criteriaId → passed flag map from AI result
+            Map<Long, Boolean> passedMap = result.getCriteriaScores().stream()
+                    .filter(cs -> cs.getCriteriaId() != null)
+                    .collect(Collectors.toMap(
+                            cs -> cs.getCriteriaId(),
+                            cs -> Boolean.TRUE.equals(cs.getPassed())
+                    ));
+
+            for (AssignmentCriteria criterion : criteria) {
+                if (criterion.isRequired()
+                        && hasMeaningfulPassingPoints(criterion.getPassingPoints())
+                        && !Boolean.TRUE.equals(passedMap.get(criterion.getId()))) {
+                    // Required criterion did NOT pass → overall FAIL
+                    return false;
+                }
+            }
+            // All required criteria passed → overall PASS
+            return true;
+        }
+
+        // No criteria → flat score comparison
+        BigDecimal passingScore = assignment.getPassingScore() != null
+                ? assignment.getPassingScore()
+                : assignment.getMaxScore().multiply(new BigDecimal("0.7"));
+        return result.getTotalScore().compareTo(passingScore) >= 0;
+    }
+
+    private boolean hasMeaningfulPassingPoints(BigDecimal passingPoints) {
+        return passingPoints != null && passingPoints.compareTo(BigDecimal.ZERO) > 0;
+    }
+}

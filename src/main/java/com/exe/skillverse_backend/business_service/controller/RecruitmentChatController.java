@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.business_service.dto.request.UpdateRecruitment
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentMessageResponse;
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentSessionResponse;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
+import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
 import com.exe.skillverse_backend.business_service.service.RecruitmentChatService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -269,8 +270,8 @@ public class RecruitmentChatController {
         log.info("POST /api/v1/recruitment/sessions/get-or-create - Recruiter {} with candidate {} job {}",
                 recruiterId, candidateId, jobId);
 
-        com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource source =
-                com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource.valueOf(sourceType);
+        RecruitmentSessionSource source =
+                RecruitmentSessionSource.valueOf(sourceType);
 
         RecruitmentSessionResponse response = recruitmentChatService.getOrCreateSession(
                 recruiterId,

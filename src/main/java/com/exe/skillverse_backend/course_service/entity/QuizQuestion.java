@@ -34,7 +34,7 @@ public class QuizQuestion {
   @JoinColumn(name = "quiz_id", nullable = false)
   private Quiz quiz;
 
-  @Lob @Column(nullable = false)
+  @Column(nullable = false, columnDefinition = "TEXT")
   private String questionText;
 
   @Enumerated(EnumType.STRING)

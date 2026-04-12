@@ -154,7 +154,75 @@ public class InputValidationServiceImpl implements InputValidationService {
             }
         }
 
+        // Mode-aware timeline policy (warning only):
+        // - SKILL_BASED: 1-3 months
+        // - CAREER_BASED: 3-12 months
+        if (mode == GenerateRoadmapRequest.RoadmapMode.SKILL_BASED) {
+            Integer months = parseDurationMonths(request.getDesiredDuration());
+            if (months == null) {
+                results.add(ValidationResult.warning(
+                        "desiredDuration",
+                        "Thiếu mốc thời gian cho Skill-based roadmap",
+                        "Khuyến nghị chọn mốc 1-3 tháng để roadmap kỹ năng rõ ràng và tập trung."));
+            } else if (months < 1 || months > 3) {
+                results.add(ValidationResult.warning(
+                        "desiredDuration",
+                        "Mốc thời gian Skill-based nên trong khoảng 1-3 tháng",
+                        "Bạn vẫn có thể tạo roadmap, nhưng nên điều chỉnh về 1-3 tháng để phù hợp lộ trình học kỹ năng nhanh."));
+            }
+        } else if (mode == GenerateRoadmapRequest.RoadmapMode.CAREER_BASED) {
+            Integer months = parseDurationMonths(
+                    request.getTimelineToWork() != null ? request.getTimelineToWork() : request.getDesiredDuration());
+            if (months == null) {
+                results.add(ValidationResult.warning(
+                        "timelineToWork",
+                        "Thiếu mốc thời gian cho Career-based roadmap",
+                        "Khuyến nghị chọn mốc 3-12 tháng để roadmap nghề nghiệp bám sát mục tiêu job-ready."));
+            } else if (months < 3 || months > 12) {
+                results.add(ValidationResult.warning(
+                        "timelineToWork",
+                        "Mốc thời gian Career-based nên trong khoảng 3-12 tháng",
+                        "Bạn vẫn có thể tạo roadmap, nhưng nên điều chỉnh về 3-12 tháng để phù hợp lộ trình nghề nghiệp."));
+            }
+        }
+
         return results;
+    }
+
+    private Integer parseDurationMonths(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        String digits = normalized.replaceAll("[^0-9]", "");
+        if (digits.isEmpty()) {
+            return null;
+        }
+
+        int number;
+        try {
+            number = Integer.parseInt(digits);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+
+        if (normalized.matches("^\\d+\\s*m$") || normalized.contains("month") || normalized.contains("tháng")) {
+            return number;
+        }
+        if (normalized.matches("^\\d+\\s*w$") || normalized.contains("week") || normalized.contains("tuần")) {
+            return Math.max(1, (int) Math.ceil(number / 4.0));
+        }
+        if (normalized.matches("^\\d+\\s*y$") || normalized.contains("year") || normalized.contains("năm")) {
+            return number * 12;
+        }
+
+        // Compact enum-style values such as 3M, 6M, 12M (already lowercase here).
+        if (normalized.endsWith("m")) {
+            return number;
+        }
+
+        return null;
     }
 
     public List<ClarificationQuestion> generateClarificationQuestions(

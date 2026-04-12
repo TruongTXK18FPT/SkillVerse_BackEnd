@@ -40,16 +40,6 @@ import com.exe.skillverse_backend.question_bank_service.entity.QuestionBank;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
-import com.exe.skillverse_backend.study_service.dto.request.CreateTaskRequest;
-import com.exe.skillverse_backend.study_service.dto.request.GenerateScheduleRequest;
-import com.exe.skillverse_backend.study_service.dto.response.StudySessionResponse;
-import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
-import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
-import com.exe.skillverse_backend.study_service.entity.StudySession;
-import com.exe.skillverse_backend.study_service.entity.StudySessionStatus;
-import com.exe.skillverse_backend.study_service.entity.TaskPriority;
-import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
-import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
@@ -1580,6 +1570,9 @@ public class JourneyServiceImpl implements JourneyService {
         if (request.getAvoidLateNight() == null && request.getAllowLateNight() == null) {
             request.setAvoidLateNight(Boolean.TRUE);
         }
+        // Propagate suggestedModuleIds from the roadmap node so AiStudySupportServiceImpl
+        // can load course content for the AI prompt
+        request.setSuggestedModuleIds(node.getSuggestedModuleIds());
         return request;
     }
 
@@ -1617,6 +1610,9 @@ public class JourneyServiceImpl implements JourneyService {
                 : null);
         target.setChildBranchTitles(source.getChildBranchTitles() != null
                 ? new ArrayList<>(source.getChildBranchTitles())
+                : null);
+        target.setSuggestedModuleIds(source.getSuggestedModuleIds() != null
+                ? new ArrayList<>(source.getSuggestedModuleIds())
                 : null);
     }
 
@@ -1900,7 +1896,7 @@ public class JourneyServiceImpl implements JourneyService {
             description.append(buildNodeContextDescription(node)).append("\n\n");
         }
 
-        description.append("Step ").append(step).append("/").append(totalSteps).append("\n");
+        description.append("Task ").append(step).append(" trong ").append(totalSteps).append(" tổng cộng\n");
         description.append(buildRoadmapSourceLabel(roadmapSession, journey, node).replace(" • ", " | "));
 
         return safeTruncate(description.toString().trim(), 5000, "Roadmap study task");
@@ -3856,6 +3852,7 @@ public class JourneyServiceImpl implements JourneyService {
         }
         return normalized.substring(0, maxLength);
     }
+
 
     private Long createRoadmapSessionFromEvaluation(Journey journey, TestResult testResult,
                                                    List<Map<String, Object>> skillGaps,

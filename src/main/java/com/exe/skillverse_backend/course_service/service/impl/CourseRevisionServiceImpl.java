@@ -443,6 +443,10 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         course.setUpdatedAt(now());
         courseRepository.save(course);
 
+        // Sync AI grading fields from approved revision snapshot → live assignments table
+        // This ensures SubmissionCreatedEventListener sees correct ai_grading_enabled
+        syncAssignmentAiGradingFieldsFromSnapshot(saved.getContentSnapshotJson());
+
         String autoUpgradeReasonCode = "POLICY_MANUAL_ONLY";
 
         logRevisionEvent(
@@ -459,6 +463,73 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         dto.setAutoUpgradeReasonCode(autoUpgradeReasonCode);
         dto.setAutoUpgradeReasonDetail("Manual-only policy: no auto-upgrade execution on approval.");
         return dto;
+    }
+
+    /**
+     * Syncs AI grading fields (aiGradingEnabled, gradingStyle, aiGradingPrompt,
+     * trustAiEnabled) from the approved revision's snapshot JSON into the live
+     * assignments table. This ensures SubmissionCreatedEventListener reads correct
+     * AI config when students submit assignments.
+     */
+    private void syncAssignmentAiGradingFieldsFromSnapshot(JsonNode snapshot) {
+        if (snapshot == null) { return; }
+
+        JsonNode modules = snapshot.path("modules");
+        if (!modules.isArray()) { return; }
+
+        int synced = 0;
+        for (JsonNode module : modules) {
+            JsonNode lessons = module.path("lessons");
+            if (!lessons.isArray()) { continue; }
+
+            for (JsonNode lesson : lessons) {
+                if (!"assignment".equals(lesson.path("type").asText(null))) { continue; }
+
+                Long assignmentId = lesson.path("id").asLong(0L);
+                if (assignmentId == null || assignmentId == 0L) { continue; }
+
+                assignmentRepository.findById(assignmentId).ifPresent(assignment -> {
+                    boolean changed = false;
+
+                    boolean newAiEnabled = lesson.path("aiGradingEnabled").asBoolean(false);
+                    if (newAiEnabled != Boolean.TRUE.equals(assignment.getAiGradingEnabled())) {
+                        assignment.setAiGradingEnabled(newAiEnabled);
+                        changed = true;
+                    }
+
+                    String newGradingStyle = lesson.path("gradingStyle").asText(null);
+                    if (!equalsNullSafe(newGradingStyle, assignment.getGradingStyle())) {
+                        assignment.setGradingStyle(newGradingStyle);
+                        changed = true;
+                    }
+
+                    String newAiPrompt = lesson.path("aiGradingPrompt").asText(null);
+                    if (!equalsNullSafe(newAiPrompt, assignment.getAiGradingPrompt())) {
+                        assignment.setAiGradingPrompt(newAiPrompt);
+                        changed = true;
+                    }
+
+                    boolean newTrustEnabled = lesson.path("trustAiEnabled").asBoolean(false);
+                    if (newTrustEnabled != Boolean.TRUE.equals(assignment.getTrustAiEnabled())) {
+                        assignment.setTrustAiEnabled(newTrustEnabled);
+                        changed = true;
+                    }
+
+                    if (changed) {
+                        assignment.setUpdatedAt(now());
+                        assignmentRepository.save(assignment);
+                        log.info("[RevisionApproval] Synced AI grading fields to assignment {}: aiEnabled={}, trustAi={}",
+                                assignmentId, newAiEnabled, newTrustEnabled);
+                    }
+                });
+                synced++;
+            }
+        }
+        log.info("[RevisionApproval] AI grading sync complete: {} assignments scanned", synced);
+    }
+
+    private static boolean equalsNullSafe(String a, String b) {
+        return a == null ? b == null : a.equals(b);
     }
 
     @Override
@@ -487,6 +558,13 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 "REJECTED"
         );
         return toRevisionDto(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<CourseRevision> getLatestApprovedRevision(Long courseId) {
+        return courseRevisionRepository
+                .findTopByCourseIdAndStatusOrderByRevisionNumberDesc(courseId, CourseRevisionStatus.APPROVED);
     }
 
     private CourseRevision buildRevisionFromSource(
@@ -1705,7 +1783,6 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .timeLimitMinutes(parseInteger(itemNode.path("quizTimeLimitMinutes"), null))
                 .roundingIncrement(parseInteger(itemNode.path("roundingIncrement"), null))
                 .gradingMethod(parseQuizGradingMethod(itemNode.path("gradingMethod")))
-                .isAssessment(parseBoolean(itemNode.path("isAssessment"), null))
                 .cooldownHours(parseInteger(itemNode.path("cooldownHours"), null))
                 .orderIndex(parseInteger(itemNode.path("orderIndex"), fallbackOrderIndex))
                 .createdAt(now())
@@ -2021,12 +2098,6 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             ? parseQuizGradingMethodAllowNullAsExisting(itemNode.path("gradingMethod"), existing.getGradingMethod())
                 : existing.getGradingMethod();
         if (!Objects.equals(existing.getGradingMethod(), snapshotGradingMethod)) {
-            return false;
-        }
-        Boolean snapshotIsAssessment = hasExplicitField(itemNode, "isAssessment")
-            ? parseBoolean(itemNode.path("isAssessment"), existing.getIsAssessment())
-                : existing.getIsAssessment();
-        if (!Objects.equals(existing.getIsAssessment(), snapshotIsAssessment)) {
             return false;
         }
         Integer snapshotCooldownHours = hasExplicitField(itemNode, "cooldownHours")

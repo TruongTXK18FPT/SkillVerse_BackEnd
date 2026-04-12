@@ -17,7 +17,9 @@ import com.exe.skillverse_backend.course_service.service.ModuleService;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -124,7 +126,7 @@ public class ModuleServiceImpl implements ModuleService {
         return List.of();
       }
     }
-    List<Module> modules = moduleRepository.findByCourseIdOrderByOrderIndexAsc(courseId);
+    List<Module> modules = moduleRepository.findByCourseIdWithContent(courseId);
     for (Module module : modules) {
       module.getLessons().sort(Comparator
           .comparing(Lesson::getOrderIndex, Comparator.nullsLast(Integer::compareTo))
@@ -132,9 +134,11 @@ public class ModuleServiceImpl implements ModuleService {
       module.getQuizzes().sort(Comparator
           .comparing(Quiz::getOrderIndex, Comparator.nullsLast(Integer::compareTo))
           .thenComparing(Quiz::getId, Comparator.nullsLast(Long::compareTo)));
-      module.getAssignments().sort(Comparator
-          .comparing(Assignment::getOrderIndex, Comparator.nullsLast(Integer::compareTo))
-          .thenComparing(Assignment::getId, Comparator.nullsLast(Long::compareTo)));
+      module.setAssignments(new LinkedHashSet<>(module.getAssignments().stream()
+          .sorted(Comparator
+              .comparing(Assignment::getOrderIndex, Comparator.nullsLast(Integer::compareTo))
+              .thenComparing(Assignment::getId, Comparator.nullsLast(Long::compareTo)))
+          .toList()));
     }
     return modules.stream().map(moduleMapper::toDetailDto).toList();
   }

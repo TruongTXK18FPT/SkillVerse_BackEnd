@@ -8,7 +8,9 @@ import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSub
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentUpdateDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionItemDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionStatsDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.PageResponse;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.PendingSubmissionItemDTO;
+import com.exe.skillverse_backend.course_service.service.dto.AssignmentUpdateResultDTO;
 import com.exe.skillverse_backend.course_service.service.AssignmentService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,6 +18,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -135,8 +138,8 @@ public class AssignmentController {
 
         Long actorId = extractUserId(jwt);
         log.info("Updating assignment {} by user {}", assignmentId, actorId);
-        AssignmentDetailDTO updated = assignmentService.updateAssignment(assignmentId, dto, actorId);
-        return ResponseEntity.ok(updated);
+        AssignmentUpdateResultDTO result = assignmentService.updateAssignment(assignmentId, dto, actorId);
+        return ResponseEntity.ok(result.assignment());
     }
 
     @GetMapping("/{assignmentId}")
@@ -198,11 +201,11 @@ public class AssignmentController {
     @GetMapping("/{assignmentId}/submissions")
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "List submissions for an assignment (mentor/admin only, newest per student)")
-    public ResponseEntity<List<AssignmentSubmissionDetailDTO>> listSubmissions(
+    public ResponseEntity<PageResponse<AssignmentSubmissionDetailDTO>> listSubmissions(
             @Parameter(description = "Assignment ID") @PathVariable @NotNull Long assignmentId,
             @PageableDefault(size = 20) Pageable pageable) {
 
-        List<AssignmentSubmissionDetailDTO> submissions = assignmentService.listSubmissions(assignmentId, pageable);
+        PageResponse<AssignmentSubmissionDetailDTO> submissions = assignmentService.listSubmissions(assignmentId, pageable);
         return ResponseEntity.ok(submissions);
     }
 
@@ -243,5 +246,20 @@ public class AssignmentController {
         log.info("Counting pending submissions for assignment {} by user {}", assignmentId, actorId);
         Long count = assignmentService.countPendingSubmissions(assignmentId, actorId);
         return ResponseEntity.ok(count);
+    }
+
+    /**
+     * Download a submitted file with proper Content-Disposition header.
+     * GET /api/assignments/submissions/{submissionId}/download
+     */
+    @GetMapping("/submissions/{submissionId}/download")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Download submitted file",
+               description = "Streams the submitted file with proper filename for download")
+    public ResponseEntity<byte[]> downloadSubmissionFile(
+            @Parameter(description = "Submission ID") @PathVariable @NotNull Long submissionId) throws IOException {
+
+        log.debug("[API] GET /api/assignments/submissions/{}/download", submissionId);
+        return assignmentService.streamSubmissionFile(submissionId);
     }
 }

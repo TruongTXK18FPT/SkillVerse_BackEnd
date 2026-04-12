@@ -6,10 +6,8 @@ import com.cloudinary.utils.ObjectUtils;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,12 +15,33 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * Implementation of CloudinaryService for media upload operations
+ * Implementation of CloudinaryService for media upload operations.
+ * All size limits are aligned with Cloudinary Free Tier:
+ * - Image: 10MB
+ * - Raw (PDF, DOCX, etc.): 10MB
+ * - Video: 100MB
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class CloudinaryServiceImpl implements CloudinaryService {
+
+    // Cloudinary Free Tier upload limits
+    private static final long IMAGE_MAX_SIZE = 10 * 1024 * 1024L;   // 10MB
+    private static final long RAW_MAX_SIZE   = 10 * 1024 * 1024L;   // 10MB
+    private static final long VIDEO_MAX_SIZE = 100 * 1024 * 1024L;  // 100MB
+    // Chunked upload threshold (Cloudinary requires uploadLarge for files > 100MB)
+    private static final long VIDEO_CHUNKED_THRESHOLD = 100 * 1024 * 1024L; // 100MB
+
+    // Allowed raw file content types
+    private static final Set<String> ALLOWED_RAW_TYPES = Set.of(
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "image/jpeg",
+            "image/png",
+            "image/webp"
+    );
 
     private final Cloudinary cloudinary;
 
@@ -82,11 +101,11 @@ public class CloudinaryServiceImpl implements CloudinaryService {
 
         Map<String, Object> result;
 
-        // ✅ FIX: Use uploadLarge for files > 100MB (Cloudinary API requirement)
+        // Use uploadLarge for files > 100MB (Cloudinary API requirement)
         // uploadLarge uses chunked upload which is mandatory for files > 100MB
-        if (fileSizeBytes > 100 * 1024 * 1024) {
-            log.info("[VIDEO_UPLOAD] Large file detected ({}MB > 100MB), using chunked upload (uploadLarge)",
-                    String.format("%.2f", fileSizeMB));
+        if (fileSizeBytes > VIDEO_CHUNKED_THRESHOLD) {
+            log.info("[VIDEO_UPLOAD] Large file detected ({}MB > {}MB), using chunked upload (uploadLarge)",
+                    String.format("%.2f", fileSizeMB), VIDEO_CHUNKED_THRESHOLD / 1024 / 1024);
             params.put("chunk_size", 6000000); // 6MB chunks
 
             try {
@@ -136,21 +155,15 @@ public class CloudinaryServiceImpl implements CloudinaryService {
             throw new IllegalArgumentException("File content type is null");
         }
 
-        long maxSizeBytes = 20 * 1024 * 1024;
-        if (file.getSize() > maxSizeBytes) {
-            throw new IllegalArgumentException("File too large. Max 20MB");
+        if (file.getSize() > RAW_MAX_SIZE) {
+            throw new IllegalArgumentException(
+                    String.format("File too large. Maximum allowed size is %dMB",
+                            RAW_MAX_SIZE / 1024 / 1024));
         }
 
-        Set<String> allowedTypes = new HashSet<>();
-        allowedTypes.add("application/pdf");
-        allowedTypes.add("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-        allowedTypes.add("application/vnd.openxmlformats-officedocument.presentationml.presentation");
-        allowedTypes.add("image/jpeg");
-        allowedTypes.add("image/png");
-        allowedTypes.add("image/webp");
-
-        if (!allowedTypes.contains(contentType)) {
-            throw new IllegalArgumentException("Invalid file type: " + contentType);
+        if (!ALLOWED_RAW_TYPES.contains(contentType)) {
+            throw new IllegalArgumentException(
+                    String.format("Invalid file type: %s. Allowed: %s", contentType, ALLOWED_RAW_TYPES));
         }
 
         Map<String, Object> params = buildUploadParams(folder, "raw");
@@ -219,7 +232,7 @@ public class CloudinaryServiceImpl implements CloudinaryService {
     }
 
     /**
-     * Validate file before upload
+     * Validate file type and size before upload
      */
     private void validateFile(MultipartFile file, String expectedType) {
         if (file.isEmpty()) {
@@ -234,6 +247,19 @@ public class CloudinaryServiceImpl implements CloudinaryService {
         if (!contentType.startsWith(expectedType + "/")) {
             throw new IllegalArgumentException(
                     String.format("Invalid file type. Expected %s but got %s", expectedType, contentType));
+        }
+
+        // Validate file size
+        long fileSize = file.getSize();
+        if ("image".equals(expectedType) && fileSize > IMAGE_MAX_SIZE) {
+            throw new IllegalArgumentException(
+                    String.format("Image file too large. Maximum allowed size is %dMB",
+                            IMAGE_MAX_SIZE / 1024 / 1024));
+        }
+        if ("video".equals(expectedType) && fileSize > VIDEO_MAX_SIZE) {
+            throw new IllegalArgumentException(
+                    String.format("Video file too large. Maximum allowed size is %dMB",
+                            VIDEO_MAX_SIZE / 1024 / 1024));
         }
     }
 }

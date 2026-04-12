@@ -11,6 +11,8 @@ spring:
     properties:
       hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
       hibernate.jdbc.time_zone: Asia/Ho_Chi_Minh
+      hibernate.jdbc.lob.non_contextual_creation: true
+      hibernate.default_batch_fetch_size: 50
   servlet:
     multipart:
       enabled: true
@@ -55,6 +57,11 @@ spring:
     mapper:
       accept-case-insensitive-enums: true # cho phép enum không phân biệt hoa/thường
 
+  http:
+    client:
+      connect-timeout: ${HTTP_CLIENT_CONNECT_TIMEOUT:30s}
+      read-timeout: ${HTTP_CLIENT_READ_TIMEOUT:5m}
+
   # Google OAuth2 Configuration (for Google Login)
   # Works for both dev (localhost:5173) and prod (skillverse.vn)
   security:
@@ -83,7 +90,7 @@ spring:
         options:
           model: ${MISTRAL_API_MODEL:mistral-large-latest}
           temperature: ${MISTRAL_API_TEMPERATURE:0.7}
-          max-tokens: ${MISTRAL_API_MAX_TOKENS:30000}
+          max-tokens: ${MISTRAL_API_MAX_TOKENS:40000}
 
     # Custom configuration for AI Study Planner (Mistral Small)
     planner:
@@ -107,6 +114,16 @@ spring:
     retry:
       max-attempts: 1 # No auto-retry, we handle fallback manually
       on-client-errors: false
+  # FPT.AI Speech Configuration (STT/TTS) — nested under ai: to avoid duplicate key
+  fpt:
+    # API key for FPT.AI (picked from env FPT_AI_KEY if set)
+    api-key: ${FPT_AI_KEY:}
+    stt:
+      # Speech-to-Text endpoint
+      endpoint: ${AI_FPT_STT_ENDPOINT:https://api.fpt.ai/hmi/asr/general}
+    tts:
+      # Text-to-Speech endpoint
+      endpoint: ${AI_FPT_TTS_ENDPOINT:https://api.fpt.ai/hmi/tts/v5}
 
 jwt:
   secret: ${JWT_SECRET}
@@ -238,17 +255,16 @@ springdoc:
     enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:true}
     path: ${SPRINGDOC_SWAGGER_UI_PATH:/swagger-ui.html}
 
-# FPT.AI Speech Configuration (STT/TTS)
-ai:
-  fpt:
-    # API key for FPT.AI (picked from env FPT_AI_KEY if set)
-    api-key: ${FPT_AI_KEY:}
-    stt:
-      # Speech-to-Text endpoint
-      endpoint: ${AI_FPT_STT_ENDPOINT:https://api.fpt.ai/hmi/asr/general}
-    tts:
-      # Text-to-Speech endpoint
-      endpoint: ${AI_FPT_TTS_ENDPOINT:https://api.fpt.ai/hmi/tts/v5}
+# Assignment AI Grading Configuration (separate Mistral API key for auto-grading)
+assignment_ai:
+  api-key: ${ASSIGNMENT_AI_API_KEY:}
+  model: ${ASSIGNMENT_AI_MODEL:mistral-large-latest}
+  temperature: ${ASSIGNMENT_AI_TEMPERATURE:0.7}
+  max-tokens: ${ASSIGNMENT_AI_MAX_TOKENS:30000}
+  enabled: ${ASSIGNMENT_AI_ENABLED:true}
+
+# FPT.AI Speech Configuration — now nested under spring.ai.fpt
+# (moved from duplicate ai: key to avoid YAML override)
 
 server:
   port: ${SERVER_PORT:8080}

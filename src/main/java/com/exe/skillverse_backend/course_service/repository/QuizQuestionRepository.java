@@ -69,4 +69,12 @@ public interface QuizQuestionRepository extends JpaRepository<QuizQuestion, Long
     @Transactional(readOnly = true)
     @Query("SELECT qq FROM QuizQuestion qq WHERE qq.quiz.id = :quizId AND qq.orderIndex > :currentIndex ORDER BY qq.orderIndex ASC")
     Optional<QuizQuestion> findNextQuestion(@Param("quizId") Long quizId, @Param("currentIndex") Integer currentIndex);
+
+    /**
+     * Batch load questions with options for multiple quizzes.
+     * Eliminates N+1: 1 query instead of N queries in upsertCurriculum().
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT DISTINCT qq FROM QuizQuestion qq LEFT JOIN FETCH qq.options WHERE qq.quiz.id IN :quizIds")
+    List<QuizQuestion> findByQuizIdsWithOptions(@Param("quizIds") java.util.Collection<Long> quizIds);
 }

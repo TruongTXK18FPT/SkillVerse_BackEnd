@@ -44,32 +44,25 @@ public class LearningReport {
     @Column(nullable = false)
     private String studentName;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String reportContent;
 
     // Parsed sections stored as JSON or separate columns
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String goalsSection;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String resultsSection;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String behaviorSection;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String strengthsSection;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String concernsSection;
 
-    @Lob
     @Column(columnDefinition = "TEXT")
     private String recommendationsSection;
 

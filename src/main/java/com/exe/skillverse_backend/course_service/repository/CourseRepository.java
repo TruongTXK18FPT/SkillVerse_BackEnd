@@ -79,6 +79,21 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
     Page<Course> findByAuthorIdWithAuthor(@Param("authorId") Long authorId, Pageable pageable);
 
     /**
+     * Find courses by author with a specific status (for tab filtering by single status)
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT c FROM Course c LEFT JOIN FETCH c.author WHERE c.author.id = :authorId AND c.status = :status")
+    Page<Course> findByAuthorIdAndStatus(@Param("authorId") Long authorId, @Param("status") CourseStatus status, Pageable pageable);
+
+    /**
+     * Find courses by author excluding ARCHIVED (for "All" tab — non-archived only)
+     */
+    @Transactional(readOnly = true)
+    @Query(value = "SELECT c FROM Course c LEFT JOIN FETCH c.author WHERE c.author.id = :authorId AND c.status <> com.exe.skillverse_backend.course_service.entity.enums.CourseStatus.ARCHIVED",
+           countQuery = "SELECT COUNT(c) FROM Course c WHERE c.author.id = :authorId AND c.status <> com.exe.skillverse_backend.course_service.entity.enums.CourseStatus.ARCHIVED")
+    Page<Course> findByAuthorIdNonArchived(@Param("authorId") Long authorId, Pageable pageable);
+
+    /**
      * Find courses by status with pagination
      */
     @Transactional(readOnly = true)
@@ -134,4 +149,25 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
      */
     @Transactional(readOnly = true)
     List<Course> findByIdInAndStatus(@Param("ids") List<Long> ids, @Param("status") CourseStatus status);
+
+    /**
+     * Lightweight projection of all PUBLIC courses for the course catalog index.
+     * Returns only the fields needed for scoring — no nested entities.
+     *
+     * <p>Used by {@link com.exe.skillverse_backend.ai_service.service.impl.AiCourseCatalogServiceImpl}
+     * to build the in-memory course catalog index (Phase A pre-selection).
+     *
+     * <p>Returns Object[]:
+     * [id, title, description, shortDescription, category, level, createdAt, enrollmentCount]
+     */
+    @Transactional(readOnly = true)
+    @Query("""
+        SELECT c.id, c.title, c.description, c.shortDescription, c.category, c.level,
+               c.createdAt, COUNT(e.id)
+        FROM Course c
+        LEFT JOIN c.enrollments e
+        WHERE c.status = com.exe.skillverse_backend.course_service.entity.enums.CourseStatus.PUBLIC
+        GROUP BY c.id, c.title, c.description, c.shortDescription, c.category, c.level, c.createdAt
+        """)
+    List<Object[]> findAllPublicCourseProjections();
 }

@@ -142,7 +142,6 @@ class QuizServiceImplTest {
                 null,
                 1,
                 null,
-                false,
                 null,
                 1,
                 2L,

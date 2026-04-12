@@ -44,6 +44,13 @@ public class MediaServiceImpl implements MediaService {
 
     // File validation constants
     private static final long MAX_FILE_SIZE = 500 * 1024 * 1024L; // 500MB
+    // Cloudinary Free Tier limits: image=10MB, raw=10MB, video=100MB
+    private static final long CLOUDINARY_RAW_MAX_SIZE = 10 * 1024 * 1024L; // 10MB (raw files: PDF, DOCX, etc.)
+    private static final long CLOUDINARY_IMAGE_MAX_SIZE = 10 * 1024 * 1024L; // 10MB
+    private static final long CLOUDINARY_VIDEO_MAX_SIZE = 100 * 1024 * 1024L; // 100MB
+    // AI grading limit: 20MB > Cloudinary free raw limit, so we use 10MB to match Cloudinary
+    // NOTE: If you upgrade to Cloudinary Plus plan, you can increase this to 20MB
+    private static final long AI_GRADING_MAX_FILE_SIZE = CLOUDINARY_RAW_MAX_SIZE; // 10MB (matches free tier)
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
             "image/jpeg", "image/png", "image/gif", "image/webp",
             "video/mp4", "video/webm", "video/avi", "video/mov",
@@ -52,6 +59,11 @@ public class MediaServiceImpl implements MediaService {
             "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/vnd.ms-powerpoint",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+    private static final Set<String> AI_ALLOWED_CONTENT_TYPES = Set.of(
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/msword"
+    );
 
     @Override
     @Transactional
@@ -349,15 +361,35 @@ public class MediaServiceImpl implements MediaService {
 
     @Override
     public void validateFile(String contentType, long fileSize) {
-        // Validate file size
+        // Validate file size (max 500MB upper bound)
         if (fileSize > MAX_FILE_SIZE) {
             throw new IllegalArgumentException(
-                    String.format("File size %d bytes exceeds maximum allowed size %d bytes", fileSize, MAX_FILE_SIZE));
+                    String.format("File size (%.1fMB) exceeds the maximum allowed size of %dMB",
+                            fileSize / 1024.0 / 1024.0, MAX_FILE_SIZE / 1024 / 1024));
         }
 
         // Validate content type
         if (contentType == null || !ALLOWED_CONTENT_TYPES.contains(contentType.toLowerCase())) {
-            throw new IllegalArgumentException("Content type '" + contentType + "' is not allowed");
+            throw new IllegalArgumentException("Content type '" + contentType + "' is not supported");
+        }
+
+        // Size limit validation
+        if (contentType.startsWith("image/") && fileSize > CLOUDINARY_IMAGE_MAX_SIZE) {
+            throw new IllegalArgumentException(
+                    String.format("Image file size (%.1fMB) exceeds the maximum allowed size of %dMB",
+                            fileSize / 1024.0 / 1024.0, CLOUDINARY_IMAGE_MAX_SIZE / 1024 / 1024));
+        }
+        if (contentType.startsWith("video/") && fileSize > CLOUDINARY_VIDEO_MAX_SIZE) {
+            throw new IllegalArgumentException(
+                    String.format("Video file size (%.1fMB) exceeds the maximum allowed size of %dMB",
+                            fileSize / 1024.0 / 1024.0, CLOUDINARY_VIDEO_MAX_SIZE / 1024 / 1024));
+        }
+        // For all other files (PDF, DOCX, ZIP, etc.) use raw limit
+        if (!contentType.startsWith("image/") && !contentType.startsWith("video/")
+                && fileSize > CLOUDINARY_RAW_MAX_SIZE) {
+            throw new IllegalArgumentException(
+                    String.format("File size (%.1fMB) exceeds the maximum allowed size of %dMB",
+                            fileSize / 1024.0 / 1024.0, CLOUDINARY_RAW_MAX_SIZE / 1024 / 1024));
         }
 
         log.debug("File validation passed: type={}, size={}", contentType, fileSize);
@@ -455,5 +487,24 @@ public class MediaServiceImpl implements MediaService {
         log.info("[MEDIA_SERVICE] Document saved: mediaId={}, url={}", media.getId(), media.getUrl());
 
         return mediaMapper.toDto(media);
+    }
+
+    @Override
+    public void validateAssignmentFile(String contentType, long fileSize, boolean aiGradingEnabled) {
+        if (aiGradingEnabled) {
+            // AI grading only supports PDF and DOCX
+            if (!AI_ALLOWED_CONTENT_TYPES.contains(contentType)) {
+                throw new IllegalArgumentException(
+                        "AI grading only supports PDF and DOCX files. Received: " + contentType);
+            }
+            // Use AI_GRADING_MAX_FILE_SIZE which is capped at Cloudinary free tier (10MB)
+            if (fileSize > AI_GRADING_MAX_FILE_SIZE) {
+                throw new IllegalArgumentException(
+                        String.format("File size (%.1fMB) exceeds the maximum allowed size of %dMB for AI grading",
+                                fileSize / 1024.0 / 1024.0, AI_GRADING_MAX_FILE_SIZE / 1024 / 1024));
+            }
+        } else {
+            validateFile(contentType, fileSize);
+        }
     }
 }

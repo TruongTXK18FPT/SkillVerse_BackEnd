@@ -76,4 +76,29 @@ public class AsyncConfig {
 
         return executor;
     }
+
+    /**
+     * Thread pool executor for AI grading operations.
+     * Small pool size (2 core, 5 max) because AI calls are I/O-bound but
+     * consume memory for prompt building. Queue capacity of 50 handles spikes.
+     */
+    @Bean(name = "gradingTaskExecutor")
+    public Executor gradingTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(5);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("GradingAsync-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(120);
+        executor.initialize();
+
+        log.info("Grading Task Executor initialized with core={}, max={}, queue={}",
+                executor.getCorePoolSize(),
+                executor.getMaxPoolSize(),
+                executor.getQueueCapacity());
+
+        return executor;
+    }
 }

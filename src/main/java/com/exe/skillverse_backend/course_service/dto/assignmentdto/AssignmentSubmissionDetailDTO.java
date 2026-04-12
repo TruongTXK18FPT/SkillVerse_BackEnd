@@ -51,7 +51,19 @@ public class AssignmentSubmissionDetailDTO {
      * Sent to FE so it doesn't need to compute.
      */
     private BigDecimal passingScore;
-    
+
+    // AI Grading fields
+    private Boolean isAiGraded;
+    private Instant aiGradedAt;
+    private BigDecimal aiScore;
+    private String aiFeedback;
+    private Double aiConfidence;
+    private Boolean mentorConfirmed;
+    private Integer aiGradeAttemptCount;
+    private Boolean disputeFlag;
+    private Instant disputeAt;
+    private String disputeReason;
+
     // Derived field for frontend status display
     public String getStatus() {
         if (score != null) {

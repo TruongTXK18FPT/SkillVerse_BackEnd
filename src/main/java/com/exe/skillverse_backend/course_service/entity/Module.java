@@ -1,7 +1,9 @@
 package com.exe.skillverse_backend.course_service.entity;
 
 import jakarta.persistence.CascadeType;
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
@@ -25,7 +27,9 @@ import lombok.ToString;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Entity
 @Table(name = "modules", indexes = {
@@ -57,6 +61,18 @@ public class Module {
   private Instant createdAt;
   private Instant updatedAt;
 
+  /**
+   * IDs of modules that must be completed BEFORE this module can be attempted.
+   * Enables topological-sort-based prerequisite ordering in module distribution.
+   *
+   * <p>Empty list = no prerequisites (can be started immediately).
+   */
+  @ElementCollection(fetch = FetchType.LAZY)
+  @CollectionTable(name = "module_prerequisites", joinColumns = @JoinColumn(name = "module_id"))
+  @Column(name = "prerequisite_module_id")
+  @Builder.Default
+  private List<Long> prerequisiteModuleIds = new ArrayList<>();
+
   @PrePersist
   protected void onCreate() {
     if (createdAt == null) createdAt = Instant.now();
@@ -82,11 +98,12 @@ public class Module {
   @OneToMany(mappedBy = "module", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("orderIndex ASC")
   @ToString.Exclude @EqualsAndHashCode.Exclude
-  private List<Assignment> assignments = new ArrayList<>();
+  private Set<Assignment> assignments = new LinkedHashSet<>();
   @Builder.Default
   @OneToMany(mappedBy = "module", cascade = CascadeType.ALL, orphanRemoval = true)
   @ToString.Exclude @EqualsAndHashCode.Exclude
-  private List<CodingExercise> codingExercises = new ArrayList<>();
+  // LEGACY: codingExercises là code cũ, hiện chỉ dùng assignments/quizzes/lessons
+  private Set<CodingExercise> codingExercises = new LinkedHashSet<>();
 }
 
 

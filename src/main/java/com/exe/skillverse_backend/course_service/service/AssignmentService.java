@@ -1,9 +1,11 @@
 package com.exe.skillverse_backend.course_service.service;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.ResponseEntity;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentGradeDTO;
@@ -13,13 +15,15 @@ import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentSum
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.AssignmentUpdateDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionItemDTO;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.MentorSubmissionStatsDTO;
+import com.exe.skillverse_backend.course_service.dto.assignmentdto.PageResponse;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.PendingSubmissionItemDTO;
+import com.exe.skillverse_backend.course_service.service.dto.AssignmentUpdateResultDTO;
 
 public interface AssignmentService {
     
     AssignmentDetailDTO createAssignment(Long moduleId, AssignmentCreateDTO dto, Long actorId);
     
-    AssignmentDetailDTO updateAssignment(Long assignmentId, AssignmentUpdateDTO dto, Long actorId);
+    AssignmentUpdateResultDTO updateAssignment(Long assignmentId, AssignmentUpdateDTO dto, Long actorId);
     
     AssignmentDetailDTO getAssignmentById(Long assignmentId, Long actorId);
     
@@ -29,7 +33,7 @@ public interface AssignmentService {
     
     AssignmentSubmissionDetailDTO grade(Long submissionId, Long graderId, AssignmentGradeDTO grading, BigDecimal legacyScore, String legacyFeedback);
     
-    List<AssignmentSubmissionDetailDTO> listSubmissions(Long assignmentId, Pageable p);
+    PageResponse<AssignmentSubmissionDetailDTO> listSubmissions(Long assignmentId, Pageable p);
     
     List<AssignmentSummaryDTO> listAssignmentsByModule(Long moduleId, Long actorId);
     
@@ -61,4 +65,9 @@ public interface AssignmentService {
     List<MentorSubmissionItemDTO> getAllMentorSubmissions(Long mentorId);
     Page<MentorSubmissionItemDTO> getMentorSubmissionsPage(Long mentorId, String filter, String search, Pageable pageable);
     MentorSubmissionStatsDTO getMentorSubmissionStats(Long mentorId);
+
+    /**
+     * Stream a submitted file as a downloadable file with proper Content-Disposition header.
+     */
+    ResponseEntity<byte[]> streamSubmissionFile(Long submissionId) throws IOException;
 }

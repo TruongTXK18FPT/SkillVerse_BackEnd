@@ -57,7 +57,7 @@ public class Course {
   @Column(nullable = false, length = 200)
   private String title;
 
-  @Lob
+  @Column(columnDefinition = "TEXT")
   private String description;
 
   @Column(length = 50)
@@ -130,16 +130,14 @@ public class Course {
   private Instant publishedAt;
 
   /* ====== Rejection fields ====== */
-  @Lob
-  @Column(name = "rejection_reason")
+  @Column(name = "rejection_reason", columnDefinition = "TEXT")
   private String rejectionReason;
 
   @Column(name = "rejected_at")
   private Instant rejectedAt;
 
   /* ====== Suspension fields ====== */
-  @Lob
-  @Column(name = "suspension_reason")
+  @Column(name = "suspension_reason", columnDefinition = "TEXT")
   private String suspensionReason;
 
   @Column(name = "suspended_at")

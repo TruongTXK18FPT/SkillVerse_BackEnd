@@ -16,6 +16,26 @@ import org.springframework.transaction.annotation.Transactional;
 public interface AssignmentSubmissionRepository extends JpaRepository<AssignmentSubmission, Long> {
 
     /**
+     * Eagerly fetch assignment to avoid LazyInitializationException in async contexts.
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT s FROM AssignmentSubmission s JOIN FETCH s.assignment WHERE s.id = :id")
+    Optional<AssignmentSubmission> findByIdWithAssignment(@Param("id") Long id);
+
+    /**
+     * Eagerly fetch full chain (assignment → module → course → author) to avoid N+1
+     * queries in async contexts. Use for operations that access mentor/course metadata.
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT s FROM AssignmentSubmission s " +
+           "JOIN FETCH s.assignment a " +
+           "JOIN FETCH a.module m " +
+           "JOIN FETCH m.course c " +
+           "JOIN FETCH c.author " +
+           "WHERE s.id = :id")
+    Optional<AssignmentSubmission> findByIdWithFullChain(@Param("id") Long id);
+
+    /**
      * Find submissions by assignment ID with pagination
      */
     @Transactional(readOnly = true)
@@ -115,13 +135,16 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
             @Param("userId") Long userId);
 
     /**
-     * Find all newest submissions for an assignment (for mentor grading dashboard)
+     * Find all newest submissions for an assignment (for mentor grading dashboard).
+     * Supports pagination via Pageable so all records are NOT loaded at once.
      */
     @Transactional(readOnly = true)
     @Query("SELECT asub FROM AssignmentSubmission asub " +
             "WHERE asub.assignment.id = :assignmentId AND asub.isNewest = true " +
             "ORDER BY asub.submittedAt DESC")
-    List<AssignmentSubmission> findLatestSubmissionsByAssignmentId(@Param("assignmentId") Long assignmentId);
+    Page<AssignmentSubmission> findLatestSubmissionsByAssignmentId(
+            @Param("assignmentId") Long assignmentId,
+            Pageable pageable);
 
     /**
      * Find pending (ungraded) newest submissions for an assignment
@@ -286,4 +309,42 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
             "AND asub.score IS NULL")
     boolean existsNewestPendingGradeByCourseAndUser(@Param("courseId") Long courseId,
                                                      @Param("userId") Long userId);
+
+    // ===== AI Grading queries =====
+
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub WHERE asub.assignment.id = :assignmentId AND asub.score IS NOT NULL")
+    long countByAssignmentIdAndScoreIsNotNull(@Param("assignmentId") Long assignmentId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub WHERE asub.assignment.id = :assignmentId AND asub.isAiGraded = true AND asub.mentorConfirmed IS NULL")
+    long countByAssignmentIdAndIsAiGradedTrueAndMentorConfirmedNull(@Param("assignmentId") Long assignmentId);
+
+    @Transactional(readOnly = true)
+    @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub WHERE asub.assignment.id = :assignmentId AND asub.score IS NULL")
+    long countByAssignmentIdAndScoreIsNull(@Param("assignmentId") Long assignmentId);
+
+    /**
+     * Bulk clear isPrevious flag for older submissions when resubmitting.
+     * Eliminates N queries when user resubmits assignment.
+     */
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AssignmentSubmission asub SET asub.isPrevious = false " +
+           "WHERE asub.assignment.id = :assignmentId AND asub.user.id = :userId")
+    int clearPreviousFlagForUser(@Param("assignmentId") Long assignmentId, @Param("userId") Long userId);
+
+    // ===== AI Grading stats queries =====
+
+    @Transactional(readOnly = true)
+    long countByIsAiGradedTrue();
+
+    @Transactional(readOnly = true)
+    long countByIsAiGradedTrueAndMentorConfirmedTrue();
+
+    @Transactional(readOnly = true)
+    long countByDisputeFlagTrue();
+
+    @org.springframework.data.jpa.repository.Query("SELECT COALESCE(SUM(asub.aiGradeAttemptCount), 0) FROM AssignmentSubmission asub WHERE asub.isAiGraded = true")
+    long computedSumAiGradeAttemptCount();
 }

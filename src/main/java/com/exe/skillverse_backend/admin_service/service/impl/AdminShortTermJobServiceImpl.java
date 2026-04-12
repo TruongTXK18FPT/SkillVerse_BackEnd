@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.business_service.entity.EscrowTransaction.Escr
 import com.exe.skillverse_backend.business_service.entity.JobEscrow;
 import com.exe.skillverse_backend.business_service.entity.JobStatusAuditLog;
 import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
+import com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus;
 import com.exe.skillverse_backend.business_service.entity.ShortTermJobApplication;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
 import com.exe.skillverse_backend.business_service.repository.DisputeRepository;
@@ -423,9 +424,9 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
 
         ShortTermJobStatus previousJobStatus = job.getStatus();
         ShortTermJobStatus nextJobStatus = previousJobStatus;
-        com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus previousApplicationStatus =
+        ShortTermApplicationStatus previousApplicationStatus =
                 application != null ? application.getStatus() : null;
-        com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus nextApplicationStatus =
+        ShortTermApplicationStatus nextApplicationStatus =
                 previousApplicationStatus;
 
         try {
@@ -434,7 +435,7 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                     nextJobStatus = ShortTermJobStatus.CANCELLED;
                     if (application != null) {
                         nextApplicationStatus =
-                                com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus.CANCELLED;
+                                ShortTermApplicationStatus.CANCELLED;
                     }
                     escrowService.refundEscrow(
                             job.getId(),
@@ -448,7 +449,7 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                     job.setPaidAt(LocalDateTime.now());
                     if (application != null) {
                         nextApplicationStatus =
-                                com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus.COMPLETED;
+                                ShortTermApplicationStatus.COMPLETED;
                         application.setCompletedAt(LocalDateTime.now());
                     }
                     escrowService.releaseEscrow(
@@ -461,7 +462,7 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                     nextJobStatus = ShortTermJobStatus.SUBMITTED;
                     if (application != null) {
                         nextApplicationStatus =
-                                com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus.SUBMITTED;
+                                ShortTermApplicationStatus.SUBMITTED;
                         application.setReviewDeadlineAt(LocalDateTime.now().plusHours(48));
                         application.setLastActivityAt(LocalDateTime.now());
                     }
@@ -478,7 +479,7 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                     nextJobStatus = ShortTermJobStatus.IN_PROGRESS;
                     if (application != null) {
                         nextApplicationStatus =
-                                com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus.REVISION_REQUIRED;
+                                ShortTermApplicationStatus.REVISION_REQUIRED;
                         application.setLastActivityAt(LocalDateTime.now());
                     }
                 }
@@ -537,7 +538,7 @@ public class AdminShortTermJobServiceImpl implements AdminShortTermJobService {
                     nextJobStatus = ShortTermJobStatus.PAID;
                     if (application != null) {
                         nextApplicationStatus =
-                                com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus.COMPLETED;
+                                ShortTermApplicationStatus.COMPLETED;
                         application.setCompletedAt(LocalDateTime.now());
                     }
                 }

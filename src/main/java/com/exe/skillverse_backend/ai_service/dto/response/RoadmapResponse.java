@@ -106,6 +106,13 @@ public class RoadmapResponse {
         private Boolean isCore; // true for main path, false for side quest
         private String parentId; // ID of parent node in tree, null for root nodes
         private List<String> suggestedCourseIds; // Validated course IDs from DB
+        /**
+         * Phase 2: Suggested module IDs for this node.
+         * Set by {@link com.exe.skillverse_backend.ai_service.service.impl.MultiLevelCourseMatcher}
+         * after AI generates the roadmap. Modules are distributed evenly from matched courses.
+         * Nullable — null means no specific modules suggested (fallback to course-level enroll).
+         */
+        private List<String> suggestedModuleIds;
 
         // Node learning status (computed server-side)
         private String nodeStatus; // LOCKED, AVAILABLE, IN_PROGRESS, COMPLETED

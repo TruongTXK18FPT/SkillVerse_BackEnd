@@ -480,4 +480,22 @@ public class RoadmapController {
                 aiRoadmapService.permanentDeleteRoadmap(sessionId, userId);
                 return ResponseEntity.noContent().build();
         }
+
+        @PostMapping("/{sessionId}/restore")
+        @Operation(summary = "Restore a deleted roadmap", description = "Restore a soft-deleted roadmap back to PAUSED status")
+        @ApiResponses({
+                        @ApiResponse(responseCode = "200", description = "Roadmap restored"),
+                        @ApiResponse(responseCode = "400", description = "Can only restore deleted roadmaps"),
+                        @ApiResponse(responseCode = "404", description = "Roadmap not found")
+        })
+        public ResponseEntity<Void> restoreRoadmap(
+                        @PathVariable Long sessionId,
+                        Authentication authentication) {
+
+                Jwt jwt = (Jwt) authentication.getPrincipal();
+                Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+
+                aiRoadmapService.restoreRoadmap(sessionId, userId);
+                return ResponseEntity.ok().build();
+        }
 }

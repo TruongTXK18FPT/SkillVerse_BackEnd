@@ -10,7 +10,10 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
@@ -68,6 +71,23 @@ public class EnrollmentController {
         
         EnrollmentDetailDTO enrollment = enrollmentService.getEnrollment(courseId, userId);
         return ResponseEntity.ok(enrollment);
+    }
+
+    @GetMapping("/user/{userId}/batch")
+    @Operation(summary = "Get enrollments for a user across multiple courses")
+    public ResponseEntity<List<EnrollmentDetailDTO>> getEnrollmentsByCourseIds(
+            @Parameter(description = "User ID") @PathVariable @NotNull Long userId,
+            @Parameter(description = "Comma-separated course IDs") @RequestParam @NotNull String courseIds) {
+
+        List<Long> ids = Arrays.stream(courseIds.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .map(Long::parseLong)
+                .distinct()
+                .collect(Collectors.toList());
+
+        List<EnrollmentDetailDTO> enrollments = enrollmentService.getEnrollmentsByCourseIds(userId, ids);
+        return ResponseEntity.ok(enrollments);
     }
 
     @GetMapping("/course/{courseId}/user/{userId}/status")

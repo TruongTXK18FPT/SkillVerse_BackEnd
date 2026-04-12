@@ -32,12 +32,19 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * CODELAB_LEGACY: This feature is deprecated.
+ * No code execution engine is integrated — submissions are stored as QUEUED and never evaluated.
+ * The frontend and backend have mismatched API paths (/api/codelabs vs /coding-exercises).
+ * @deprecated since 2026-04-08 — will be removed in a future release
+ */
 @RestController
 @RequestMapping("/api/codelabs")
 @RequiredArgsConstructor
 @Slf4j
 @Validated
-@Tag(name = "Codelab Management", description = "APIs for managing coding exercises, test cases, and submissions")
+@Tag(name = "Codelab Management [LEGACY/DEPRECATED]", description = "DEPRECATED: No code execution engine integrated. Do not use for new development.")
+@Deprecated
 public class CodelabController {
 
     private final CodelabService codelabService;

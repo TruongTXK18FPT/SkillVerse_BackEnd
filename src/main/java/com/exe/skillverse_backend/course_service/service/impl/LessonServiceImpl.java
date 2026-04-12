@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.course_service.dto.lessondto.LessonBriefDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonCreateDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonDetailDTO;
 import com.exe.skillverse_backend.course_service.dto.lessondto.LessonUpdateDTO;
+import com.exe.skillverse_backend.course_service.dto.attachmentdto.LessonAttachmentDTO;
 import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.Lesson;
@@ -15,6 +16,7 @@ import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.mapper.LessonMapper;
+import com.exe.skillverse_backend.course_service.mapper.LessonAttachmentMapper;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonProgressRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonRepository;
@@ -48,6 +50,7 @@ public class LessonServiceImpl implements LessonService {
     private final CourseEnrollmentRepository enrollmentRepository;
     private final MediaRepository mediaRepository;
     private final LessonMapper lessonMapper;
+    private final LessonAttachmentMapper attachmentMapper;
     private final Clock clock;
     private final UserRepository userRepository;
     private final CourseLearningProgressService courseLearningProgressService;
@@ -161,7 +164,14 @@ public class LessonServiceImpl implements LessonService {
         Course course = lesson.getModule().getCourse();
         ensureCanAccessLearningContent(course.getId(), course.getAuthor().getId(), actorId);
         ensurePinnedLessonAccessibleForLearner(course, actorId, lessonId);
-        return lessonMapper.toDetailDto(lesson);
+        LessonDetailDTO dto = lessonMapper.toDetailDto(lesson);
+        if (lesson.getAttachments() != null) {
+            List<LessonAttachmentDTO> attachmentDTOs = lesson.getAttachments().stream()
+                    .map(attachmentMapper::toDto)
+                    .collect(java.util.stream.Collectors.toList());
+            dto.setAttachments(attachmentDTOs);
+        }
+        return dto;
     }
 
     @Override

@@ -89,6 +89,17 @@ public interface MediaService {
     void validateFile(String contentType, long fileSize);
 
     /**
+     * Validate file for assignment submission.
+     * If AI grading is enabled, restricts to PDF/DOCX only with 10MB limit (Cloudinary Free Tier).
+     *
+     * @param contentType     the MIME type of the file
+     * @param fileSize        the file size in bytes
+     * @param aiGradingEnabled whether AI grading is enabled on the assignment
+     * @throws IllegalArgumentException if file type or size violates AI grading rules
+     */
+    void validateAssignmentFile(String contentType, long fileSize, boolean aiGradingEnabled);
+
+    /**
      * Upload document file (PDF, DOCX, etc.) and save to database
      * 
      * @param file   MultipartFile to upload
