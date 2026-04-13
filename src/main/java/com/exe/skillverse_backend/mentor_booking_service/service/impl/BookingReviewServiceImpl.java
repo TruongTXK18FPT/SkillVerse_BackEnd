@@ -1,7 +1,6 @@
 package com.exe.skillverse_backend.mentor_booking_service.service.impl;
 
-import com.exe.skillverse_backend.auth_service.entity.User;
-import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import com.exe.skillverse_backend.mentor_booking_service.dto.BookingReviewDTO;
 import com.exe.skillverse_backend.mentor_booking_service.dto.BookingReviewStatsDTO;
 import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
@@ -25,7 +24,7 @@ public class BookingReviewServiceImpl implements BookingReviewService {
 
     private final BookingReviewRepository reviewRepository;
     private final BookingRepository bookingRepository;
-    private final UserRepository userRepository;
+    private final UserProfileRepository userProfileRepository;
 
     @Transactional
     public BookingReviewDTO createReview(Long userId, Long bookingId, Integer rating, String comment,
@@ -138,8 +137,8 @@ public class BookingReviewServiceImpl implements BookingReviewService {
 
     private BookingReviewDTO mapToDTO(BookingReview review) {
         boolean anonymous = Boolean.TRUE.equals(review.getIsAnonymous());
-        String studentName = anonymous ? "Anonymous User" : review.getStudent().getFullName();
-        String studentAvatar = anonymous ? null : review.getStudent().getAvatarUrl();
+        String studentName = anonymous ? null : fetchProfileName(review.getStudent().getId());
+        String studentAvatar = anonymous ? null : fetchProfileAvatarUrl(review.getStudent().getId());
 
         return BookingReviewDTO.builder()
                 .id(review.getId())
@@ -155,5 +154,36 @@ public class BookingReviewServiceImpl implements BookingReviewService {
                 .createdAt(review.getCreatedAt())
                 .updatedAt(review.getUpdatedAt())
                 .build();
+    }
+
+    /**
+     * Fetch display name from UserProfile (not User entity firstName/lastName).
+     * Returns null if profile does not exist — component will show fallback.
+     */
+    private String fetchProfileName(Long userId) {
+        try {
+            return userProfileRepository.findById(userId)
+                    .map(p -> p.getFullName())
+                    .filter(name -> name != null && !name.isBlank())
+                    .orElse(null);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Fetch avatar URL from UserProfile.avatarMedia only.
+     * We intentionally do NOT fall back to User.avatarUrl (which holds Google OAuth
+     * avatar) — user-chosen custom avatar stored in UserProfile takes precedence.
+     */
+    private String fetchProfileAvatarUrl(Long userId) {
+        try {
+            return userProfileRepository.findById(userId)
+                    .filter(p -> p.getAvatarMedia() != null)
+                    .map(p -> p.getAvatarMedia().getUrl())
+                    .orElse(null);
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

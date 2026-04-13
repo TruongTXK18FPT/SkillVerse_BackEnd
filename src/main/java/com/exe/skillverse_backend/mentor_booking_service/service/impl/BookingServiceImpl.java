@@ -1128,43 +1128,41 @@ public class BookingServiceImpl implements BookingService {
             var mentor = booking.getMentor();
             var learner = booking.getLearner();
 
-            // 1. Try MentorProfile for mentor info
-            var mentorProfile = mentorProfileRepository.findById(mentor.getId()).orElse(null);
-            if (mentorProfile != null) {
-                if (mentorProfile.getFullName() != null && !mentorProfile.getFullName().isEmpty()) {
+            // ── Mentor: UserProfile.avatarMedia → MentorProfile.avatarUrl → User.avatarUrl ──
+            if (userProfileService.hasProfile(mentor.getId())) {
+                var mProfile = userProfileService.getProfile(mentor.getId());
+                mentorName = mProfile.getFullName();
+                if (mProfile.getAvatarMediaUrl() != null) {
+                    mentorAvatar = mProfile.getAvatarMediaUrl();
+                }
+            }
+            if (mentorName == null) {
+                var mentorProfile = mentorProfileRepository.findById(mentor.getId()).orElse(null);
+                if (mentorProfile != null && mentorProfile.getFullName() != null && !mentorProfile.getFullName().isEmpty()) {
                     mentorName = mentorProfile.getFullName();
                 }
-                if (mentorProfile.getAvatarUrl() != null && !mentorProfile.getAvatarUrl().isEmpty()) {
+                if (mentorAvatar == null && mentorProfile != null
+                        && mentorProfile.getAvatarUrl() != null && !mentorProfile.getAvatarUrl().isEmpty()) {
                     mentorAvatar = mentorProfile.getAvatarUrl();
                 }
             }
-
-            // 2. If not found, try UserProfile (general profile)
-            if (mentorName == null && userProfileService.hasProfile(mentor.getId())) {
-                var mProfile = userProfileService.getProfile(mentor.getId());
-                mentorName = mProfile.getFullName();
-                if (mentorAvatar == null)
-                    mentorAvatar = mProfile.getAvatarMediaUrl();
+            if (mentorName == null || mentorName.isBlank()) {
+                mentorName = mentor.getFullName();
+            }
+            if (mentorAvatar == null) {
+                mentorAvatar = mentor.getAvatarUrl();
             }
 
-            // Learner info from UserProfile
+            // ── Learner: UserProfile.avatarMedia → User.avatarUrl ──
             if (userProfileService.hasProfile(learner.getId())) {
                 var lProfile = userProfileService.getProfile(learner.getId());
                 learnerName = lProfile.getFullName();
                 learnerAvatar = lProfile.getAvatarMediaUrl();
             }
-
-            // Fallbacks to User entity
-            if (mentorName == null || mentorName.isBlank()) {
-                mentorName = mentor.getFullName();
-            }
-            if (mentorAvatar == null || mentorAvatar.isBlank()) {
-                mentorAvatar = mentor.getAvatarUrl();
-            }
             if (learnerName == null || learnerName.isBlank()) {
                 learnerName = learner.getFullName();
             }
-            if (learnerAvatar == null || learnerAvatar.isBlank()) {
+            if (learnerAvatar == null) {
                 learnerAvatar = learner.getAvatarUrl();
             }
         } catch (Exception e) {

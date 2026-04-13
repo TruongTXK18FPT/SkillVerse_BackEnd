@@ -1089,16 +1089,23 @@ public class DatabaseSchemaFixer {
             log.debug("Table prechat_messages does not exist yet, skipping patch.");
             return;
         }
-        if (hasColumn("prechat_messages", "booking_id")) {
-            log.debug("Column booking_id already exists in prechat_messages, skipping patch.");
-            return;
+        // Step 1: add column if it doesn't exist
+        if (!hasColumn("prechat_messages", "booking_id")) {
+            executeSql("ALTER TABLE prechat_messages ADD COLUMN booking_id BIGINT");
+        } else {
+            log.debug("Column booking_id already exists in prechat_messages, skipping column addition.");
         }
-        executeSql("""
-            ALTER TABLE prechat_messages
-                ADD COLUMN booking_id BIGINT,
+        // Step 2: add FK constraint idempotently (drop first if exists to handle partial prior runs)
+        if (!hasForeignKey("prechat_messages", "fk_prechat_messages_booking")) {
+            executeSql("""
+                ALTER TABLE prechat_messages
                 ADD CONSTRAINT fk_prechat_messages_booking
                 FOREIGN KEY (booking_id) REFERENCES mentor_bookings(id) ON DELETE SET NULL
-        """);
+            """);
+        } else {
+            log.debug("Foreign key fk_prechat_messages_booking already exists, skipping.");
+        }
+        // Step 3: add index if it doesn't exist
         executeSql("CREATE INDEX IF NOT EXISTS idx_prechat_messages_booking_id ON prechat_messages(booking_id)");
     }
 

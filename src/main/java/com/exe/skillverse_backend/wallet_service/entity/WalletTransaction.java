@@ -164,6 +164,7 @@ public class WalletTransaction {
         PURCHASE_COINS("Mua SkillCoin"), // Dùng Cash mua Coin
         REFUND_CASH("Hoàn tiền"), // Hoàn tiền khi hủy giao dịch
         MENTOR_BOOKING("Thu nhập từ booking mentor"), // Thu nhập từ buổi mentoring
+        COURSE_SALE("Thu nhập từ bán khóa học"), // Thu nhập từ bán khóa học
         SEMINAR_PURCHASE("Mua vé hội thảo"), // Mua vé tham gia hội thảo
         SEMINAR_PAYOUT("Thu nhập từ hội thảo"), // Thu nhập của người tạo hội thảo
 
@@ -267,6 +268,7 @@ public class WalletTransaction {
 
         return transactionType == TransactionType.DEPOSIT_CASH ||
                 transactionType == TransactionType.MENTOR_BOOKING ||
+                transactionType == TransactionType.COURSE_SALE ||
                 transactionType == TransactionType.SEMINAR_PAYOUT ||
                 transactionType == TransactionType.JOB_PAYOUT ||
                 transactionType == TransactionType.ESCROW_REFUND ||

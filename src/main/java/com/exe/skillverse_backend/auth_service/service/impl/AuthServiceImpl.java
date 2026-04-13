@@ -504,20 +504,24 @@ public class AuthServiceImpl implements AuthService {
         }
 
         /**
-         * Get user's avatar URL from their profile
+         * Get user's avatar URL. Priority: UserProfile.avatarMedia → User.avatarUrl.
+         * We intentionally do NOT check user.getAvatarUrl() FIRST because that field
+         * holds a stale Google OAuth avatar — we want the user-chosen custom avatar
+         * (stored in UserProfile.avatarMedia) to take precedence.
          */
         private String getUserAvatarUrl(User user) {
                 try {
-                        if (user.getAvatarUrl() != null) {
-                                return user.getAvatarUrl();
-                        }
-
-                        // Try to get from UserProfile if exists
+                        // 1. UserProfile.avatarMedia always takes precedence
                         if (userProfileService.hasProfile(user.getId())) {
                                 var profile = userProfileService.getProfile(user.getId());
                                 if (profile.getAvatarMediaUrl() != null) {
                                         return profile.getAvatarMediaUrl();
                                 }
+                        }
+
+                        // 2. Only use User.avatarUrl (Google OAuth) as last resort
+                        if (user.getAvatarUrl() != null && !user.getAvatarUrl().isEmpty()) {
+                                return user.getAvatarUrl();
                         }
                 } catch (Exception e) {
                         log.warn("Failed to get avatar URL for user {}: {}", user.getId(), e.getMessage());

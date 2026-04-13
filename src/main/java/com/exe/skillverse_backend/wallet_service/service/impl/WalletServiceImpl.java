@@ -839,7 +839,7 @@ public class WalletServiceImpl implements WalletService {
 
                 WalletTransaction transaction = WalletTransaction.builder()
                                 .wallet(wallet)
-                                .transactionType(WalletTransaction.TransactionType.MENTOR_BOOKING)
+                                .transactionType(WalletTransaction.TransactionType.COURSE_SALE)
                                 .currencyType(WalletTransaction.CurrencyType.CASH)
                                 .cashAmount(amount)
                                 .cashBalanceAfter(wallet.getCashBalance())
