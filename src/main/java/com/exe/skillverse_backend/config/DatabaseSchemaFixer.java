@@ -240,6 +240,12 @@ public class DatabaseSchemaFixer {
                     this::patchShortTermApplicationsStatusWidth,
                     this::verifyShortTermApplicationsStatusWidth);
 
+            // ─── recruiter_profiles: missing company_logo_public_id column ──────
+            applyPatch("add-recruiter-profiles-company-logo-public-id",
+                    "Add missing company_logo_public_id column to recruiter_profiles for Hibernate schema validation",
+                    this::patchRecruiterProfilesCompanyLogoPublicId,
+                    this::verifyRecruiterProfilesCompanyLogoPublicId);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -775,6 +781,23 @@ public class DatabaseSchemaFixer {
                 && hasColumn("job_contracts", "employer_id")
                 && hasColumn("job_contracts", "candidate_id")
                 && hasColumn("job_contracts", "start_date");
+    }
+
+    // ─── recruiter_profiles: company_logo_public_id column ─────────────────────
+
+    private void patchRecruiterProfilesCompanyLogoPublicId() {
+        if (!hasTable("recruiter_profiles")) {
+            log.debug("Table recruiter_profiles does not exist yet, skipping patch.");
+            return;
+        }
+        if (!hasColumn("recruiter_profiles", "company_logo_public_id")) {
+            executeSql("ALTER TABLE recruiter_profiles ADD COLUMN company_logo_public_id VARCHAR(500)");
+        }
+    }
+
+    private boolean verifyRecruiterProfilesCompanyLogoPublicId() {
+        return hasTable("recruiter_profiles")
+                && hasColumn("recruiter_profiles", "company_logo_public_id");
     }
 
     // ─── Infrastructure ─────────────────────────────────────────────────────
