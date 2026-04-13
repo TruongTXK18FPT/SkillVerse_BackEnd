@@ -67,6 +67,18 @@ public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
     Optional<JobPosting> findByIdWithRecruiter(@Param("id") Long id);
 
     /**
+     * Admin listing with recruiter eagerly loaded.
+     */
+    @Query(
+            value = "SELECT j FROM JobPosting j " +
+                    "JOIN FETCH j.recruiterProfile rp " +
+                    "JOIN FETCH rp.user u " +
+                    "WHERE (:status IS NULL OR j.status = :status) " +
+                    "ORDER BY j.createdAt DESC",
+            countQuery = "SELECT COUNT(j) FROM JobPosting j WHERE (:status IS NULL OR j.status = :status)")
+    Page<JobPosting> findAllForAdmin(@Param("status") JobStatus status, Pageable pageable);
+
+    /**
      * Find jobs by status and deadline before given date (for auto-close scheduler)
      */
     List<JobPosting> findByStatusAndDeadlineBefore(JobStatus status, LocalDate date);
