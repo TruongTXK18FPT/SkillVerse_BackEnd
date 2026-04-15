@@ -150,6 +150,11 @@ public class DatabaseSchemaFixer {
                     "Convert certificates oid columns to TEXT",
                     this::patchCertificatesOid, this::verifyCertificatesOid);
 
+            applyPatch("add-certificates-revocation-columns",
+                    "Add missing certificate revocation columns for Hibernate schema validation",
+                    this::patchCertificatesRevocationColumns,
+                    this::verifyCertificatesRevocationColumns);
+
             applyPatch("fix-quiz-attempt-answer-snapshots-oid",
                     "Convert quiz_attempt_answer_snapshots oid columns to TEXT",
                     this::patchQuizAttemptAnswerSnapshotsOid, this::verifyQuizAttemptAnswerSnapshotsOid);
@@ -564,6 +569,30 @@ public class DatabaseSchemaFixer {
         );
         if (cols.isEmpty()) return true;
         return "text".equalsIgnoreCase((String) cols.get(0).get("data_type"));
+    }
+
+    private void patchCertificatesRevocationColumns() {
+        if (!hasTable("certificates")) {
+            log.debug("Table certificates does not exist yet, skipping patch.");
+            return;
+        }
+
+        executeSql("""
+            ALTER TABLE certificates
+                ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS revoke_reason VARCHAR(120),
+                ADD COLUMN IF NOT EXISTS revoked_by BIGINT
+        """);
+    }
+
+    private boolean verifyCertificatesRevocationColumns() {
+        if (!hasTable("certificates")) {
+            return true;
+        }
+
+        return hasColumn("certificates", "revoked_at")
+                && hasColumn("certificates", "revoke_reason")
+                && hasColumn("certificates", "revoked_by");
     }
 
     private void patchQuizAttemptAnswerSnapshotsOid() {
