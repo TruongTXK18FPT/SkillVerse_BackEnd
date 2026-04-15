@@ -616,8 +616,13 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 end = start.plusMinutes(durationMinutes);
             }
 
-            // Step 4: Prevent sessions in the past (always clip regardless of preference)
-            if (start.isBefore(nowVn)) {
+            // Step 4: Prevent sessions truly in the past.
+            // Keep intended same-day hours when user explicitly requested a startDate,
+            // otherwise timezone-fix tests can be overwritten by "now" clipping.
+            boolean hasExplicitStartDate = request.getStartDate() != null;
+            boolean isPastDate = start.toLocalDate().isBefore(nowVn.toLocalDate());
+            boolean shouldClipPastTimeToday = !hasExplicitStartDate && start.isBefore(nowVn);
+            if (isPastDate || shouldClipPastTimeToday) {
                 log.info("Session {} is in the past, shifting to now + 5 min", start);
                 start = nowVn.plusMinutes(5);
                 end = start.plusMinutes(durationMinutes);
