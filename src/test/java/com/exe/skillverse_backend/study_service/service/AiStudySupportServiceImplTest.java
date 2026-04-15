@@ -174,20 +174,26 @@ class AiStudySupportServiceImplTest {
         return req;
     }
 
+    private LocalDate stableBaseDate() {
+        // Use a near-future base date so normalization assertions do not depend on current wall-clock time.
+        return LocalDate.now(ZoneId.of("Asia/Ho_Chi_Minh")).plusDays(1);
+    }
+
     @Test
     @DisplayName("TZ-3: AI returns past date → should shift to baseDate, keep time")
     void normalize_TZ3_pastDate_shiftsToBaseDate() {
         GenerateScheduleRequest req = makeRequest();
-        req.setStartDate(LocalDate.of(2026, 4, 15));
+        LocalDate baseDate = stableBaseDate();
+        req.setStartDate(baseDate);
 
-        // AI mistakenly placed session on 2026-04-08 (past)
-        LocalDateTime aiTime = LocalDateTime.of(2026, 4, 8, 10, 0);
+        // AI mistakenly placed session on a date before baseDate.
+        LocalDateTime aiTime = LocalDateTime.of(baseDate.minusDays(7), LocalTime.of(10, 0));
         List<StudySessionResponse> input = List.of(session("Past date", aiTime, aiTime.plusHours(1)));
 
         List<StudySessionResponse> result = normalize(input, 60, req);
 
-        assertTrue(result.get(0).getStartTime().toLocalDate().equals(LocalDate.of(2026, 4, 15)),
-                "Date should be shifted to baseDate 2026-04-15, got: " + result.get(0).getStartTime());
+        assertTrue(result.get(0).getStartTime().toLocalDate().equals(baseDate),
+            "Date should be shifted to baseDate, got: " + result.get(0).getStartTime());
         assertTrue(result.get(0).getStartTime().getHour() == 10,
                 "Hour should be preserved as 10");
     }
@@ -196,11 +202,12 @@ class AiStudySupportServiceImplTest {
     @DisplayName("TZ-4: AI returns hour < 6 → should replace with preferredStart")
     void normalize_TZ4_earlyHour_replacesWithPreferredStart() {
         GenerateScheduleRequest req = makeRequest();
-        req.setStartDate(LocalDate.of(2026, 4, 15));
+        LocalDate baseDate = stableBaseDate();
+        req.setStartDate(baseDate);
         req.setPreferredTimeWindows(List.of("13:30-17:00")); // afternoon
 
         // AI returned 03:00 — likely timezone confusion
-        LocalDateTime aiTime = LocalDateTime.of(2026, 4, 15, 3, 0);
+        LocalDateTime aiTime = LocalDateTime.of(baseDate, LocalTime.of(3, 0));
         List<StudySessionResponse> input = List.of(session("Early hour", aiTime, aiTime.plusHours(1)));
 
         List<StudySessionResponse> result = normalize(input, 60, req);
@@ -213,17 +220,18 @@ class AiStudySupportServiceImplTest {
     @DisplayName("TZ-3 + TZ-4: AI returns past date AND early hour → TZ-3 fixes date, TZ-4 fixes hour")
     void normalize_TZ3AndTZ4_pastDateAndEarlyHour_fixesBoth() {
         GenerateScheduleRequest req = makeRequest();
-        req.setStartDate(LocalDate.of(2026, 4, 15));
+        LocalDate baseDate = stableBaseDate();
+        req.setStartDate(baseDate);
         req.setPreferredTimeWindows(List.of("18:30-22:00"));
 
-        // AI returned 2026-04-08T02:00
-        LocalDateTime aiTime = LocalDateTime.of(2026, 4, 8, 2, 0);
+        // AI returned a date before baseDate and early hour
+        LocalDateTime aiTime = LocalDateTime.of(baseDate.minusDays(7), LocalTime.of(2, 0));
         List<StudySessionResponse> input = List.of(session("Both wrong", aiTime, aiTime.plusHours(1)));
 
         List<StudySessionResponse> result = normalize(input, 60, req);
 
-        assertTrue(result.get(0).getStartTime().toLocalDate().equals(LocalDate.of(2026, 4, 15)),
-                "Date should be 2026-04-15, got: " + result.get(0).getStartTime());
+        assertTrue(result.get(0).getStartTime().toLocalDate().equals(baseDate),
+            "Date should be baseDate, got: " + result.get(0).getStartTime());
         assertTrue(result.get(0).getStartTime().getHour() >= 6,
                 "Hour should be >= 6, got: " + result.get(0).getStartTime().getHour());
     }
@@ -232,12 +240,13 @@ class AiStudySupportServiceImplTest {
     @DisplayName("TZ-4 should NOT replace intentionally early sessions (morning preference)")
     void normalize_TZ4_intentionalMorningSession_preserved() {
         GenerateScheduleRequest req = makeRequest();
-        req.setStartDate(LocalDate.of(2026, 4, 15));
+        LocalDate baseDate = stableBaseDate();
+        req.setStartDate(baseDate);
         req.setStudyPreference("morning");
         req.setPreferredTimeWindows(List.of("06:00-09:00"));
 
         // User wants morning sessions — 06:30 is intentional
-        LocalDateTime morningTime = LocalDateTime.of(2026, 4, 15, 6, 30);
+        LocalDateTime morningTime = LocalDateTime.of(baseDate, LocalTime.of(6, 30));
         List<StudySessionResponse> input = List.of(session("Morning", morningTime, morningTime.plusHours(1)));
 
         List<StudySessionResponse> result = normalize(input, 60, req);
@@ -250,7 +259,8 @@ class AiStudySupportServiceImplTest {
     @DisplayName("LB-1: avoidLateNight=true should clip sessions before earliest allowed")
     void normalize_LB1_avoidLateNight_clipsEarlySessions() {
         GenerateScheduleRequest req = makeRequest();
-        req.setStartDate(LocalDate.of(2026, 4, 15));
+        LocalDate baseDate = stableBaseDate();
+        req.setStartDate(baseDate);
         req.setAvoidLateNight(true);
         req.setAllowLateNight(false);
         req.setEarliestStartLocalTime("07:00");
@@ -258,7 +268,7 @@ class AiStudySupportServiceImplTest {
         req.setPreferredTimeWindows(List.of("07:00-22:00"));
 
         // Session before allowed window
-        LocalDateTime tooEarly = LocalDateTime.of(2026, 4, 15, 5, 0);
+        LocalDateTime tooEarly = LocalDateTime.of(baseDate, LocalTime.of(5, 0));
         List<StudySessionResponse> input = List.of(session("Too early", tooEarly, tooEarly.plusHours(1)));
 
         List<StudySessionResponse> result = normalize(input, 60, req);
@@ -271,11 +281,12 @@ class AiStudySupportServiceImplTest {
     @DisplayName("LB-1: allowLateNight=true should preserve sessions at 23:00")
     void normalize_LB1_allowLateNight_preservesNightSessions() {
         GenerateScheduleRequest req = makeRequest();
-        req.setStartDate(LocalDate.of(2026, 4, 15));
+        LocalDate baseDate = stableBaseDate();
+        req.setStartDate(baseDate);
         req.setAllowLateNight(true);
         req.setAvoidLateNight(false);
 
-        LocalDateTime nightTime = LocalDateTime.of(2026, 4, 15, 23, 0);
+        LocalDateTime nightTime = LocalDateTime.of(baseDate, LocalTime.of(23, 0));
         List<StudySessionResponse> input = List.of(session("Night owl", nightTime, nightTime.plusHours(1)));
 
         List<StudySessionResponse> result = normalize(input, 60, req);
@@ -288,13 +299,14 @@ class AiStudySupportServiceImplTest {
     @DisplayName("Null sessions in list should be skipped gracefully")
     void normalize_nullItemsInList_skipped() {
         GenerateScheduleRequest req = makeRequest();
-        req.setStartDate(LocalDate.of(2026, 4, 15));
+        LocalDate baseDate = stableBaseDate();
+        req.setStartDate(baseDate);
 
         @SuppressWarnings("unchecked")
         List<StudySessionResponse> input = new ArrayList<>();
-        input.add(session("Valid", LocalDateTime.of(2026, 4, 15, 10, 0), LocalDateTime.of(2026, 4, 15, 11, 0)));
+        input.add(session("Valid", LocalDateTime.of(baseDate, LocalTime.of(10, 0)), LocalDateTime.of(baseDate, LocalTime.of(11, 0))));
         input.add(null);
-        input.add(session("Also valid", LocalDateTime.of(2026, 4, 15, 14, 0), LocalDateTime.of(2026, 4, 15, 15, 0)));
+        input.add(session("Also valid", LocalDateTime.of(baseDate, LocalTime.of(14, 0)), LocalDateTime.of(baseDate, LocalTime.of(15, 0))));
 
         List<StudySessionResponse> result = normalize(input, 60, req);
 
