@@ -19,6 +19,7 @@ import com.exe.skillverse_backend.notification_service.service.NotificationServi
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.event.PaymentSuccessEvent;
 import com.exe.skillverse_backend.payment_service.service.InvoiceService;
+import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
@@ -111,7 +112,8 @@ class CoursePurchaseServiceImplTest {
         when(coursePurchaseRepository.existsByUserIdAndCourseIdAndStatus(2L, course.getId(), PurchaseStatus.PAID))
                 .thenReturn(true);
 
-        assertThrows(IllegalStateException.class, () -> service.purchaseWithWallet(2L, new CoursePurchaseRequestDTO(course.getId(), null, null, null)));
+        assertThrows(ConflictException.class,
+            () -> service.purchaseWithWallet(2L, new CoursePurchaseRequestDTO(course.getId(), null, null, null)));
     }
 
     @Test

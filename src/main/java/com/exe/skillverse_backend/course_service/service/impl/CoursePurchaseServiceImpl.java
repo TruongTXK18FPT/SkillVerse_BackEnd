@@ -87,7 +87,7 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
             course.getPrice(),
             "Purchase course: " + course.getTitle(),
             WalletTransaction.TransactionType.PURCHASE_COURSE,
-            "COURSE_PURCHSE",
+            "COURSE_PURCHASE",
             "COURSE_" + course.getId());
 
         // Complete purchase: pay mentor + create record + auto-enroll
