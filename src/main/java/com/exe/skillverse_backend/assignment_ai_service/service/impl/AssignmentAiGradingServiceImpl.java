@@ -38,7 +38,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingService {
 
     private static final int MAX_AI_GRADE_ATTEMPTS = 3;
-    private static final double TRUST_AI_CONFIDENCE_THRESHOLD = 0.95;
 
     private final AssignmentRepository assignmentRepository;
     private final AssignmentSubmissionRepository submissionRepository;
@@ -184,20 +183,19 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                     submissionId, criteria.getId(), score);
         }
 
-        // Trust AI: auto-confirm when confidence >= threshold
+        // Trust AI: auto-confirm when enabled (100% automation)
         // Sets score, feedback, gradedAt, isPassed — student sees PASS immediately.
-        // Mentor sees "✅ Tự động duyệt" in the table and is NOT required to take action.
-        if (Boolean.TRUE.equals(assignment.getTrustAiEnabled())
-                && result.getOverallConfidence() != null
-                && result.getOverallConfidence() >= TRUST_AI_CONFIDENCE_THRESHOLD) {
+        // Mentor sees result in grading list for audit but takes NO action.
+        // No confidence threshold — always auto-confirm when trustAiEnabled=true.
+        if (Boolean.TRUE.equals(assignment.getTrustAiEnabled())) {
             submission.setMentorConfirmed(true);
             submission.setScore(result.getTotalScore());
             submission.setFeedback(result.getOverallFeedback());
             submission.setGradedAt(Instant.now());
             submission.setIsPassed(computeIsPassedFromResult(assignment, result));
             submissionRepository.save(submission);
-            log.info("AI grade auto-confirmed for submission {} (score={}, isPassed={}, confidence={})",
-                    submissionId, result.getTotalScore(), submission.getIsPassed(), result.getOverallConfidence());
+            log.info("AI grade auto-confirmed for submission {} (score={}, isPassed={})",
+                    submissionId, result.getTotalScore(), submission.getIsPassed());
 
             // Recalculate course progress so the student's learning progress is updated
             if (courseLearningProgressService != null) {

@@ -291,7 +291,7 @@ public final class CourseRevisionSnapshotAssembler {
         if (value == null) {
             node.putNull(field);
         } else {
-            node.put(field, value.stripTrailingZeros().toPlainString());
+            node.put(field, value.doubleValue());
         }
     }
 }

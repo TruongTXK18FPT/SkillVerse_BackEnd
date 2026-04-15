@@ -24,6 +24,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * - Idempotent: skips if already AI-graded or mentor-confirmed
  * - Dead letter: after 3 failed attempts, marks MANUAL_FALLBACK and notifies student
  * - Retry: failed submissions with attemptCount < 3 are picked up by AiGradingRetryJob
+ * - 100% Auto-Pass: when trustAiEnabled=true, AI grades and auto-confirms immediately
  */
 @Component
 @RequiredArgsConstructor

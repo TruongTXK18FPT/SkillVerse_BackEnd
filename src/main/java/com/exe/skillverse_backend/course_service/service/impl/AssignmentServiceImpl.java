@@ -243,13 +243,14 @@ public class AssignmentServiceImpl implements AssignmentService {
         }
 
         ensurePinnedAssignmentAccessibleForLearner(course, userId, assignmentId);
-        
-        // Check if late submission (Coursera pattern: allow but mark as late)
-        boolean isLate = false;
-        if (assignment.getDueAt() != null && now().isAfter(assignment.getDueAt())) {
-            isLate = true;
-            log.info("Late submission for assignment {} by user {}", assignmentId, userId);
-        }
+
+        // DEADCODE: isLate never set — no deadline input in mentor form (as of 2026-04-15).
+        // LessonEditorAssignment.tsx has no dueAt field → assignment.getDueAt() always null
+        // → isLate always false → LATE_PENDING never triggered. Left for future deadline feature.
+        // boolean isLate = false;
+        // if (assignment.getDueAt() != null && now().isAfter(assignment.getDueAt())) {
+        //     isLate = true;
+        // }
         
         // Load user entity properly
         User user = userRepository.findById(userId)
@@ -319,7 +320,8 @@ public class AssignmentServiceImpl implements AssignmentService {
         submission.setAttemptNumber(nextAttemptNumber);
         submission.setIsNewest(true);
         submission.setIsPrevious(false);
-        submission.setIsLate(isLate);
+        // DEADCODE: isLate always false — no deadline input in mentor form
+        submission.setIsLate(false);
         // gradingMode: null/AI = AI chấm, MENTOR = skip AI, vào mentor queue ngay
         String gradingMode = dto.getGradingMode() != null
                 ? dto.getGradingMode().name() : "AI";
@@ -330,17 +332,8 @@ public class AssignmentServiceImpl implements AssignmentService {
         log.info("Assignment {} submitted by user {}, submission id {}, attempt #{}, gradingMode={}",
                 assignmentId, userId, saved.getId(), nextAttemptNumber, gradingMode);
 
-        // Send late submission notification
-        if (isLate) {
-            notificationService.createNotification(
-                    userId,
-                    "Nộp bài muộn",
-                    "Bài tập '" + assignment.getTitle() + "' đã được nộp sau deadline. Mentor có thể xem xét việc này.",
-                    NotificationType.ASSIGNMENT_LATE,
-                    saved.getId().toString()
-            );
-        }
-
+        // DEADCODE: isLate always false → late notification never sent. No deadline input in mentor form.
+        // if (isLate) { notificationService.createNotification(...) }
         // Publish SubmissionCreatedEvent — only if NOT MENTOR mode
         if (!skipAi) {
             eventPublisher.publishEvent(new SubmissionCreatedEvent(

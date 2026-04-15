@@ -328,32 +328,10 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         return fullPrompt.toString();
     }
 
-    // Helper method to determine Mistral model based on user plan
+    // AI Study Planner uses mistral-small-latest for all users (free feature)
     private String getMistralModelForUser(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        UserSubscription subscription = userSubscriptionRepository.findCurrentActiveSubscription(user)
-                .orElse(null);
-
-        // Check for Free Tier or No Subscription
-        if (subscription == null || 
-            (subscription.getPlan() != null && subscription.getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER)) {
-            throw new ApiException(ErrorCode.FORBIDDEN, "Tính năng AI Study Planner chỉ dành cho gói Premium (Skill-Plus, Student, Mentor-Pro). Vui lòng nâng cấp gói.");
-        }
-
-        String modelToUse = "mistral-small-latest"; // Default
-        if (subscription.getPlan() != null) {
-            String planName = subscription.getPlan().getName().toLowerCase();
-            String planType = subscription.getPlan().getPlanType().toString();
-            
-            // Check by Plan Name OR Plan Type
-            if ((planName.contains("mentor") && planName.contains("pro")) || 
-                "PREMIUM_PLUS".equals(planType)) {
-                modelToUse = "mistral-large-latest";
-            }
-        }
-        return modelToUse;
+        // User plan check no longer needed — feature is free for everyone
+        return "mistral-small-latest";
     }
 
     @Override

@@ -65,13 +65,21 @@ public class AssignmentSubmissionDetailDTO {
     private String disputeReason;
 
     // Derived field for frontend status display
+    // Computed from entity fields — no DB column needed
     public String getStatus() {
+        // GRADED: score is set (mentor-graded OR AI auto-confirmed)
         if (score != null) {
             return "GRADED";
-        } else if (Boolean.TRUE.equals(isLate)) {
-            return "LATE_PENDING";
-        } else {
-            return "PENDING";
         }
+        // AI_PENDING: isAiGraded=true && mentorConfirmed=null — AI đã chấm, chờ mentor confirm (legacy case khi trustAi=false)
+        if (Boolean.TRUE.equals(isAiGraded) && mentorConfirmed == null) {
+            return "AI_PENDING";
+        }
+        // LATE_PENDING: nộp muộn, chưa chấm
+        if (Boolean.TRUE.equals(isLate)) {
+            return "LATE_PENDING";
+        }
+        // PENDING: mới nộp, chưa chấm
+        return "PENDING";
     }
 }
