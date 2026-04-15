@@ -166,6 +166,11 @@ public class DatabaseSchemaFixer {
                     this::patchAssignmentSubmissionsAiGradingFields,
                     this::verifyAssignmentSubmissionsAiGradingFields);
 
+            applyPatch("create-assignment-prompt-audit-log-table",
+                    "Create assignment_prompt_audit_log table for assignment AI prompt override auditing",
+                    this::patchAssignmentPromptAuditLogTable,
+                    this::verifyAssignmentPromptAuditLogTable);
+
             applyPatch("create-contract-signatures-table",
                     "Create contract_signatures table for digital signature tracking",
                     this::patchContractSignaturesTable,
@@ -662,6 +667,74 @@ public class DatabaseSchemaFixer {
                 && hasColumn("assignment_submissions", "dispute_at")
                 && hasColumn("assignment_submissions", "dispute_reason")
                 && hasColumn("assignment_submissions", "grading_mode");
+    }
+
+    private void patchAssignmentPromptAuditLogTable() {
+        if (!hasTable("assignment_prompt_audit_log")) {
+            executeSql("""
+                CREATE TABLE assignment_prompt_audit_log (
+                    id BIGSERIAL PRIMARY KEY,
+                    assignment_id BIGINT NOT NULL,
+                    admin_id BIGINT NOT NULL,
+                    admin_name VARCHAR(200) NOT NULL,
+                    action VARCHAR(50) NOT NULL,
+                    before_value TEXT,
+                    after_value TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            """);
+        }
+
+        executeSql("""
+            ALTER TABLE assignment_prompt_audit_log
+                ADD COLUMN IF NOT EXISTS assignment_id BIGINT,
+                ADD COLUMN IF NOT EXISTS admin_id BIGINT,
+                ADD COLUMN IF NOT EXISTS admin_name VARCHAR(200),
+                ADD COLUMN IF NOT EXISTS action VARCHAR(50),
+                ADD COLUMN IF NOT EXISTS before_value TEXT,
+                ADD COLUMN IF NOT EXISTS after_value TEXT,
+                ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ
+        """);
+
+        executeSql("""
+            ALTER TABLE assignment_prompt_audit_log
+                ALTER COLUMN assignment_id SET NOT NULL,
+                ALTER COLUMN admin_id SET NOT NULL,
+                ALTER COLUMN admin_name SET NOT NULL,
+                ALTER COLUMN action SET NOT NULL,
+                ALTER COLUMN created_at SET DEFAULT NOW(),
+                ALTER COLUMN created_at SET NOT NULL
+        """);
+
+        if (hasTable("assignments") && !hasForeignKey("assignment_prompt_audit_log", "fk_assignment_prompt_audit_log_assignment")) {
+            executeSql("""
+                ALTER TABLE assignment_prompt_audit_log
+                ADD CONSTRAINT fk_assignment_prompt_audit_log_assignment
+                FOREIGN KEY (assignment_id) REFERENCES assignments(id) ON DELETE CASCADE
+            """);
+        }
+
+        executeSql("CREATE INDEX IF NOT EXISTS idx_assignment_prompt_audit_log_assignment_id ON assignment_prompt_audit_log(assignment_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_assignment_prompt_audit_log_assignment_created_at ON assignment_prompt_audit_log(assignment_id, created_at DESC)");
+    }
+
+    private boolean verifyAssignmentPromptAuditLogTable() {
+        if (!hasTable("assignment_prompt_audit_log")) {
+            return false;
+        }
+
+        return hasColumn("assignment_prompt_audit_log", "id")
+                && hasColumn("assignment_prompt_audit_log", "assignment_id")
+                && hasColumn("assignment_prompt_audit_log", "admin_id")
+                && hasColumn("assignment_prompt_audit_log", "admin_name")
+                && hasColumn("assignment_prompt_audit_log", "action")
+                && hasColumn("assignment_prompt_audit_log", "before_value")
+                && hasColumn("assignment_prompt_audit_log", "after_value")
+                && hasColumn("assignment_prompt_audit_log", "created_at")
+                && hasIndex("idx_assignment_prompt_audit_log_assignment_id")
+                && hasIndex("idx_assignment_prompt_audit_log_assignment_created_at")
+                && (!hasTable("assignments")
+                        || hasForeignKey("assignment_prompt_audit_log", "fk_assignment_prompt_audit_log_assignment"));
     }
 
     private void patchContractSignaturesTable() {
