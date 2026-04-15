@@ -54,6 +54,13 @@ public interface WithdrawalRequestRepository extends JpaRepository<WithdrawalReq
     @Query("SELECT w FROM WithdrawalRequest w WHERE w.user.id = :userId " +
            "AND w.status IN ('PENDING', 'APPROVED', 'PROCESSING')")
     List<WithdrawalRequest> findPendingRequestsByUserId(@Param("userId") Long userId);
+
+    /**
+     * Find all PENDING withdrawal requests for a user (used in ban cascade).
+     */
+    List<WithdrawalRequest> findByWallet_User_IdAndStatus(
+            Long userId,
+            WithdrawalRequest.WithdrawalStatus status);
     
     /**
      * Find all pending requests (for admin)

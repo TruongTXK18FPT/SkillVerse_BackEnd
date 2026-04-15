@@ -186,6 +186,14 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         Wallet wallet = walletRepository.findByUserIdWithLock(request.getUser().getId())
                 .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
 
+        // Block approval if wallet is lock/suspend/close
+        if (wallet.getStatus() != Wallet.WalletStatus.ACTIVE) {
+                throw new IllegalStateException(
+                        "Không thể duyệt rút tiền: ví đang bị "
+                                        + wallet.getStatus().name().toLowerCase()
+                                        + ". Vui lòng unlock ví trước.");
+        }
+
         // Complete withdrawal (deduct from balance and frozen)
         wallet.completeWithdrawal(request.getAmount());
         walletRepository.save(wallet);
@@ -624,5 +632,34 @@ public class WithdrawalServiceImpl implements WithdrawalService {
             log.warn("Failed to get avatar URL for user {}: {}", user.getId(), e.getMessage());
         }
         return null;
+    }
+
+    // ========== Ban Cascade Methods ==========
+
+    /**
+     * Cancel all PENDING withdrawals for user + unfreeze money back to wallet.
+     * Used when: ban mentor → cancel all pending withdrawals.
+     */
+    @Override
+    @Transactional
+    public int cancelPendingByUserId(Long userId, String reason) {
+        List<WithdrawalRequest> pending = withdrawalRequestRepository
+                        .findByWallet_User_IdAndStatus(userId, WithdrawalRequest.WithdrawalStatus.PENDING);
+        int count = 0;
+        for (WithdrawalRequest req : pending) {
+                // Unfreeze: return money to available balance
+                Wallet wallet = walletRepository.findByUserIdWithLock(userId).orElse(null);
+                if (wallet != null) {
+                        wallet.unfreezeCash(req.getAmount());
+                        walletRepository.save(wallet);
+                }
+                req.cancel();
+                req.setReason(reason);
+                withdrawalRequestRepository.save(req);
+                log.info("Cancelled pending withdrawal {} for user {}", req.getRequestCode(), userId);
+                count++;
+        }
+        log.info("Cancelled {} pending withdrawals for user {}", count, userId);
+        return count;
     }
 }

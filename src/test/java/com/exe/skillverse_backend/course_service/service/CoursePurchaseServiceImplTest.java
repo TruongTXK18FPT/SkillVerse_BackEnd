@@ -1,12 +1,14 @@
 package com.exe.skillverse_backend.course_service.service;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.dto.purchasedto.CoursePurchaseDTO;
 import com.exe.skillverse_backend.course_service.dto.purchasedto.CoursePurchaseRequestDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.course_service.entity.CoursePurchase;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.course_service.entity.enums.PurchaseStatus;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
@@ -163,13 +165,14 @@ class CoursePurchaseServiceImplTest {
     }
 
     private Course course(Long courseId, BigDecimal price) {
-        User author = User.builder().id(99L).email("mentor@skillverse.vn").build();
+        User author = User.builder().id(99L).email("mentor@skillverse.vn").status(UserStatus.ACTIVE).build();
         return Course.builder()
                 .id(courseId)
                 .title("System Design")
                 .price(price)
                 .currency("VND")
                 .author(author)
+                .status(CourseStatus.PUBLIC)
                 .activeRevisionId(77L)
                 .upgradePolicy(CourseUpgradePolicy.MANUAL)
                 .build();

@@ -35,6 +35,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.model.ChatModel;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -374,5 +376,61 @@ class AiRoadmapServiceImplTest {
         Method method = AiRoadmapServiceImpl.class.getDeclaredMethod("computeRetryBackoffMs", int.class);
         method.setAccessible(true);
         return (long) method.invoke(service, attemptIndex);
+    }
+
+    // ─── Cascade Refactor Tests (2026-04-15) ───────────────────────────────────
+
+    @Test
+    @DisplayName("callGeminiWithRetry method should exist in AiRoadmapServiceImpl")
+    void callGeminiWithRetry_MethodShouldExist() throws Exception {
+        boolean found = false;
+        for (Method m : AiRoadmapServiceImpl.class.getDeclaredMethods()) {
+            if ("callGeminiWithRetry".equals(m.getName())) {
+                found = true;
+                break;
+            }
+        }
+        assertTrue(found, "callGeminiWithRetry method should exist after refactor");
+    }
+
+    @Test
+    @DisplayName("callMistralWithRetry method should exist (renamed from callMistralWithPrimaryRetry)")
+    void callMistralWithRetry_MethodShouldExist() throws Exception {
+        boolean foundNewName = false;
+        boolean foundOldName = false;
+        for (Method m : AiRoadmapServiceImpl.class.getDeclaredMethods()) {
+            if ("callMistralWithRetry".equals(m.getName())) {
+                foundNewName = true;
+            }
+            if ("callMistralWithPrimaryRetry".equals(m.getName())) {
+                foundOldName = true;
+            }
+        }
+        assertTrue(foundNewName, "callMistralWithRetry method should exist (renamed)");
+        assertFalse(foundOldName, "Old name callMistralWithPrimaryRetry should no longer exist");
+    }
+
+    @Test
+    @DisplayName("isTruncatedJsonParseFailure should detect end-of-input truncated JSON")
+    void isTruncatedJsonParseFailure_ShouldDetectEndOfInput() throws Exception {
+        ApiException truncatedGemini = new ApiException(
+                ErrorCode.BAD_REQUEST,
+                "Unexpected end-of-input while parsing root object");
+        ApiException nonTruncated = new ApiException(
+                ErrorCode.BAD_REQUEST,
+                "Invalid field type for roadmap node");
+
+        assertTrue(invokeIsTruncatedJsonParseFailure(truncatedGemini),
+                "Should detect 'end-of-input' truncated JSON");
+        assertFalse(invokeIsTruncatedJsonParseFailure(nonTruncated),
+                "Should NOT detect non-truncated parse errors");
+    }
+
+    @Test
+    @DisplayName("computeRetryBackoffMs exponential values should match spec (1s, 2s, 4s)")
+    void computeRetryBackoffMs_ShouldMatchExponentialSpec() throws Exception {
+        assertEquals(1_000L, invokeComputeRetryBackoffMs(0), "Attempt 0 → 1s backoff");
+        assertEquals(2_000L, invokeComputeRetryBackoffMs(1), "Attempt 1 → 2s backoff");
+        assertEquals(4_000L, invokeComputeRetryBackoffMs(2), "Attempt 2 → 4s backoff");
     }
 }

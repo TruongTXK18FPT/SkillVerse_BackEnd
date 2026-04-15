@@ -4,7 +4,16 @@ import com.exe.skillverse_backend.assignment_ai_service.dto.AiGradingStatsDTO;
 import com.exe.skillverse_backend.assignment_ai_service.dto.AiSubmissionDTO;
 import com.exe.skillverse_backend.assignment_ai_service.dto.AdminAiAssignmentConfigDTO;
 import com.exe.skillverse_backend.assignment_ai_service.dto.AdminAiGovernanceStatsDTO;
+import com.exe.skillverse_backend.assignment_ai_service.dto.AiEnabledUpdateRequestDTO;
+import com.exe.skillverse_backend.assignment_ai_service.dto.CreateAuditLogRequestDTO;
+import com.exe.skillverse_backend.assignment_ai_service.dto.GradingStyleUpdateRequestDTO;
+import com.exe.skillverse_backend.assignment_ai_service.dto.PromptAuditLogDTO;
+import com.exe.skillverse_backend.assignment_ai_service.dto.PromptOverrideRequestDTO;
+import com.exe.skillverse_backend.assignment_ai_service.entity.AssignmentPromptAuditLog;
+import com.exe.skillverse_backend.assignment_ai_service.repository.AssignmentPromptAuditLogRepository;
 import com.exe.skillverse_backend.assignment_ai_service.repository.AssignmentSubmissionAiRepository;
+import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 import com.exe.skillverse_backend.course_service.entity.SubmissionCriteriaScore;
@@ -14,7 +23,9 @@ import com.exe.skillverse_backend.course_service.repository.SubmissionCriteriaSc
 import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.course_service.dto.assignmentdto.CriteriaScoreDTO;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import jakarta.validation.Valid;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,13 +35,17 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.JpaSort;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -48,6 +63,8 @@ public class AdminAiGradingController {
     private final AssignmentSubmissionRepository submissionRepository;
     private final SubmissionCriteriaScoreRepository criteriaScoreRepository;
     private final CourseLearningProgressService progressService;
+    private final AssignmentPromptAuditLogRepository auditLogRepository;
+    private final UserRepository userRepository;
 
     /**
      * GET /api/admin/ai-grading/stats
@@ -187,6 +204,219 @@ public class AdminAiGradingController {
         log.info("Admin {} recalculated isPassed for submission {}: {} (was {})",
                 extractUserId(jwt), id, passed, wasPassed);
         return ResponseEntity.ok().build();
+    }
+
+    // =====================================================
+    // NEW ADMIN PROMPT MANAGEMENT ENDPOINTS
+    // =====================================================
+
+    /**
+     * PUT /api/admin/ai-grading/assignments/{id}/ai-enabled
+     * Bật/tắt AI grading cho 1 assignment
+     */
+    @PutMapping("/assignments/{id}/ai-enabled")
+    public ResponseEntity<AdminAiAssignmentConfigDTO> updateAiEnabled(
+            @PathVariable("id") Long id,
+            @Valid @RequestBody AiEnabledUpdateRequestDTO body,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Assignment assignment = assignmentRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("ASSIGNMENT_NOT_FOUND"));
+
+        String adminName = getAdminName(jwt);
+        String before = assignment.getAiGradingEnabled() != null ? assignment.getAiGradingEnabled().toString() : "null";
+
+        assignment.setAiGradingEnabled(body.enabled());
+        assignment.setUpdatedAt(Instant.now());
+        assignmentRepository.save(assignment);
+
+        saveAuditLog(assignment, jwt, "AI_ENABLED_TOGGLED", before, body.enabled().toString());
+
+        log.info("Admin {} {} AI grading for assignment {}", adminName,
+                Boolean.TRUE.equals(body.enabled()) ? "enabled" : "disabled", id);
+
+        return ResponseEntity.ok(toAssignmentConfigDto(assignment));
+    }
+
+    /**
+     * PUT /api/admin/ai-grading/assignments/{id}/prompt
+     * Override prompt của mentor
+     */
+    @PutMapping("/assignments/{id}/prompt")
+    public ResponseEntity<AdminAiAssignmentConfigDTO> overridePrompt(
+            @PathVariable("id") Long id,
+            @Valid @RequestBody PromptOverrideRequestDTO body,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Assignment assignment = assignmentRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("ASSIGNMENT_NOT_FOUND"));
+
+        String adminName = getAdminName(jwt);
+        String before = assignment.getAiGradingPrompt();
+
+        assignment.setAiGradingPrompt(body.prompt());
+        assignment.setUpdatedAt(Instant.now());
+        assignmentRepository.save(assignment);
+
+        saveAuditLog(assignment, jwt, "PROMPT_OVERRIDE", before, body.prompt());
+
+        log.info("Admin {} overrode prompt for assignment {} (length: {} chars)",
+                adminName, id, body.prompt().length());
+
+        return ResponseEntity.ok(toAssignmentConfigDto(assignment));
+    }
+
+    /**
+     * PUT /api/admin/ai-grading/assignments/{id}/grading-style
+     * Override grading style (STANDARD/STRICT/LENIENT)
+     */
+    @PutMapping("/assignments/{id}/grading-style")
+    public ResponseEntity<AdminAiAssignmentConfigDTO> updateGradingStyle(
+            @PathVariable("id") Long id,
+            @Valid @RequestBody GradingStyleUpdateRequestDTO body,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Assignment assignment = assignmentRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("ASSIGNMENT_NOT_FOUND"));
+
+        String adminName = getAdminName(jwt);
+        String before = assignment.getGradingStyle();
+
+        assignment.setGradingStyle(body.style());
+        assignment.setUpdatedAt(Instant.now());
+        assignmentRepository.save(assignment);
+
+        saveAuditLog(assignment, jwt, "GRADING_STYLE_CHANGED", before, body.style());
+
+        log.info("Admin {} changed grading style for assignment {}: {} -> {}",
+                adminName, id, before, body.style());
+
+        return ResponseEntity.ok(toAssignmentConfigDto(assignment));
+    }
+
+    /**
+     * PUT /api/admin/ai-grading/assignments/{id}/disable-prompt
+     * Tắt custom prompt — dùng system default thay thế
+     */
+    @PutMapping("/assignments/{id}/disable-prompt")
+    public ResponseEntity<AdminAiAssignmentConfigDTO> disablePrompt(
+            @PathVariable("id") Long id,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Assignment assignment = assignmentRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("ASSIGNMENT_NOT_FOUND"));
+
+        String adminName = getAdminName(jwt);
+        String before = assignment.getAiGradingPrompt();
+
+        assignment.setAiGradingPrompt(null);
+        assignment.setUpdatedAt(Instant.now());
+        assignmentRepository.save(assignment);
+
+        saveAuditLog(assignment, jwt, "PROMPT_DISABLED", before, null);
+
+        log.info("Admin {} disabled custom prompt for assignment {}", adminName, id);
+
+        return ResponseEntity.ok(toAssignmentConfigDto(assignment));
+    }
+
+    /**
+     * GET /api/admin/ai-grading/assignments/{id}/audit
+     * Lấy audit log cho assignment (phân trang)
+     */
+    @GetMapping("/assignments/{id}/audit")
+    public ResponseEntity<Page<PromptAuditLogDTO>> getAuditLog(
+            @PathVariable("id") Long id,
+            @PageableDefault(size = 20) Pageable pageable) {
+
+        // Verify assignment exists
+        if (!assignmentRepository.existsById(id)) {
+            throw new NotFoundException("ASSIGNMENT_NOT_FOUND");
+        }
+
+        Page<AssignmentPromptAuditLog> logs = auditLogRepository
+                .findByAssignmentIdOrderByCreatedAtDesc(id, pageable);
+
+        Page<PromptAuditLogDTO> dtos = logs.map(log -> new PromptAuditLogDTO(
+                log.getId(),
+                log.getAssignment().getId(),
+                log.getAssignment().getTitle(),
+                log.getAdminId(),
+                log.getAdminName(),
+                log.getAction(),
+                log.getBeforeValue(),
+                log.getAfterValue(),
+                log.getCreatedAt()
+        ));
+
+        return ResponseEntity.ok(dtos);
+    }
+
+    /**
+     * POST /api/admin/ai-grading/audit-log
+     * Ghi 1 audit entry cho assignment
+     */
+    @PostMapping("/audit-log")
+    public ResponseEntity<PromptAuditLogDTO> createAuditLog(
+            @Valid @RequestBody CreateAuditLogRequestDTO body,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Assignment assignment = assignmentRepository.findById(body.assignmentId())
+                .orElseThrow(() -> new NotFoundException("ASSIGNMENT_NOT_FOUND"));
+
+        AssignmentPromptAuditLog logEntry = AssignmentPromptAuditLog.builder()
+                .assignment(assignment)
+                .adminId(extractUserId(jwt))
+                .adminName(getAdminName(jwt))
+                .action(body.action())
+                .beforeValue(body.beforeValue())
+                .afterValue(body.afterValue())
+                .createdAt(Instant.now())
+                .build();
+
+        AssignmentPromptAuditLog saved = auditLogRepository.save(logEntry);
+
+        PromptAuditLogDTO dto = new PromptAuditLogDTO(
+                saved.getId(),
+                saved.getAssignment().getId(),
+                saved.getAssignment().getTitle(),
+                saved.getAdminId(),
+                saved.getAdminName(),
+                saved.getAction(),
+                saved.getBeforeValue(),
+                saved.getAfterValue(),
+                saved.getCreatedAt()
+        );
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(dto);
+    }
+
+    // =====================================================
+    // PRIVATE HELPER METHODS
+    // =====================================================
+
+    private void saveAuditLog(Assignment assignment, Jwt jwt, String action, String beforeValue, String afterValue) {
+        AssignmentPromptAuditLog logEntry = AssignmentPromptAuditLog.builder()
+                .assignment(assignment)
+                .adminId(extractUserId(jwt))
+                .adminName(getAdminName(jwt))
+                .action(action)
+                .beforeValue(beforeValue)
+                .afterValue(afterValue)
+                .createdAt(Instant.now())
+                .build();
+        auditLogRepository.save(logEntry);
+    }
+
+    private String getAdminName(Jwt jwt) {
+        String name = jwt.getClaimAsString("name");
+        if (name != null && !name.isBlank()) return name;
+        String fullName = jwt.getClaimAsString("fullName");
+        if (fullName != null && !fullName.isBlank()) return fullName;
+        Long userId = extractUserId(jwt);
+        return userRepository.findById(userId)
+                .map(User::getFullName)
+                .orElse("Admin #" + userId);
     }
 
     private Sort buildSort(String sortBy, Sort.Direction direction) {

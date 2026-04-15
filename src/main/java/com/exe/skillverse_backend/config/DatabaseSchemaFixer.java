@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.config;
 
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +33,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class DatabaseSchemaFixer {
 
-    private static final long SCHEMA_FIXER_LOCK_KEY = 2026031501L;
+    private static final long SCHEMA_FIXER_LOCK_KEY = 2026031502L;
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -250,6 +251,12 @@ public class DatabaseSchemaFixer {
                     "Add missing company_logo_url column to recruiter_profiles for Hibernate schema validation",
                     this::patchRecruiterProfilesCompanyLogoUrl,
                     this::verifyRecruiterProfilesCompanyLogoUrl);
+
+            // ─── wallet_transactions: sync transaction_type check constraint ─────────
+            applyPatch("sync-wallet-transaction-type-constraint",
+                    "Sync wallet_transactions.transaction_type check constraint with TransactionType enum values",
+                    this::patchWalletTransactionTypeConstraint,
+                    this::verifyWalletTransactionTypeConstraint);
 
             log.info("Schema patch infrastructure ready.");
         } finally {
@@ -1188,6 +1195,52 @@ public class DatabaseSchemaFixer {
         if (results.isEmpty() || results.get(0).get("constraint_def") == null) return false;
         String def = results.get(0).get("constraint_def").toString();
         return def.contains("SUBMITTED_OVERDUE") && def.contains("WITHDRAWN");
+    }
+
+    // ─── wallet_transactions: sync transaction_type check constraint ────────────────
+
+    private void patchWalletTransactionTypeConstraint() {
+        if (!hasTable("wallet_transactions")) {
+            log.debug("Table wallet_transactions does not exist yet, skipping patch.");
+            return;
+        }
+
+        String allowedTypes = Arrays.stream(WalletTransaction.TransactionType.values())
+                .map(WalletTransaction.TransactionType::name)
+                .map(this::toSqlLiteral)
+                .collect(Collectors.joining(","));
+
+        executeSql("ALTER TABLE wallet_transactions DROP CONSTRAINT IF EXISTS wallet_transactions_transaction_type_check");
+        executeSql("ALTER TABLE wallet_transactions ADD CONSTRAINT wallet_transactions_transaction_type_check "
+                + "CHECK (transaction_type IN (" + allowedTypes + "))");
+    }
+
+    private boolean verifyWalletTransactionTypeConstraint() {
+        if (!hasTable("wallet_transactions")) {
+            return false;
+        }
+
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) AS constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'wallet_transactions'
+              AND c.conname = 'wallet_transactions_transaction_type_check'
+        """);
+
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) {
+            return false;
+        }
+
+        String constraintDef = results.get(0).get("constraint_def").toString();
+        for (WalletTransaction.TransactionType type : WalletTransaction.TransactionType.values()) {
+            if (!constraintDef.contains(toSqlLiteral(type.name()))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String toSqlLiteral(String rawValue) {

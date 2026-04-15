@@ -86,4 +86,10 @@ public interface WalletService {
     WalletTransaction giftUser(Long userId, BigDecimal cashAmount, Long coinAmount, String reason);
 
     boolean hasAvailableCash(Long userId, BigDecimal amount);
+
+    void suspendWallet(Long userId, String reason);
+
+    void unlockWallet(Long userId);
+
+    int refundStudentsForMentorBan(Long mentorId, String reason);
 }

@@ -16,9 +16,19 @@ import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.entity.Certificate;
+import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
+import com.exe.skillverse_backend.course_service.service.CertificateService;
+import com.exe.skillverse_backend.course_service.service.CourseService;
+import com.exe.skillverse_backend.course_service.repository.CourseRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.wallet_service.service.WithdrawalService;
+import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import jakarta.persistence.EntityManager;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -28,6 +38,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -46,6 +57,13 @@ public class AdminUserServiceImpl implements AdminUserService {
         private final PasswordEncoder passwordEncoder;
         private final UserProfileService userProfileService;
         private final EntityManager entityManager;
+        private final WalletService walletService;
+        private final WithdrawalService withdrawalService;
+        private final CourseService courseService;
+        private final CertificateService certificateService;
+        private final CourseRepository courseRepository;
+        private final CourseEnrollmentRepository enrollmentRepository;
+        private final NotificationService notificationService;
 
         @Override
         @Transactional(readOnly = true)
@@ -121,6 +139,65 @@ public class AdminUserServiceImpl implements AdminUserService {
 
                 user.setStatus(request.getStatus());
                 user.setUpdatedAt(LocalDateTime.now());
+
+                // ========== Ban/Unban Cascade ==========
+                if (request.getStatus() == UserStatus.INACTIVE) {
+                        log.info("Ban cascade for user {}", request.getUserId());
+
+                        // Step 1: Auto-refund students who haven't completed
+                        int refundedCount = walletService.refundStudentsForMentorBan(
+                                        request.getUserId(), "Mentor account banned");
+                        log.info("Refunded {} students for banned mentor {}", refundedCount, request.getUserId());
+
+                        // Step 2: Suspend all PUBLIC courses
+                        List<Course> publicCourses = courseRepository
+                                        .findByAuthorIdAndStatus(request.getUserId(), CourseStatus.PUBLIC, Pageable.unpaged())
+                                        .getContent();
+                        for (Course course : publicCourses) {
+                                courseService.suspendCourse(course.getId(), request.getUserId(), "Mentor account banned");
+                        }
+                        log.info("Suspended {} courses for banned mentor {}", publicCourses.size(), request.getUserId());
+
+                        // Step 3: Revoke certificates
+                        int revokedCount = certificateService.revokeByMentorId(
+                                        request.getUserId(), "Mentor account banned", request.getUserId());
+                        log.info("Revoked {} certificates for banned mentor {}", revokedCount, request.getUserId());
+
+                        // Step 4: Cancel pending withdrawals
+                        int cancelledCount = withdrawalService.cancelPendingByUserId(
+                                        request.getUserId(), "Mentor account banned");
+                        log.info("Cancelled {} pending withdrawals for banned mentor {}", cancelledCount, request.getUserId());
+
+                        // Step 5: Lock wallet
+                        walletService.suspendWallet(request.getUserId(), "Mentor account banned");
+                        log.info("Wallet locked for banned mentor {}", request.getUserId());
+
+                } else if (request.getStatus() == UserStatus.ACTIVE) {
+                        log.info("Unban cascade for user {}", request.getUserId());
+
+                        // Step 1: Unlock wallet
+                        walletService.unlockWallet(request.getUserId());
+                        log.info("Wallet unlocked for user {}", request.getUserId());
+
+                        // Step 2: Restore all SUSPENDED courses to PUBLIC
+                        int restoredCourses = courseService.restoreAllSuspendedCoursesByAuthor(request.getUserId());
+                        log.info("Restored {} courses for unbanned mentor {}", restoredCourses, request.getUserId());
+
+                        // Step 3: Restore revoked certificates
+                        int restoredCerts = certificateService.restoreRevokedCertificatesByMentor(request.getUserId());
+                        log.info("Restored {} certificates for unbanned mentor {}", restoredCerts, request.getUserId());
+
+                        // Step 4: Notify mentor
+                        notificationService.createNotification(
+                                        request.getUserId(),
+                                        "Tài khoản đã được khôi phục",
+                                        "Tài khoản mentor của bạn đã được Admin kích hoạt trở lại. "
+                                                        + "Các khóa học và ví của bạn đã hoạt động bình thường.",
+                                        NotificationType.SYSTEM,
+                                        request.getUserId().toString());
+                        log.info("Notified unbanned mentor {}", request.getUserId());
+                }
+                // ========== End Cascade ==========
 
                 User updatedUser = userRepository.save(user);
 

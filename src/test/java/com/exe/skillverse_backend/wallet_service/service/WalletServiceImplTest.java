@@ -11,6 +11,8 @@ import static org.mockito.Mockito.when;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
+import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.payment_service.service.PaymentService;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
@@ -57,6 +59,12 @@ class WalletServiceImplTest {
     @Mock
     private ObjectProvider<PaymentService> paymentServiceProvider;
 
+    @Mock
+    private CourseEnrollmentRepository enrollmentRepository;
+
+    @Mock
+    private CoursePurchaseRepository coursePurchaseRepository;
+
     private WalletServiceImpl walletService;
 
     @BeforeEach
@@ -69,7 +77,9 @@ class WalletServiceImplTest {
                 passwordEncoder,
                 walletEmailService,
                 notificationService,
-                paymentServiceProvider);
+                paymentServiceProvider,
+                enrollmentRepository,
+                coursePurchaseRepository);
     }
 
     @Test

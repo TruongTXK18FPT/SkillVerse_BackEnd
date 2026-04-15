@@ -61,7 +61,6 @@ public class CourseController {
     @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
     @Operation(summary = "Create a new course")
     public ResponseEntity<CourseDetailDTO> createCourse(
-            @Parameter(description = "Author user ID") @RequestParam @NotNull Long authorId,
             @Parameter(description = "Course title") @RequestParam @NotBlank String title,
             @Parameter(description = "Course description") @RequestParam(required = false) String description,
             @Parameter(description = "Course level") @RequestParam(required = false) String level,
@@ -73,8 +72,10 @@ public class CourseController {
             @Parameter(description = "Course requirements") @RequestParam(required = false) List<String> requirements,
             @Parameter(description = "Thumbnail file") @RequestParam(required = false) MultipartFile thumbnailFile,
             @Parameter(description = "Course price") @RequestParam(required = false) BigDecimal price,
-            @Parameter(description = "Currency") @RequestParam(required = false) String currency) {
+            @Parameter(description = "Currency") @RequestParam(required = false) String currency,
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long authorId = JwtUtils.extractUserId(jwt);
         log.info("Creating course by author: {}", authorId);
 
         CourseCreateDTO dto = new CourseCreateDTO();
@@ -99,7 +100,6 @@ public class CourseController {
     @Operation(summary = "Update an existing course")
     public ResponseEntity<CourseDetailDTO> updateCourse(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId,
             @Parameter(description = "Course title") @RequestParam @NotBlank String title,
             @Parameter(description = "Course description") @RequestParam(required = false) String description,
             @Parameter(description = "Course level") @RequestParam(required = false) String level,
@@ -111,8 +111,10 @@ public class CourseController {
             @Parameter(description = "Course requirements") @RequestParam(required = false) List<String> requirements,
             @Parameter(description = "Thumbnail file") @RequestParam(required = false) MultipartFile thumbnailFile,
             @Parameter(description = "Course price") @RequestParam(required = false) BigDecimal price,
-            @Parameter(description = "Currency") @RequestParam(required = false) String currency) {
+            @Parameter(description = "Currency") @RequestParam(required = false) String currency,
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = JwtUtils.extractUserId(jwt);
         log.info("Updating course {} by user {}", courseId, actorId);
 
         CourseUpdateDTO dto = new CourseUpdateDTO();
@@ -137,8 +139,9 @@ public class CourseController {
     @Operation(summary = "Archive a course (hard delete only when policy allows)")
     public ResponseEntity<Void> deleteCourse(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = JwtUtils.extractUserId(jwt);
         log.info("Deleting course {} by user {}", courseId, actorId);
         courseService.deleteCourse(courseId, actorId);
         return ResponseEntity.noContent().build();
@@ -260,8 +263,9 @@ public class CourseController {
     @Operation(summary = "Submit course for admin approval")
     public ResponseEntity<CourseDetailDTO> submitCourseForApproval(
             @Parameter(description = "Course ID") @PathVariable @NotNull Long courseId,
-            @Parameter(description = "Actor user ID") @RequestParam @NotNull Long actorId) {
+            @AuthenticationPrincipal Jwt jwt) {
 
+        Long actorId = JwtUtils.extractUserId(jwt);
         log.info("Submitting course {} for approval by user {}", courseId, actorId);
         CourseDetailDTO submitted = courseService.submitCourseForApproval(courseId, actorId);
         return ResponseEntity.ok(submitted);

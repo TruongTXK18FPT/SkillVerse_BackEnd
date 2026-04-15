@@ -248,54 +248,53 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             inputValidationService.validateTextOrThrow(request.getExperience());
             inputValidationService.validateTextOrThrow(request.getStyle());
 
-            // Step 3: AI Generation — 3-step cascade with primary retry
+            // Step 3: AI Generation — 3-tier cascade: Mistral → Gemini → Mistral compact
             String roadmapJson;
-            try {
-                // Step 3A: Gemini (primary model)
-                log.info("🧭 [trace={}] Primary model path: Gemini", traceId);
-                telemetry.markModelPath("gemini");
-                roadmapJson = callGeminiAPI(request, telemetry);
-            } catch (Exception geminiEx) {
-                String geminiFailureType = classifyAiFailure(geminiEx);
-                int geminiStatus = extractHttpStatus(geminiEx);
-                telemetry.markFallback("gemini-call-failed", geminiFailureType, geminiStatus);
-                log.warn(
-                        "⚠️ [trace={}] Gemini failed (type={}, status={}): {}. "
-                        + "Attempting Mistral primary with retry (2 attempts, 30s backoff).",
-                        traceId,
-                        geminiFailureType,
-                        geminiStatus,
-                        safeMessage(geminiEx));
 
-                // Step 3B: Mistral primary with retry
-                roadmapJson = callMistralWithPrimaryRetry(request, telemetry, traceId);
+            // Step 3A: Mistral primary (2 attempts, 30s fixed backoff)
+            try {
+                log.info("🧭 [trace={}] Primary model path: Mistral", traceId);
+                telemetry.markModelPath("mistral");
+                roadmapJson = callMistralWithRetry(request, telemetry, traceId);
+            } catch (Exception mistralEx) {
+                String mistralFailureType = classifyAiFailure(mistralEx);
+                int mistralStatus = extractHttpStatus(mistralEx);
+                telemetry.markFallback("mistral-call-failed", mistralFailureType, mistralStatus);
+                log.warn(
+                        "⚠️ [trace={}] Mistral failed (type={}, status={}): {}. "
+                        + "Falling back to Gemini (2 attempts, exponential backoff).",
+                        traceId,
+                        mistralFailureType,
+                        mistralStatus,
+                        safeMessage(mistralEx));
+
+                // Step 3B: Gemini fallback (2 attempts, exponential backoff via callGeminiWithRetry)
+                telemetry.markModelPath("gemini");
+                try {
+                    roadmapJson = callGeminiWithRetry(request, telemetry);
+                } catch (Exception geminiEx) {
+                    String geminiFailureType = classifyAiFailure(geminiEx);
+                    int geminiStatus = extractHttpStatus(geminiEx);
+                    telemetry.markFallback("gemini-call-failed", geminiFailureType, geminiStatus);
+                    log.warn(
+                            "⚠️ [trace={}] Gemini fallback failed (type={}, status={}): {}. "
+                            + "Attempting Mistral compact (short prompt).",
+                            traceId,
+                            geminiFailureType,
+                            geminiStatus,
+                            safeMessage(geminiEx));
+
+                    // Step 3C: Mistral compact as final tier
+                    telemetry.markModelPath("mistral-compact");
+                    roadmapJson = callMistralRoadmapFallback(request, telemetry);
+                }
             }
 
             // Step 4: Parse and validate JSON (Schema V2)
-            ParsedRoadmap parsed;
-            try {
-                parsed = validateAndParseRoadmapV2(roadmapJson, telemetry);
-            } catch (ApiException parseEx) {
-                if (!isTruncatedJsonParseFailure(parseEx)) {
-                    throw parseEx;
-                }
-
-                telemetry.markFallback("parse-truncated-json", "parse-error", -1);
-
-                // Only try compact if we haven't already tried it
-                if (telemetry.getModelPath().contains("mistral-compact")) {
-                    // Already tried compact — don't retry again, surface the error
-                    throw parseEx;
-                }
-
-                log.warn(
-                        "⚠️ [trace={}] Detected truncated/incomplete JSON after primary attempts. "
-                        + "Falling back to compact prompt.",
-                        traceId);
-                telemetry.markModelPath("mistral-compact");
-                roadmapJson = callMistralRoadmapFallback(request, telemetry);
-                parsed = validateAndParseRoadmapV2(roadmapJson, telemetry);
-            }
+            // NOTE: The old parse-retry block (which separately triggered compact on parse failure)
+            // is removed. Compact is now called inside the AI cascade (Step 3C) above.
+            // This prevents compact from triggering before Gemini gets its chance.
+            ParsedRoadmap parsed = validateAndParseRoadmapV2(roadmapJson, telemetry);
 
             // Inject mode-specific metadata from request for clarity
             try {
@@ -933,6 +932,35 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return extracted;
     }
 
+    /**
+     * Call Gemini as fallback tier with retry.
+     * Wrapper around callGeminiDirectly() which already has 2 retry + exponential backoff (1s → 2s).
+     * Uses the same primary prompt as callGeminiAPI().
+     * Throws ApiException on all failures (no further fallback).
+     */
+    private String callGeminiWithRetry(GenerateRoadmapRequest request, RoadmapGenerationTelemetry telemetry) {
+        String traceId = currentTraceId();
+        log.info("🧭 [trace={}] Gemini fallback tier — attempting with primary prompt", traceId);
+
+        String prompt = buildPrompt(request)
+                + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Nếu phát hiện mục tiêu/đầu vào vô lý (ví dụ: IELTS 10.0, nội dung thô tục), hãy từ chối lịch sự bằng tiếng Việt và gợi ý cách nhập lại hợp lệ. Chỉ trả về JSON hợp lệ như yêu cầu.";
+
+        if (telemetry != null) {
+            telemetry.recordPromptLength(prompt.length());
+        }
+
+        // callGeminiDirectly already handles 2 retries with exponential backoff internally
+        String rawResponse = callGeminiDirectly(prompt, geminiModel, telemetry);
+        String extracted = extractJsonFromResponse(rawResponse);
+
+        if (telemetry != null) {
+            telemetry.recordPayloadLength(rawResponse, extracted);
+        }
+        log.info("✅ [trace={}] Gemini fallback responded ({} chars raw, {} chars extracted)",
+                traceId, rawResponse.length(), extracted.length());
+        return extracted;
+    }
+
     private String callMistralRoadmapWithPrimaryPrompt(GenerateRoadmapRequest request) {
         return callMistralRoadmapWithPrimaryPrompt(request, null);
     }
@@ -954,12 +982,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
     }
 
     /**
-     * Retry wrapper for Mistral primary prompt.
+     * Call Mistral as primary tier with retry.
      * Attempts up to 2 times with 30s backoff (respects 2 RPM free-tier limit).
      * Retries on: API failure OR truncated JSON detection.
-     * Falls through to caller (compact fallback) if all retries fail.
+     * Throws to caller if all retries fail (caller handles fallback to Gemini).
      */
-    private String callMistralWithPrimaryRetry(
+    private String callMistralWithRetry(
             GenerateRoadmapRequest request,
             RoadmapGenerationTelemetry telemetry,
             String traceId) {
@@ -968,13 +996,13 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         int backoffMs = 30_000; // 30 seconds — respects 2 RPM free-tier limit
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            log.info("🔄 [trace={}] Mistral primary attempt {}/{}", traceId, attempt, maxAttempts);
+            log.info("🔄 [trace={}] Mistral attempt {}/{}", traceId, attempt, maxAttempts);
             try {
                 String json = callMistralRoadmapWithPrimaryPrompt(request, telemetry);
 
                 // Check if response is likely truncated (unbalanced brackets)
                 if (isJsonLikelyTruncated(json)) {
-                    log.warn("⚠️ [trace={}] Mistral primary response appears truncated "
+                    log.warn("⚠️ [trace={}] Mistral response appears truncated "
                             + "(unbalanced brackets, {} chars). Retrying...",
                             traceId, json.length());
                     if (attempt < maxAttempts) {
@@ -983,12 +1011,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     continue;
                 }
 
-                log.info("✅ [trace={}] Mistral primary succeeded (attempt {}/{}), {} chars",
+                log.info("✅ [trace={}] Mistral succeeded (attempt {}/{}), {} chars",
                         traceId, attempt, maxAttempts, json.length());
                 return json;
 
             } catch (Exception e) {
-                log.warn("⚠️ [trace={}] Mistral primary attempt {}/{} failed "
+                log.warn("⚠️ [trace={}] Mistral attempt {}/{} failed "
                         + "(type={}, status={}): {}",
                         traceId, attempt, maxAttempts,
                         classifyAiFailure(e), extractHttpStatus(e), safeMessage(e));
@@ -1000,7 +1028,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
         // All attempts exhausted — throw to trigger compact fallback in caller
         throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE,
-                "Mistral primary prompt failed after " + maxAttempts + " attempts. "
+                "Mistral prompt failed after " + maxAttempts + " attempts. "
                         + "Falling back to compact prompt.");
     }
 
@@ -1539,101 +1567,17 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
                         ## OUTPUT FORMAT SPECIFICATION
 
-                        CRITICAL: Trả về ĐÚNG format JSON sau (không thêm/bớt field):
+                        CRITICAL: Trả về JSON hợp lệ. KHÔNG markdown, KHÔNG giải thích, KHÔNG chat, CHỈ JSON.
 
-                        ```json
-                        {
-                          "roadmap_metadata": {
-                            "title": "Tên lộ trình",
-                            "original_goal": "Mục tiêu gốc",
-                            "validated_goal": "Mục tiêu đã làm rõ",
-                            "duration": "Thời lượng",
-                            "experience_level": "Mức độ kinh nghiệm",
-                            "learning_style": "Phong cách học",
-                            "detected_intention": "Ý định học",
-                            "validation_notes": "Ghi chú xác thực hoặc null",
-                            "estimated_completion": "Thời gian thực tế",
-                            "difficulty_level": "beginner | intermediate | advanced | expert",
-                            "prerequisites": ["Danh sách tiền đề"],
-                            "career_relevance": "Liên quan nghề nghiệp",
-                            "roadmap_type": "skill | career",
-                            "target": "Tên kỹ năng hoặc nghề",
-                            "final_objective": "Đi làm | Freelance | Học cho trường | Build sản phẩm",
-                            "current_level": "zero | basic | intermediate",
-                            "desired_duration": "1 tháng | 3 tháng | 6 tháng",
-                            "background": "Ngữ cảnh",
-                            "daily_time": "Thời gian mỗi ngày",
-                            "target_environment": "Startup | corporate | freelance",
-                            "location": "Việt Nam | quốc tế",
-                            "priority": "Nhanh đi làm | Học sâu",
-                            "tool_preferences": ["React", "Vue", "No-code"],
-                            "difficulty_concern": "Mối lo",
-                            "income_goal": true,
-                            "roadmap_mode": "SKILL_BASED | CAREER_BASED",
-                            "skill_mode": {
-                              "skill_name": "ReactJS | SQL | Figma",
-                              "skill_category": "Technical | Creative | Business",
-                              "desired_depth": "BASIC | SOLID | ADVANCED",
-                              "learner_type": "Student | Working | Explorer",
-                              "current_skill_level": "ZERO | BASIC | INTERMEDIATE",
-                              "learning_goal": "UNDERSTAND | APPLY | MASTER",
-                              "daily_learning_time": "30_MIN | 1_HOUR | 2_HOURS",
-                              "assessment_preference": "QUIZ | PROJECT | MIXED",
-                              "difficulty_tolerance": "EASY | MEDIUM | HARD",
-                              "tool_preference": ["React", "Vue", "No-code"]
-                            },
-                            "career_mode": {
-                              "target_role": "Frontend Developer | Digital Marketer | UI Designer",
-                              "career_track": "IT | Marketing | Design",
-                              "target_seniority": "INTERN | JUNIOR | FREELANCER",
-                              "work_mode": "FULL_TIME | FREELANCE | REMOTE",
-                              "target_market": "VIETNAM | GLOBAL",
-                              "company_type": "STARTUP | SME | CORPORATE",
-                              "timeline_to_work": "3M | 6M | 12M",
-                              "income_expectation": true,
-                              "work_experience": "NONE | RELATED | UNRELATED",
-                              "transferable_skills": true,
-                              "confidence_level": "LOW | MEDIUM | HIGH"
-                            }
-                          },
-                          "overview": {
-                            "purpose": "Nghề/skill dùng để làm gì",
-                            "audience": "Phù hợp với ai",
-                            "post_roadmap_state": "Sau roadmap đạt trạng thái gì"
-                          },
-                          "skill_dependencies": [
-                            { "from": "skill-a", "to": "skill-b" }
-                          ],
-                          "roadmap": [
-                            {
-                              "id": "quest-...",
-                              "title": "Tiêu đề",
-                              "description": "Mô tả chi tiết với Markdown đầy đủ (bôi đậm, nghiêng, list, code block)",
-                              "estimated_time_minutes": 180,
-                              "type": "MAIN",
-                              "is_core": true,
-                              "parent_id": null,
-                              "difficulty": "easy | medium | hard",
-                              "learning_objectives": ["..."],
-                              "key_concepts": ["..."],
-                              "practical_exercises": ["..."],
-                              "suggested_resources": ["..."],
-                              "success_criteria": ["..."],
-                              "prerequisites": ["..."],
-                              "children": ["..."],
-                              "estimated_completion_rate": "90%%"
-                            }
-                          ],
-                          "roadmap_statistics": {
-                            "total_nodes": 12,
-                            "main_nodes": 8,
-                            "side_nodes": 4,
-                            "total_estimated_hours": 48.5,
-                            "difficulty_distribution": { "easy": 4, "medium": 6, "hard": 2 }
-                          },
-                          "learning_tips": ["Tip 1", "Tip 2"]
-                        }
-                        ```
+                        **Cấu trúc bắt buộc:**
+                        - `roadmap_metadata`: object chứa title, original_goal, difficulty_level (beginner|intermediate|advanced|expert), roadmap_mode (SKILL_BASED|CAREER_BASED), skill_mode (nếu SKILL_BASED), career_mode (nếu CAREER_BASED)
+                        - `overview`: object với purpose, audience, post_roadmap_state
+                        - `skill_dependencies`: array của {from, to}
+                        - `roadmap`: array bắt buộc, mỗi node phải có: id (string), title, description (Markdown), estimated_time_minutes (int > 0), type (MAIN|SIDE), is_core, parent_id (null cho root), difficulty (easy|medium|hard|expert), prerequisites (array), children (array id con — dùng [] nếu không có), suggested_resources, learning_objectives, key_concepts, practical_exercises, success_criteria
+                        - `roadmap_statistics`: object với total_nodes, main_nodes, side_nodes, total_estimated_hours, difficulty_distribution
+                        - `learning_tips`: array của string
+
+                        **QUAN TRỌNG:** Mỗi node phải có children được SET ĐẦY ĐỦ — nếu node có child tiếp theo phải liệt kê trong children array. Dùng [] chỉ khi node là lá (không có child).
 
                         ## QUY TẮC ROADMAP CONSTRUCTION
 
@@ -1654,16 +1598,9 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         - Tổng thời gian nodes ≈ 80-100%% total (20%% buffer)
                         - Nếu thiếu dữ liệu, vẫn phải ước lượng tối thiểu 30 phút cho node nhỏ và tăng theo độ khó/khối lượng bài tập
 
-                        ### Task-Type Time Benchmarks (phút, beginner基准 ×1.0):
-                        - Setup/Cài đặt/Môi trường: 30-60 phút (cho beginner KHÔNG BAO GIỜ > 90 phút)
-                        - Tìm hiểu khái niệm/Đọc lý thuyết: 30-90 phút
-                        - Học cú pháp cơ bản: 45-90 phút
-                        - Làm bài tập thực hành: 60-120 phút
-                        - Project/Dự án nhỏ: 120-240 phút
-                        - Ôn tập/Kiểm tra: 30-60 phút
-                        - Debug/Sửa lỗi: 30-90 phút
-                        - Scale theo difficulty: easy ×1.0, medium ×1.5, hard ×2.0
-                        - Scale theo experience: zero/basic ×1.0, intermediate ×0.8, advanced ×0.6
+                        ### Time Benchmarks (phút, beginner基准):
+                        - Setup: 30-60 | Lý thuyết: 30-90 | Cú pháp: 45-90 | Thực hành: 60-120 | Project: 120-240
+                        - Scale: difficulty easy×1.0, medium×1.5, hard×2.0 | experience zero/basic×1.0, intermediate×0.8, advanced×0.6
 
                         ### Phase/Structure Time Distribution:
                         - Phase 1 (Nền tảng): ~25%% tổng thời gian
@@ -1686,49 +1623,20 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         - CRITICAL: children và parent_id phải được SET cho TẤT CẢ nodes. Array rỗng [] chỉ dùng cho node KHÔNG CÓ child nào. KHÔNG ĐƯỢC bỏ trống hoặc null.
 
                         ## CONTENT QUALITY STANDARDS
+                        - Title: bắt đầu bằng động từ hành động, chứa công nghệ cụ thể, 40-80 ký tự, Tiếng Việt có dấu. Ví dụ: "Xây dựng API RESTful với Spring Boot"
+                        - Learning Objectives: format "[Động từ] được [Kết quả cụ thể]", ví dụ: "Tạo được form đăng ký có validation"
+                        - Resources: phải là tài liệu CÓ THẬT và PHỔ BIẾN (VD: MDN, FreeCodeCamp, Offical Docs)
 
-                        ### Title Quality:
-                        ✅ GOOD: "Làm quen với HTML5 và cấu trúc web", "Xây dựng API RESTful với Spring Boot"
-                        ❌ BAD: "Bước 1", "Học JavaScript", "Module 3"
-                        - Bắt đầu bằng động từ hành động
-                        - Chứa công nghệ/kỹ năng cụ thể
-                        - 40-80 ký tự, Tiếng Việt có dấu
-
-                        ### Learning Objectives:
-                        ✅ GOOD: "Tạo được form đăng ký có validation", "Xây dựng được 3 component React"
-                        ❌ BAD: "Hiểu về React", "Giỏi JavaScript"
-                        - Format: "[Động từ] được [Kết quả cụ thể]"
-
-                        ### Suggested Resources:
-                        ✅ GOOD: "MDN Web Docs - HTML Basics", "FreeCodeCamp - Responsive Web Design"
-                        ❌ BAD: "Khóa học ABC", "Video hướng dẫn"
-                        - Tài nguyên CÓ THẬT, PHỔ BIẾN, CHẤT LƯỢNG
-
-                        ## ADAPTATION BY PRIORITY/TIME
-                        - Nếu priority = "Nhanh đi làm": 10-12 nodes, MAIN ≥ 75%%, SIDE ≤ 25%%, difficulty ưu tiên easy/medium
-                        - Nếu priority = "Học sâu": 12-18 nodes, MAIN ≈ 60%%, SIDE ≈ 40%%, difficulty cân bằng medium/hard
-                        - Dựa vào daily_time và desired_duration để tính ngân sách thời gian tổng và phân bổ thời gian cho từng node
-                        - Tổng thời gian nodes ≈ time_budget_minutes × 0.9 (10%% buffer)
+                        ## ADAPTATION BY PRIORITY
+                        - "Nhanh đi làm": 10-12 nodes, MAIN ≥ 75%%, easy/medium difficulty
+                        - "Học sâu": 12-18 nodes, MAIN ≈ 60%%, medium/hard difficulty
 
                         ## ADAPTATION BY LEARNING STYLE
-                        ### "Theo dự án - Học bằng cách làm":
-                        - Mỗi chuỗi MAIN = 1 complete project
-                        - Mỗi node = 1 feature/component
-                        - Description format: "Xây dựng [feature X] cho project..."
-                        ### "Lý thuyết - Nắm vững khái niệm":
-                        - Concept-driven approach
-                        - Theory → Practice cycle
-                        - Description format: "Hiểu về [concept X]. Sau node này bạn sẽ..."
-                        ### "Video - Học qua hình ảnh":
-                        - Video-first approach
-                        - Description format: "Xem video [X] từ [platform]. Sau đó thực hành..."
-                        ### "Thực hành - Tương tác nhiều":
-                        - Exercise-heavy
-                        - Description format: "Hoàn thành [N] bài tập về [topic]..."
-                        ### "Cân bằng - Lý thuyết + Thực hành":
-                        - 50%% theory, 50%% practice
-                        - Alternating pattern
-                        - Description format: "Phần lý thuyết:... Phần thực hành:..."
+                        - "Theo dự án": mỗi node = 1 feature/project, format "Xây dựng [feature X] cho project..."
+                        - "Lý thuyết": concept-driven, format "Hiểu về [concept X]..."
+                        - "Video": video-first, format "Xem video [X] từ [platform]..."
+                        - "Thực hành": exercise-heavy, format "Hoàn thành [N] bài tập về [topic]..."
+                        - "Cân bằng": 50%% theory + 50%% practice, alternating pattern
 
                         """
                 + "\n"

@@ -17,12 +17,19 @@ import com.exe.skillverse_backend.wallet_service.repository.WalletRepository;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletEmailService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
+import com.exe.skillverse_backend.course_service.entity.CoursePurchase;
+import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
+import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
+import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.text.NumberFormat;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -48,6 +55,8 @@ public class WalletServiceImpl implements WalletService {
         private final WalletEmailService walletEmailService;
         private final NotificationService notificationService;
         private final ObjectProvider<PaymentService> paymentServiceProvider;
+        private final CourseEnrollmentRepository enrollmentRepository;
+        private final CoursePurchaseRepository coursePurchaseRepository;
 
         /**
          * Tạo ví mới cho user (tự động khi register)
@@ -832,7 +841,10 @@ public class WalletServiceImpl implements WalletService {
                 }
 
                 Wallet wallet = walletRepository.findByUserIdWithLock(mentorId)
-                                .orElseThrow(() -> new IllegalArgumentException("Ví không tồn tại"));
+                                .orElseGet(() -> {
+                                        log.info("Mentor {} chưa có ví, tự động tạo ví mới", mentorId);
+                                        return createWalletForUser(mentorId);
+                                });
 
                 wallet.depositCash(amount);
                 walletRepository.save(wallet);
@@ -1126,5 +1138,97 @@ public class WalletServiceImpl implements WalletService {
                         return false;
                 }
                 return wallet.hasAvailableCash(amount);
+        }
+
+        // ========== Ban/Unban Cascade Methods ==========
+
+        /**
+         * Khóa ví khi mentor bị ban.
+         * Tự động tạo ví nếu chưa có (đảm bảo ví luôn bị lock khi ban).
+         * Chỉ set SUSPENDED nếu hiện tại đang ACTIVE.
+         */
+        @Override
+        @Transactional
+        public void suspendWallet(Long userId, String reason) {
+                Wallet wallet = walletRepository.findByUserIdWithLock(userId)
+                                .orElseGet(() -> {
+                                        log.info("Mentor {} chưa có ví khi ban — tạo ví mới để khóa", userId);
+                                        return createWalletForUser(userId);
+                                });
+                if (wallet.getStatus() == Wallet.WalletStatus.ACTIVE) {
+                        wallet.setStatus(Wallet.WalletStatus.SUSPENDED);
+                        walletRepository.save(wallet);
+                        log.info("Wallet suspended for user {}: {}", userId, reason);
+                }
+        }
+
+        /**
+         * Mở khóa ví khi mentor được unban.
+         * Tự động tạo ví nếu chưa có (đảm bảo ví luôn được tạo khi unban).
+         * Chỉ set ACTIVE nếu đang không ACTIVE.
+         */
+        @Override
+        @Transactional
+        public void unlockWallet(Long userId) {
+                Wallet wallet = walletRepository.findByUserIdWithLock(userId)
+                                .orElseGet(() -> {
+                                        log.info("Mentor {} chưa có ví khi unban — tạo ví mới", userId);
+                                        return createWalletForUser(userId);
+                                });
+                if (wallet.getStatus() != Wallet.WalletStatus.ACTIVE) {
+                        Wallet.WalletStatus oldStatus = wallet.getStatus();
+                        wallet.setStatus(Wallet.WalletStatus.ACTIVE);
+                        walletRepository.save(wallet);
+                        log.info("Wallet unlocked for user {}: {} -> ACTIVE", userId, oldStatus);
+                }
+        }
+
+        /**
+         * Refund partial cho student khi mentor bị ban.
+         * Tính theo % progress chưa hoàn thành → refund phần đó.
+         * VD: mua 200k, học 50% → refund 100k
+         */
+        @Override
+        @Transactional
+        public int refundStudentsForMentorBan(Long mentorId, String reason) {
+                List<CourseEnrollment> partialEnrollments = enrollmentRepository
+                                .findByCourse_Author_IdAndStatusAndProgressPercentLessThan(
+                                                mentorId,
+                                                EnrollmentStatus.ENROLLED,
+                                                100);
+
+                int count = 0;
+                for (CourseEnrollment enrollment : partialEnrollments) {
+                        Long userId = enrollment.getUser().getId();
+                        Long courseId = enrollment.getCourse().getId();
+                        Optional<CoursePurchase> purchaseOpt = coursePurchaseRepository
+                                        .findByUserIdAndCourseId(userId, courseId);
+
+                        if (purchaseOpt.isEmpty()) {
+                                continue; // Free enrollment → skip
+                        }
+                        BigDecimal paidAmount = purchaseOpt.get().getPrice();
+                        if (paidAmount == null) {
+                                continue; // No recorded price → skip
+                        }
+
+                        BigDecimal refundAmount = paidAmount
+                                        .multiply(new BigDecimal("100").subtract(
+                                                        new BigDecimal(enrollment.getProgressPercent())))
+                                        .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+
+                        processRefund(
+                                        userId,
+                                        refundAmount,
+                                        "Hoàn tiền do khóa học không còn khả dụng: " + reason,
+                                        "MENTOR_BAN_REFUND",
+                                        "ENROLLMENT_" + enrollment.getId());
+
+                        enrollment.setStatus(EnrollmentStatus.DROPPED);
+                        enrollmentRepository.save(enrollment);
+                        count++;
+                }
+                log.info("Refunded {} students for banned mentor {}", count, mentorId);
+                return count;
         }
 }

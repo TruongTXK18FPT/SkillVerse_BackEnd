@@ -900,4 +900,24 @@ public class CourseServiceImpl implements CourseService {
             throw new MediaOperationException("Thumbnail upload failed: " + e.getMessage(), e);
         }
     }
+
+    // ========== Ban/Unban Cascade Methods ==========
+
+    @Override
+    @Transactional
+    public int restoreAllSuspendedCoursesByAuthor(Long authorId) {
+        List<Course> suspendedCourses = courseRepository
+                .findByAuthorIdAndStatus(authorId, CourseStatus.SUSPENDED, Pageable.unpaged())
+                .getContent();
+        for (Course course : suspendedCourses) {
+            course.setStatus(CourseStatus.PUBLIC);
+            course.setSuspensionReason(null);
+            course.setSuspendedAt(null);
+            course.setSuspendedBy(null);
+            course.setUpdatedAt(now());
+            courseRepository.save(course);
+        }
+        log.info("Restored {} suspended courses for unbanned mentor {}", suspendedCourses.size(), authorId);
+        return suspendedCourses.size();
+    }
 }

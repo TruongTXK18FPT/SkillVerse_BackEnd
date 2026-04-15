@@ -18,7 +18,7 @@ import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -46,6 +46,13 @@ public class TaskBoardServiceImpl implements TaskBoardService {
     private final RoadmapCompletionSyncService roadmapCompletionSyncService;
 
     private static final String DEFAULT_COLUMN_TODO = "To Do";
+
+    private static final Set<String> PROTECTED_COLUMN_TOKENS = Set.of(
+            "todo", "backlog", "pending",                 // protects "To Do" variants
+            "inprogress", "doing", "ongoing",           // protects "In Progress" variants
+            "done", "completed", "finished",            // protects "Done" variants
+            "overdue"                                    // protects "Overdue"
+    );
 
     @Override
     @Transactional
@@ -463,6 +470,93 @@ public class TaskBoardServiceImpl implements TaskBoardService {
                 );
             }
         }
+    }
+
+    @Override
+    @Transactional
+    public void deleteColumn(UUID columnId, UUID targetColumnId) {
+        TaskColumn column = taskColumnRepository.findById(columnId)
+                .orElseThrow(() -> new IllegalArgumentException("Column not found"));
+
+        Long userId = column.getUser().getId();
+
+        // 1. Protected-column guard
+        if (isProtectedColumn(column.getName())) {
+            throw new IllegalArgumentException(
+                    "Không thể xóa cột được bảo vệ: " + column.getName() +
+                    ". Các cột mặc định như 'To Do', 'In Progress', 'Done', 'Overdue' không thể xóa.");
+        }
+
+        // 2. Last-column guard
+        List<TaskColumn> allColumns = taskColumnRepository.findByUserIdOrderByOrderIndexAsc(userId);
+        if (allColumns.size() <= 1) {
+            throw new IllegalArgumentException("Không thể xóa cột cuối cùng. Bảng phải có ít nhất một cột.");
+        }
+
+        // 3. Resolve target column (auto or explicit)
+        UUID resolvedTargetId = resolveTargetColumnId(columnId, targetColumnId, userId, allColumns);
+        if (resolvedTargetId == null) {
+            throw new IllegalArgumentException("Không tìm thấy cột đích phù hợp để chuyển công việc.");
+        }
+
+        // 4. Self-reference guard
+        if (resolvedTargetId.equals(columnId)) {
+            throw new IllegalArgumentException("Cột đích không được trùng với cột đang xóa.");
+        }
+
+        // 5. Move tasks to target column (preserves userNotes → roadmap linkage intact)
+        TaskColumn targetCol = taskColumnRepository.findById(resolvedTargetId)
+                .orElseThrow(() -> new IllegalArgumentException("Target column not found"));
+
+        List<Task> tasks = taskRepository.findByColumnIdOrderByOrderIndexAsc(columnId);
+        for (Task task : tasks) {
+            task.setColumn(targetCol);
+            task.setStatus(targetCol.getName());
+            taskRepository.save(task);
+            roadmapCompletionSyncService.syncTaskProgress(task);
+        }
+
+        // 6. Delete column — tasks already re-parented, so orphanRemoval cascades nothing
+        taskColumnRepository.delete(column);
+    }
+
+    private boolean isProtectedColumn(String name) {
+        if (name == null) return false;
+        String normalized = name.trim().toLowerCase().replaceAll("[_\\s-]+", "");
+        return PROTECTED_COLUMN_TOKENS.contains(normalized);
+    }
+
+    private UUID resolveTargetColumnId(UUID columnToDelete, UUID requestedTarget,
+            Long userId, List<TaskColumn> allColumns) {
+
+        // Prefer explicit target if it belongs to the same user and isn't the source
+        if (requestedTarget != null && !requestedTarget.equals(columnToDelete)) {
+            return allColumns.stream()
+                    .filter(c -> c.getId().equals(requestedTarget))
+                    .findFirst()
+                    .map(TaskColumn::getId)
+                    .orElse(null);
+        }
+
+        // Fallback: To Do → In Progress → first available
+        String[] preferredNames = {"To Do", "In Progress"};
+        for (String pref : preferredNames) {
+            for (TaskColumn c : allColumns) {
+                if (!c.getId().equals(columnToDelete) && isProtectedColumn(c.getName())
+                        && pref.equalsIgnoreCase(c.getName().trim())) {
+                    return c.getId();
+                }
+            }
+        }
+
+        // Last resort: first non-deleted column
+        return allColumns.stream()
+                .filter(c -> !c.getId().equals(columnToDelete))
+                .min((a, b) -> Integer.compare(
+                        a.getOrderIndex() != null ? a.getOrderIndex() : 0,
+                        b.getOrderIndex() != null ? b.getOrderIndex() : 0))
+                .map(TaskColumn::getId)
+                .orElse(null);
     }
 
     private TaskColumnResponse mapToColumnResponse(TaskColumn column) {

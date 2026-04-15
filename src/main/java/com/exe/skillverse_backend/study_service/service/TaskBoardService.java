@@ -50,4 +50,15 @@ public interface TaskBoardService {
      * @return number of tasks unarchived
      */
     int unarchiveTasksByRoadmapSession(Long userId, Long roadmapSessionId);
+
+    /**
+     * Delete a column. Tasks in the column are moved to the fallback target column
+     * (To Do -> In Progress -> first available) before deletion.
+     *
+     * @param columnId        the column to delete
+     * @param targetColumnId  optional explicit target; auto-resolved if omitted
+     * @throws IllegalArgumentException if column is protected, is the last column,
+     *                                  target equals source, or validation fails
+     */
+    void deleteColumn(UUID columnId, UUID targetColumnId);
 }

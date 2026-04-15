@@ -288,4 +288,14 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
         @Transactional(readOnly = true)
         @Query("SELECT COUNT(ce) FROM CourseEnrollment ce WHERE ce.course.id = :courseId AND ce.status = 'COMPLETED' AND ce.completedAt >= :since")
         long countCompletionsSinceByCourseId(@Param("courseId") Long courseId, @Param("since") Instant since);
+
+        /**
+         * Find partial enrollments (progress < 100%) for courses owned by a mentor.
+         * Used in ban cascade to refund students who haven't completed the course.
+         */
+        @Transactional(readOnly = true)
+        List<CourseEnrollment> findByCourse_Author_IdAndStatusAndProgressPercentLessThan(
+                Long mentorId,
+                EnrollmentStatus status,
+                int progressPercent);
 }

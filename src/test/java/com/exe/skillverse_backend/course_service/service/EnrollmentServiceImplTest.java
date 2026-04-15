@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollmentDet
 import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollmentStatsDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.EntitlementSource;
@@ -253,6 +254,7 @@ class EnrollmentServiceImplTest {
                 .title("Course " + id)
                 .price(price)
                 .author(author)
+                .status(CourseStatus.PUBLIC)
                 .activeRevisionId(77L)
                 .upgradePolicy(CourseUpgradePolicy.MANUAL)
                 .build();

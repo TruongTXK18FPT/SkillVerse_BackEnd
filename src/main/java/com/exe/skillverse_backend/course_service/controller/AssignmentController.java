@@ -250,16 +250,41 @@ public class AssignmentController {
 
     /**
      * Download a submitted file with proper Content-Disposition header.
+     * Authorization: only the student who submitted, the course author/mentor, or an admin may download.
      * GET /api/assignments/submissions/{submissionId}/download
      */
     @GetMapping("/submissions/{submissionId}/download")
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Download submitted file",
-               description = "Streams the submitted file with proper filename for download")
+               description = "Streams the submitted file with proper filename for download. " +
+                       "Only the submitting student, course author/mentor, or admin may download.")
     public ResponseEntity<byte[]> downloadSubmissionFile(
-            @Parameter(description = "Submission ID") @PathVariable @NotNull Long submissionId) throws IOException {
+            @Parameter(description = "Submission ID") @PathVariable @NotNull Long submissionId,
+            @AuthenticationPrincipal Jwt jwt) throws IOException {
 
-        log.debug("[API] GET /api/assignments/submissions/{}/download", submissionId);
-        return assignmentService.streamSubmissionFile(submissionId);
+        Long actorId = JwtUtils.extractUserId(jwt);
+        log.debug("[API] GET /api/assignments/submissions/{}/download by user {}", submissionId, actorId);
+        return assignmentService.streamSubmissionFile(submissionId, actorId);
+    }
+
+    /**
+     * Get the prior submission (attempt N-1) for a given submission.
+     * Used by mentor grading UI to show AI feedback from the previous submission
+     * when a student has resubmitted after an AI failure.
+     * GET /api/assignments/submissions/{submissionId}/prior
+     */
+    @GetMapping("/submissions/{submissionId}/prior")
+    @PreAuthorize("hasRole('MENTOR') or hasRole('ADMIN')")
+    @Operation(summary = "Get prior submission (attempt N-1) for a given submission",
+               description = "Returns the previous submission for the same student+assignment "
+                           + "to surface AI feedback from before a resubmit.")
+    public ResponseEntity<AssignmentSubmissionDetailDTO> getPriorSubmission(
+            @Parameter(description = "Submission ID") @PathVariable @NotNull Long submissionId,
+            @AuthenticationPrincipal Jwt jwt) {
+
+        Long actorId = extractUserId(jwt);
+        log.info("Getting prior submission for submission {} by actor {}", submissionId, actorId);
+        AssignmentSubmissionDetailDTO prior = assignmentService.getPriorSubmission(submissionId, actorId);
+        return ResponseEntity.ok(prior);
     }
 }

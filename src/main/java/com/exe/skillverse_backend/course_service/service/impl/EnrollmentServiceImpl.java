@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollmentDet
 import com.exe.skillverse_backend.course_service.dto.enrollmentdto.EnrollmentStatsDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.EntitlementSource;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
@@ -15,6 +16,7 @@ import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.service.EnrollmentService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
+import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import java.math.BigDecimal;
@@ -59,6 +61,13 @@ public class EnrollmentServiceImpl implements EnrollmentService {
         // Validate user exists
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException(USER_NOT_FOUND));
+
+        // Only PUBLIC courses can be enrolled
+        if (course.getStatus() != CourseStatus.PUBLIC) {
+            throw new BadRequestException(
+                    "Không thể enroll vào khóa học không công khai. Trạng thái hiện tại: "
+                            + course.getStatus().name());
+        }
 
         // Check if already enrolled
         if (enrollmentRepository.existsByCourseIdAndUserId(dto.getCourseId(), userId)) {

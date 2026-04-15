@@ -58,4 +58,12 @@ public interface CourseService {
      * IDs that don't exist are silently omitted from the result.
      */
     List<CourseDetailDTO> getCoursesByIds(List<Long> ids);
+
+    // ========== Ban/Unban Cascade Methods ==========
+
+    /**
+     * Restore all SUSPENDED courses owned by a mentor back to PUBLIC.
+     * Used in unban cascade.
+     */
+    int restoreAllSuspendedCoursesByAuthor(Long authorId);
 }

@@ -296,6 +296,11 @@ public class AssignmentServiceImpl implements AssignmentService {
         if (dto.getFileMediaId() != null) {
             fileMedia = mediaRepository.findById(dto.getFileMediaId())
                     .orElseThrow(() -> new NotFoundException("MEDIA_NOT_FOUND"));
+
+            // Verify: file must belong to the user submitting
+            if (!fileMedia.getUploadedByUser().getId().equals(userId)) {
+                throw new AccessDeniedException("File không thuộc về bạn");
+            }
         }
 
         validateSubmissionRequest(dto, assignment, fileMedia);
@@ -1102,9 +1107,54 @@ public class AssignmentServiceImpl implements AssignmentService {
     }
 
     @Override
-    public ResponseEntity<byte[]> streamSubmissionFile(Long submissionId) throws IOException {
+    @Transactional(readOnly = true)
+    public AssignmentSubmissionDetailDTO getPriorSubmission(Long submissionId, Long actorId) {
+        log.debug("Getting prior submission for submission {} by actor {}", submissionId, actorId);
+
+        AssignmentSubmission current = getSubmissionOrThrow(submissionId);
+        Assignment assignment = current.getAssignment();
+
+        // Ensure mentor has permission
+        ensureAuthorOrAdmin(actorId, assignment.getModule().getCourse().getAuthor().getId());
+
+        // Prior submission is attempt N-1 for the same user and assignment
+        int priorAttempt = current.getAttemptNumber() - 1;
+        if (priorAttempt < 1) {
+            throw new NotFoundException("No prior submission exists for submission " + submissionId);
+        }
+
+        List<AssignmentSubmission> priorList = submissionRepository
+                .findByAssignmentIdAndUserIdOrderByAttemptNumberDesc(assignment.getId(), current.getUser().getId())
+                .stream()
+                .filter(s -> s.getAttemptNumber() == priorAttempt)
+                .toList();
+
+        if (priorList.isEmpty()) {
+            throw new NotFoundException("No prior submission found for submission " + submissionId);
+        }
+
+        AssignmentSubmission prior = priorList.get(0);
+        log.debug("Found prior submission {} (attempt {}) for submission {}",
+                prior.getId(), prior.getAttemptNumber(), submissionId);
+
+        return toDetailWithCriteria(prior);
+    }
+
+    @Override
+    public ResponseEntity<byte[]> streamSubmissionFile(Long submissionId, Long actorId) throws IOException {
         AssignmentSubmission submission = submissionRepository.findById(submissionId)
                 .orElseThrow(() -> new NotFoundException("Submission not found: " + submissionId));
+
+        // Authorization: only the student who submitted OR the course author/mentor/admin may download
+        boolean isOwner = submission.getUser().getId().equals(actorId);
+        Long courseAuthorId = submission.getAssignment().getModule().getCourse().getAuthor().getId();
+        boolean isMentorOrAdmin = isAuthorOrAdmin(actorId, courseAuthorId);
+
+        if (!isOwner && !isMentorOrAdmin) {
+            log.warn("[SECURITY] User {} attempted to download submission {} (owned by user {})",
+                    actorId, submissionId, submission.getUser().getId());
+            throw new AccessDeniedException("FORBIDDEN");
+        }
 
         Media media = submission.getFileMedia();
         if (media == null) {

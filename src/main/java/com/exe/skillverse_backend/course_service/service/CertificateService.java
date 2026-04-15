@@ -16,4 +16,18 @@ public interface CertificateService {
     Optional<CertificateDTO> findUserCourseCertificate(Long courseId, Long userId);
 
     Optional<CertificateDTO> findActiveUserCourseCertificate(Long courseId, Long userId);
+
+    // ========== Ban/Unban Cascade Methods ==========
+
+    /**
+     * Revoke all active certificates for courses owned by a mentor.
+     * Used in ban cascade.
+     */
+    int revokeByMentorId(Long mentorId, String reason, Long actorId);
+
+    /**
+     * Restore all revoked certificates for courses owned by a mentor.
+     * Used in unban cascade.
+     */
+    int restoreRevokedCertificatesByMentor(Long mentorId);
 }

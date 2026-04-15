@@ -61,4 +61,6 @@ public interface WithdrawalService {
     WithdrawalRequestResponse getWithdrawalRequestDetail(Long userId, Long requestId);
     
     void processExpiredRequests();
+
+    int cancelPendingByUserId(Long userId, String reason);
 }

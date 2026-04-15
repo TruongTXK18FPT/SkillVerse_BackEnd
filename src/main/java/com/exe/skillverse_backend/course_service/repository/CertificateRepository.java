@@ -86,4 +86,20 @@ public interface CertificateRepository extends JpaRepository<Certificate, Long> 
 
     @Transactional(readOnly = true)
     long countByInstructorSignatureUrlSnapshot(String instructorSignatureUrlSnapshot);
+
+    // ========== Ban/Unban Cascade Methods ==========
+
+    /**
+     * Find active (non-revoked) certificates for courses owned by a mentor.
+     * Used in ban cascade to revoke certificates.
+     */
+    @Transactional(readOnly = true)
+    List<Certificate> findByCourse_Author_IdAndRevokedAtIsNull(Long mentorId);
+
+    /**
+     * Find revoked certificates for courses owned by a mentor.
+     * Used in unban cascade to restore certificates.
+     */
+    @Transactional(readOnly = true)
+    List<Certificate> findByCourse_Author_IdAndRevokedAtIsNotNull(Long mentorId);
 }

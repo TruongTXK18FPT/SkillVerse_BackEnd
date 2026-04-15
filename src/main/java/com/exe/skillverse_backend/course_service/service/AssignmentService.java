@@ -68,6 +68,21 @@ public interface AssignmentService {
 
     /**
      * Stream a submitted file as a downloadable file with proper Content-Disposition header.
+     * Authorization is checked at the controller level — actorId must be the submission owner,
+     * course author/mentor, or admin.
+     *
+     * @param submissionId the submission ID
+     * @param actorId the authenticated user performing the download
      */
-    ResponseEntity<byte[]> streamSubmissionFile(Long submissionId) throws IOException;
+    ResponseEntity<byte[]> streamSubmissionFile(Long submissionId, Long actorId) throws IOException;
+
+    /**
+     * Get the prior submission (attempt N-1) for a given submission.
+     * Used by mentor grading UI to surface AI feedback from the previous attempt
+     * when a student has resubmitted after an AI failure.
+     * @param submissionId the ID of the current (newest) submission
+     * @param actorId the mentor/admin requesting access
+     * @return the prior submission detail DTO, or 404 if no prior submission exists
+     */
+    AssignmentSubmissionDetailDTO getPriorSubmission(Long submissionId, Long actorId);
 }

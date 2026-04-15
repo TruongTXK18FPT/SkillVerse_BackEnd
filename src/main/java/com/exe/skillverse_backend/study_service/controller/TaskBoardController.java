@@ -84,6 +84,14 @@ public class TaskBoardController {
         return ResponseEntity.ok(taskBoardService.updateColumn(columnId, name, color));
     }
 
+    @DeleteMapping("/columns/{columnId}")
+    public ResponseEntity<Void> deleteColumn(
+            @PathVariable UUID columnId,
+            @RequestParam(required = false) UUID targetColumnId) {
+        taskBoardService.deleteColumn(columnId, targetColumnId);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/tasks")
     public ResponseEntity<TaskResponse> createTask(@RequestBody CreateTaskRequest request, Authentication authentication) {
         return ResponseEntity.ok(taskBoardService.createTask(getUserId(authentication), request));

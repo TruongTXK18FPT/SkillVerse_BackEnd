@@ -8,8 +8,8 @@ import com.exe.skillverse_backend.course_service.dto.certificatedto.CertificateV
 import com.exe.skillverse_backend.course_service.dto.progressdto.CourseLearningStatusDTO;
 import com.exe.skillverse_backend.course_service.entity.Certificate;
 import com.exe.skillverse_backend.course_service.entity.Course;
-import com.exe.skillverse_backend.course_service.mapper.CertificateMapper;
 import com.exe.skillverse_backend.course_service.repository.CertificateRepository;
+import com.exe.skillverse_backend.course_service.mapper.CertificateMapper;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.service.CertificateService;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
@@ -27,6 +27,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import javax.crypto.Mac;
@@ -589,5 +590,35 @@ public class CertificateServiceImpl implements CertificateService {
         return left.trim().replaceAll("\\s+", " ").equalsIgnoreCase(
                 right.trim().replaceAll("\\s+", " ")
         );
+    }
+
+    // ========== Ban/Unban Cascade Methods ==========
+
+    @Override
+    @Transactional
+    public int revokeByMentorId(Long mentorId, String reason, Long actorId) {
+        List<Certificate> certs = certificateRepository.findByCourse_Author_IdAndRevokedAtIsNull(mentorId);
+        for (Certificate cert : certs) {
+            cert.setRevokedAt(Instant.now(clock));
+            cert.setRevokeReason(reason);
+            cert.setRevokedBy(actorId);
+            certificateRepository.save(cert);
+        }
+        log.info("Revoked {} certificates for banned mentor {}", certs.size(), mentorId);
+        return certs.size();
+    }
+
+    @Override
+    @Transactional
+    public int restoreRevokedCertificatesByMentor(Long mentorId) {
+        List<Certificate> revokedCerts = certificateRepository.findByCourse_Author_IdAndRevokedAtIsNotNull(mentorId);
+        for (Certificate cert : revokedCerts) {
+            cert.setRevokedAt(null);
+            cert.setRevokeReason(null);
+            cert.setRevokedBy(null);
+            certificateRepository.save(cert);
+        }
+        log.info("Restored {} revoked certificates for unbanned mentor {}", revokedCerts.size(), mentorId);
+        return revokedCerts.size();
     }
 }

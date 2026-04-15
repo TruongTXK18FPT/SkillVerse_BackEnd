@@ -69,4 +69,6 @@ public class Certificate {
 
   @Column(length = 120)
   private String revokeReason;
+
+  private Long revokedBy;
 }

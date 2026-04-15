@@ -4,12 +4,17 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.dto.purchasedto.CoursePurchaseDTO;
 import com.exe.skillverse_backend.course_service.dto.purchasedto.CoursePurchaseRequestDTO;
+import com.exe.skillverse_backend.auth_service.entity.UserStatus;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.course_service.entity.CoursePurchase;
+import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.EntitlementSource;
 import com.exe.skillverse_backend.course_service.entity.enums.PurchaseStatus;
+import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
+import com.exe.skillverse_backend.shared.exception.BadRequestException;
+import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
@@ -63,9 +68,14 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         Course course = courseRepository.findById(request.getCourseId())
                 .orElseThrow(() -> new NotFoundException("Course not found"));
 
+        // Guard: free courses must use POST /api/enrollments/self instead
+        if (course.getPrice() == null || BigDecimal.ZERO.compareTo(course.getPrice()) >= 0) {
+            throw new BadRequestException("Khóa học miễn phí không cần thanh toán. Sử dụng chức năng kích hoạt miễn phí.");
+        }
+
         if (coursePurchaseRepository.existsByUserIdAndCourseIdAndStatus(userId, request.getCourseId(),
                 PurchaseStatus.PAID)) {
-            throw new IllegalStateException("You have already purchased this course");
+            throw new ConflictException("Bạn đã mua khóa học này rồi.");
         }
 
         User user = userRepository.findById(userId)
@@ -77,7 +87,7 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
             course.getPrice(),
             "Purchase course: " + course.getTitle(),
             WalletTransaction.TransactionType.PURCHASE_COURSE,
-            "COURSE_PURCHASE",
+            "COURSE_PURCHSE",
             "COURSE_" + course.getId());
 
         // Complete purchase: pay mentor + create record + auto-enroll
@@ -230,6 +240,18 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
         Long userId = user.getId();
         Long courseId = course.getId();
         Course enrollmentCourse = courseRepository.findByIdForEnrollmentSnapshot(courseId).orElse(course);
+
+        // Block: course not available
+        if (course.getStatus() == CourseStatus.SUSPENDED
+                || course.getStatus() == CourseStatus.ARCHIVED
+                || course.getStatus() == CourseStatus.REJECTED) {
+            throw new BadRequestException("Khóa học không còn khả dụng");
+        }
+
+        // Block: mentor is banned
+        if (course.getAuthor().getStatus() == UserStatus.INACTIVE) {
+            throw new AccessDeniedException("Không thể mua khóa học của mentor đã bị vô hiệu hóa");
+        }
 
         // Create purchase record
         CoursePurchase purchase = CoursePurchase.builder()
