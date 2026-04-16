@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.business_service.dto.response;
 
 import com.exe.skillverse_backend.business_service.entity.InterviewSchedule.InterviewStatus;
 import com.exe.skillverse_backend.business_service.entity.InterviewSchedule.MeetingType;
+import com.exe.skillverse_backend.business_service.entity.InterviewSchedule.CancelledBy;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -29,6 +30,11 @@ public class InterviewScheduleResponse {
     private String location;
     private String interviewerName;
     private String interviewNotes;
+    private LocalDateTime responseDeadlineAt;
+    private LocalDateTime respondedAt;
+    private CancelledBy cancelledBy;
+    private String cancelReason;
+    private LocalDateTime completedAt;
     private InterviewStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

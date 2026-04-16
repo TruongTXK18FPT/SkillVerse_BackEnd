@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.business_service.service.impl;
 
 import com.exe.skillverse_backend.business_service.dto.request.CreateInterviewRequest;
 import com.exe.skillverse_backend.business_service.dto.response.InterviewScheduleResponse;
+import com.exe.skillverse_backend.business_service.entity.InterviewSchedule.CancelledBy;
 import com.exe.skillverse_backend.business_service.entity.InterviewSchedule;
 import com.exe.skillverse_backend.business_service.entity.InterviewSchedule.InterviewStatus;
 import com.exe.skillverse_backend.business_service.entity.InterviewSchedule.MeetingType;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -35,6 +37,10 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
     private final EmailService emailService;
 
     private static final String GOOGLE_MEET_CHARS = "abcdefghijklmnopqrstuvwxyz";
+    private static final int MIN_CONFIRMATION_BUFFER_MINUTES = 30;
+    private static final int STANDARD_CONFIRMATION_WINDOW_HOURS = 24;
+    private static final String CANDIDATE_DECLINE_DEFAULT_REASON = "Ứng viên từ chối tham gia phỏng vấn.";
+    private static final String CANDIDATE_TIMEOUT_REASON = "Ứng viên không xác nhận lịch phỏng vấn đúng hạn.";
 
     @Value("${jitsi.base-url:https://meet.jit.si}")
     private String jitsiBaseUrl;
@@ -43,6 +49,8 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
     @Transactional
     public InterviewScheduleResponse scheduleInterview(Long userId, CreateInterviewRequest request) {
         log.info("Scheduling interview for application ID: {} by user ID: {}", request.getApplicationId(), userId);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime responseDeadlineAt = calculateResponseDeadline(now, request.getScheduledAt());
 
         // 1. Find application
         JobApplication application = jobApplicationRepository.findById(request.getApplicationId())
@@ -85,6 +93,11 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
             existing.setInterviewerName(request.getInterviewerName());
             existing.setInterviewNotes(request.getInterviewNotes());
             existing.setStatus(InterviewStatus.PENDING);
+            existing.setResponseDeadlineAt(responseDeadlineAt);
+            existing.setRespondedAt(null);
+            existing.setCancelledBy(null);
+            existing.setCancelReason(null);
+            existing.setCompletedAt(null);
 
             if (request.getMeetingType() == MeetingType.GOOGLE_MEET) {
                 existing.setMeetingLink(
@@ -119,6 +132,7 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
                 .location(request.getLocation())
                 .interviewerName(request.getInterviewerName())
                 .interviewNotes(request.getInterviewNotes())
+                .responseDeadlineAt(responseDeadlineAt)
                 .status(InterviewStatus.PENDING)
                 .build();
 
@@ -153,6 +167,65 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
     }
 
     @Override
+    @Transactional
+    public InterviewScheduleResponse confirmInterview(Long userId, Long interviewId) {
+        log.info("Candidate user ID: {} confirming interview ID: {}", userId, interviewId);
+
+        InterviewSchedule interview = interviewScheduleRepository.findByIdAndApplicationUserId(interviewId, userId)
+                .orElseThrow(() -> new NotFoundException("Interview not found with ID: " + interviewId));
+
+        if (interview.getStatus() != InterviewStatus.PENDING) {
+            throw new BadRequestException("Only PENDING interviews can be confirmed. Current status: " + interview.getStatus());
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (interview.getResponseDeadlineAt() != null && now.isAfter(interview.getResponseDeadlineAt())) {
+            markInterviewAsTimedOut(interview, now);
+            throw new BadRequestException("Interview confirmation deadline has passed");
+        }
+
+        interview.setStatus(InterviewStatus.CONFIRMED);
+        interview.setRespondedAt(now);
+        interview.setCancelledBy(null);
+        interview.setCancelReason(null);
+
+        InterviewSchedule saved = interviewScheduleRepository.save(interview);
+        return mapToResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public InterviewScheduleResponse declineInterview(Long userId, Long interviewId, String reason) {
+        log.info("Candidate user ID: {} declining interview ID: {}", userId, interviewId);
+
+        InterviewSchedule interview = interviewScheduleRepository.findByIdAndApplicationUserId(interviewId, userId)
+                .orElseThrow(() -> new NotFoundException("Interview not found with ID: " + interviewId));
+
+        if (interview.getStatus() != InterviewStatus.PENDING && interview.getStatus() != InterviewStatus.CONFIRMED) {
+            throw new BadRequestException("Only PENDING or CONFIRMED interviews can be declined. Current status: " + interview.getStatus());
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        String normalizedReason = reason != null && !reason.trim().isEmpty()
+                ? reason.trim()
+                : CANDIDATE_DECLINE_DEFAULT_REASON;
+
+        interview.setStatus(InterviewStatus.CANCELLED);
+        interview.setRespondedAt(now);
+        interview.setCancelledBy(CancelledBy.CANDIDATE);
+        interview.setCancelReason(normalizedReason);
+        InterviewSchedule saved = interviewScheduleRepository.save(interview);
+
+        JobApplication application = interview.getApplication();
+        application.setStatus(JobApplicationStatus.REJECTED);
+        application.setRejectionReason(normalizedReason);
+        application.setProcessedAt(now);
+        jobApplicationRepository.save(application);
+
+        return mapToResponse(saved);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public InterviewScheduleResponse getInterviewByApplicationId(Long applicationId) {
         InterviewSchedule interview = interviewScheduleRepository.findByApplicationId(applicationId)
@@ -179,8 +252,16 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
             throw new BadRequestException("Cannot complete interview with status: " + interview.getStatus());
         }
 
+        LocalDateTime scheduledEnd = interview.getScheduledAt()
+                .plusMinutes(interview.getDurationMinutes() != null ? interview.getDurationMinutes() : 60);
+        LocalDateTime now = LocalDateTime.now();
+        if (now.isBefore(scheduledEnd)) {
+            throw new BadRequestException("Interview can only be completed after its scheduled end time");
+        }
+
         // Update interview
         interview.setStatus(InterviewStatus.COMPLETED);
+        interview.setCompletedAt(now);
         if (notes != null && !notes.trim().isEmpty()) {
             interview.setInterviewNotes(notes);
         }
@@ -216,8 +297,14 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
         if (interview.getStatus() == InterviewStatus.CANCELLED) {
             throw new BadRequestException("Interview is already cancelled");
         }
+        if (interview.getStatus() == InterviewStatus.COMPLETED) {
+            throw new BadRequestException("Cannot cancel a completed interview");
+        }
 
         interview.setStatus(InterviewStatus.CANCELLED);
+        interview.setRespondedAt(LocalDateTime.now());
+        interview.setCancelledBy(CancelledBy.RECRUITER);
+        interview.setCancelReason("Recruiter cancelled the interview.");
         InterviewSchedule saved = interviewScheduleRepository.save(interview);
 
         // Revert application status to ACCEPTED
@@ -270,6 +357,33 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
         return jitsiBaseUrl + "/" + roomId;
     }
 
+    private LocalDateTime calculateResponseDeadline(LocalDateTime now, LocalDateTime scheduledAt) {
+        if (!scheduledAt.isAfter(now.plusMinutes(MIN_CONFIRMATION_BUFFER_MINUTES))) {
+            throw new BadRequestException("Interview must be scheduled at least 30 minutes in advance");
+        }
+
+        LocalDateTime twentyFourHoursFromNow = now.plusHours(STANDARD_CONFIRMATION_WINDOW_HOURS);
+        if (!scheduledAt.isBefore(twentyFourHoursFromNow)) {
+            return twentyFourHoursFromNow;
+        }
+
+        return scheduledAt.minusMinutes(MIN_CONFIRMATION_BUFFER_MINUTES);
+    }
+
+    private void markInterviewAsTimedOut(InterviewSchedule interview, LocalDateTime now) {
+        interview.setStatus(InterviewStatus.CANCELLED);
+        interview.setRespondedAt(now);
+        interview.setCancelledBy(CancelledBy.AUTO);
+        interview.setCancelReason(CANDIDATE_TIMEOUT_REASON);
+        interviewScheduleRepository.save(interview);
+
+        JobApplication application = interview.getApplication();
+        application.setStatus(JobApplicationStatus.REJECTED);
+        application.setRejectionReason(CANDIDATE_TIMEOUT_REASON);
+        application.setProcessedAt(now);
+        jobApplicationRepository.save(application);
+    }
+
     private void sendInterviewScheduledEmail(JobApplication application, InterviewSchedule interview) {
         try {
             String email = application.getUser().getEmail();
@@ -312,6 +426,11 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
                 .location(interview.getLocation())
                 .interviewerName(interview.getInterviewerName())
                 .interviewNotes(interview.getInterviewNotes())
+                .responseDeadlineAt(interview.getResponseDeadlineAt())
+                .respondedAt(interview.getRespondedAt())
+                .cancelledBy(interview.getCancelledBy())
+                .cancelReason(interview.getCancelReason())
+                .completedAt(interview.getCompletedAt())
                 .status(interview.getStatus())
                 .createdAt(interview.getCreatedAt())
                 .updatedAt(interview.getUpdatedAt())

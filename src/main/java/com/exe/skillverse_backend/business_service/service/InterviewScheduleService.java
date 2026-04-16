@@ -27,6 +27,17 @@ public interface InterviewScheduleService {
     List<InterviewScheduleResponse> getInterviewsByJobPostingId(Long jobPostingId);
 
     /**
+     * Candidate confirms interview participation.
+     */
+    InterviewScheduleResponse confirmInterview(Long userId, Long interviewId);
+
+    /**
+     * Candidate declines interview participation.
+     * Candidate is permanently rejected from the application.
+     */
+    InterviewScheduleResponse declineInterview(Long userId, Long interviewId, String reason);
+
+    /**
      * Mark interview as completed.
      * Updates interview status to COMPLETED and application status to INTERVIEWED.
      */

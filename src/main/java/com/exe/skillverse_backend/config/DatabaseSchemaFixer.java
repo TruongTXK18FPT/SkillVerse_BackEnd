@@ -231,6 +231,11 @@ public class DatabaseSchemaFixer {
                     this::patchInterviewSchedulesNoShowStatus,
                     this::verifyInterviewSchedulesNoShowStatus);
 
+                applyPatch("add-interview-schedules-response-tracking-columns",
+                    "Add response/completion tracking columns to interview_schedules",
+                    this::patchInterviewSchedulesResponseTrackingColumns,
+                    this::verifyInterviewSchedulesResponseTrackingColumns);
+
             applyPatch("add-job-applications-offer-columns",
                     "Add offer_details, candidate_offer_response, offer_round columns to job_applications",
                     this::patchJobApplicationsOfferColumns,
@@ -1039,6 +1044,11 @@ public class DatabaseSchemaFixer {
                 location VARCHAR(500),
                 interviewer_name VARCHAR(200),
                 interview_notes TEXT,
+                response_deadline_at TIMESTAMP,
+                responded_at TIMESTAMP,
+                cancelled_by VARCHAR(20),
+                cancel_reason TEXT,
+                completed_at TIMESTAMP,
                 status VARCHAR(20) DEFAULT 'PENDING',
                 created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
@@ -1192,6 +1202,34 @@ public class DatabaseSchemaFixer {
         """);
         if (results.isEmpty() || results.get(0).get("constraint_def") == null) return false;
         return results.get(0).get("constraint_def").toString().contains("NO_SHOW");
+    }
+
+    private void patchInterviewSchedulesResponseTrackingColumns() {
+        if (!hasTable("interview_schedules")) {
+            log.debug("Table interview_schedules does not exist yet, skipping patch.");
+            return;
+        }
+
+        executeSql("ALTER TABLE interview_schedules ADD COLUMN IF NOT EXISTS response_deadline_at TIMESTAMP");
+        executeSql("ALTER TABLE interview_schedules ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP");
+        executeSql("ALTER TABLE interview_schedules ADD COLUMN IF NOT EXISTS cancelled_by VARCHAR(20)");
+        executeSql("ALTER TABLE interview_schedules ADD COLUMN IF NOT EXISTS cancel_reason TEXT");
+        executeSql("ALTER TABLE interview_schedules ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP");
+
+        executeSql("ALTER TABLE interview_schedules DROP CONSTRAINT IF EXISTS interview_schedules_cancelled_by_check");
+        executeSql("""
+            ALTER TABLE interview_schedules ADD CONSTRAINT interview_schedules_cancelled_by_check
+            CHECK (cancelled_by IS NULL OR cancelled_by IN ('RECRUITER','CANDIDATE','AUTO'))
+        """);
+    }
+
+    private boolean verifyInterviewSchedulesResponseTrackingColumns() {
+        return hasTable("interview_schedules")
+                && hasColumn("interview_schedules", "response_deadline_at")
+                && hasColumn("interview_schedules", "responded_at")
+                && hasColumn("interview_schedules", "cancelled_by")
+                && hasColumn("interview_schedules", "cancel_reason")
+                && hasColumn("interview_schedules", "completed_at");
     }
 
     // ─── job_applications: add offer columns ───────────────────────────────────

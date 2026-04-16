@@ -360,6 +360,7 @@ class InterviewScheduleServiceImplTest {
     @Test
     void completeInterview_Success_PendingStatus() {
         interviewSchedule.setStatus(InterviewStatus.PENDING);
+        interviewSchedule.setScheduledAt(LocalDateTime.now().minusHours(2));
         when(interviewScheduleRepository.findById(1000L)).thenReturn(Optional.of(interviewSchedule));
         when(interviewScheduleRepository.save(any(InterviewSchedule.class))).thenAnswer(invocation -> {
             InterviewSchedule saved = invocation.getArgument(0);
@@ -382,6 +383,7 @@ class InterviewScheduleServiceImplTest {
     @Test
     void completeInterview_Success_ConfirmedStatus() {
         interviewSchedule.setStatus(InterviewStatus.CONFIRMED);
+        interviewSchedule.setScheduledAt(LocalDateTime.now().minusHours(2));
         when(interviewScheduleRepository.findById(1000L)).thenReturn(Optional.of(interviewSchedule));
         when(interviewScheduleRepository.save(any(InterviewSchedule.class))).thenAnswer(invocation -> {
             InterviewSchedule saved = invocation.getArgument(0);
@@ -431,6 +433,66 @@ class InterviewScheduleServiceImplTest {
 
         assertThrows(BadRequestException.class,
                 () -> interviewScheduleService.completeInterview(1L, 1000L, null));
+    }
+
+    @Test
+    void completeInterview_Fail_WhenInterviewNotEnded() {
+        interviewSchedule.setStatus(InterviewStatus.PENDING);
+        interviewSchedule.setScheduledAt(LocalDateTime.now().plusMinutes(20));
+        interviewSchedule.setDurationMinutes(30);
+        when(interviewScheduleRepository.findById(1000L)).thenReturn(Optional.of(interviewSchedule));
+
+        assertThrows(BadRequestException.class,
+                () -> interviewScheduleService.completeInterview(1L, 1000L, null));
+    }
+
+    // ==================== CANDIDATE CONFIRM / DECLINE TESTS ====================
+
+    @Test
+    void confirmInterview_Success() {
+        interviewSchedule.setStatus(InterviewStatus.PENDING);
+        interviewSchedule.setResponseDeadlineAt(LocalDateTime.now().plusHours(12));
+        when(interviewScheduleRepository.findByIdAndApplicationUserId(1000L, 2L))
+                .thenReturn(Optional.of(interviewSchedule));
+        when(interviewScheduleRepository.save(any(InterviewSchedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        InterviewScheduleResponse response = interviewScheduleService.confirmInterview(2L, 1000L);
+
+        assertEquals(InterviewStatus.CONFIRMED, response.getStatus());
+        assertNotNull(response.getRespondedAt());
+        assertNull(response.getCancelledBy());
+        assertNull(response.getCancelReason());
+    }
+
+    @Test
+    void confirmInterview_Fail_WhenDeadlinePassed() {
+        interviewSchedule.setStatus(InterviewStatus.PENDING);
+        interviewSchedule.setResponseDeadlineAt(LocalDateTime.now().minusMinutes(1));
+        when(interviewScheduleRepository.findByIdAndApplicationUserId(1000L, 2L))
+                .thenReturn(Optional.of(interviewSchedule));
+        when(interviewScheduleRepository.save(any(InterviewSchedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jobApplicationRepository.save(any(JobApplication.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        assertThrows(BadRequestException.class,
+                () -> interviewScheduleService.confirmInterview(2L, 1000L));
+
+        assertEquals(InterviewStatus.CANCELLED, interviewSchedule.getStatus());
+        assertEquals(JobApplicationStatus.REJECTED, acceptedApplication.getStatus());
+    }
+
+    @Test
+    void declineInterview_Success() {
+        interviewSchedule.setStatus(InterviewStatus.PENDING);
+        when(interviewScheduleRepository.findByIdAndApplicationUserId(1000L, 2L))
+                .thenReturn(Optional.of(interviewSchedule));
+        when(interviewScheduleRepository.save(any(InterviewSchedule.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(jobApplicationRepository.save(any(JobApplication.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        InterviewScheduleResponse response = interviewScheduleService.declineInterview(2L, 1000L, "Không phù hợp lịch cá nhân");
+
+        assertEquals(InterviewStatus.CANCELLED, response.getStatus());
+        assertEquals(JobApplicationStatus.REJECTED, acceptedApplication.getStatus());
+        assertEquals("Không phù hợp lịch cá nhân", acceptedApplication.getRejectionReason());
     }
 
     // ==================== CANCEL INTERVIEW TESTS ====================

@@ -63,6 +63,22 @@ public class InterviewSchedule {
     @Column(name = "interview_notes", columnDefinition = "TEXT")
     private String interviewNotes;
 
+    @Column(name = "response_deadline_at")
+    private LocalDateTime responseDeadlineAt;
+
+    @Column(name = "responded_at")
+    private LocalDateTime respondedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "cancelled_by", length = 20)
+    private CancelledBy cancelledBy;
+
+    @Column(name = "cancel_reason", columnDefinition = "TEXT")
+    private String cancelReason;
+
+    @Column(name = "completed_at")
+    private LocalDateTime completedAt;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     @Builder.Default
@@ -100,5 +116,11 @@ public class InterviewSchedule {
         CANCELLED,
         COMPLETED,
         NO_SHOW
+    }
+
+    public enum CancelledBy {
+        RECRUITER,
+        CANDIDATE,
+        AUTO
     }
 }

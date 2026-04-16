@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.business_service.controller;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.business_service.dto.request.CreateInterviewRequest;
+import com.exe.skillverse_backend.business_service.dto.request.DeclineInterviewRequest;
 import com.exe.skillverse_backend.business_service.dto.response.InterviewScheduleResponse;
 import com.exe.skillverse_backend.business_service.service.InterviewScheduleService;
 import jakarta.validation.Valid;
@@ -49,6 +50,25 @@ public class InterviewScheduleController {
             @PathVariable Long jobPostingId) {
         List<InterviewScheduleResponse> responses = interviewScheduleService.getInterviewsByJobPostingId(jobPostingId);
         return ResponseEntity.ok(responses);
+    }
+
+    @PatchMapping("/{interviewId}/confirm")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<InterviewScheduleResponse> confirmInterview(@PathVariable Long interviewId) {
+        Long userId = getCurrentUserId();
+        InterviewScheduleResponse response = interviewScheduleService.confirmInterview(userId, interviewId);
+        return ResponseEntity.ok(response);
+    }
+
+    @PatchMapping("/{interviewId}/decline")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<InterviewScheduleResponse> declineInterview(
+            @PathVariable Long interviewId,
+            @RequestBody(required = false) DeclineInterviewRequest request) {
+        Long userId = getCurrentUserId();
+        String reason = request != null ? request.getReason() : null;
+        InterviewScheduleResponse response = interviewScheduleService.declineInterview(userId, interviewId, reason);
+        return ResponseEntity.ok(response);
     }
 
     @PatchMapping("/{interviewId}/complete")

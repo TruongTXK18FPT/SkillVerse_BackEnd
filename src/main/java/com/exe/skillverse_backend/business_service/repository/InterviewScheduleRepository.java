@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,4 +28,13 @@ public interface InterviewScheduleRepository extends JpaRepository<InterviewSche
 
     @Query("SELECT i FROM InterviewSchedule i WHERE i.application.user.id = :userId ORDER BY i.scheduledAt DESC")
     List<InterviewSchedule> findByUserId(@Param("userId") Long userId);
+
+    @Query("SELECT i FROM InterviewSchedule i WHERE i.id = :interviewId AND i.application.user.id = :userId")
+    Optional<InterviewSchedule> findByIdAndApplicationUserId(
+            @Param("interviewId") Long interviewId,
+            @Param("userId") Long userId);
+
+    List<InterviewSchedule> findByStatusAndResponseDeadlineAtLessThanEqual(
+            InterviewStatus status,
+            LocalDateTime responseDeadlineAt);
 }
