@@ -227,6 +227,72 @@ class AiRoadmapServiceImplTest {
     }
 
     @Test
+    @DisplayName("validateAndParseRoadmapV2 should repair unescaped quotes inside string values")
+    void validateAndParseRoadmapV2_ShouldRepairUnescapedQuotesInsideStringValues() throws Exception {
+        String roadmapJson = """
+                {
+                  "roadmap_metadata": {
+                    "title": "Support roadmap",
+                    "original_goal": "Learn customer support",
+                    "validated_goal": "Build customer support fundamentals",
+                    "duration": "8 weeks",
+                    "desired_duration": "8 weeks",
+                    "experience_level": "beginner",
+                    "learning_style": "hands-on",
+                    "difficulty_level": "medium",
+                    "roadmap_mode": "CAREER_BASED"
+                  },
+                  "overview": {
+                    "purpose": "Learn support operations",
+                    "audience": "Beginners",
+                    "post_roadmap_state": "Can handle support workflows"
+                  },
+                  "skill_dependencies": [],
+                  "roadmap": [
+                    {
+                      "id": "quest-1",
+                      "title": "Support basics",
+                      "description": "Practice "active listening" with sample scenarios.",
+                      "estimated_time_minutes": 60,
+                      "type": "MAIN",
+                      "is_core": true,
+                      "parent_id": null,
+                      "difficulty": "easy",
+                      "learning_objectives": ["Understand the workflow"],
+                      "key_concepts": ["Tickets"],
+                      "practical_exercises": ["Role play"],
+                      "suggested_resources": ["Internal handbook"],
+                      "success_criteria": ["Explain the process"],
+                      "prerequisites": [],
+                      "children": [],
+                      "estimated_completion_rate": "90%"
+                    }
+                  ],
+                  "roadmap_statistics": {
+                    "total_nodes": 1,
+                    "main_nodes": 1,
+                    "side_nodes": 0,
+                    "total_estimated_hours": 1.0,
+                    "difficulty_distribution": {
+                      "easy": 1,
+                      "medium": 0,
+                      "hard": 0
+                    }
+                  },
+                  "learning_tips": ["Stay consistent"]
+                }
+                """;
+
+        Object parsedRoadmap = invokeValidateAndParseRoadmapV2(roadmapJson);
+        RoadmapResponse.RoadmapMetadata metadata = extractMetadata(parsedRoadmap);
+        List<RoadmapResponse.RoadmapNode> nodes = extractNodes(parsedRoadmap);
+
+        assertEquals("Support roadmap", metadata.getTitle());
+        assertEquals(1, nodes.size());
+        assertEquals("Practice \"active listening\" with sample scenarios.", nodes.get(0).getDescription());
+    }
+
+    @Test
     @DisplayName("getAllRoadmaps should fall back to totalNodes when JSON parsing fails")
     void getAllRoadmaps_ShouldFallBackToTotalNodesWhenJsonParsingFails() {
         RoadmapSession session = RoadmapSession.builder()
@@ -331,6 +397,18 @@ class AiRoadmapServiceImplTest {
     }
 
     @Test
+    @DisplayName("isTruncatedJsonParseFailure should ignore generic invalid-json wrapper messages")
+    void isTruncatedJsonParseFailure_ShouldIgnoreGenericInvalidJsonWrapperMessage() throws Exception {
+        ApiException malformed = new ApiException(
+                ErrorCode.BAD_REQUEST,
+                "AI response was incomplete or invalid JSON. Please retry. "
+                        + "(Error: Unexpected character (',' (code 44)): "
+                        + "was expecting a colon to separate field name and value)");
+
+        assertFalse(invokeIsTruncatedJsonParseFailure(malformed));
+    }
+
+    @Test
     @DisplayName("computeRetryBackoffMs should grow exponentially")
     void computeRetryBackoffMs_ShouldGrowExponentially() throws Exception {
         assertEquals(1_000L, invokeComputeRetryBackoffMs(0));
@@ -352,6 +430,25 @@ class AiRoadmapServiceImplTest {
         method.setAccessible(true);
         JsonNode metadataNode = new ObjectMapper().readTree(metadataJson);
         return (RoadmapResponse.RoadmapMetadata) method.invoke(service, metadataNode);
+    }
+
+    private Object invokeValidateAndParseRoadmapV2(String roadmapJson) throws Exception {
+        Method method = AiRoadmapServiceImpl.class.getDeclaredMethod("validateAndParseRoadmapV2", String.class);
+        method.setAccessible(true);
+        return method.invoke(service, roadmapJson);
+    }
+
+    private RoadmapResponse.RoadmapMetadata extractMetadata(Object parsedRoadmap) throws Exception {
+        Method method = parsedRoadmap.getClass().getDeclaredMethod("metadata");
+        method.setAccessible(true);
+        return (RoadmapResponse.RoadmapMetadata) method.invoke(parsedRoadmap);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<RoadmapResponse.RoadmapNode> extractNodes(Object parsedRoadmap) throws Exception {
+        Method method = parsedRoadmap.getClass().getDeclaredMethod("nodes");
+        method.setAccessible(true);
+        return (List<RoadmapResponse.RoadmapNode>) method.invoke(parsedRoadmap);
     }
 
     private String invokeClassifyAiFailure(Throwable throwable) throws Exception {

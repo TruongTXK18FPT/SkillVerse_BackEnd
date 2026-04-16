@@ -70,6 +70,12 @@ public class PortfolioExtendedProfile {
     @Column(name = "years_of_experience")
     private Integer yearsOfExperience; // Total years of professional experience
 
+    @Column(name = "work_experiences", columnDefinition = "TEXT")
+    private String workExperiences;
+
+    @Column(name = "education_history", columnDefinition = "TEXT")
+    private String educationHistory;
+
     // Portfolio media files
     @Column(name = "avatar_url")
     private String avatarUrl; // Cloudinary avatar URL (portfolio-specific, different from basic profile)

@@ -22,6 +22,7 @@ import com.exe.skillverse_backend.journey_service.repository.AssessmentTestRepos
 import com.exe.skillverse_backend.journey_service.repository.JourneyProgressRepository;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.journey_service.repository.TestResultRepository;
+import com.exe.skillverse_backend.question_bank_service.service.QuestionBankQuestionService;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
@@ -80,6 +81,8 @@ class JourneyServiceImplStudyPlanTest {
     @Mock
     private QuestionBankService questionBankService;
     @Mock
+    private QuestionBankQuestionService questionBankQuestionService;
+    @Mock
     private StudySessionRepository studySessionRepository;
 
     @InjectMocks
@@ -100,6 +103,7 @@ class JourneyServiceImplStudyPlanTest {
                 taskBoardService,
                 aiStudySupportService,
                 questionBankService,
+                questionBankQuestionService,
                 studySessionRepository,
                 new ObjectMapper());
 

@@ -32,8 +32,12 @@ public class JobApplicationResponse {
     private String interviewResult; // Interview notes after INTERVIEWED status
 
     // Offer letter fields
-    private String offerDetails; // Recruiter's offer letter when status = OFFER_SENT
+    private String offerDetails; // Recruiter's additional conditions when status = OFFER_SENT
+    private Long offerSalary; // Recruiter's offered salary amount (VND)
+    private String offerAdditionalRequirements; // Recruiter's additional terms/benefits
     private String candidateOfferResponse; // Candidate's counter-offer/acceptance when status = OFFER_ACCEPTED/REJECTED
+    private Long counterSalaryAmount; // Candidate's counter salary amount (VND)
+    private String counterAdditionalRequirements; // Candidate's additional requirements
     private Integer offerRound; // Current offer round (1 or 2); 0 means no offer sent yet
 
     // Job details for user's application view

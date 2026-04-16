@@ -71,11 +71,25 @@ public class JobApplication {
 
     // Offer letter — recruiter's offer details when status = OFFER_SENT
     @Column(name = "offer_details", columnDefinition = "TEXT")
-    private String offerDetails; // Nullable - salary, start date, conditions from recruiter
+    private String offerDetails; // Nullable - additional conditions from recruiter
+
+    // Recruiter's structured offer fields
+    @Column(name = "offer_salary")
+    private Long offerSalary; // Offered salary amount (VND)
+
+    @Column(name = "offer_additional_requirements", columnDefinition = "TEXT")
+    private String offerAdditionalRequirements; // Additional terms/benefits/conditions
 
     // Candidate's response after OFFER_SENT
     @Column(name = "candidate_offer_response", columnDefinition = "TEXT")
-    private String candidateOfferResponse; // Nullable - candidate's counter-offer or acceptance message
+    private String candidateOfferResponse; // Nullable - counter-offer or acceptance message
+
+    // Candidate's structured counter-offer fields
+    @Column(name = "counter_salary_amount")
+    private Long counterSalaryAmount; // Counter salary amount requested by candidate
+
+    @Column(name = "counter_additional_requirements", columnDefinition = "TEXT")
+    private String counterAdditionalRequirements; // Additional requirements from candidate
 
     // Offer round counter: tracks how many times the recruiter has sent an offer.
     // 0 = no offer sent yet, 1 = first offer, 2 = second (final) offer.

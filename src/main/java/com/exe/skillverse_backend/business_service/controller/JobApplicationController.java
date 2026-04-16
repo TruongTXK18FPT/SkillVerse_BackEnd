@@ -85,10 +85,10 @@ public class JobApplicationController {
 
     /**
      * PATCH /api/jobs/applications/{applicationId}/status - Update application
-     * status (RECRUITER only)
+     * status (RECRUITER for most transitions; USER/CANDIDATE for OFFER_ACCEPTED/OFFER_REJECTED)
      */
     @PatchMapping("/applications/{applicationId}/status")
-    @PreAuthorize("hasRole('RECRUITER')")
+    @PreAuthorize("hasRole('RECRUITER') or hasRole('USER') or hasRole('ADMIN')")
     public ResponseEntity<JobApplicationResponse> updateApplicationStatus(
             @PathVariable Long applicationId,
             @Valid @RequestBody UpdateApplicationStatusRequest request,

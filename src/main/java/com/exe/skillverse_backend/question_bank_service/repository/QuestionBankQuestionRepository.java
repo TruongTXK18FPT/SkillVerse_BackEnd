@@ -49,6 +49,29 @@ public interface QuestionBankQuestionRepository extends JpaRepository<QuestionBa
             @Param("excludeIds") List<Long> excludeIds,
             @Param("limit") int limit);
 
+    // ===== Level-targeted random selection (no exclude) =====
+    @Query(value = "SELECT * FROM question_bank_questions " +
+            "WHERE question_bank_id = :bankId AND is_active = true AND difficulty = :difficulty " +
+            "ORDER BY RANDOM() LIMIT :limit",
+            nativeQuery = true)
+    List<QuestionBankQuestion> findRandomActiveByBankAndDifficultyExact(
+            @Param("bankId") Long bankId,
+            @Param("difficulty") String difficulty,
+            @Param("limit") int limit);
+
+    // ===== Level-targeted random selection with exclude =====
+    @Query(value = "SELECT * FROM question_bank_questions " +
+            "WHERE question_bank_id = :bankId AND is_active = true AND difficulty = :difficulty " +
+            "AND id NOT IN (:excludeIds) ORDER BY RANDOM() LIMIT :limit",
+            nativeQuery = true)
+    List<QuestionBankQuestion> findRandomActiveByBankAndDifficultyExcluding(
+            @Param("bankId") Long bankId,
+            @Param("difficulty") String difficulty,
+            @Param("excludeIds") List<Long> excludeIds,
+            @Param("limit") int limit);
+
+    // ===== Check if question text already exists in bank (for deduplication) =====
+
     @Modifying
     @Query("UPDATE QuestionBankQuestion q SET q.usedCount = q.usedCount + 1 WHERE q.id IN :ids")
     void incrementUsedCount(@Param("ids") List<Long> ids);
@@ -61,4 +84,24 @@ public interface QuestionBankQuestionRepository extends JpaRepository<QuestionBa
     @Query("SELECT DISTINCT q.skillArea FROM QuestionBankQuestion q " +
            "WHERE q.questionBank.id = :bankId AND q.isActive = true AND q.skillArea IS NOT NULL")
     List<String> findDistinctSkillAreas(@Param("bankId") Long bankId);
+
+    // ===== Skill-area + difficulty threshold: count active questions per (skillArea, difficulty) =====
+    @Query("SELECT q.skillArea, q.difficulty, COUNT(q) " +
+           "FROM QuestionBankQuestion q " +
+           "WHERE q.questionBank.id = :bankId AND q.isActive = true " +
+           "AND q.skillArea IS NOT NULL " +
+           "GROUP BY q.skillArea, q.difficulty")
+    List<Object[]> countBySkillAreaAndDifficulty(@Param("bankId") Long bankId);
+
+    // ===== Select random questions by skill area + difficulty =====
+    @Query(value = "SELECT * FROM question_bank_questions " +
+            "WHERE question_bank_id = :bankId AND is_active = true " +
+            "AND skill_area = :skillArea AND difficulty = :difficulty " +
+            "ORDER BY RANDOM() LIMIT :limit",
+            nativeQuery = true)
+    List<QuestionBankQuestion> findRandomActiveByBankAndSkillAreaAndDifficulty(
+            @Param("bankId") Long bankId,
+            @Param("skillArea") String skillArea,
+            @Param("difficulty") String difficulty,
+            @Param("limit") int limit);
 }

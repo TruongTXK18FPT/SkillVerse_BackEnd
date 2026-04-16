@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.portfolio_service.dto;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.time.LocalDateTime;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -27,6 +28,7 @@ public class UserProfileDTO {
     // ===== BASIC PROFILE INFO (from user_service.UserProfile) =====
     @JsonAlias({"displayName"})
     private String fullName; // From basic profile
+    private String email; // From auth user account
     private String basicBio; // Bio from basic profile
     private String phone; // From basic profile
     private String address; // From basic profile
@@ -40,6 +42,8 @@ public class UserProfileDTO {
     private String professionalTitle; // e.g., "Full Stack Developer"
     private String careerGoals;
     private Integer yearsOfExperience;
+    private List<PortfolioWorkExperienceDTO> workExperiences;
+    private List<PortfolioEducationDTO> educationHistory;
     
     // Portfolio media (separate from basic profile avatar)
     private String portfolioAvatarUrl; // Portfolio-specific avatar

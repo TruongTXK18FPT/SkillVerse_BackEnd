@@ -503,14 +503,14 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
     private String getTestRequirementsSection(String domain, String role, UserAssessmentInfo userInfo) {
         int requestedQuestionCount = resolveRequestedQuestionCount(userInfo);
         int requestedTimeLimitMinutes = resolveRequestedTimeLimitMinutes(userInfo);
+
+        String difficultyDistribution = buildDifficultyDistribution(userInfo.level());
+
         return "## YEU CAU TAO BAI KIEM TRA:\n\n" +
             "### So luong va Cau truc:\n" +
             "- Tao DUNG " + requestedQuestionCount + " cau hoi, khong thieu, khong du\n" +
-            "- Phan bo theo do kho:\n" +
-            "  - Beginner (De): 20%\n" +
-            "  - Intermediate (Trung binh): 35%\n" +
-            "  - Advanced (Kho): 30%\n" +
-            "  - Expert (Rat kho): 15%\n\n" +
+            "- Phan bo theo do kho (theo cap do nguoi dung - " + (userInfo.level() != null ? userInfo.level() : "MIXED") + "):\n" +
+            difficultyDistribution + "\n\n" +
             "### Noi dung cau hoi (phan bo deu):\n" +
             "1. Kien thuc nen tang (20%): Danh gia hieu biet co ban ve nganh\n" +
             "2. Ky nang chuyen mon (30%): Danh gia ky nang thuc hanh can thiet\n" +
@@ -525,6 +525,37 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
             "### Thoi gian:\n" +
             "- timeLimitMinutes phai bang DUNG " + requestedTimeLimitMinutes + "\n" +
             "- Tong bai test phai phu hop voi " + requestedQuestionCount + " cau hoi trong " + requestedTimeLimitMinutes + " phut\n";
+    }
+
+    private String buildDifficultyDistribution(String level) {
+        if (level == null) {
+            return "  - Beginner (De): 20%\n" +
+                   "  - Intermediate (Trung binh): 35%\n" +
+                   "  - Advanced (Kho): 30%\n" +
+                   "  - Expert (Rat kho): 15%";
+        }
+        return switch (level.toUpperCase()) {
+            case "BEGINNER" -> "  - Beginner (De): 80% (chi danh cho nguoi bat dau)\n" +
+                                "  - Intermediate (Trung binh): 20% (co ban nhung can huong dan them)\n" +
+                                "  - Advanced (Kho): 0%\n" +
+                                "  - Expert (Rat kho): 0%";
+            case "ELEMENTARY" -> "  - Beginner (De): 60% (nen tang co ban)\n" +
+                                 "  - Intermediate (Trung binh): 30% (phat trien them)\n" +
+                                 "  - Advanced (Kho): 10% (khao sat gioi han)\n" +
+                                 "  - Expert (Rat kho): 0%";
+            case "INTERMEDIATE" -> "  - Beginner (De): 0%\n" +
+                                   "  - Intermediate (Trung binh): 80% (muc tieu chinh)\n" +
+                                   "  - Advanced (Kho): 20% (khao sat gioi han)\n" +
+                                   "  - Expert (Rat kho): 0%";
+            case "ADVANCED" -> "  - Beginner (De): 0%\n" +
+                               "  - Intermediate (Trung binh): 0%\n" +
+                               "  - Advanced (Kho): 80% (muc tieu chinh)\n" +
+                               "  - Expert (Rat kho): 20% (thach thuc cao nhat)";
+            default -> "  - Beginner (De): 20%\n" +
+                        "  - Intermediate (Trung binh): 35%\n" +
+                        "  - Advanced (Kho): 30%\n" +
+                        "  - Expert (Rat kho): 15%";
+        };
     }
 
     private String getOutputFormatSection(String domain, String role, UserAssessmentInfo userInfo) {
@@ -570,24 +601,25 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
     private int resolveRequestedQuestionCount(UserAssessmentInfo userInfo) {
         Integer requested = userInfo.questionCount();
         if (requested != null) {
-            if (requested <= 10) {
-                return 10;
-            }
             if (requested <= 15) {
                 return 15;
             }
-            return 25;
+            if (requested <= 25) {
+                return 25;
+            }
+            return 40;
         }
 
         String duration = userInfo.duration();
         if (duration == null || duration.isBlank()) {
-            return 15;
+            return 25;
         }
 
         return switch (duration.trim().toUpperCase()) {
-            case "QUICK" -> 10;
-            case "DEEP" -> 25;
-            default -> 15;
+            case "QUICK" -> 15;
+            case "STANDARD" -> 25;
+            case "DEEP" -> 40;
+            default -> 25;
         };
     }
 
@@ -599,6 +631,7 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
 
         return switch (duration.trim().toUpperCase()) {
             case "QUICK" -> 5;
+            case "STANDARD" -> 15;
             case "DEEP" -> 30;
             default -> 15;
         };

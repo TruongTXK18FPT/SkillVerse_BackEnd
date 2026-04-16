@@ -233,16 +233,25 @@ public class JobApplicationServiceImpl implements JobApplicationService {
                 application.setOfferRound(1);
                 log.info("Sending first offer (round 1) for application ID: {}", applicationId);
             }
-            // Save offer letter details
+            // Save recruiter's structured offer fields
             if (request.getOfferDetails() != null) {
                 application.setOfferDetails(request.getOfferDetails());
+            }
+            if (request.getOfferSalary() != null) {
+                application.setOfferSalary(request.getOfferSalary());
+            }
+            if (request.getOfferAdditionalRequirements() != null) {
+                application.setOfferAdditionalRequirements(request.getOfferAdditionalRequirements());
             }
         } else if (newStatus == JobApplicationStatus.OFFER_REJECTED) {
             // Candidate rejects offer: check if recruiter can re-offer
             int currentRound = application.getOfferRound() == null ? 0 : application.getOfferRound();
-            // Save candidate's response
-            if (request.getCandidateOfferResponse() != null) {
-                application.setCandidateOfferResponse(request.getCandidateOfferResponse());
+            // Save candidate's structured counter-offer
+            if (request.getCounterSalaryAmount() != null) {
+                application.setCounterSalaryAmount(request.getCounterSalaryAmount());
+            }
+            if (request.getCounterAdditionalRequirements() != null) {
+                application.setCounterAdditionalRequirements(request.getCounterAdditionalRequirements());
             }
             application.setProcessedAt(LocalDateTime.now());
 
@@ -394,7 +403,11 @@ public class JobApplicationServiceImpl implements JobApplicationService {
                 .interviewResult(application.getInterviewResult())
                 // Offer letter fields
                 .offerDetails(application.getOfferDetails())
+                .offerSalary(application.getOfferSalary())
+                .offerAdditionalRequirements(application.getOfferAdditionalRequirements())
                 .candidateOfferResponse(application.getCandidateOfferResponse())
+                .counterSalaryAmount(application.getCounterSalaryAmount())
+                .counterAdditionalRequirements(application.getCounterAdditionalRequirements())
                 .offerRound(application.getOfferRound())
                 // Job details for user's application view
                 .recruiterCompanyName(job.getRecruiterProfile().getCompanyName())

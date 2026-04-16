@@ -25,7 +25,41 @@ public interface QuestionBankService {
 
     Optional<QuestionBankResponse> findActiveBank(String domain, String industry, String jobRole);
 
+    /**
+     * Find active question bank by domain + job role (no industry filter).
+     * Used by JourneyService for bank-first test generation.
+     */
+    Optional<QuestionBankResponse> findActiveBank(String domain, String jobRole);
+
+    /**
+     * Check whether a question bank has sufficient questions in ALL four difficulty levels
+     * to meet the minimum pool size requirement for each level.
+     * @param bankId the question bank ID
+     * @return true if every difficulty level has >= MIN_QUESTION_BANK_POOL_SIZE (200) active questions
+     */
+    boolean isBankReadyForAllLevels(Long bankId);
+
     List<QuestionInfo> selectRandomQuestions(Long bankId, int targetCount, String difficultyDistributionJson);
 
+    List<QuestionInfo> selectRandomQuestionsByLevel(Long bankId, int targetCount, String userLevel);
+
     void incrementUsedCount(List<QuestionInfo> questions);
+
+    /**
+     * Count active questions grouped by (skillArea, difficulty) for a question bank.
+     * Used to determine per-skill-area readiness for hybrid test generation.
+     * @return List of [skillArea, difficulty, count] rows
+     */
+    List<Object[]> countBySkillAreaAndDifficulty(Long bankId);
+
+    /**
+     * Find questions from question bank filtered by specific skillArea.
+     * @param bankId question bank ID
+     * @param skillArea the skill area to filter by
+     * @param difficulty target difficulty (BEGINNER/INTERMEDIATE/ADVANCED/EXPERT)
+     * @param limit max number of questions to return
+     * @return list of QuestionInfo matching criteria
+     */
+    List<QuestionInfo> selectRandomQuestionsBySkillAreaAndDifficulty(
+            Long bankId, String skillArea, String difficulty, int limit);
 }

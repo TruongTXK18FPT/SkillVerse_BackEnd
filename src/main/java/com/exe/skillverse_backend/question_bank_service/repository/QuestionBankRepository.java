@@ -31,6 +31,15 @@ public interface QuestionBankRepository extends JpaRepository<QuestionBank, Long
             String jobRole
     );
 
+    /**
+     * Find active question bank by domain + job role (no industry filter).
+     * Used by JourneyService for bank-first test generation.
+     */
+    Optional<QuestionBank> findTopByDomainAndJobRoleAndIsActiveTrueOrderByUpdatedAtDescIdDesc(
+            String domain,
+            String jobRole
+    );
+
     List<QuestionBank> findByDomainAndIsActiveTrue(String domain);
 
     boolean existsByDomainAndIndustryAndJobRoleAndIsActiveTrue(String domain, String industry, String jobRole);

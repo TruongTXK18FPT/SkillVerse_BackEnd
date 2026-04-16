@@ -37,6 +37,9 @@ public class QuestionBankServiceImpl implements QuestionBankService {
     private static final String DEFAULT_DIFFICULTY_DISTRIBUTION =
             "{\"BEGINNER\":0.20,\"INTERMEDIATE\":0.35,\"ADVANCED\":0.30,\"EXPERT\":0.15}";
 
+    private static final int MIN_QUESTION_BANK_POOL_SIZE = 200;
+    private static final String[] REQUIRED_DIFFICULTY_LEVELS = {"BEGINNER", "INTERMEDIATE", "ADVANCED", "EXPERT"};
+
     @Override
     public QuestionBankResponse createBank(CreateQuestionBankRequest request) {
         String domain = requireValue(request.getDomain(), "Domain is required");
@@ -135,6 +138,45 @@ public class QuestionBankServiceImpl implements QuestionBankService {
 
     @Override
     @Transactional(readOnly = true)
+    public Optional<QuestionBankResponse> findActiveBank(String domain, String jobRole) {
+        return questionBankRepository
+                .findTopByDomainAndJobRoleAndIsActiveTrueOrderByUpdatedAtDescIdDesc(
+                        normalizeOptional(domain),
+                        normalizeOptional(jobRole))
+                .map(this::toResponse);
+    }
+
+    @Override
+    public boolean isBankReadyForAllLevels(Long bankId) {
+        if (bankId == null) return false;
+
+        Map<String, Long> difficultyBreakdown = new LinkedHashMap<>();
+        List<Object[]> counts = questionBankQuestionRepository.countByDifficulty(bankId);
+        for (Object[] row : counts) {
+            difficultyBreakdown.put((String) row[0], (Long) row[1]);
+        }
+
+        StringBuilder missingLevels = new StringBuilder();
+        for (String level : REQUIRED_DIFFICULTY_LEVELS) {
+            long count = difficultyBreakdown.getOrDefault(level, 0L);
+            if (count < MIN_QUESTION_BANK_POOL_SIZE) {
+                if (missingLevels.length() > 0) missingLevels.append(", ");
+                missingLevels.append(level).append("(=").append(count).append("/").append(MIN_QUESTION_BANK_POOL_SIZE).append(")");
+            }
+        }
+
+        if (missingLevels.length() > 0) {
+            log.info("Question bank {} not ready: insufficient questions in [{}]", bankId, missingLevels);
+            return false;
+        }
+
+        log.info("Question bank {} is ready for all 4 difficulty levels (all >= {} questions). Breakdown: {}",
+                bankId, MIN_QUESTION_BANK_POOL_SIZE, difficultyBreakdown);
+        return true;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<QuestionInfo> selectRandomQuestions(Long bankId, int targetCount, String difficultyDistributionJson) {
         Map<String, Double> distribution = parseDistribution(difficultyDistributionJson);
         List<QuestionInfo> result = new ArrayList<>();
@@ -180,6 +222,70 @@ public class QuestionBankServiceImpl implements QuestionBankService {
         if (!ids.isEmpty()) {
             questionBankQuestionRepository.incrementUsedCount(ids);
         }
+    }
+
+    @Override
+    public List<QuestionInfo> selectRandomQuestionsByLevel(Long bankId, int targetCount, String userLevel) {
+        // Mapping: userLevel → [BEGINNER%, INTERMEDIATE%, ADVANCED%, EXPERT%]
+        Map<String, Double[]> levelDistribution = Map.of(
+                "BEGINNER",     new Double[]{0.80, 0.20, 0.00, 0.00},
+                "ELEMENTARY",   new Double[]{0.60, 0.30, 0.10, 0.00},
+                "INTERMEDIATE", new Double[]{0.00, 0.80, 0.20, 0.00},
+                "ADVANCED",     new Double[]{0.00, 0.00, 0.80, 0.20}
+        );
+        Double[] dist = levelDistribution.getOrDefault(
+                (userLevel != null ? userLevel : "").toUpperCase(),
+                new Double[]{0.20, 0.35, 0.30, 0.15});
+
+        String[] difficulties = {"BEGINNER", "INTERMEDIATE", "ADVANCED", "EXPERT"};
+        List<QuestionInfo> result = new ArrayList<>();
+        Set<Long> selectedIds = new LinkedHashSet<>();
+
+        for (int i = 0; i < difficulties.length; i++) {
+            int needed = (int) Math.round(targetCount * dist[i]);
+            if (needed <= 0) continue;
+            List<QuestionBankQuestion> qs =
+                    questionBankQuestionRepository.findRandomActiveByBankAndDifficultyExact(
+                            bankId, difficulties[i], needed);
+            for (QuestionBankQuestion q : qs) {
+                result.add(toQuestionInfo(q));
+                selectedIds.add(q.getId());
+            }
+        }
+
+        // Fill remaining if undersupplied
+        int stillNeeded = targetCount - result.size();
+        if (stillNeeded > 0) {
+            List<QuestionBankQuestion> fill =
+                    questionBankQuestionRepository.findRandomActiveByBankExcluding(
+                            bankId, new ArrayList<>(selectedIds), stillNeeded);
+            for (QuestionBankQuestion q : fill) {
+                result.add(toQuestionInfo(q));
+            }
+        }
+
+        Collections.shuffle(result);
+        log.debug("Selected {} level-matched questions from bank {} (target: {}, level: {})",
+                result.size(), bankId, targetCount, userLevel);
+        return result;
+    }
+
+    @Override
+    public List<Object[]> countBySkillAreaAndDifficulty(Long bankId) {
+        if (bankId == null) return List.of();
+        return questionBankQuestionRepository.countBySkillAreaAndDifficulty(bankId);
+    }
+
+    @Override
+    public List<QuestionInfo> selectRandomQuestionsBySkillAreaAndDifficulty(
+            Long bankId, String skillArea, String difficulty, int limit) {
+        if (bankId == null || skillArea == null || difficulty == null || limit <= 0) {
+            return List.of();
+        }
+        List<QuestionBankQuestion> questions =
+                questionBankQuestionRepository.findRandomActiveByBankAndSkillAreaAndDifficulty(
+                        bankId, skillArea, difficulty.toUpperCase(), limit);
+        return questions.stream().map(this::toQuestionInfo).collect(Collectors.toList());
     }
 
     // ==================== Private Helpers ====================

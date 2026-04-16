@@ -20,6 +20,7 @@ public class JourneySummaryResponse {
     private Long id;
     private String type;
     private String domain;
+    private String industry;
     private String subCategory;
     private String jobRole;
     private String goal;

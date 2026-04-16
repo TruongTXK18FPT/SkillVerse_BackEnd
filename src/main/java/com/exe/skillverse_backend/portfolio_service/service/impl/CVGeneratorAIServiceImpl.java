@@ -15,9 +15,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 import com.exe.skillverse_backend.portfolio_service.dto.CVGenerationRequest;
+import com.exe.skillverse_backend.portfolio_service.dto.CompletedMissionDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.MentorReviewDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.PortfolioEducationDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.PortfolioProjectDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.PortfolioWorkExperienceDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.UserProfileDTO;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -54,9 +57,10 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
             List<PortfolioProjectDTO> projects,
             List<ExternalCertificateDTO> certificates,
             List<MentorReviewDTO> reviews,
+            List<CompletedMissionDTO> completedMissions,
             CVGenerationRequest request) {
         try {
-            String prompt = buildCVPrompt(profile, projects, certificates, reviews, request);
+            String prompt = buildCVPrompt(profile, projects, certificates, reviews, completedMissions, request);
             log.info("Generating CV JSON with Mistral AI for user: {}", profile.getUserId());
 
             HttpHeaders headers = new HttpHeaders();
@@ -168,7 +172,8 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
                     "githubUrl": "string or null",
                     "portfolioUrl": "string or null",
                     "behanceUrl": "string or null",
-                    "dribbbleUrl": "string or null"
+                    "dribbbleUrl": "string or null",
+                    "avatarUrl": "string or null"
                   },
                   "summary": "A compelling 2-4 sentence professional summary highlighting key strengths",
                   "experience": [
@@ -252,7 +257,9 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
                 7. If data for a section is missing, use an empty array []
                 8. Keep experience in reverse chronological order
                 9. Language proficiency: Native, Fluent, Advanced, Intermediate, or Basic
-                10. Return ONLY the JSON object, nothing else
+                10. Use manual work experience as the primary source for the experience section
+                11. Completed system missions may be used as real freelance/project evidence when relevant
+                12. Return ONLY the JSON object, nothing else
                 """;
     }
 
@@ -265,6 +272,7 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
             List<PortfolioProjectDTO> projects,
             List<ExternalCertificateDTO> certificates,
             List<MentorReviewDTO> reviews,
+            List<CompletedMissionDTO> completedMissions,
             CVGenerationRequest request) {
         StringBuilder prompt = new StringBuilder();
 
@@ -297,6 +305,7 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
 
         // Contact
         prompt.append("\n--- CONTACT ---\n");
+        if (profile.getEmail() != null) prompt.append("Email: ").append(profile.getEmail()).append("\n");
         if (profile.getPhone() != null) prompt.append("Phone: ").append(profile.getPhone()).append("\n");
         if (profile.getAddress() != null) prompt.append("Address: ").append(profile.getAddress()).append("\n");
         if (profile.getLinkedinUrl() != null) prompt.append("LinkedIn: ").append(profile.getLinkedinUrl()).append("\n");
@@ -306,6 +315,52 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
         if (profile.getBehanceUrl() != null) prompt.append("Behance: ").append(profile.getBehanceUrl()).append("\n");
         if (profile.getDribbbleUrl() != null)
             prompt.append("Dribbble: ").append(profile.getDribbbleUrl()).append("\n");
+        if (profile.getPortfolioAvatarUrl() != null)
+            prompt.append("Avatar URL: ").append(profile.getPortfolioAvatarUrl()).append("\n");
+
+        if (profile.getWorkExperiences() != null && !profile.getWorkExperiences().isEmpty()) {
+            prompt.append("\n--- WORK EXPERIENCE ---\n");
+            for (PortfolioWorkExperienceDTO experience : profile.getWorkExperiences()) {
+                prompt.append("- Company: ").append(defaultString(experience.getCompanyName())).append("\n");
+                prompt.append("  Position: ").append(defaultString(experience.getPosition())).append("\n");
+                if (experience.getLocation() != null)
+                    prompt.append("  Location: ").append(experience.getLocation()).append("\n");
+                if (experience.getStartDate() != null || experience.getEndDate() != null) {
+                    prompt.append("  Duration: ")
+                            .append(defaultString(experience.getStartDate()))
+                            .append(" -> ")
+                            .append(Boolean.TRUE.equals(experience.getCurrentJob())
+                                    ? "Present"
+                                    : defaultString(experience.getEndDate()))
+                            .append("\n");
+                }
+                if (experience.getDescription() != null)
+                    prompt.append("  Description: ").append(experience.getDescription()).append("\n");
+            }
+        }
+
+        if (profile.getEducationHistory() != null && !profile.getEducationHistory().isEmpty()) {
+            prompt.append("\n--- EDUCATION HISTORY ---\n");
+            for (PortfolioEducationDTO education : profile.getEducationHistory()) {
+                prompt.append("- Institution: ").append(defaultString(education.getInstitution())).append("\n");
+                prompt.append("  Degree: ").append(defaultString(education.getDegree())).append("\n");
+                if (education.getFieldOfStudy() != null)
+                    prompt.append("  Field: ").append(education.getFieldOfStudy()).append("\n");
+                if (education.getStatus() != null)
+                    prompt.append("  Status: ").append(education.getStatus()).append("\n");
+                if (education.getLocation() != null)
+                    prompt.append("  Location: ").append(education.getLocation()).append("\n");
+                if (education.getStartDate() != null || education.getEndDate() != null) {
+                    prompt.append("  Duration: ")
+                            .append(defaultString(education.getStartDate()))
+                            .append(" -> ")
+                            .append(defaultString(education.getEndDate()))
+                            .append("\n");
+                }
+                if (education.getDescription() != null)
+                    prompt.append("  Description: ").append(education.getDescription()).append("\n");
+            }
+        }
 
         // Skills
         if (profile.getTopSkills() != null && !profile.getTopSkills().isEmpty()) {
@@ -368,6 +423,34 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
             });
         }
 
+        if (Boolean.TRUE.equals(request.getIncludeCompletedMissions()) && !completedMissions.isEmpty()) {
+            prompt.append("\n--- COMPLETED SYSTEM MISSIONS ---\n");
+            completedMissions.forEach(mission -> {
+                prompt.append("- ").append(mission.getJobTitle());
+                if (mission.getRecruiterCompanyName() != null)
+                    prompt.append(" | Company: ").append(mission.getRecruiterCompanyName());
+                if (mission.getCompletedAt() != null)
+                    prompt.append(" | Completed: ").append(mission.getCompletedAt());
+                prompt.append("\n");
+                if (mission.getJobDescription() != null)
+                    prompt.append("  Scope: ").append(mission.getJobDescription()).append("\n");
+                if (mission.getWorkNote() != null)
+                    prompt.append("  Work Note: ").append(mission.getWorkNote()).append("\n");
+                if (mission.getRequiredSkills() != null && !mission.getRequiredSkills().isEmpty())
+                    prompt.append("  Skills: ").append(String.join(", ", mission.getRequiredSkills())).append("\n");
+                if (mission.getReviewComment() != null)
+                    prompt.append("  Review: ").append(mission.getReviewComment()).append("\n");
+                if (mission.getDeliverables() != null && !mission.getDeliverables().isEmpty()) {
+                    prompt.append("  Deliverables: ")
+                            .append(mission.getDeliverables().stream()
+                                    .map(CompletedMissionDTO.DeliverableInfo::getFileName)
+                                    .filter(name -> name != null && !name.isBlank())
+                                    .collect(java.util.stream.Collectors.joining(", ")))
+                            .append("\n");
+                }
+            });
+        }
+
         if (request.getAdditionalInstructions() != null && !request.getAdditionalInstructions().isEmpty()) {
             prompt.append("\n--- ADDITIONAL INSTRUCTIONS ---\n");
             prompt.append(request.getAdditionalInstructions()).append("\n");
@@ -376,6 +459,10 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
         prompt.append("\nReturn ONLY valid JSON. No markdown fences, no explanations.");
 
         return prompt.toString();
+    }
+
+    private String defaultString(String value) {
+        return value == null ? "" : value;
     }
 
     /**

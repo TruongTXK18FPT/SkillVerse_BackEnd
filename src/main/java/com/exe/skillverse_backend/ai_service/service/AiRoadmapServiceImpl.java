@@ -35,8 +35,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.Year;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -1360,8 +1362,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             boolean matched = message.contains("unexpected end-of-input")
                                 || message.contains("unexpected end of input")
                                 || message.contains("expected close marker")
-                                || message.contains("end-of-input")
-                                || message.contains("incomplete or invalid json");
+                                || message.contains("end-of-input");
             if (matched) {
                 log.warn("⚠️ [trace={}] Parse failure classified as truncated/incomplete JSON: {}",
                         currentTraceId(),
@@ -1995,6 +1996,10 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     roadmapJson != null ? roadmapJson.length() : 0,
                     sanitized != null ? sanitized.length() : 0,
                     e.getMessage());
+                String parseErrorContext = previewJsonErrorContext(sanitized, e, 180);
+                if (!parseErrorContext.isBlank()) {
+                    log.error("Parse error context (up to 360 chars):\n{}", parseErrorContext);
+                }
                 log.error("📄 Raw AI JSON head (up to 500 chars):\n{}", previewHead(roadmapJson, 500));
                 log.error("📄 Raw AI JSON tail (up to 500 chars):\n{}", previewTail(roadmapJson, 500));
                 if (sanitized != null && !sanitized.isBlank()) {
@@ -2030,7 +2035,135 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         if (!s.contains("\"") && s.contains("'")) {
             s = s.replace('\'', '"');
         }
+        s = repairCommonAiJsonIssues(s);
         return s.trim();
+    }
+
+    private String repairCommonAiJsonIssues(String json) {
+        if (json == null || json.isBlank()) {
+            return json;
+        }
+
+        StringBuilder repaired = new StringBuilder(json.length() + 32);
+        Deque<Character> containerStack = new ArrayDeque<>();
+        boolean insideString = false;
+        boolean escaping = false;
+        boolean stringIsObjectKey = false;
+        boolean expectingObjectKey = false;
+
+        for (int i = 0; i < json.length(); i++) {
+            char current = json.charAt(i);
+
+            if (insideString) {
+                if (escaping) {
+                    repaired.append(current);
+                    escaping = false;
+                    continue;
+                }
+                if (current == '\\') {
+                    repaired.append(current);
+                    escaping = true;
+                    continue;
+                }
+                if (current == '\r') {
+                    if (i + 1 < json.length() && json.charAt(i + 1) == '\n') {
+                        i++;
+                    }
+                    repaired.append("\\n");
+                    continue;
+                }
+                if (current == '\n') {
+                    repaired.append("\\n");
+                    continue;
+                }
+                if (current == '\t') {
+                    repaired.append("\\t");
+                    continue;
+                }
+                if (current == '"') {
+                    char nextSignificant = nextSignificantChar(json, i + 1);
+                    boolean closesObjectKey = stringIsObjectKey && nextSignificant == ':';
+                    boolean closesValue = !stringIsObjectKey
+                            && (nextSignificant == ',' || nextSignificant == '}'
+                                    || nextSignificant == ']' || nextSignificant == '\0');
+                    if (closesObjectKey || closesValue) {
+                        repaired.append(current);
+                        insideString = false;
+                        continue;
+                    }
+                    repaired.append("\\\"");
+                    continue;
+                }
+
+                repaired.append(current);
+                continue;
+            }
+
+            repaired.append(current);
+            switch (current) {
+                case '{':
+                    containerStack.push('{');
+                    expectingObjectKey = true;
+                    break;
+                case '[':
+                    containerStack.push('[');
+                    break;
+                case '}':
+                case ']':
+                    if (!containerStack.isEmpty()) {
+                        containerStack.pop();
+                    }
+                    break;
+                case ',':
+                    expectingObjectKey = !containerStack.isEmpty() && containerStack.peek() == '{';
+                    break;
+                case ':':
+                    expectingObjectKey = false;
+                    break;
+                case '"':
+                    insideString = true;
+                    escaping = false;
+                    stringIsObjectKey = !containerStack.isEmpty()
+                            && containerStack.peek() == '{'
+                            && expectingObjectKey;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        return repaired.toString();
+    }
+
+    private char nextSignificantChar(String text, int startIndex) {
+        if (text == null || startIndex < 0) {
+            return '\0';
+        }
+        for (int i = startIndex; i < text.length(); i++) {
+            char current = text.charAt(i);
+            if (!Character.isWhitespace(current)) {
+                return current;
+            }
+        }
+        return '\0';
+    }
+
+    private String previewJsonErrorContext(String json, JsonProcessingException exception, int radius) {
+        if (json == null || json.isBlank() || exception == null || exception.getLocation() == null) {
+            return "";
+        }
+
+        long charOffset = exception.getLocation().getCharOffset();
+        if (charOffset < 0) {
+            return "";
+        }
+
+        int anchor = (int) Math.max(0, Math.min(json.length(), charOffset));
+        int start = Math.max(0, anchor - radius);
+        int end = Math.min(json.length(), anchor + radius);
+        return json.substring(start, end)
+                .replace("\r", "\\r")
+                .replace("\n", "\\n");
     }
 
     private JsonNode firstPresentNode(JsonNode node, String... keys) {

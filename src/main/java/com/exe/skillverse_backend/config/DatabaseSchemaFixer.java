@@ -236,6 +236,16 @@ public class DatabaseSchemaFixer {
                     this::patchJobApplicationsOfferColumns,
                     this::verifyJobApplicationsOfferColumns);
 
+                applyPatch("add-job-applications-structured-offer-columns",
+                    "Add structured recruiter offer and candidate counter-offer columns to job_applications",
+                    this::patchJobApplicationsStructuredOfferColumns,
+                    this::verifyJobApplicationsStructuredOfferColumns);
+
+                applyPatch("add-portfolio-extended-profiles-history-columns",
+                    "Add work_experiences and education_history columns to portfolio_extended_profiles",
+                    this::patchPortfolioExtendedProfilesHistoryColumns,
+                    this::verifyPortfolioExtendedProfilesHistoryColumns);
+
             applyPatch("add-prechat-messages-booking-id",
                     "Add booking_id FK column to prechat_messages for booking-scoped chat",
                     this::patchPrechatMessagesBookingId,
@@ -1203,6 +1213,27 @@ public class DatabaseSchemaFixer {
                 && hasColumn("job_applications", "offer_round");
     }
 
+    // ─── job_applications: add structured offer/counter-offer columns ─────────
+
+    private void patchJobApplicationsStructuredOfferColumns() {
+        if (!hasTable("job_applications")) {
+            log.debug("Table job_applications does not exist yet, skipping patch.");
+            return;
+        }
+        executeSql("ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS offer_salary BIGINT");
+        executeSql("ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS offer_additional_requirements TEXT");
+        executeSql("ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS counter_salary_amount BIGINT");
+        executeSql("ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS counter_additional_requirements TEXT");
+    }
+
+    private boolean verifyJobApplicationsStructuredOfferColumns() {
+        return hasTable("job_applications")
+                && hasColumn("job_applications", "offer_salary")
+                && hasColumn("job_applications", "offer_additional_requirements")
+                && hasColumn("job_applications", "counter_salary_amount")
+                && hasColumn("job_applications", "counter_additional_requirements");
+    }
+
     // ─── prechat_messages: add booking_id FK ──────────────────────────────────
 
     private void patchPrechatMessagesBookingId() {
@@ -1309,6 +1340,23 @@ public class DatabaseSchemaFixer {
         if (results.isEmpty() || results.get(0).get("constraint_def") == null) return false;
         String def = results.get(0).get("constraint_def").toString();
         return def.contains("SUBMITTED_OVERDUE") && def.contains("WITHDRAWN");
+    }
+
+    // ─── portfolio_extended_profiles: add history columns ─────────────────────
+
+    private void patchPortfolioExtendedProfilesHistoryColumns() {
+        if (!hasTable("portfolio_extended_profiles")) {
+            log.debug("Table portfolio_extended_profiles does not exist yet, skipping patch.");
+            return;
+        }
+        executeSql("ALTER TABLE portfolio_extended_profiles ADD COLUMN IF NOT EXISTS work_experiences TEXT");
+        executeSql("ALTER TABLE portfolio_extended_profiles ADD COLUMN IF NOT EXISTS education_history TEXT");
+    }
+
+    private boolean verifyPortfolioExtendedProfilesHistoryColumns() {
+        return hasTable("portfolio_extended_profiles")
+                && hasColumn("portfolio_extended_profiles", "work_experiences")
+                && hasColumn("portfolio_extended_profiles", "education_history");
     }
 
     // ─── wallet_transactions: sync transaction_type check constraint ────────────────

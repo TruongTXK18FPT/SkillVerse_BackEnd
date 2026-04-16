@@ -19,4 +19,5 @@ public class CVGenerationRequest {
     private Boolean includeProjects;
     private Boolean includeCertificates;
     private Boolean includeReviews;
+    private Boolean includeCompletedMissions;
 }

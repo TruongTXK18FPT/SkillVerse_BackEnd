@@ -7,7 +7,9 @@ import com.exe.skillverse_backend.portfolio_service.dto.CompletedMissionDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.GeneratedCVDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.MentorReviewDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.PortfolioEducationDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.PortfolioProjectDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.PortfolioWorkExperienceDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.SystemCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.UserProfileDTO;
 import com.exe.skillverse_backend.portfolio_service.entity.ExternalCertificate;
@@ -34,6 +36,9 @@ import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -58,6 +63,7 @@ public class PortfolioServiceImpl implements PortfolioService {
     private static final Pattern CUSTOM_SLUG_PATTERN = Pattern.compile("^[a-z0-9]+(?:-[a-z0-9]+)*$");
     private static final Set<String> RESERVED_CUSTOM_SLUGS = Set.of("create");
     private static final String SUPPORTED_PREFERRED_CURRENCY = "VND";
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Extended portfolio profile
     private final PortfolioExtendedProfileRepository extendedProfileRepository;
@@ -220,6 +226,10 @@ public class PortfolioServiceImpl implements PortfolioService {
             extendedProfile.setCareerGoals(dto.getCareerGoals());
         if (dto.getYearsOfExperience() != null)
             extendedProfile.setYearsOfExperience(dto.getYearsOfExperience());
+        if (dto.getWorkExperiences() != null)
+            extendedProfile.setWorkExperiences(writeJson(dto.getWorkExperiences()));
+        if (dto.getEducationHistory() != null)
+            extendedProfile.setEducationHistory(writeJson(dto.getEducationHistory()));
         if (dto.getLinkedinUrl() != null)
             extendedProfile.setLinkedinUrl(dto.getLinkedinUrl());
         if (dto.getGithubUrl() != null)
@@ -844,9 +854,18 @@ public class PortfolioServiceImpl implements PortfolioService {
         List<PortfolioProjectDTO> projects = getUserProjects(userId);
         List<ExternalCertificateDTO> certificates = getUserCertificates(userId);
         List<MentorReviewDTO> reviews = getUserReviews(userId);
+        List<CompletedMissionDTO> completedMissions = Boolean.TRUE.equals(request.getIncludeCompletedMissions())
+                ? getCompletedMissions(userId)
+                : List.of();
 
         // Generate structured CV JSON using AI
-        String cvJson = cvGeneratorAIService.generateCV(profile, projects, certificates, reviews, request);
+        String cvJson = cvGeneratorAIService.generateCV(
+                profile,
+                projects,
+                certificates,
+                reviews,
+                completedMissions,
+                request);
 
         // Deactivate previous active CVs
         cvRepository.findByUserIdAndIsActiveTrue(userId).ifPresent(oldCv -> {
@@ -927,6 +946,7 @@ public class PortfolioServiceImpl implements PortfolioService {
             return profile;
         }
 
+        profile.setEmail(null);
         profile.setPhone(null);
         profile.setAddress(null);
         profile.setRegion(null);
@@ -978,19 +998,37 @@ public class PortfolioServiceImpl implements PortfolioService {
 
         // Map extended profile data (from portfolio_service)
         if (extendedProfile != null) {
+            User user = extendedProfile.getUser();
+            String displayName = extendedProfile.getFullName();
+            if ((displayName == null || displayName.isBlank()) && user != null) {
+                displayName = user.getFullName();
+            }
+            String phone = extendedProfile.getPhone();
+            if ((phone == null || phone.isBlank()) && user != null) {
+                phone = user.getPhoneNumber();
+            }
+
             builder.userId(extendedProfile.getUserId());
-            builder.fullName(extendedProfile.getFullName());
+            builder.fullName(displayName);
+            builder.email(user != null ? user.getEmail() : null);
             builder.basicBio(extendedProfile.getBio());
-            builder.phone(extendedProfile.getPhone());
+            builder.phone(phone);
             builder.address(extendedProfile.getAddress());
             builder.region(extendedProfile.getRegion());
             builder.companyId(extendedProfile.getCompanyId());
             builder.socialLinks(extendedProfile.getSocialLinks());
-            builder.basicAvatarUrl(extendedProfile.getAvatarUrl());
+            builder.basicAvatarUrl(
+                    user != null && user.getAvatarUrl() != null ? user.getAvatarUrl() : extendedProfile.getAvatarUrl());
 
             builder.professionalTitle(extendedProfile.getProfessionalTitle())
                     .careerGoals(extendedProfile.getCareerGoals())
                     .yearsOfExperience(extendedProfile.getYearsOfExperience())
+                    .workExperiences(readJsonList(
+                            extendedProfile.getWorkExperiences(),
+                            PortfolioWorkExperienceDTO.class))
+                    .educationHistory(readJsonList(
+                            extendedProfile.getEducationHistory(),
+                            PortfolioEducationDTO.class))
                     .portfolioAvatarUrl(extendedProfile.getAvatarUrl())
                     .videoIntroUrl(extendedProfile.getVideoIntroUrl())
                     .coverImageUrl(extendedProfile.getCoverImageUrl())
@@ -1021,6 +1059,27 @@ public class PortfolioServiceImpl implements PortfolioService {
         }
 
         return builder.build();
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Failed to serialize portfolio data", e);
+        }
+    }
+
+    private <T> List<T> readJsonList(String json, Class<T> elementType) {
+        if (json == null || json.isBlank()) {
+            return new ArrayList<>();
+        }
+        try {
+            JavaType type = objectMapper.getTypeFactory().constructCollectionType(List.class, elementType);
+            return objectMapper.readValue(json, type);
+        } catch (Exception e) {
+            log.warn("Failed to parse portfolio JSON for type {}: {}", elementType.getSimpleName(), e.getMessage());
+            return new ArrayList<>();
+        }
     }
 
     private PortfolioProjectDTO mapToProjectDTO(PortfolioProject project) {

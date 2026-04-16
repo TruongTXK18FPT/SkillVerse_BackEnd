@@ -36,6 +36,12 @@ public class AICandidateMatchRequest {
     private Integer totalProjects;
     private Integer totalCertificates;
 
+    // Completed mission signals from short-term jobs
+    private Integer completedMissionCount;
+    private Double averageMissionRating;
+    private String missionSkills; // JSON array
+    private String recentMissionHighlights;
+
     // Optional: User's skill wallet, roadmap progress for personalization
     private String skillWalletSkills;
     private String activeRoadmapSkills;

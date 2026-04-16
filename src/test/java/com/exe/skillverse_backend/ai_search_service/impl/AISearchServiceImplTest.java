@@ -9,6 +9,7 @@ import com.exe.skillverse_backend.business_service.repository.JobPostingReposito
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
+import com.exe.skillverse_backend.portfolio_service.service.PortfolioService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -47,6 +48,9 @@ class AISearchServiceImplTest {
     private PortfolioExtendedProfileRepository portfolioRepository;
 
     @Mock
+    private PortfolioService portfolioService;
+
+    @Mock
     private RestTemplate restTemplate;
 
     private AISearchConfig config;
@@ -66,6 +70,7 @@ class AISearchServiceImplTest {
                 jobPostingRepository,
                 shortTermJobRepository,
                 portfolioRepository,
+                portfolioService,
                 new ObjectMapper(),
                 restTemplate);
     }
@@ -97,13 +102,16 @@ class AISearchServiceImplTest {
         when(jobPostingRepository.findById(job.getId())).thenReturn(Optional.of(job));
         when(portfolioRepository.findById(profile.getUserId())).thenReturn(Optional.of(profile));
         when(restTemplate.postForObject(eq(config.getBaseUrl()), any(), eq(String.class)))
-                .thenReturn("{\"choices\":[{\"message\":{\"content\":\"\"}}]}");
+                .thenReturn("{\"choices\":[{\"message\":{\"content\":\"## Đánh giá tổng quan\\nỨng viên phù hợp tốt với vai trò.\\n\\n## Kết luận\\nNên mời phỏng vấn.\"}}]}");
 
         AICandidateMatchResponse first = service.generateMatchExplanation(job.getId(), profile.getUserId());
         AICandidateMatchResponse second = service.generateMatchExplanation(job.getId(), profile.getUserId());
 
-        assertTrue(first.getIsFallback());
-        assertEquals(first, second);
+        assertFalse(first.getIsFallback());
+        assertFalse(second.getIsFallback());
+        assertEquals(first.getModelUsed(), second.getModelUsed());
+        assertEquals(first.getFitSummary(), second.getFitSummary());
+        assertEquals(first.getReasoning(), second.getReasoning());
         verify(restTemplate, times(1)).postForObject(eq(config.getBaseUrl()), any(), eq(String.class));
     }
 

@@ -38,6 +38,7 @@ import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.question_bank_service.dto.response.QuestionBankResponse;
 import com.exe.skillverse_backend.question_bank_service.entity.QuestionBank;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
+import com.exe.skillverse_backend.question_bank_service.service.QuestionBankQuestionService;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
@@ -81,7 +82,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class JourneyServiceImpl implements JourneyService {
 
     private static final int MAX_ASSESSMENT_ATTEMPTS = 2;
-    private static final int MIN_QUESTION_BANK_POOL_SIZE = 25;
+    private static final int MIN_QUESTION_BANK_POOL_SIZE = 200;
+    private static final int MIN_SKILL_JOURNEY_BANK_SEED_QUESTIONS = 5;
+    private static final String QUESTION_BANK_PROMPT_MARKER = "question bank id=";
+    private static final String FULL_QB_PROMPT_PREFIX = "Full QB: " + QUESTION_BANK_PROMPT_MARKER;
+    private static final String HYBRID_QB_PROMPT_PREFIX = "Hybrid QB: " + QUESTION_BANK_PROMPT_MARKER;
     private static final String STUDY_PLAN_LINK_MARKER_PREFIX = "[ROADMAP_NODE_LINK]";
     private static final int MAX_STUDY_TASKS_PER_NODE = 12;
     private static final String DEFAULT_STUDY_TIMEZONE = "Asia/Ho_Chi_Minh";
@@ -109,6 +114,7 @@ public class JourneyServiceImpl implements JourneyService {
     private final TaskBoardService taskBoardService;
     private final AiStudySupportService aiStudySupportService;
     private final QuestionBankService questionBankService;
+    private final QuestionBankQuestionService questionBankQuestionService;
     private final StudySessionRepository studySessionRepository;
     private final ObjectMapper objectMapper;
 
@@ -414,13 +420,14 @@ public class JourneyServiceImpl implements JourneyService {
         String industry = assessmentData.getIndustry();
         int requestedQuestionCount = resolveAssessmentQuestionCount(assessmentData);
         int requestedTimeLimitMinutes = resolveAssessmentTimeLimitMinutes(assessmentData);
+        String userLevel = assessmentData.getLevel();
 
-        log.info("Using domain: {}, goal: {}, jobRole: {}, industry: {}, questionCount: {}, timeLimitMinutes: {}",
-                domain, goal, jobRole, industry, requestedQuestionCount, requestedTimeLimitMinutes);
+        log.info("Using domain: {}, goal: {}, jobRole: {}, industry: {}, questionCount: {}, timeLimitMinutes: {}, level: {}",
+                domain, goal, jobRole, industry, requestedQuestionCount, requestedTimeLimitMinutes, userLevel);
 
-        // === NEW: Bank-first test generation ===
+        // === Bank-first test generation ===
         AssessmentTest test = tryGenerateFromQuestionBank(
-                journey, user, domain, industry, jobRole, requestedQuestionCount, requestedTimeLimitMinutes);
+                journey, user, assessmentData, requestedQuestionCount, requestedTimeLimitMinutes, userLevel);
 
         if (test != null) {
             // Bank was used (full or partial)
@@ -434,50 +441,123 @@ public class JourneyServiceImpl implements JourneyService {
 
     /**
      * Try to generate test from question bank.
+     * Uses per-difficulty threshold: ALL four levels must have >= MIN_QUESTION_BANK_POOL_SIZE.
+     * Falls back to AI if any level is insufficient or bank is not found.
      * @return AssessmentTest if bank was used, null if bank should not be used
      */
-    private AssessmentTest tryGenerateFromQuestionBank(Journey journey, User user, String domain,
-            String industry, String jobRole, int requestedQuestionCount, int requestedTimeLimitMinutes) {
+    private AssessmentTest tryGenerateFromQuestionBank(Journey journey, User user, StartJourneyRequest assessmentData,
+            int requestedQuestionCount, int requestedTimeLimitMinutes, String userLevel) {
 
-        Optional<QuestionBankResponse> bankOpt = questionBankService.findActiveBank(domain, industry, jobRole);
+        String domain = assessmentData.getDomain();
+        String industry = assessmentData.getIndustry();
+        String jobRole = assessmentData.getJobRole();
+        boolean skillJourney = isSkillJourney(journey);
+
+        Optional<QuestionBankResponse> bankOpt = resolveQuestionBankForJourney(journey, domain, industry, jobRole);
         if (bankOpt.isEmpty()) {
-            log.info("No question bank found for domain={}, industry={}, jobRole={}. Falling back to AI generation.",
-                    domain, industry, jobRole);
+            log.info("No question bank found for domain={}, industry={}, jobRole={}, type={}. Falling back to AI generation.",
+                    domain, industry, jobRole, journey.getType());
             return null;
         }
 
         QuestionBankResponse bank = bankOpt.get();
-        int availableQuestions = bank.getActiveQuestionCount() != null ? bank.getActiveQuestionCount() : 0;
-        if (availableQuestions < MIN_QUESTION_BANK_POOL_SIZE) {
-            log.info("Question bank {} has only {} active questions (< {}). Falling back to AI generation.",
-                    bank.getId(), availableQuestions, MIN_QUESTION_BANK_POOL_SIZE);
+        Long bankId = bank.getId();
+
+        if (skillJourney) {
+            List<QuestionInfo> skillScopedQuestions = selectSkillScopedQuestions(
+                    bankId,
+                    assessmentData.getSkills(),
+                    requestedQuestionCount,
+                    userLevel);
+            List<QuestionInfo> bankQuestions = mergeUniqueQuestions(
+                    skillScopedQuestions,
+                    selectQuestionsFromBank(bank, requestedQuestionCount, userLevel),
+                    requestedQuestionCount);
+
+            int minimumSeedQuestions = minimumSkillJourneyBankCount(requestedQuestionCount);
+            if (bankQuestions.size() < minimumSeedQuestions) {
+                log.info("QB {} only yielded {} role/skill-aligned questions for skill journey (minimum seed: {}). Falling back to AI.",
+                        bankId, bankQuestions.size(), minimumSeedQuestions);
+                return null;
+            }
+
+            questionBankService.incrementUsedCount(bankQuestions);
+
+            List<QuestionInfo> finalQuestions = bankQuestions;
+            String generationPrompt = FULL_QB_PROMPT_PREFIX + bankId + " (total=" + requestedQuestionCount + ")";
+
+            if (bankQuestions.size() < requestedQuestionCount) {
+                int remainingQuestions = requestedQuestionCount - bankQuestions.size();
+                List<QuestionInfo> aiQuestions = generateAiQuestionsSupplement(
+                        domain,
+                        industry,
+                        jobRole,
+                        buildUserAssessmentInfo(assessmentData),
+                        remainingQuestions,
+                        getSkillAreasAlreadyCovered(bankQuestions));
+                finalQuestions = mergeUniqueQuestions(bankQuestions, aiQuestions, requestedQuestionCount);
+
+                if (finalQuestions.size() < requestedQuestionCount) {
+                    log.info("Hybrid QB {} could not reach {} questions after AI supplement (got {}). Falling back to full AI generation.",
+                            bankId, requestedQuestionCount, finalQuestions.size());
+                    return null;
+                }
+
+                generationPrompt = HYBRID_QB_PROMPT_PREFIX + bankId
+                        + " (bank=" + bankQuestions.size()
+                        + ", ai=" + Math.max(0, finalQuestions.size() - bankQuestions.size())
+                        + ", total=" + requestedQuestionCount + ")";
+            }
+
+            return saveQuestionBankAssessmentTest(
+                    journey,
+                    user,
+                    domain,
+                    bankId,
+                    finalQuestions,
+                    requestedTimeLimitMinutes,
+                    userLevel,
+                    generationPrompt);
+        }
+
+        // === Per-difficulty threshold: ALL 4 levels must be >= 200 ===
+        if (!questionBankService.isBankReadyForAllLevels(bankId)) {
+            Map<String, Long> breakdown = bank.getDifficultyBreakdown();
+            String detail = (breakdown != null)
+                    ? breakdown.entrySet().stream()
+                            .map(e -> e.getKey() + "=" + e.getValue())
+                            .collect(Collectors.joining(", "))
+                    : "n/a";
+            log.info("QB {} not ready (all levels must be >= {}): {}. Falling back to AI — questions will be saved to bank for future use.",
+                    bankId, MIN_QUESTION_BANK_POOL_SIZE, detail);
             return null;
         }
 
-        List<QuestionInfo> bankQuestions = questionBankService.selectRandomQuestions(
-                bank.getId(), requestedQuestionCount, bank.getDifficultyDistribution());
+        List<QuestionInfo> bankQuestions = userLevel != null
+                ? questionBankService.selectRandomQuestionsByLevel(bankId, requestedQuestionCount, userLevel)
+                : questionBankService.selectRandomQuestions(bankId, requestedQuestionCount, bank.getDifficultyDistribution());
 
         if (bankQuestions.size() < requestedQuestionCount) {
-            log.info("Question bank {} returned only {} / {} requested questions. Falling back to AI generation.",
-                    bank.getId(), bankQuestions.size(), requestedQuestionCount);
+            log.info("QB {} returned only {} / {} questions. Falling back to AI.",
+                    bankId, bankQuestions.size(), requestedQuestionCount);
             return null;
         }
 
         questionBankService.incrementUsedCount(bankQuestions);
 
-        // Build AssessmentTest from bank questions
+        // Build AssessmentTest from QB
         AssessmentTest test = AssessmentTest.builder()
                 .journey(journey)
-                .questionBank(entityManager.getReference(QuestionBank.class, bank.getId()))
+                .questionBank(entityManager.getReference(QuestionBank.class, bankId))
                 .title("Bài đánh giá kỹ năng " + domain)
                 .description("Bài quiz đánh giá kỹ năng từ ngân hàng câu hỏi cho " + domain)
                 .targetField(domain)
                 .status(AssessmentTest.TestStatus.PENDING)
                 .questionCount(bankQuestions.size())
                 .timeLimitMinutes(requestedTimeLimitMinutes)
-                .difficultyLevel("MIXED")
+                .difficultyLevel(userLevel != null ? userLevel : "MIXED")
                 .questionsJson(toQuestionsJson(bankQuestions))
-                .generationPrompt("Generated from question bank id=" + bank.getId())
+                .generationPrompt(FULL_QB_PROMPT_PREFIX + bankId + " (total=" + requestedQuestionCount + ")")
                 .build();
 
         test = assessmentTestRepository.save(test);
@@ -501,6 +581,196 @@ public class JourneyServiceImpl implements JourneyService {
         return test;
     }
 
+    private AssessmentTest saveQuestionBankAssessmentTest(
+            Journey journey,
+            User user,
+            String domain,
+            Long bankId,
+            List<QuestionInfo> questions,
+            int requestedTimeLimitMinutes,
+            String userLevel,
+            String generationPrompt) {
+        AssessmentTest test = AssessmentTest.builder()
+                .journey(journey)
+                .questionBank(entityManager.getReference(QuestionBank.class, bankId))
+                .title("BĂ i Ä‘Ă¡nh giĂ¡ ká»¹ nÄƒng " + domain)
+                .description("BĂ i quiz Ä‘Ă¡nh giĂ¡ ká»¹ nÄƒng tá»« ngĂ¢n hĂ ng cĂ¢u há»i cho " + domain)
+                .targetField(domain)
+                .status(AssessmentTest.TestStatus.PENDING)
+                .questionCount(questions.size())
+                .timeLimitMinutes(requestedTimeLimitMinutes)
+                .difficultyLevel(userLevel != null ? userLevel : "MIXED")
+                .questionsJson(toQuestionsJson(questions))
+                .generationPrompt(generationPrompt)
+                .build();
+
+        test = assessmentTestRepository.save(test);
+
+        journey.setStatus(Journey.JourneyStatus.TEST_IN_PROGRESS);
+        journey.setLastActivityAt(Instant.now());
+        journeyRepository.save(journey);
+
+        JourneyProgress progress = JourneyProgress.builder()
+                .journey(journey)
+                .user(user)
+                .milestone(JourneyProgress.Milestone.TEST_GENERATED)
+                .isCompleted(true)
+                .milestoneProgress(100)
+                .completedAt(Instant.now())
+                .build();
+        journeyProgressRepository.save(progress);
+
+        return test;
+    }
+
+    private Optional<QuestionBankResponse> resolveQuestionBankForJourney(
+            Journey journey, String domain, String industry, String jobRole) {
+        if (isSkillJourney(journey)) {
+            Optional<QuestionBankResponse> scopedBank = questionBankService.findActiveBank(domain, industry, jobRole);
+            if (scopedBank.isPresent()) {
+                return scopedBank;
+            }
+            if ((industry == null || industry.isBlank()) && jobRole != null && !jobRole.isBlank()) {
+                return questionBankService.findActiveBank(domain, jobRole);
+            }
+            return Optional.empty();
+        }
+        return questionBankService.findActiveBank(domain, jobRole);
+    }
+
+    private List<QuestionInfo> selectQuestionsFromBank(
+            QuestionBankResponse bank, int requestedQuestionCount, String userLevel) {
+        if (bank == null || bank.getId() == null) {
+            return Collections.emptyList();
+        }
+        return userLevel != null
+                ? questionBankService.selectRandomQuestionsByLevel(bank.getId(), requestedQuestionCount, userLevel)
+                : questionBankService.selectRandomQuestions(bank.getId(), requestedQuestionCount, bank.getDifficultyDistribution());
+    }
+
+    private List<QuestionInfo> selectSkillScopedQuestions(
+            Long bankId, List<String> requestedSkills, int requestedQuestionCount, String userLevel) {
+        if (bankId == null || requestedQuestionCount <= 0 || requestedSkills == null || requestedSkills.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Map<String, String> availableSkillAreas = new LinkedHashMap<>();
+        for (Object[] row : questionBankService.countBySkillAreaAndDifficulty(bankId)) {
+            if (row == null || row.length == 0 || !(row[0] instanceof String skillArea) || skillArea.isBlank()) {
+                continue;
+            }
+            availableSkillAreas.putIfAbsent(canonicalizeSkillKey(skillArea), skillArea);
+        }
+        if (availableSkillAreas.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> normalizedSkills = requestedSkills.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(skill -> !skill.isBlank())
+                .distinct()
+                .toList();
+        if (normalizedSkills.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> preferredDifficulties = preferredDifficultiesFor(userLevel);
+        int perSkillTarget = Math.max(1, (int) Math.ceil((double) requestedQuestionCount / normalizedSkills.size()));
+        Map<String, QuestionInfo> selected = new LinkedHashMap<>();
+
+        for (String requestedSkill : normalizedSkills) {
+            String actualSkillArea = availableSkillAreas.get(canonicalizeSkillKey(requestedSkill));
+            if (actualSkillArea == null) {
+                continue;
+            }
+
+            int remainingForSkill = perSkillTarget;
+            for (String difficulty : preferredDifficulties) {
+                if (selected.size() >= requestedQuestionCount || remainingForSkill <= 0) {
+                    break;
+                }
+                List<QuestionInfo> matches = questionBankService.selectRandomQuestionsBySkillAreaAndDifficulty(
+                        bankId,
+                        actualSkillArea,
+                        difficulty,
+                        remainingForSkill);
+                int added = addUniqueQuestions(selected, matches, requestedQuestionCount);
+                remainingForSkill -= added;
+            }
+        }
+
+        return new ArrayList<>(selected.values());
+    }
+
+    private List<String> preferredDifficultiesFor(String userLevel) {
+        String normalizedLevel = userLevel != null ? userLevel.trim().toUpperCase(Locale.ROOT) : "";
+        return switch (normalizedLevel) {
+            case "BEGINNER", "ELEMENTARY" -> List.of("BEGINNER", "INTERMEDIATE", "ADVANCED", "EXPERT");
+            case "INTERMEDIATE" -> List.of("INTERMEDIATE", "BEGINNER", "ADVANCED", "EXPERT");
+            case "ADVANCED" -> List.of("ADVANCED", "INTERMEDIATE", "EXPERT", "BEGINNER");
+            case "EXPERT" -> List.of("EXPERT", "ADVANCED", "INTERMEDIATE", "BEGINNER");
+            default -> List.of("INTERMEDIATE", "BEGINNER", "ADVANCED", "EXPERT");
+        };
+    }
+
+    private int minimumSkillJourneyBankCount(int requestedQuestionCount) {
+        return Math.min(
+                requestedQuestionCount,
+                Math.max(MIN_SKILL_JOURNEY_BANK_SEED_QUESTIONS, Math.min(10, requestedQuestionCount / 2)));
+    }
+
+    private List<QuestionInfo> mergeUniqueQuestions(
+            List<QuestionInfo> primary, List<QuestionInfo> secondary, int limit) {
+        Map<String, QuestionInfo> merged = new LinkedHashMap<>();
+        addUniqueQuestions(merged, primary, limit);
+        addUniqueQuestions(merged, secondary, limit);
+        return new ArrayList<>(merged.values());
+    }
+
+    private int addUniqueQuestions(
+            Map<String, QuestionInfo> target, List<QuestionInfo> candidates, int limit) {
+        if (target.size() >= limit || candidates == null || candidates.isEmpty()) {
+            return 0;
+        }
+
+        int added = 0;
+        for (QuestionInfo question : candidates) {
+            if (question == null || target.size() >= limit) {
+                break;
+            }
+            String key = questionIdentityKey(question);
+            if (key.isBlank() || target.containsKey(key)) {
+                continue;
+            }
+            target.put(key, question);
+            added++;
+        }
+        return added;
+    }
+
+    private String questionIdentityKey(QuestionInfo question) {
+        if (question == null) {
+            return "";
+        }
+        Long questionId = question.questionId();
+        if (questionId != null && questionId > 0) {
+            return "id:" + questionId;
+        }
+        String normalizedQuestion = canonicalizeSkillKey(question.question());
+        return normalizedQuestion.isBlank() ? "" : "text:" + normalizedQuestion;
+    }
+
+    private String canonicalizeSkillKey(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim()
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", " ")
+                .replaceAll("[.,;:'\"!?()\\[\\]{}]", "");
+    }
+
     private String getSkillAreasAlreadyCovered(List<QuestionInfo> questions) {
         return questions.stream()
                 .map(QuestionInfo::skillArea)
@@ -508,13 +778,8 @@ public class JourneyServiceImpl implements JourneyService {
                 .collect(Collectors.joining(", "));
     }
 
-    /**
-     * Fallback: Generate test entirely via AI (original behavior).
-     */
-    private GenerateTestResponse generateTestFromAI(Journey journey, User user, String domain,
-            StartJourneyRequest assessmentData, long generatedTestCount) {
-
-        UserAssessmentInfo userInfo = new UserAssessmentInfo(
+    private UserAssessmentInfo buildUserAssessmentInfo(StartJourneyRequest assessmentData) {
+        return new UserAssessmentInfo(
                 assessmentData.getDomain(),
                 assessmentData.getGoal(),
                 assessmentData.getLevel(),
@@ -524,6 +789,15 @@ public class JourneyServiceImpl implements JourneyService {
                 assessmentData.getDuration(),
                 resolveAssessmentQuestionCount(assessmentData)
         );
+    }
+
+    /**
+     * Fallback: Generate test entirely via AI (original behavior).
+     */
+    private GenerateTestResponse generateTestFromAI(Journey journey, User user, String domain,
+            StartJourneyRequest assessmentData, long generatedTestCount) {
+
+        UserAssessmentInfo userInfo = buildUserAssessmentInfo(assessmentData);
 
         String prompt = assessmentPromptService.getTestGenerationPrompt(
                 domain,
@@ -646,13 +920,13 @@ public class JourneyServiceImpl implements JourneyService {
 
         Integer requestedQuestionCount = assessmentData.getQuestionCount();
         if (requestedQuestionCount != null) {
-            if (requestedQuestionCount <= 10) {
-                return 10;
-            }
             if (requestedQuestionCount <= 15) {
                 return 15;
             }
-            return 25;
+            if (requestedQuestionCount <= 25) {
+                return 25;
+            }
+            return 40;
         }
 
         String duration = assessmentData.getDuration();
@@ -661,9 +935,10 @@ public class JourneyServiceImpl implements JourneyService {
         }
 
         return switch (duration.trim().toUpperCase(Locale.ROOT)) {
-            case "QUICK" -> 10;
-            case "DEEP" -> 25;
-            default -> 15;
+            case "QUICK" -> 15;
+            case "STANDARD" -> 25;
+            case "DEEP" -> 40;
+            default -> 25;
         };
     }
 
@@ -674,6 +949,7 @@ public class JourneyServiceImpl implements JourneyService {
 
         return switch (assessmentData.getDuration().trim().toUpperCase(Locale.ROOT)) {
             case "QUICK" -> 5;
+            case "STANDARD" -> 15;
             case "DEEP" -> 30;
             default -> 15;
         };
@@ -873,6 +1149,56 @@ public class JourneyServiceImpl implements JourneyService {
         return extractQuestionBankId(test.getGenerationPrompt());
     }
 
+    private boolean shouldEnrichQuestionBank(AssessmentTest test) {
+        if (test == null) {
+            return false;
+        }
+        if (test.getQuestionBank() == null) {
+            return true;
+        }
+        String generationPrompt = Optional.ofNullable(test.getGenerationPrompt()).orElse("");
+        return generationPrompt.startsWith(HYBRID_QB_PROMPT_PREFIX);
+    }
+
+    private QuestionBankResponse resolveOrCreateQuestionBankForEnrichment(
+            Journey journey,
+            AssessmentTest test,
+            String domain,
+            String industry,
+            String jobRole) {
+        Long bankId = resolveQuestionBankId(test);
+        if (bankId != null) {
+            return questionBankService.getBankById(bankId);
+        }
+
+        Optional<QuestionBankResponse> existingBank = resolveQuestionBankForJourney(
+                journey,
+                domain,
+                firstNonBlank(industry, journey != null ? journey.getIndustry() : null, journey != null ? journey.getSubCategory() : null),
+                firstNonBlank(jobRole, journey != null ? journey.getJobRole() : null));
+        if (existingBank.isPresent()) {
+            return existingBank.get();
+        }
+
+        String resolvedIndustry = firstNonBlank(
+                industry,
+                journey != null ? journey.getIndustry() : null,
+                journey != null ? journey.getSubCategory() : null);
+        String resolvedJobRole = firstNonBlank(jobRole, journey != null ? journey.getJobRole() : null);
+
+        var createRequest = com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
+                .domain(domain)
+                .industry(resolvedIndustry)
+                .jobRole(resolvedJobRole)
+                .title("Auto bank: " + domain + " / " + (!resolvedJobRole.isBlank() ? resolvedJobRole : "general"))
+                .description("Auto-generated question bank from AI test submissions")
+                .build();
+        QuestionBankResponse createdBank = questionBankService.createBank(createRequest);
+        log.info("Auto-created question bank {} for domain={}, industry={}, jobRole={}",
+                createdBank.getId(), domain, resolvedIndustry, resolvedJobRole);
+        return createdBank;
+    }
+
     @Override
     public AssessmentTestResponse getAssessmentTest(User user, Long journeyId, Long testId) {
         Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
@@ -925,6 +1251,8 @@ public class JourneyServiceImpl implements JourneyService {
             assessmentData = null;
         }
         String goal = assessmentData != null ? assessmentData.getGoal() : null;
+        String industry = assessmentData != null ? assessmentData.getIndustry() : null;
+        String jobRole = assessmentData != null ? assessmentData.getJobRole() : null;
 
         Map<Long, String> normalizedUserAnswers = normalizeUserAnswers(request.getAnswers());
         List<QuestionEvaluation> questionEvaluations = evaluateQuestionAnswers(questions, normalizedUserAnswers);
@@ -1061,6 +1389,58 @@ public class JourneyServiceImpl implements JourneyService {
                 .build();
 
         result = testResultRepository.save(result);
+
+        // === Save AI-generated questions to question bank for enrichment ===
+        if (shouldEnrichQuestionBank(test)) {
+            try {
+                log.info("Attempting to save {} questions to question bank for domain={}, industry={}, jobRole={}",
+                        questions.size(), domain, industry, jobRole);
+                QuestionBankResponse bank = resolveOrCreateQuestionBankForEnrichment(
+                        journey,
+                        test,
+                        domain,
+                        industry,
+                        jobRole);
+                Optional<QuestionBankResponse> bankOpt = Optional.of(bank);
+                if (bankOpt.isEmpty()) {
+                    log.info("No question bank found for domain={}, jobRole={} — auto-creating one",
+                            domain, jobRole);
+                    var createRequest = com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
+                            .domain(domain)
+                            .industry(industry)
+                            .jobRole(jobRole)
+                            .title("Auto bank: " + domain + " / " + (jobRole != null ? jobRole : "general"))
+                            .description("Auto-generated question bank from AI test submissions")
+                            .build();
+                    bank = questionBankService.createBank(createRequest);
+                    log.info("Auto-created question bank {} for domain={}, industry={}, jobRole={}",
+                            bank.getId(), domain, industry, jobRole);
+                } else {
+                    bank = bankOpt.get();
+                    log.info("Found existing question bank {} for enrichment", bank.getId());
+                }
+                List<QuestionInfo> questionInfos = questions.stream()
+                        .map(q -> new QuestionInfo(
+                                0L,
+                                (String) q.get("question"),
+                                (List<String>) q.get("options"),
+                                (String) q.get("correctAnswer"),
+                                (String) q.get("explanation"),
+                                (String) q.get("difficulty"),
+                                (String) q.get("skillArea")
+                        ))
+                        .collect(Collectors.toList());
+                questionBankQuestionService.saveQuestionsFromTest(bank.getId(), questionInfos);
+                log.info("Enriched question bank {} with {} AI-generated questions after test submission",
+                        bank.getId(), questionInfos.size());
+            } catch (Exception e) {
+                log.warn("Failed to enrich question bank after test submission for journey {}: {}",
+                        journeyId, e.getMessage(), e);
+            }
+        } else {
+            log.info("Test {} used bank {} — skipping question bank enrichment",
+                    test.getId(), test.getQuestionBank().getId());
+        }
 
         // Update journey
         journey.setCurrentLevel(evaluatedLevel);
@@ -2336,6 +2716,7 @@ public class JourneyServiceImpl implements JourneyService {
                 .id(journey.getId())
                 .type(journey.getType())
                 .domain(journey.getDomain() != null ? journey.getDomain() : "Unknown")
+                .industry(journey.getIndustry())
                 .subCategory(journey.getSubCategory())
                 .jobRole(journey.getJobRole())
                 .goal(journey.getGoal() != null ? journey.getGoal() : "Unknown")
@@ -3348,7 +3729,7 @@ public class JourneyServiceImpl implements JourneyService {
         String domain = firstNonBlank(journey.getDomain(), "general");
         String target = careerJourney
                 ? firstNonBlank(journey.getJobRole(), journey.getSubCategory(), domain + " role")
-                : firstNonBlank(journey.getSubCategory(), journey.getJobRole(), domain + " fundamentals");
+                : firstNonBlank(journey.getJobRole(), journey.getSubCategory(), domain + " fundamentals");
 
         String journeyGoal = firstNonBlank(
                 journey.getGoal(),
@@ -3435,7 +3816,7 @@ public class JourneyServiceImpl implements JourneyService {
                 .background(background)
                 .dailyTime(safeTruncate(dailyTime, 50, "60 minutes/day"))
                 .dailyLearningTime(safeTruncate(dailyTime, 50, "60 minutes/day"))
-                .targetEnvironment(safeTruncate(firstNonBlank(journey.getSubCategory(), domain), 100, domain))
+                .targetEnvironment(safeTruncate(firstNonBlank(journey.getIndustry(), journey.getSubCategory(), journey.getJobRole(), domain), 100, domain))
                 .location("Vietnam")
                 .priority(safeTruncate(mapPriorityFromRecommendation(snapshot.recommendationMode), 50, "Balanced"))
                 .toolPreferences(toolPreferences)
@@ -3446,7 +3827,7 @@ public class JourneyServiceImpl implements JourneyService {
         if (careerJourney) {
             builder
                     .targetRole(safeTruncate(target, 120, domain + " role"))
-                    .careerTrack(safeTruncate(firstNonBlank(journey.getSubCategory(), domain), 120, domain))
+                    .careerTrack(safeTruncate(firstNonBlank(journey.getIndustry(), journey.getSubCategory(), domain), 120, domain))
                     .targetSeniority(safeTruncate(mapSeniorityFromLevel(testResult.getEvaluatedLevel(), journeyGoal), 50, "JUNIOR"))
                     .workMode("FULL_TIME")
                     .targetMarket("VIETNAM")
@@ -3477,10 +3858,20 @@ public class JourneyServiceImpl implements JourneyService {
         if (journey == null) {
             return false;
         }
-        if ("CAREER".equalsIgnoreCase(journey.getType())) {
-            return true;
+        if (journey.getType() != null && !journey.getType().isBlank()) {
+            return "CAREER".equalsIgnoreCase(journey.getType());
         }
         return journey.getJobRole() != null && !journey.getJobRole().isBlank();
+    }
+
+    private boolean isSkillJourney(Journey journey) {
+        if (journey == null) {
+            return false;
+        }
+        if (journey.getType() != null && !journey.getType().isBlank()) {
+            return "SKILL".equalsIgnoreCase(journey.getType());
+        }
+        return !isCareerJourney(journey);
     }
 
     private String resolveRoadmapDuration(String durationPreference, String recommendationMode) {

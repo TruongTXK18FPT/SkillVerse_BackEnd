@@ -9,9 +9,12 @@ import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
+import com.exe.skillverse_backend.portfolio_service.dto.CompletedMissionDTO;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
+import com.exe.skillverse_backend.portfolio_service.service.PortfolioService;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -36,6 +39,7 @@ public class AISearchServiceImpl implements AISearchService {
     private final JobPostingRepository jobPostingRepository;
     private final ShortTermJobRepository shortTermJobRepository;
     private final PortfolioExtendedProfileRepository portfolioRepository;
+    private final PortfolioService portfolioService;
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
 
@@ -44,12 +48,14 @@ public class AISearchServiceImpl implements AISearchService {
             JobPostingRepository jobPostingRepository,
             ShortTermJobRepository shortTermJobRepository,
             PortfolioExtendedProfileRepository portfolioRepository,
+            PortfolioService portfolioService,
             ObjectMapper objectMapper,
             @Qualifier("aiSearchRestTemplate") RestTemplate restTemplate) {
         this.aiSearchConfig = aiSearchConfig;
         this.jobPostingRepository = jobPostingRepository;
         this.shortTermJobRepository = shortTermJobRepository;
         this.portfolioRepository = portfolioRepository;
+        this.portfolioService = portfolioService;
         this.objectMapper = objectMapper;
         this.restTemplate = restTemplate;
     }
@@ -57,7 +63,8 @@ public class AISearchServiceImpl implements AISearchService {
     // Rate limiting: track requests per minute and tokens per day
     private final AtomicInteger requestsThisMinute = new AtomicInteger(0);
     private final AtomicInteger tokensThisDay = new AtomicInteger(0);
-    private final Map<String, AtomicInteger> requestCounts = new ConcurrentHashMap<>();
+    private volatile LocalDateTime minuteWindowStart = LocalDateTime.now();
+    private volatile LocalDateTime dayWindowStart = LocalDateTime.now().toLocalDate().atStartOfDay();
 
     // Cache for match results (jobId + candidateId -> result)
     private final Map<String, AICandidateMatchResponse> matchCache = new ConcurrentHashMap<>();
@@ -70,8 +77,17 @@ public class AISearchServiceImpl implements AISearchService {
         // Check cache first
         String cacheKey = jobId + "_" + candidateId;
         if (aiSearchConfig.isCacheEnabled() && matchCache.containsKey(cacheKey)) {
-            log.debug("Using cached match result for job {} candidate {}", jobId, candidateId);
-            return matchCache.get(cacheKey);
+            AICandidateMatchResponse cached = matchCache.get(cacheKey);
+            if (cached != null && !Boolean.TRUE.equals(cached.getIsFallback())) {
+                log.debug("Using cached match result for job {} candidate {}", jobId, candidateId);
+                return cached;
+            }
+
+            // Try to refresh cached fallback responses to avoid stale 50% confidence outputs.
+            if (cached != null && Boolean.TRUE.equals(cached.getIsFallback()) && isEnabled()) {
+                log.debug("Refreshing cached fallback result for job {} candidate {}", jobId, candidateId);
+                matchCache.remove(cacheKey);
+            }
         }
 
         // Check if AI is enabled
@@ -103,11 +119,12 @@ public class AISearchServiceImpl implements AISearchService {
             AICandidateMatchResponse response = callMistralAPI(request);
 
             // Update rate limiting
+            resetRateLimitWindowsIfNeeded();
             requestsThisMinute.incrementAndGet();
             tokensThisDay.addAndGet(estimateTokens(response.getFitSummary() + response.getReasoning()));
 
             // Cache result
-            if (aiSearchConfig.isCacheEnabled()) {
+            if (aiSearchConfig.isCacheEnabled() && !Boolean.TRUE.equals(response.getIsFallback())) {
                 matchCache.put(cacheKey, response);
             }
 
@@ -140,8 +157,16 @@ public class AISearchServiceImpl implements AISearchService {
         // Check cache first
         String cacheKey = "st_" + shortTermJobId + "_" + candidateId;
         if (aiSearchConfig.isCacheEnabled() && matchCache.containsKey(cacheKey)) {
-            log.debug("Using cached short-term match result for job {} candidate {}", shortTermJobId, candidateId);
-            return matchCache.get(cacheKey);
+            AICandidateMatchResponse cached = matchCache.get(cacheKey);
+            if (cached != null && !Boolean.TRUE.equals(cached.getIsFallback())) {
+                log.debug("Using cached short-term match result for job {} candidate {}", shortTermJobId, candidateId);
+                return cached;
+            }
+
+            if (cached != null && Boolean.TRUE.equals(cached.getIsFallback()) && isEnabled()) {
+                log.debug("Refreshing cached fallback short-term result for job {} candidate {}", shortTermJobId, candidateId);
+                matchCache.remove(cacheKey);
+            }
         }
 
         // Check if AI is enabled
@@ -174,11 +199,12 @@ public class AISearchServiceImpl implements AISearchService {
             AICandidateMatchResponse response = callMistralAPI(request);
 
             // Update rate limiting
+            resetRateLimitWindowsIfNeeded();
             requestsThisMinute.incrementAndGet();
             tokensThisDay.addAndGet(estimateTokens(response.getFitSummary() + response.getReasoning()));
 
             // Cache result
-            if (aiSearchConfig.isCacheEnabled()) {
+            if (aiSearchConfig.isCacheEnabled() && !Boolean.TRUE.equals(response.getIsFallback())) {
                 matchCache.put(cacheKey, response);
             }
 
@@ -200,6 +226,8 @@ public class AISearchServiceImpl implements AISearchService {
             ShortTermJob shortTermJob,
             User candidate,
             PortfolioExtendedProfile profile) {
+        CandidateMissionInsights missionInsights = buildMissionInsights(candidate.getId());
+
         return AICandidateMatchRequest.builder()
                 .jobId(shortTermJob.getId())
                 .candidateId(candidate.getId())
@@ -219,6 +247,10 @@ public class AISearchServiceImpl implements AISearchService {
                         ? profile.getHourlyRate().toString() : null)
                 .totalProjects(profile != null ? profile.getTotalProjects() : null)
                 .totalCertificates(profile != null ? profile.getTotalCertificates() : null)
+                .completedMissionCount(missionInsights.completedMissionCount())
+                .averageMissionRating(missionInsights.averageMissionRating())
+                .missionSkills(missionInsights.missionSkillsJson())
+                .recentMissionHighlights(missionInsights.recentMissionHighlights())
                 .build();
     }
 
@@ -238,12 +270,14 @@ public class AISearchServiceImpl implements AISearchService {
             double skillScore = calculateSkillMatchForShortTermJob(shortTermJob, profile);
             double expScore = calculateExperienceMatch(shortTermJob, profile);
             double budgetScore = calculateBudgetMatch(shortTermJob, profile);
+                double missionScore = calculateMissionScore(buildMissionInsights(candidateId));
 
-            double totalScore = (skillScore * 0.5) + (expScore * 0.3) + (budgetScore * 0.2);
+                double totalScore = (skillScore * 0.45) + (expScore * 0.25) + (budgetScore * 0.15) + (missionScore * 0.15);
 
-            String summary = String.format("Ứng viên có kinh nghiệm %s và kỹ năng %s phù hợp với công việc gig. Mức lương: %s.",
+                String summary = String.format("Ứng viên có kinh nghiệm %s, kỹ năng %s và lịch sử nhiệm vụ %s cho công việc gig. Mức lương: %s.",
                     getExperienceLabelVi(expScore),
                     getSkillLabelVi(skillScore),
+                    getMissionLabelVi(missionScore),
                     getBudgetLabelVi(budgetScore));
 
             return AICandidateMatchResponse.builder()
@@ -253,12 +287,13 @@ public class AISearchServiceImpl implements AISearchService {
                     .skillSignals(extractMatchingSkillsForShortTermJob(shortTermJob, profile))
                     .reasoning("Đánh giá dựa trên quy tắc cho gig - Kỹ năng: " + Math.round(skillScore * 100) + "% khớp, "
                             + "Kinh nghiệm: " + Math.round(expScore * 100) + "% phù hợp, "
-                            + "Mức lương: " + Math.round(budgetScore * 100) + "% hợp lý")
+                            + "Mức lương: " + Math.round(budgetScore * 100) + "% hợp lý, "
+                            + "Nhiệm vụ đã hoàn thành: " + Math.round(missionScore * 100) + "%")
                     .confidenceScore(totalScore)
                     .matchQuality(determineMatchQuality(totalScore))
                     .modelUsed("rule-based-fallback")
                     .isFallback(true)
-                    .processingTimeMs(System.currentTimeMillis() - startTime)
+                        .processingTimeMs(calculateProcessingTime(startTime))
                     .build();
 
         } catch (Exception e) {
@@ -277,8 +312,8 @@ public class AISearchServiceImpl implements AISearchService {
             return 0.3;
         }
         try {
-            List<String> requiredSkills = objectMapper.readValue(shortTermJob.getRequiredSkills(), List.class);
-            List<String> candidateSkills = objectMapper.readValue(profile.getTopSkills(), List.class);
+            List<String> requiredSkills = parseStringList(shortTermJob.getRequiredSkills());
+            List<String> candidateSkills = parseStringList(profile.getTopSkills());
             if (requiredSkills.isEmpty() || candidateSkills.isEmpty()) {
                 return 0.5;
             }
@@ -299,10 +334,10 @@ public class AISearchServiceImpl implements AISearchService {
         if (shortTermJob == null || profile == null) return signals;
         try {
             List<String> jobSkills = shortTermJob.getRequiredSkills() != null
-                    ? objectMapper.readValue(shortTermJob.getRequiredSkills(), List.class)
+                ? parseStringList(shortTermJob.getRequiredSkills())
                     : Collections.emptyList();
             List<String> profileSkills = profile.getTopSkills() != null
-                    ? objectMapper.readValue(profile.getTopSkills(), List.class)
+                ? parseStringList(profile.getTopSkills())
                     : Collections.emptyList();
             jobSkills = jobSkills.stream().map(String::toLowerCase).collect(Collectors.toList());
             profileSkills = profileSkills.stream().map(String::toLowerCase).collect(Collectors.toList());
@@ -376,6 +411,8 @@ public class AISearchServiceImpl implements AISearchService {
     public boolean canMakeRequest() {
         if (!isEnabled()) return false;
 
+        resetRateLimitWindowsIfNeeded();
+
         // Check per-minute limit
         if (requestsThisMinute.get() >= aiSearchConfig.getMaxRequestsPerMinute()) {
             return false;
@@ -389,7 +426,120 @@ public class AISearchServiceImpl implements AISearchService {
         return true;
     }
 
+    private synchronized void resetRateLimitWindowsIfNeeded() {
+        LocalDateTime now = LocalDateTime.now();
+
+        if (now.isAfter(minuteWindowStart.plusMinutes(1))) {
+            requestsThisMinute.set(0);
+            minuteWindowStart = now;
+        }
+
+        if (!now.toLocalDate().equals(dayWindowStart.toLocalDate())) {
+            tokensThisDay.set(0);
+            dayWindowStart = now.toLocalDate().atStartOfDay();
+        }
+    }
+
     // ==================== Private Methods ====================
+
+    private CandidateMissionInsights buildMissionInsights(Long candidateId) {
+        try {
+            List<CompletedMissionDTO> missions = portfolioService.getPublicCompletedMissions(candidateId);
+            if (missions == null || missions.isEmpty()) {
+                return CandidateMissionInsights.empty();
+            }
+
+            long ratedCount = missions.stream().filter(m -> m.getRating() != null).count();
+            Double avgRating = ratedCount > 0
+                    ? missions.stream()
+                    .filter(m -> m.getRating() != null)
+                    .mapToDouble(CompletedMissionDTO::getRating)
+                    .average()
+                    .orElse(0.0)
+                    : null;
+
+            Set<String> missionSkills = missions.stream()
+                    .filter(m -> m.getRequiredSkills() != null)
+                    .flatMap(m -> m.getRequiredSkills().stream())
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(skill -> !skill.isEmpty())
+                    .map(String::toLowerCase)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+
+            String missionSkillsJson = objectMapper.writeValueAsString(missionSkills);
+            String highlights = missions.stream()
+                    .sorted(Comparator.comparing(
+                            CompletedMissionDTO::getCompletedAt,
+                            Comparator.nullsLast(Comparator.reverseOrder())
+                    ))
+                    .limit(3)
+                    .map(this::formatMissionHighlight)
+                    .collect(Collectors.joining(" | "));
+
+            return new CandidateMissionInsights(
+                    missions.size(),
+                    avgRating,
+                    missionSkillsJson,
+                    highlights.isBlank() ? "Không có dữ liệu nhiệm vụ nổi bật" : highlights
+            );
+        } catch (Exception e) {
+            log.debug("Unable to build mission insights for candidate {}: {}", candidateId, e.getMessage());
+            return CandidateMissionInsights.empty();
+        }
+    }
+
+    private String formatMissionHighlight(CompletedMissionDTO mission) {
+        if (mission == null) {
+            return "Nhiệm vụ không xác định";
+        }
+
+        StringBuilder highlight = new StringBuilder();
+        highlight.append(safeText(mission.getJobTitle(), "Nhiệm vụ đã hoàn thành"));
+
+        if (mission.getRating() != null) {
+            highlight.append(" (rating ").append(String.format("%.1f", mission.getRating())).append("/5)");
+        }
+
+        if (mission.getRequiredSkills() != null && !mission.getRequiredSkills().isEmpty()) {
+            String joinedSkills = mission.getRequiredSkills().stream()
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(skill -> !skill.isEmpty())
+                    .limit(4)
+                    .collect(Collectors.joining(", "));
+            if (!joinedSkills.isBlank()) {
+                highlight.append(" - skills: ").append(joinedSkills);
+            }
+        }
+
+        return highlight.toString();
+    }
+
+    private String safeText(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private List<String> parseStringList(String rawValue) throws JsonProcessingException {
+        if (rawValue == null || rawValue.isBlank()) {
+            return Collections.emptyList();
+        }
+        return objectMapper.readValue(
+                rawValue,
+                objectMapper.getTypeFactory().constructCollectionType(List.class, String.class)
+        );
+    }
+
+    private record CandidateMissionInsights(
+            int completedMissionCount,
+            Double averageMissionRating,
+            String missionSkillsJson,
+            String recentMissionHighlights
+    ) {
+        static CandidateMissionInsights empty() {
+            return new CandidateMissionInsights(0, null, "[]", "Không có dữ liệu nhiệm vụ đã hoàn thành");
+        }
+    }
 
     /**
      * Parse estimated duration string to hours.
@@ -421,6 +571,8 @@ public class AISearchServiceImpl implements AISearchService {
     }
 
     private AICandidateMatchRequest buildMatchRequest(JobPosting job, User candidate, PortfolioExtendedProfile profile) {
+        CandidateMissionInsights missionInsights = buildMissionInsights(candidate.getId());
+
         return AICandidateMatchRequest.builder()
                 .jobId(job.getId())
                 .candidateId(candidate.getId())
@@ -440,6 +592,10 @@ public class AISearchServiceImpl implements AISearchService {
                         ? profile.getHourlyRate().toString() : null)
                 .totalProjects(profile != null ? profile.getTotalProjects() : null)
                 .totalCertificates(profile != null ? profile.getTotalCertificates() : null)
+                .completedMissionCount(missionInsights.completedMissionCount())
+                .averageMissionRating(missionInsights.averageMissionRating())
+                .missionSkills(missionInsights.missionSkillsJson())
+                .recentMissionHighlights(missionInsights.recentMissionHighlights())
                 .build();
     }
 
@@ -500,6 +656,15 @@ public class AISearchServiceImpl implements AISearchService {
             - Mức lương theo giờ kỳ vọng: %s VND/giờ
             - Tổng số dự án đã hoàn thành: %s
             - Tổng số chứng chỉ: %s
+            - Số nhiệm vụ đã hoàn thành (short-term): %s
+            - Điểm đánh giá trung bình nhiệm vụ: %s/5
+            - Kỹ năng thể hiện qua nhiệm vụ đã hoàn thành: %s
+            - Nhiệm vụ tiêu biểu gần đây: %s
+
+            Yêu cầu bắt buộc khi phân tích:
+            - Luôn đối chiếu JD với kỹ năng rút ra từ nhiệm vụ đã hoàn thành.
+            - Nếu ứng viên có lịch sử hoàn thành nhiệm vụ tốt, hãy nêu rõ bằng chứng cụ thể trong phần nhận định.
+            - Nếu dữ liệu nhiệm vụ ít hoặc chưa đủ, phải ghi rõ mức độ thiếu dữ liệu.
 
             Hãy phân tích và trả về markdown đẹp mắt, giàu thông tin, với cấu trúc rõ ràng bằng TIẾNG VIỆT.
             **CHỈ trả về markdown text, không có JSON, không có code block, không có backtick.**
@@ -568,23 +733,28 @@ public class AISearchServiceImpl implements AISearchService {
                 request.getYearsOfExperience(),
                 request.getHourlyRate(),
                 request.getTotalProjects(),
-                request.getTotalCertificates()
+                request.getTotalCertificates(),
+                request.getCompletedMissionCount(),
+                request.getAverageMissionRating() != null
+                    ? String.format("%.2f", request.getAverageMissionRating())
+                    : "N/A",
+                request.getMissionSkills(),
+                request.getRecentMissionHighlights()
         );
     }
 
     private AICandidateMatchResponse parseMistralResponse(String jsonResponse, Long jobId, Long candidateId) {
         try {
-            // Mistral response format: { choices: [{ message: { content: "..." } }] }
-            Map<String, Object> response = objectMapper.readValue(jsonResponse, Map.class);
-            List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
+            JsonNode root = objectMapper.readTree(jsonResponse);
+            JsonNode choices = root.path("choices");
 
-            if (choices == null || choices.isEmpty()) {
-                return generateFallbackMatch(jobId, candidateId, 0L);
+            if (!choices.isArray() || choices.isEmpty()) {
+                return generateFallbackMatch(jobId, candidateId, System.currentTimeMillis());
             }
 
-            String content = (String) ((Map<String, Object>) choices.get(0).get("message")).get("content");
+            String content = choices.get(0).path("message").path("content").asText(null);
             if (content == null || content.isBlank()) {
-                return generateFallbackMatch(jobId, candidateId, 0L);
+                return generateFallbackMatch(jobId, candidateId, System.currentTimeMillis());
             }
 
             // AI returns rich markdown text now — extract structured fields
@@ -592,7 +762,7 @@ public class AISearchServiceImpl implements AISearchService {
 
         } catch (Exception e) {
             log.error("Error parsing Mistral response: {}", e.getMessage());
-            return generateFallbackMatch(jobId, candidateId, 0L);
+            return generateFallbackMatch(jobId, candidateId, System.currentTimeMillis());
         }
     }
 
@@ -603,8 +773,17 @@ public class AISearchServiceImpl implements AISearchService {
         // Extract skill signals from "Phân tích kỹ năng" section
         List<AICandidateMatchResponse.SkillSignal> skillSignals = extractSkillSignals(markdown);
 
-        // Estimate confidence from skill signals
-        double confidence = estimateConfidence(skillSignals);
+        // Prefer explicit AI confidence if present, then fallback to parsed signal averages.
+        Double explicitConfidence = extractConfidenceFromMarkdown(markdown);
+        double confidence;
+        if (explicitConfidence != null) {
+            confidence = clamp01(explicitConfidence);
+        } else if (!skillSignals.isEmpty()) {
+            confidence = estimateConfidence(skillSignals);
+        } else {
+            confidence = estimateConfidenceFromMarkdownScores(markdown).orElse(0.5);
+        }
+
         AICandidateMatchResponse.MatchQuality quality = determineMatchQuality(confidence);
 
         return AICandidateMatchResponse.builder()
@@ -670,7 +849,11 @@ public class AISearchServiceImpl implements AISearchService {
         // Pattern: ### {index}. {SkillName} (Quan trọng/Ưu tiên)
         // Then: - **Mức độ phù hợp:** ... (X/1.0)
         java.util.regex.Pattern skillPattern = java.util.regex.Pattern.compile(
-            "###\\s*\\d+\\.\\s*([^\\n(]+?)\\s*\\((Quan trọng|Ưu tiên)\\)",
+            "###\\s*(?:\\d+\\.)?\\s*([^\\n(]+?)(?:\\s*\\((Quan trọng|Ưu tiên)\\))?\\s*$",
+            java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.MULTILINE
+        );
+        java.util.regex.Pattern genericScorePattern = java.util.regex.Pattern.compile(
+            "([0-9](?:\\.[0-9]+)?)/1\\.0",
             java.util.regex.Pattern.CASE_INSENSITIVE
         );
         java.util.regex.Pattern scorePattern = java.util.regex.Pattern.compile(
@@ -685,11 +868,12 @@ public class AISearchServiceImpl implements AISearchService {
         java.util.regex.Matcher skillMatcher = skillPattern.matcher(markdown);
         while (skillMatcher.find()) {
             String skillName = skillMatcher.group(1).trim();
-            boolean isRequired = "Quan trọng".equalsIgnoreCase(skillMatcher.group(2).trim());
+            String requiredGroup = skillMatcher.group(2);
+            boolean isRequired = requiredGroup == null || "Quan trọng".equalsIgnoreCase(requiredGroup.trim());
 
             // Look for score in next 200 chars after skill name
             int searchStart = skillMatcher.end();
-            int searchEnd = Math.min(searchStart + 400, markdown.length());
+            int searchEnd = Math.min(searchStart + 600, markdown.length());
             String nearby = markdown.substring(searchStart, searchEnd);
 
             double relevanceScore = 0.5; // default
@@ -698,6 +882,13 @@ public class AISearchServiceImpl implements AISearchService {
                 try {
                     relevanceScore = Double.parseDouble(scoreMatcher.group(1).trim());
                 } catch (NumberFormatException ignored) {}
+            } else {
+                java.util.regex.Matcher genericScoreMatcher = genericScorePattern.matcher(nearby);
+                if (genericScoreMatcher.find()) {
+                    try {
+                        relevanceScore = Double.parseDouble(genericScoreMatcher.group(1).trim());
+                    } catch (NumberFormatException ignored) {}
+                }
             }
 
             String evidence = "";
@@ -728,6 +919,57 @@ public class AISearchServiceImpl implements AISearchService {
         return signals;
     }
 
+    private Double extractConfidenceFromMarkdown(String markdown) {
+        if (markdown == null || markdown.isBlank()) {
+            return null;
+        }
+
+        java.util.regex.Pattern confidencePattern = java.util.regex.Pattern.compile(
+                "(?i)confidence\\s*[:=]?\\s*([0-9](?:\\.[0-9]+)?)\\s*/\\s*1\\.0"
+        );
+        java.util.regex.Matcher matcher = confidencePattern.matcher(markdown);
+        if (matcher.find()) {
+            try {
+                return Double.parseDouble(matcher.group(1));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private Optional<Double> estimateConfidenceFromMarkdownScores(String markdown) {
+        if (markdown == null || markdown.isBlank()) {
+            return Optional.empty();
+        }
+
+        java.util.regex.Pattern scorePattern = java.util.regex.Pattern.compile("([0-9](?:\\.[0-9]+)?)/1\\.0");
+        java.util.regex.Matcher matcher = scorePattern.matcher(markdown);
+
+        double total = 0;
+        int count = 0;
+        while (matcher.find()) {
+            try {
+                double score = Double.parseDouble(matcher.group(1));
+                if (score >= 0 && score <= 1) {
+                    total += score;
+                    count++;
+                }
+            } catch (NumberFormatException ignored) {
+                // Ignore malformed values and continue.
+            }
+        }
+
+        if (count == 0) {
+            return Optional.empty();
+        }
+        return Optional.of(clamp01(total / count));
+    }
+
+    private double clamp01(double value) {
+        return Math.max(0.0, Math.min(1.0, value));
+    }
+
     private double estimateConfidence(List<AICandidateMatchResponse.SkillSignal> signals) {
         if (signals.isEmpty()) return 0.5;
         double total = signals.stream()
@@ -754,12 +996,14 @@ public class AISearchServiceImpl implements AISearchService {
             double skillScore = calculateSkillMatch(job, profile);
             double expScore = calculateExperienceMatch(job, profile);
             double budgetScore = calculateBudgetMatch(job, profile);
+                double missionScore = calculateMissionScore(buildMissionInsights(candidateId));
 
-            double totalScore = (skillScore * 0.5) + (expScore * 0.3) + (budgetScore * 0.2);
+                double totalScore = (skillScore * 0.45) + (expScore * 0.25) + (budgetScore * 0.15) + (missionScore * 0.15);
 
-            String summary = String.format("Ứng viên có kinh nghiệm %s và kỹ năng %s phù hợp với yêu cầu công việc. Mức lương: %s.",
+                String summary = String.format("Ứng viên có kinh nghiệm %s, kỹ năng %s và lịch sử nhiệm vụ %s so với yêu cầu công việc. Mức lương: %s.",
                     getExperienceLabelVi(expScore),
                     getSkillLabelVi(skillScore),
+                    getMissionLabelVi(missionScore),
                     getBudgetLabelVi(budgetScore));
 
             return AICandidateMatchResponse.builder()
@@ -769,12 +1013,13 @@ public class AISearchServiceImpl implements AISearchService {
                     .skillSignals(extractMatchingSkills(job, profile))
                     .reasoning("Đánh giá dựa trên quy tắc - Kỹ năng: " + Math.round(skillScore * 100) + "% khớp, "
                             + "Kinh nghiệm: " + Math.round(expScore * 100) + "% phù hợp, "
-                            + "Mức lương: " + Math.round(budgetScore * 100) + "% hợp lý")
+                            + "Mức lương: " + Math.round(budgetScore * 100) + "% hợp lý, "
+                            + "Nhiệm vụ đã hoàn thành: " + Math.round(missionScore * 100) + "%")
                     .confidenceScore(totalScore)
                     .matchQuality(determineMatchQuality(totalScore))
                     .modelUsed("rule-based-fallback")
                     .isFallback(true)
-                    .processingTimeMs(System.currentTimeMillis() - startTime)
+                        .processingTimeMs(calculateProcessingTime(startTime))
                     .build();
 
         } catch (Exception e) {
@@ -801,8 +1046,8 @@ public class AISearchServiceImpl implements AISearchService {
         }
 
         try {
-            List<String> jobSkills = objectMapper.readValue(job.getRequiredSkills(), List.class);
-            List<String> profileSkills = objectMapper.readValue(profile.getTopSkills(), List.class);
+            List<String> jobSkills = parseStringList(job.getRequiredSkills());
+            List<String> profileSkills = parseStringList(profile.getTopSkills());
 
             if (jobSkills.isEmpty() || profileSkills.isEmpty()) {
                 return 0.5;
@@ -881,24 +1126,6 @@ public class AISearchServiceImpl implements AISearchService {
         return 3;
     }
 
-    private String getExperienceLabel(double score) {
-        if (score >= 0.8) return "strong";
-        if (score >= 0.5) return "moderate";
-        return "limited";
-    }
-
-    private String getSkillLabel(double score) {
-        if (score >= 0.8) return "excellent";
-        if (score >= 0.5) return "good";
-        return "basic";
-    }
-
-    private String getBudgetLabel(double score) {
-        if (score >= 0.8) return "excellent";
-        if (score >= 0.5) return "acceptable";
-        return "below expectations";
-    }
-
     private String getExperienceLabelVi(double score) {
         if (score >= 0.8) return "vững";
         if (score >= 0.5) return "tương đối";
@@ -917,12 +1144,48 @@ public class AISearchServiceImpl implements AISearchService {
         return "chưa đạt";
     }
 
+    private String getMissionLabelVi(double score) {
+        if (score >= 0.8) return "rất tốt";
+        if (score >= 0.6) return "khá";
+        if (score >= 0.4) return "trung bình";
+        return "hạn chế";
+    }
+
+    private double calculateMissionScore(CandidateMissionInsights missionInsights) {
+        if (missionInsights == null || missionInsights.completedMissionCount() <= 0) {
+            return 0.4;
+        }
+
+        double countScore = Math.min(1.0, missionInsights.completedMissionCount() / 5.0);
+        double ratingScore = missionInsights.averageMissionRating() != null
+                ? clamp01(missionInsights.averageMissionRating() / 5.0)
+                : 0.6;
+
+        int skillCount = 0;
+        try {
+            List<String> missionSkills = parseStringList(missionInsights.missionSkillsJson());
+            skillCount = missionSkills != null ? missionSkills.size() : 0;
+        } catch (Exception ignored) {
+            // Keep skillCount at 0 when mission skills are unavailable.
+        }
+        double skillCoverageScore = Math.min(1.0, skillCount / 8.0);
+
+        return clamp01((countScore * 0.4) + (ratingScore * 0.4) + (skillCoverageScore * 0.2));
+    }
+
+    private long calculateProcessingTime(long startTime) {
+        if (startTime <= 0) {
+            return 0L;
+        }
+        return Math.max(0L, System.currentTimeMillis() - startTime);
+    }
+
     private List<AICandidateMatchResponse.SkillSignal> extractMatchingSkills(JobPosting job, PortfolioExtendedProfile profile) {
         List<AICandidateMatchResponse.SkillSignal> signals = new ArrayList<>();
 
         try {
-            List<String> jobSkills = objectMapper.readValue(job.getRequiredSkills(), List.class);
-            List<String> profileSkills = objectMapper.readValue(profile.getTopSkills(), List.class);
+            List<String> jobSkills = parseStringList(job.getRequiredSkills());
+            List<String> profileSkills = parseStringList(profile.getTopSkills());
 
             jobSkills = jobSkills.stream().map(String::toLowerCase).collect(Collectors.toList());
             profileSkills = profileSkills.stream().map(String::toLowerCase).collect(Collectors.toList());
@@ -962,6 +1225,7 @@ public class AISearchServiceImpl implements AISearchService {
      */
     public void resetDailyCounters() {
         tokensThisDay.set(0);
+        dayWindowStart = LocalDateTime.now().toLocalDate().atStartOfDay();
         log.info("Daily AI search token counter reset");
     }
 
@@ -970,5 +1234,6 @@ public class AISearchServiceImpl implements AISearchService {
      */
     public void resetMinuteCounters() {
         requestsThisMinute.set(0);
+        minuteWindowStart = LocalDateTime.now();
     }
 }

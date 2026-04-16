@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.question_bank_service.entity.QuestionBankQuest
 import com.exe.skillverse_backend.question_bank_service.repository.QuestionBankQuestionRepository;
 import com.exe.skillverse_backend.question_bank_service.repository.QuestionBankRepository;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankQuestionService;
+import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.QuestionInfo;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -19,7 +20,9 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -125,6 +128,67 @@ public class QuestionBankQuestionServiceImpl implements QuestionBankQuestionServ
         questionBankQuestionRepository.saveAll(entities);
         log.info("Bulk added {} questions to bank {}", entities.size(), bankId);
         return entities.size();
+    }
+
+    @Override
+    public void saveQuestionsFromTest(Long bankId, List<QuestionInfo> questions) {
+        QuestionBank bank = questionBankRepository.findById(bankId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND,
+                        "Question bank not found: " + bankId));
+
+        // Normalize incoming question texts for deduplication check
+        Set<String> existingTexts = new HashSet<>();
+        questionBankQuestionRepository.findByQuestionBankIdAndIsActiveTrue(bankId,
+                org.springframework.data.domain.Pageable.unpaged())
+                .forEach(q -> existingTexts.add(normalizeForCompare(q.getQuestionText())));
+
+        List<QuestionBankQuestion> entities = questions.stream()
+                .filter(q -> {
+                    String normalized = normalizeForCompare(q.question());
+                    return normalized != null && !normalized.isBlank()
+                            && !existingTexts.contains(normalized);
+                })
+                .map(q -> {
+                    String correctAnswer = q.correctAnswer();
+                    if (correctAnswer != null && correctAnswer.length() > 1) {
+                        correctAnswer = correctAnswer.toUpperCase().substring(0, 1);
+                    }
+                    String difficulty = q.difficulty();
+                    if (difficulty != null) {
+                        difficulty = difficulty.toUpperCase();
+                    }
+                    return QuestionBankQuestion.builder()
+                            .questionBank(bank)
+                            .questionText(q.question())
+                            .options(toOptionsJson(q.options()))
+                            .correctAnswer(correctAnswer != null ? correctAnswer : "A")
+                            .explanation(q.explanation())
+                            .difficulty(difficulty != null ? difficulty : "BEGINNER")
+                            .skillArea(q.skillArea())
+                            .category("KNOWLEDGE")
+                            .source("AI_GENERATED")
+                            .isActive(true)
+                            .usedCount(0)
+                            .build();
+                })
+                .collect(java.util.stream.Collectors.toList());
+
+        if (!entities.isEmpty()) {
+            questionBankQuestionRepository.saveAll(entities);
+            log.info("Saved {} new AI-generated questions to bank {} (filtered {} duplicates)",
+                    entities.size(), bankId, questions.size() - entities.size());
+        } else if (!questions.isEmpty()) {
+            log.info("All {} AI-generated questions were duplicates — nothing saved to bank {}",
+                    questions.size(), bankId);
+        }
+    }
+
+    private String normalizeForCompare(String text) {
+        if (text == null) return null;
+        return text.toLowerCase()
+                .replaceAll("\\s+", " ")
+                .replaceAll("[.,;:'\"!?()\\[\\]{}]", "")
+                .trim();
     }
 
     // ==================== Private Helpers ====================

@@ -1672,6 +1672,8 @@ CREATE TABLE portfolio_extended_profiles (
     professional_title        VARCHAR(200),
     career_goals             TEXT,
     years_of_experience       INTEGER,
+    work_experiences         TEXT,
+    education_history        TEXT,
     avatar_url               VARCHAR(500),
     avatar_public_id          VARCHAR(500),
     video_intro_url          VARCHAR(500),

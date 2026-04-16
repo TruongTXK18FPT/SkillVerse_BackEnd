@@ -233,6 +233,7 @@ skillverse:
       enabled: ${AI_GENERATE_TEST_ENABLED:true}
       max-tokens: ${AI_GENERATE_TEST_MAX_TOKENS:30000}
       temperature: ${AI_GENERATE_TEST_TEMPERATURE:0.7}
+      timeout-ms: ${AI_GENERATE_TEST_TIMEOUT:180000}
 
     # AI Candidate Search Configuration (separate Mistral API key for recruiter search)
     search:
