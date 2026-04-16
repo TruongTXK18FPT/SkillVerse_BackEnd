@@ -50,6 +50,9 @@ env:
   # AI Search Configuration
   AI_SEARCH_KEY: ${{ secrets.AI_SEARCH_KEY }}
 
+  # Assignment AI Grading Configuration
+  ASSIGNMENT_AI_API_KEY: ${{ secrets.ASSIGNMENT_AI_API_KEY }}
+
   # Payment Gateway Configuration (PayOS)
   PAYOS_CLIENT_ID: ${{ secrets.PAYOS_CLIENT_ID }}
   PAYOS_API_KEY: ${{ secrets.PAYOS_API_KEY }}
@@ -496,6 +499,7 @@ jobs:
           echo "CLOUDINARY_URL='${{ secrets.CLOUDINARY_URL }}'" >> .env
           echo "REMOVE_BG_API_KEY='${{ secrets.REMOVE_BG_API_KEY }}'" >> .env
           echo "AI_SEARCH_KEY='${{ secrets.AI_SEARCH_KEY }}'" >> .env
+          echo "ASSIGNMENT_AI_API_KEY='${{ secrets.ASSIGNMENT_AI_API_KEY }}'" >> .env
           echo "FIREBASE_PROJECT_ID='${{ secrets.FIREBASE_PROJECT_ID }}'" >> .env
           echo "FIREBASE_CREDENTIALS_JSON_BASE64='${{ secrets.FIREBASE_CREDENTIALS_JSON_BASE64 }}'" >> .env
 
@@ -547,6 +551,7 @@ jobs:
             [ -n "$MISTRAL_API_KEY" ] && echo "✅ MISTRAL_API_KEY loaded" || echo "❌ MISTRAL_API_KEY missing"
             [ -n "$GEMINI_API_KEY" ] && echo "✅ GEMINI_API_KEY loaded" || echo "❌ GEMINI_API_KEY missing"
             [ -n "$CLOUDINARY_CLOUD_NAME" ] && echo "✅ CLOUDINARY_CLOUD_NAME loaded" || echo "❌ CLOUDINARY_CLOUD_NAME missing"
+            [ -n "$ASSIGNMENT_AI_API_KEY" ] && echo "✅ ASSIGNMENT_AI_API_KEY loaded" || echo "❌ ASSIGNMENT_AI_API_KEY missing"
             
             # Stop and remove old backend container (both compose and standalone)
             docker compose stop backend 2>/dev/null || true
@@ -615,6 +620,7 @@ jobs:
               -e PAYOS_CHECKSUM_KEY="$PAYOS_CHECKSUM_KEY" \
               -e FIREBASE_PROJECT_ID="$FIREBASE_PROJECT_ID" \
               -e FIREBASE_CREDENTIALS_JSON_BASE64="$FIREBASE_CREDENTIALS_JSON_BASE64" \
+              -e ASSIGNMENT_AI_API_KEY="$ASSIGNMENT_AI_API_KEY" \
               skillverse-backend:v1
             
             echo "⏳ Waiting for backend to start..."
