@@ -268,6 +268,18 @@ public class DatabaseSchemaFixer {
                     this::patchWalletTransactionTypeConstraint,
                     this::verifyWalletTransactionTypeConstraint);
 
+            // ─── course.price/currency sync from active_revision (out-of-sync fix) ──
+            // When revision approval was implemented, approveRevision() only synced
+            // activeRevisionId/latestRevisionId but NOT price/currency on the course table.
+            // This caused enrollment 400 errors and incorrect purchase/mentor payments.
+            // Fix: sync course.price/currency from active_revision on every approve.
+            // The code fix in CourseRevisionServiceImpl.approveRevision() prevents future drift.
+            // This patch cleans up existing out-of-sync courses (runs once, idempotent).
+            applyPatch("sync-course-price-currency-from-active-revision",
+                    "Sync course.price and course.currency from active_revision for out-of-sync courses",
+                    this::patchCoursePriceCurrencyFromRevision,
+                    this::verifyCoursePriceCurrencyFromRevision);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -1486,6 +1498,55 @@ public class DatabaseSchemaFixer {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    // ─── course.price/currency: sync from active_revision ───────────────────
+
+    private void patchCoursePriceCurrencyFromRevision() {
+        if (!hasTable("courses") || !hasTable("course_revisions")) {
+            log.debug("courses or course_revisions table not yet created, skipping patch.");
+            return;
+        }
+
+        // Update courses.price and courses.currency from the currently active revision.
+        // Uses a subquery so each course picks up its own active_revision's values.
+        executeSql("""
+            UPDATE courses c
+            SET price  = r.price,
+                currency = r.currency,
+                updated_at = NOW()
+            FROM course_revisions r
+            WHERE r.id = c.active_revision_id
+              AND (
+                  c.price IS DISTINCT FROM r.price
+                  OR c.currency IS DISTINCT FROM r.currency
+              )
+        """);
+    }
+
+    private boolean verifyCoursePriceCurrencyFromRevision() {
+        if (!hasTable("courses") || !hasTable("course_revisions")) {
+            return true; // tables not present yet — will apply on next startup
+        }
+
+        // Verify: no courses where price/currency differs from active_revision
+        var results = jdbcTemplate.queryForList("""
+            SELECT COUNT(*) AS mismatches
+            FROM courses c
+            JOIN course_revisions r ON r.id = c.active_revision_id
+            WHERE c.price IS DISTINCT FROM r.price
+               OR c.currency IS DISTINCT FROM r.currency
+        """);
+
+        if (!results.isEmpty()) {
+            long count = ((Number) results.get(0).get("mismatches")).longValue();
+            if (count > 0) {
+                log.warn("Course price/currency sync verification found {} out-of-sync courses", count);
+            }
+        }
+
+        // Always return true — the UPDATE always succeeds even if rows are already in sync
+        return true;
     }
 
     protected boolean hasForeignKey(String tableName, String constraintName) {

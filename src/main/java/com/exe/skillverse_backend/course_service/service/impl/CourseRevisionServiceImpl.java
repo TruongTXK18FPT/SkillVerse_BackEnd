@@ -441,6 +441,11 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         course.setLatestRevisionId(saved.getId());
         course.setRevisioningEnabled(Boolean.TRUE);
         course.setUpdatedAt(now());
+        // Sync price and currency from approved revision to course entity.
+        // These fields on the course table are used by enrollment and purchase logic,
+        // so keeping them in sync prevents 400 errors and incorrect wallet charges.
+        course.setPrice(saved.getPrice());
+        course.setCurrency(saved.getCurrency());
         courseRepository.save(course);
 
         // Sync AI grading fields from approved revision snapshot → live assignments table
