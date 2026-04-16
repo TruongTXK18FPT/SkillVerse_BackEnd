@@ -24,7 +24,7 @@ public class CreateInterviewRequest {
 
     @NotNull(message = "Scheduled time is required")
     @Future(message = "Scheduled time must be in the future")
-    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ssXXX")
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     private LocalDateTime scheduledAt;
 
     @Min(value = 15, message = "Duration must be at least 15 minutes")

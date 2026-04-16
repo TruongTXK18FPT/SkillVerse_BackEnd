@@ -29,7 +29,7 @@ public class InterviewAutoDeclineSchedulerImpl {
      * Auto-decline pending interviews that passed response deadline.
      * Runs every 5 minutes.
      */
-    @Scheduled(cron = "0 */5 * * * *")
+    @Scheduled(initialDelay = 10000, fixedRate = 300000)
     @Transactional
     public void autoDeclineExpiredPendingInterviews() {
         LocalDateTime now = LocalDateTime.now();

@@ -4,12 +4,14 @@ import com.exe.skillverse_backend.premium_service.exception.UsageLimitExceededEx
 import com.exe.skillverse_backend.shared.exception.AuthenticationException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -148,6 +150,33 @@ public class GlobalExceptionHandler {
                 var body = ErrorResponse.builder()
                                 .code(ErrorCode.BAD_REQUEST.code)
                                 .message(ex.getMessage())
+                                .status(ErrorCode.BAD_REQUEST.status.value())
+                                .timestamp(Instant.now())
+                                .path(req.getRequestURI())
+                                .build();
+                return ResponseEntity.status(ErrorCode.BAD_REQUEST.status).body(body);
+        }
+
+        /**
+         * Handles malformed JSON / unreadable request payloads.
+         * Returns 400 so clients receive actionable feedback instead of generic 500.
+         */
+        @ExceptionHandler(HttpMessageNotReadableException.class)
+        public ResponseEntity<ErrorResponse> handleHttpMessageNotReadable(
+                        HttpMessageNotReadableException ex, HttpServletRequest req) {
+                String message = "Request body is malformed or contains invalid field formats.";
+                Throwable rootCause = ex.getMostSpecificCause();
+
+                if (rootCause instanceof DateTimeParseException
+                                || ex.getMessage().contains("LocalDateTime")) {
+                        message = "Invalid date-time format for scheduledAt. Use yyyy-MM-dd'T'HH:mm:ss.";
+                }
+
+                log.warn("Invalid request payload at {}: {}", req.getRequestURI(), ex.getMessage());
+
+                var body = ErrorResponse.builder()
+                                .code(ErrorCode.BAD_REQUEST.code)
+                                .message(message)
                                 .status(ErrorCode.BAD_REQUEST.status.value())
                                 .timestamp(Instant.now())
                                 .path(req.getRequestURI())
