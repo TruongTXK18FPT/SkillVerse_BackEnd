@@ -251,6 +251,11 @@ public class DatabaseSchemaFixer {
                     this::patchPortfolioExtendedProfilesHistoryColumns,
                     this::verifyPortfolioExtendedProfilesHistoryColumns);
 
+                applyPatch("add-portfolio-extended-profiles-achievements-column",
+                    "Add achievements column to portfolio_extended_profiles for mentor achievements",
+                    this::patchPortfolioExtendedProfilesAchievementsColumn,
+                    this::verifyPortfolioExtendedProfilesAchievementsColumn);
+
             applyPatch("add-prechat-messages-booking-id",
                     "Add booking_id FK column to prechat_messages for booking-scoped chat",
                     this::patchPrechatMessagesBookingId,
@@ -1395,6 +1400,19 @@ public class DatabaseSchemaFixer {
         return hasTable("portfolio_extended_profiles")
                 && hasColumn("portfolio_extended_profiles", "work_experiences")
                 && hasColumn("portfolio_extended_profiles", "education_history");
+    }
+
+    private void patchPortfolioExtendedProfilesAchievementsColumn() {
+        if (!hasTable("portfolio_extended_profiles")) {
+            log.debug("Table portfolio_extended_profiles does not exist yet, skipping patch.");
+            return;
+        }
+        executeSql("ALTER TABLE portfolio_extended_profiles ADD COLUMN IF NOT EXISTS achievements TEXT");
+    }
+
+    private boolean verifyPortfolioExtendedProfilesAchievementsColumn() {
+        return hasTable("portfolio_extended_profiles")
+                && hasColumn("portfolio_extended_profiles", "achievements");
     }
 
     // ─── wallet_transactions: sync transaction_type check constraint ────────────────

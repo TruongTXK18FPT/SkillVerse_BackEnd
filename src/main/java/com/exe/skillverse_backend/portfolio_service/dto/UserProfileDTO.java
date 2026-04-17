@@ -83,7 +83,13 @@ public class UserProfileDTO {
     private String customUrlSlug;
     private String metaDescription;
     private String keywords; // JSON array
-    
+
+    // Achievements (JSON array - used for mentor accounts)
+    private String achievements; // JSON array of achievements
+
+    // Owner role for frontend tab visibility
+    private String primaryRole; // From auth User.primaryRole (MENTOR, USER, RECRUITER, ADMIN)
+
     // Timestamps
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

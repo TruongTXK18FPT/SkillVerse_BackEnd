@@ -8,6 +8,8 @@ import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.FavoriteMentorRepository;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.mentor_service.service.FavoriteMentorService;
+import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -22,6 +24,7 @@ public class FavoriteMentorServiceImpl implements FavoriteMentorService {
     private final FavoriteMentorRepository favoriteMentorRepository;
     private final UserRepository userRepository;
     private final MentorProfileRepository mentorProfileRepository;
+    private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
 
     @Transactional
     public boolean toggleFavorite(Long studentId, Long mentorId) {
@@ -66,6 +69,10 @@ public class FavoriteMentorServiceImpl implements FavoriteMentorService {
     // Helper to map MentorProfile to DTO (simplified version of what might be in
     // MentorService)
     private MentorProfileResponse mapToDTO(MentorProfile profile) {
+        String slug = portfolioExtendedProfileRepository.findByUserId(profile.getUserId())
+            .map(PortfolioExtendedProfile::getCustomUrlSlug)
+            .orElse(null);
+
         String firstName = null;
         String lastName = null;
         String fullName = profile.getFullName();
@@ -92,7 +99,7 @@ public class FavoriteMentorServiceImpl implements FavoriteMentorService {
                 .ratingCount(profile.getRatingCount())
                 .hourlyRate(profile.getHourlyRate())
                 .preChatEnabled(profile.getPreChatEnabled())
-                .slug(null)
+                .slug(slug)
                 .createdAt(profile.getCreatedAt())
                 .updatedAt(profile.getUpdatedAt())
                 .skillPoints(profile.getSkillPoints())

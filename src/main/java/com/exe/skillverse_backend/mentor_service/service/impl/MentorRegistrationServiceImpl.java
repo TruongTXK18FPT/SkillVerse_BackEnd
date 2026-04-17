@@ -8,6 +8,8 @@ import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.mentor_service.service.MentorRegistrationService;
+import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +27,7 @@ import java.text.Normalizer;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -51,6 +54,7 @@ public class MentorRegistrationServiceImpl
 
         private final UserCreationService userCreationService;
         private final MentorProfileRepository mentorProfileRepository;
+        private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
         private final CloudinaryService cloudinaryService;
         private final Validator validator;
 
@@ -70,11 +74,14 @@ public class MentorRegistrationServiceImpl
                         // 2. Create MentorProfile in mentor_service
                         createMentorProfile(user, request);
 
-                        // 3. OTP is already generated in UserCreationService#createUserForMentor
+                        // 3. Auto-create PortfolioExtendedProfile with basic info from registration
+                        createPortfolioForMentor(user, request);
+
+                        // 4. OTP is already generated in UserCreationService#createUserForMentor
                         // (avoid duplicate send and resend-cooldown errors)
                         log.info("OTP already generated during mentor user creation: {}", request.getEmail());
 
-                        // 4. Log successful registration
+                        // 5. Log successful registration
                         return MentorRegistrationResponse.builder()
                                         .success(true)
                                         .message("Mentor registration successful! Your application is pending admin approval.")
@@ -389,6 +396,53 @@ public class MentorRegistrationServiceImpl
 
                 mentorProfileRepository.save(mentorProfile);
                 log.info("Created mentor profile for user: {} with full name: {}", user.getId(), request.getFullName());
+        }
+
+        /**
+         * Create PortfolioExtendedProfile for the newly registered mentor.
+         * This auto-creates a portfolio so the mentor doesn't have to create it manually.
+         */
+        private void createPortfolioForMentor(User user, MentorRegistrationRequest request) {
+                // Only create if not already exists
+                if (portfolioExtendedProfileRepository.existsByUserId(user.getId())) {
+                        log.info("Portfolio already exists for user: {}, skipping auto-creation", user.getId());
+                        return;
+                }
+
+                // Determine slug from fullName + userId
+                String slug = slugify(request.getFullName()) + "-" + user.getId();
+
+                // Parse skills from mainExpertiseArea
+                String topSkills = null;
+                if (request.getMainExpertiseArea() != null) {
+                        try {
+                                topSkills = new ObjectMapper().writeValueAsString(
+                                        Arrays.stream(request.getMainExpertiseArea().split(","))
+                                                .map(String::trim)
+                                                .filter(s -> !s.isEmpty())
+                                                .collect(Collectors.toList())
+                                );
+                        } catch (Exception e) {
+                                log.warn("Failed to serialize expertise areas for portfolio", e);
+                        }
+                }
+
+                PortfolioExtendedProfile portfolio = PortfolioExtendedProfile.builder()
+                                .user(user)
+                                .fullName(request.getFullName())
+                                .bio(request.getPersonalProfile())
+                                .professionalTitle(request.getMainExpertiseArea())
+                                .yearsOfExperience(request.getYearsOfExperience())
+                                .topSkills(topSkills)
+                                .linkedinUrl(request.getLinkedinProfile())
+                                .isPublic(true)
+                                .showContactInfo(false)
+                                .allowJobOffers(true)
+                                .customUrlSlug(slug)
+                                .build();
+
+                portfolioExtendedProfileRepository.save(portfolio);
+                log.info("Auto-created portfolio for mentor user: {} with slug: {}", user.getId(), slug);
         }
 
         private String toJson(List<String> urls) {

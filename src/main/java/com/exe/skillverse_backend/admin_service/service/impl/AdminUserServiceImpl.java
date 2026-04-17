@@ -604,6 +604,39 @@ public class AdminUserServiceImpl implements AdminUserService {
 
                         // Business Service (legacy job posting)
                         entityManager.createNativeQuery(
+                                        "DELETE FROM recruitment_messages WHERE sender_id = ?1 " +
+                                                        "OR session_id IN (SELECT id FROM recruitment_sessions WHERE recruiter_id = ?1 OR candidate_id = ?1 " +
+                                                        "OR job_posting_id IN (SELECT id FROM job_postings WHERE recruiter_id = ?1) " +
+                                                        "OR short_term_job_id IN (SELECT id FROM short_term_jobs WHERE recruiter_id = ?1))")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM recruitment_sessions WHERE recruiter_id = ?1 OR candidate_id = ?1 " +
+                                                        "OR job_posting_id IN (SELECT id FROM job_postings WHERE recruiter_id = ?1) " +
+                                                        "OR short_term_job_id IN (SELECT id FROM short_term_jobs WHERE recruiter_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM recruiter_shortlists WHERE candidate_id = ?1 OR recruiter_id = ?1 " +
+                                                        "OR job_posting_id IN (SELECT id FROM job_postings WHERE recruiter_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM candidate_match_scores WHERE candidate_id = ?1 " +
+                                                        "OR job_posting_id IN (SELECT id FROM job_postings WHERE recruiter_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM job_boosts WHERE recruiter_id = ?1 OR created_by = ?1 " +
+                                                        "OR job_posting_id IN (SELECT id FROM job_postings WHERE recruiter_id = ?1)")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM interview_schedules WHERE application_id IN " +
+                                                        "(SELECT id FROM job_applications WHERE user_id = ?1 " +
+                                                        "OR job_posting_id IN (SELECT id FROM job_postings WHERE recruiter_id = ?1))")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
+                                        "DELETE FROM job_contracts WHERE application_id IN " +
+                                                        "(SELECT id FROM job_applications WHERE user_id = ?1 " +
+                                                        "OR job_posting_id IN (SELECT id FROM job_postings WHERE recruiter_id = ?1))")
+                                        .setParameter(1, userId).executeUpdate();
+                        entityManager.createNativeQuery(
                                         "DELETE FROM job_applications WHERE user_id = ?1 OR job_posting_id IN (SELECT id FROM job_postings WHERE recruiter_id = ?1)")
                                         .setParameter(1, userId).executeUpdate();
                         entityManager.createNativeQuery("DELETE FROM job_postings WHERE recruiter_id = ?1")

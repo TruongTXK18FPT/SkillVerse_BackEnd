@@ -173,6 +173,10 @@ public class PortfolioExtendedProfile {
     @Column(name = "keywords", columnDefinition = "TEXT")
     private String keywords; // JSON array for searchability
 
+    // Achievements (JSON array - used for mentor accounts)
+    @Column(name = "achievements", columnDefinition = "TEXT")
+    private String achievements; // JSON array of achievements: ["Best Mentor 2024", "Top Rated"]
+
     // Timestamps
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default

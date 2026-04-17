@@ -685,19 +685,48 @@ public class UsageLimitServiceImpl implements UsageLimitService {
                     // FREE_TIER
                     // This prevents overwriting if a paid subscription was just created but not yet
                     // synced or in race condition
-                    boolean hasAnyActive = subscriptionRepository.hasActiveSubscription(user, LocalDateTime.now());
+                boolean hasAnyActive = Boolean.TRUE.equals(
+                    subscriptionRepository.hasActiveSubscription(user, LocalDateTime.now()));
                     if (hasAnyActive) {
                         // If repository says true but findCurrentActiveSubscription returned empty,
                         // it might be a timing issue or expired-but-active state.
-                        // Fetch explicitly to be safe and avoid creating duplicate/free tier.
-                        return subscriptionRepository.findCurrentActiveSubscription(user)
-                                .orElseThrow(() -> new ApiException(ErrorCode.INTERNAL_ERROR,
-                                        "Subscription state inconsistent for user " + user.getId()));
+                // Fetch explicitly to be safe and avoid creating duplicate/free tier.
+                Optional<UserSubscription> currentActive = subscriptionRepository.findCurrentActiveSubscription(user);
+                if (currentActive.isPresent()) {
+                    return currentActive.get();
+                }
+
+                // Best-effort recovery for inconsistent rows before assigning FREE_TIER.
+                Optional<UserSubscription> staleActive = subscriptionRepository
+                    .findByUserAndIsActiveTrueAndStatus(user, UserSubscription.SubscriptionStatus.ACTIVE);
+
+                if (staleActive.isPresent()) {
+                    UserSubscription candidate = staleActive.get();
+                    LocalDateTime now = LocalDateTime.now();
+
+                    if (candidate.getEndDate() != null && candidate.getEndDate().isBefore(now)) {
+                    candidate.expire();
+                    subscriptionRepository.save(candidate);
+                    log.warn("Expired stale ACTIVE subscription {} for user {} during usage fallback",
+                        candidate.getId(), user.getId());
+                    } else if (candidate.getStartDate() != null && candidate.getEndDate() != null
+                        && !candidate.getStartDate().isAfter(now)
+                        && candidate.getEndDate().isAfter(now)) {
+                    log.warn("Recovered active subscription {} for user {} from fallback lookup",
+                        candidate.getId(), user.getId());
+                    return candidate;
+                    }
+                }
+
+                log.warn("Inconsistent subscription state detected for user {}. Falling back to FREE_TIER.",
+                    user.getId());
                     }
 
                     // Check if user has a SUSPENDED Free Tier to reactivate
-                    Optional<UserSubscription> suspendedFreeTier = subscriptionRepository
-                            .findSuspendedFreeTierByUserId(user.getId());
+                Optional<UserSubscription> suspendedFreeTier = subscriptionRepository
+                    .findAllSuspendedFreeTierByUserId(user.getId())
+                    .stream()
+                    .findFirst();
                     
                     if (suspendedFreeTier.isPresent()) {
                         log.info("Reactivating suspended Free Tier for user {}", user.getId());
@@ -724,7 +753,14 @@ public class UsageLimitServiceImpl implements UsageLimitService {
                             .endDate(LocalDateTime.now().plusYears(100))
                             .build();
 
-                    return subscriptionRepository.save(freeSubscription);
+                    try {
+                        return subscriptionRepository.save(freeSubscription);
+                    } catch (DataIntegrityViolationException ex) {
+                        // Another concurrent request may have created/reactivated a subscription first.
+                        return subscriptionRepository.findCurrentActiveSubscription(user)
+                                .orElseThrow(() -> new ApiException(ErrorCode.INTERNAL_ERROR,
+                                        "Failed to recover active subscription for user " + user.getId()));
+                    }
                 });
     }
 

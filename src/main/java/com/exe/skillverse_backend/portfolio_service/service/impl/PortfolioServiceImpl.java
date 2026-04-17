@@ -272,6 +272,8 @@ public class PortfolioServiceImpl implements PortfolioService {
             extendedProfile.setMetaDescription(dto.getMetaDescription());
         if (dto.getKeywords() != null)
             extendedProfile.setKeywords(dto.getKeywords());
+        if (dto.getAchievements() != null)
+            extendedProfile.setAchievements(dto.getAchievements());
 
         return extendedProfile;
     }
@@ -1011,6 +1013,8 @@ public class PortfolioServiceImpl implements PortfolioService {
             builder.userId(extendedProfile.getUserId());
             builder.fullName(displayName);
             builder.email(user != null ? user.getEmail() : null);
+            builder.primaryRole(user != null && user.getPrimaryRole() != null
+                    ? user.getPrimaryRole().name() : null);
             builder.basicBio(extendedProfile.getBio());
             builder.phone(phone);
             builder.address(extendedProfile.getAddress());
@@ -1054,6 +1058,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                     .customUrlSlug(extendedProfile.getCustomUrlSlug())
                     .metaDescription(extendedProfile.getMetaDescription())
                     .keywords(extendedProfile.getKeywords())
+                    .achievements(extendedProfile.getAchievements())
                     .createdAt(extendedProfile.getCreatedAt())
                     .updatedAt(extendedProfile.getUpdatedAt());
         }

@@ -658,72 +658,61 @@ public class MentorProfileServiceImpl implements MentorProfileService {
     }
 
     private MentorProfileResponse mapToResponse(MentorProfile profile) {
+        // Fetch Portfolio Extended Profile for ALL display data (authoritative source)
+        var portfolioOpt = portfolioExtendedProfileRepository.findByUserId(profile.getUserId());
+
+        // === Display data from Portfolio (authoritative) ===
+        String slug = portfolioOpt.map(PortfolioExtendedProfile::getCustomUrlSlug).orElse(null);
+        Double hourlyRate = portfolioOpt.map(PortfolioExtendedProfile::getHourlyRate).orElse(null);
+        String avatar = portfolioOpt.flatMap(p -> Optional.ofNullable(p.getAvatarUrl()))
+                .orElse(profile.getAvatarUrl());
+        String bio = portfolioOpt.flatMap(p -> Optional.ofNullable(p.getBio()))
+                .orElse(profile.getPersonalProfile());
+        String specialization = portfolioOpt.flatMap(p -> Optional.ofNullable(p.getProfessionalTitle()))
+                .orElse(profile.getMainExpertiseAreas());
+        Integer experience = portfolioOpt.flatMap(p -> Optional.ofNullable(p.getYearsOfExperience()))
+                .orElse(profile.getYearsOfExperience());
+
+        // Social links from Portfolio (authoritative), fallback to MentorProfile
+        MentorProfileResponse.SocialLinks socialLinks = MentorProfileResponse.SocialLinks.builder()
+                .linkedin(portfolioOpt.flatMap(p -> Optional.ofNullable(p.getLinkedinUrl())).orElse(profile.getLinkedinProfile()))
+                .github(portfolioOpt.flatMap(p -> Optional.ofNullable(p.getGithubUrl())).orElse(profile.getGithubProfile()))
+                .website(portfolioOpt.flatMap(p -> Optional.ofNullable(p.getPortfolioWebsiteUrl())).orElse(profile.getWebsiteUrl()))
+                .build();
+
+        // Skills from Portfolio topSkills, fallback to MentorProfile skills/mainExpertiseAreas
+        String[] skills = parseSkillsFromPortfolio(portfolioOpt, profile);
+
+        // Achievements from Portfolio, fallback to MentorProfile (legacy)
+        String[] achievements = parseAchievementsFromPortfolio(portfolioOpt, profile);
+
+        // Badges from MentorProfile (gamification — not in Portfolio)
+        String[] badges = parseBadges(profile);
+
+        // === Name parsing (keep from MentorProfile as registration source) ===
         String fullName = profile.getFullName();
         String firstName = "";
         String lastName = "";
-
         if (fullName != null && fullName.contains(" ")) {
             String[] nameParts = fullName.split(" ", 2);
             firstName = nameParts[0];
             lastName = nameParts.length > 1 ? nameParts[1] : "";
         } else if (fullName != null) {
             firstName = fullName;
+        } else {
+            // Fallback to portfolio fullName
+            firstName = portfolioOpt.map(PortfolioExtendedProfile::getFullName).orElse("");
         }
-
-        MentorProfileResponse.SocialLinks socialLinks = MentorProfileResponse.SocialLinks.builder()
-                .linkedin(profile.getLinkedinProfile())
-                .github(profile.getGithubProfile())
-                .website(profile.getWebsiteUrl())
-                .build();
-
-        // Parse skills and achievements from text fields (you might want to store these
-        // as JSON or separate tables)
-        String[] skills = {};
-        String[] achievements = {};
-        String[] badges = {};
-
-        try {
-            if (profile.getSkills() != null) {
-                skills = objectMapper.readValue(profile.getSkills(), String[].class);
-            } else if (profile.getMainExpertiseAreas() != null) {
-                // Fallback to old behavior if new field is empty
-                skills = profile.getMainExpertiseAreas().split(",");
-            }
-
-            if (profile.getAchievements() != null) {
-                achievements = objectMapper.readValue(profile.getAchievements(), String[].class);
-            }
-            if (profile.getBadges() != null) {
-                badges = objectMapper.readValue(profile.getBadges(), String[].class);
-            }
-        } catch (JsonProcessingException e) {
-            log.error("Error deserializing profile data for user {}", profile.getUserId(), e);
-            // Fallback for skills if JSON parsing fails
-            if (profile.getMainExpertiseAreas() != null) {
-                skills = profile.getMainExpertiseAreas().split(",");
-            }
-        }
-
-        // Fetch Portfolio Extended Profile to get hourlyRate and slug
-        var portfolioProfile = portfolioExtendedProfileRepository.findByUserId(profile.getUserId());
-
-        String slug = portfolioProfile
-                .map(PortfolioExtendedProfile::getCustomUrlSlug)
-                .orElse(null);
-
-        Double hourlyRate = profile.getHourlyRate() != null
-                ? profile.getHourlyRate()
-                : portfolioProfile.map(PortfolioExtendedProfile::getHourlyRate).orElse(null);
 
         return MentorProfileResponse.builder()
                 .id(profile.getUserId())
                 .firstName(firstName)
                 .lastName(lastName)
                 .email(profile.getEmail())
-                .bio(profile.getPersonalProfile())
-                .specialization(profile.getMainExpertiseAreas())
-                .experience(profile.getYearsOfExperience())
-                .avatar(profile.getAvatarUrl())
+                .bio(bio)
+                .specialization(specialization)
+                .experience(experience)
+                .avatar(avatar)
                 .signatureUrl(profile.getSignatureUrl())
                 .socialLinks(socialLinks)
                 .skills(skills)
@@ -746,5 +735,77 @@ public class MentorProfileServiceImpl implements MentorProfileService {
     public long getTotalStudentsCount(Long mentorId) {
         log.info("Getting total students count for mentor ID: {}", mentorId);
         return courseEnrollmentRepository.countTotalStudentsByMentorId(mentorId);
+    }
+
+    // ==================== Helper Methods ====================
+
+    /**
+     * Parse skills: Portfolio topSkills (authoritative) → MentorProfile skills → mainExpertiseAreas
+     */
+    private String[] parseSkillsFromPortfolio(Optional<PortfolioExtendedProfile> portfolioOpt, MentorProfile profile) {
+        // Try Portfolio topSkills first
+        if (portfolioOpt.isPresent()) {
+            String topSkills = portfolioOpt.get().getTopSkills();
+            if (topSkills != null && !topSkills.isBlank()) {
+                try {
+                    return objectMapper.readValue(topSkills, String[].class);
+                } catch (JsonProcessingException e) {
+                    log.warn("Failed to parse topSkills from portfolio for user {}", profile.getUserId());
+                }
+            }
+        }
+        // Fallback to MentorProfile
+        try {
+            if (profile.getSkills() != null) {
+                return objectMapper.readValue(profile.getSkills(), String[].class);
+            }
+        } catch (JsonProcessingException e) { /* ignore */ }
+        // Last fallback
+        if (profile.getMainExpertiseAreas() != null) {
+            return Arrays.stream(profile.getMainExpertiseAreas().split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .toArray(String[]::new);
+        }
+        return new String[0];
+    }
+
+    /**
+     * Parse achievements: Portfolio achievements (authoritative) → MentorProfile achievements (legacy)
+     */
+    private String[] parseAchievementsFromPortfolio(Optional<PortfolioExtendedProfile> portfolioOpt, MentorProfile profile) {
+        if (portfolioOpt.isPresent()) {
+            String achievements = portfolioOpt.get().getAchievements();
+            if (achievements != null && !achievements.isBlank()) {
+                try {
+                    return objectMapper.readValue(achievements, String[].class);
+                } catch (JsonProcessingException e) {
+                    log.warn("Failed to parse achievements from portfolio for user {}", profile.getUserId());
+                }
+            }
+        }
+        // Fallback to MentorProfile achievements (legacy)
+        if (profile.getAchievements() != null && !profile.getAchievements().isBlank()) {
+            try {
+                return objectMapper.readValue(profile.getAchievements(), String[].class);
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to parse achievements from MentorProfile for user {}", profile.getUserId());
+            }
+        }
+        return new String[0];
+    }
+
+    /**
+     * Parse badges from MentorProfile (gamification — only stored in MentorProfile)
+     */
+    private String[] parseBadges(MentorProfile profile) {
+        if (profile.getBadges() != null && !profile.getBadges().isBlank()) {
+            try {
+                return objectMapper.readValue(profile.getBadges(), String[].class);
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to parse badges for user {}", profile.getUserId());
+            }
+        }
+        return new String[0];
     }
 }
