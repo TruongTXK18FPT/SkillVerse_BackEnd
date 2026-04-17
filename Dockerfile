@@ -25,6 +25,11 @@ RUN ./mvnw clean package -DskipTests -B || \
 # Runtime stage
 FROM eclipse-temurin:21-jre-alpine
 
+# Set timezone to Vietnam (Asia/Ho_Chi_Minh)
+RUN apk add --no-cache tzdata \
+    && cp /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime \
+    && echo "Asia/Ho_Chi_Minh" > /etc/timezone
+
 # Install curl for health check (as root user)
 RUN apk --no-cache add curl
 
@@ -50,5 +55,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:8080/api/health || exit 1
 
-# Run the application
-ENTRYPOINT ["java", "-jar", "-Dspring.profiles.active=docker", "app.jar"]
+# Run the application with timezone set
+ENTRYPOINT ["java", "-Duser.timezone=Asia/Ho_Chi_Minh", "-jar", "-Dspring.profiles.active=docker", "app.jar"]

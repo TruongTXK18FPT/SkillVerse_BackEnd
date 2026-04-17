@@ -8,14 +8,20 @@ spring:
 
   jpa:
     hibernate:
-      # Use 'update' to auto-update schema, 'validate' for strict validation
-      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update} # create, create-drop, update, validate, none
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
     show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
-        "[format_sql]": true
-        "[jdbc.lob.non_contextual_creation]": true
+        format_sql: true
+        jdbc:
+          time_zone: Asia/Ho_Chi_Minh
+        lob:
+          non_contextual_creation: true
+
+  jackson:
+    time-zone: ${SPRING_JACKSON_TIME_ZONE:Asia/Ho_Chi_Minh}
+    date-format: ${SPRING_JACKSON_DATE_FORMAT:yyyy-MM-dd'T'HH:mm:ss.SSSXXX}
 
   servlet:
     multipart:
@@ -29,7 +35,7 @@ spring:
     host: ${SMTP_HOST:${SPRING_MAIL_HOST:mail49.vietnix.vn}}
     port: ${SMTP_PORT:${SPRING_MAIL_PORT:465}}
     username: ${SMTP_USERNAME:${SPRING_MAIL_USERNAME:noreply@skillverse.vn}}
-    password: ${SMTP_PASSWORD:${SPRING_MAIL_PASSWORD:}}
+    password: ${SPRING_MAIL_PASSWORD:}
     properties:
       mail:
         smtp:
@@ -41,13 +47,9 @@ spring:
           starttls:
             enable: ${SMTP_STARTTLS_ENABLE:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE:false}}
             required: ${SMTP_STARTTLS_REQUIRED:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_REQUIRED:false}}
-          connectiontimeout: ${SMTP_CONNECTION_TIMEOUT:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT:30000}}
+          connectiontimeout: ${SMTP_CONNECTION_TIMEOUT:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH:30000}}
           timeout: ${SMTP_TIMEOUT:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT:30000}}
           writetimeout: ${SMTP_WRITE_TIMEOUT:${SPRING_MAIL_PROPERTIES_MAIL_SMTP_WRITETIMEOUT:30000}}
-
-  jackson:
-    time-zone: ${SPRING_JACKSON_TIME_ZONE:Asia/Ho_Chi_Minh}
-    date-format: ${SPRING_JACKSON_DATE_FORMAT:yyyy-MM-dd'T'HH:mm:ss.SSSXXX}
 
   data:
     redis:
