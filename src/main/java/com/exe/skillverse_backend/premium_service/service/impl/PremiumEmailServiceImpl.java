@@ -38,12 +38,22 @@ public class PremiumEmailServiceImpl implements PremiumEmailService {
      * @param paidAmount    Amount paid for the subscription
      * @param paymentMethod Payment method used (WALLET, PAYOS, etc.)
      */
+    @Override
     @Async("emailTaskExecutor")
     public void sendPremiumPurchaseSuccessEmail(
             User user,
             UserSubscription subscription,
             BigDecimal paidAmount,
             String paymentMethod) {
+
+        if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+            log.warn("Skipping premium purchase email because recipient email is missing");
+            return;
+        }
+        if (subscription == null || subscription.getPlan() == null) {
+            log.warn("Skipping premium purchase email for {} because subscription or plan is missing", user.getEmail());
+            return;
+        }
 
         try {
             String userName = getUserDisplayName(user);
@@ -54,7 +64,7 @@ public class PremiumEmailServiceImpl implements PremiumEmailService {
                     plan.getDisplayName(),
                     plan.getPlanType().name(),
                     formatCurrency(paidAmount),
-                    paymentMethod,
+                    resolvePaymentMethodLabel(paymentMethod),
                     subscription.getStartDate().format(DATE_FORMATTER),
                     subscription.getEndDate().format(DATE_FORMATTER),
                     subscription.getIsStudentSubscription(),
@@ -66,18 +76,28 @@ public class PremiumEmailServiceImpl implements PremiumEmailService {
             log.info("✅ Premium purchase email sent to {} for plan: {}", user.getEmail(), plan.getDisplayName());
 
         } catch (Exception e) {
-            log.error("❌ Failed to send premium purchase email to {}: {}", user.getEmail(), e.getMessage());
+            log.error("❌ Failed to send premium purchase email to {}", user.getEmail(), e);
         }
     }
 
     /**
      * Send auto-renewal success email
      */
+    @Override
     @Async("emailTaskExecutor")
     public void sendAutoRenewalSuccessEmail(
             User user,
             UserSubscription subscription,
             BigDecimal renewalAmount) {
+
+        if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+            log.warn("Skipping auto-renewal success email because recipient email is missing");
+            return;
+        }
+        if (subscription == null || subscription.getPlan() == null) {
+            log.warn("Skipping auto-renewal success email for {} because subscription or plan is missing", user.getEmail());
+            return;
+        }
 
         try {
             String userName = getUserDisplayName(user);
@@ -99,18 +119,28 @@ public class PremiumEmailServiceImpl implements PremiumEmailService {
             log.info("✅ Auto-renewal email sent to {} for plan: {}", user.getEmail(), plan.getDisplayName());
 
         } catch (Exception e) {
-            log.error("❌ Failed to send auto-renewal email to {}: {}", user.getEmail(), e.getMessage());
+            log.error("❌ Failed to send auto-renewal email to {}", user.getEmail(), e);
         }
     }
 
     /**
      * Send auto-renewal failed email (insufficient balance)
      */
+    @Override
     @Async("emailTaskExecutor")
     public void sendAutoRenewalFailedEmail(
             User user,
             UserSubscription subscription,
             BigDecimal renewalAmount) {
+
+        if (user == null || user.getEmail() == null || user.getEmail().isBlank()) {
+            log.warn("Skipping auto-renewal failed email because recipient email is missing");
+            return;
+        }
+        if (subscription == null || subscription.getPlan() == null) {
+            log.warn("Skipping auto-renewal failed email for {} because subscription or plan is missing", user.getEmail());
+            return;
+        }
 
         try {
             String userName = getUserDisplayName(user);
@@ -128,7 +158,7 @@ public class PremiumEmailServiceImpl implements PremiumEmailService {
             log.info("⚠️ Auto-renewal failed email sent to {} for plan: {}", user.getEmail(), plan.getDisplayName());
 
         } catch (Exception e) {
-            log.error("❌ Failed to send auto-renewal failed email to {}: {}", user.getEmail(), e.getMessage());
+            log.error("❌ Failed to send auto-renewal failed email to {}", user.getEmail(), e);
         }
     }
 
@@ -184,6 +214,7 @@ public class PremiumEmailServiceImpl implements PremiumEmailService {
                         <body>
                             <div class="container">
                                 <div class="header">
+                                    <img src="cid:skillverse-logo" alt="SkillVerse" style="height:40px; display:block; margin:0 auto 12px;" />
                                     <h1>♻️ Gia Hạn Thành Công!</h1>
                                     <div class="plan-name">%s</div>
                                 </div>
@@ -279,6 +310,7 @@ public class PremiumEmailServiceImpl implements PremiumEmailService {
                         <body>
                             <div class="container">
                                 <div class="header">
+                                    <img src="cid:skillverse-logo" alt="SkillVerse" style="height:40px; display:block; margin:0 auto 12px;" />
                                     <h1>⚠️ Gia Hạn Thất Bại</h1>
                                     <div class="plan-name">%s</div>
                                 </div>
@@ -339,9 +371,8 @@ public class PremiumEmailServiceImpl implements PremiumEmailService {
                 ? "<div class=\"discount-badge\">🎓 Giảm giá sinh viên đã áp dụng</div>"
                 : "";
 
-        String brandGradient = "linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)";
-        String brandColor = "#4f46e5";
-        String brandSoft = "#eef2ff";
+        String brandGradient = getPlanGradient(planType);
+        String brandColor = resolvePlanPrimaryColor(planType);
 
         return String.format(
                 """
@@ -428,9 +459,21 @@ public class PremiumEmailServiceImpl implements PremiumEmailService {
                         </body>
                         </html>
                         """,
-                brandGradient, planName, userName, discountBadge, brandColor,
-                brandColor, brandGradient, brandColor, brandColor,
-                planName, paymentMethod, startDate, endDate, features);
+                    brandGradient,
+                    brandColor,
+                    brandColor,
+                    brandGradient,
+                    brandColor,
+                    brandColor,
+                    planName,
+                    userName,
+                    discountBadge,
+                    paidAmount,
+                    planName,
+                    paymentMethod,
+                    startDate,
+                    endDate,
+                    features);
     }
 
     /**
@@ -442,6 +485,34 @@ public class PremiumEmailServiceImpl implements PremiumEmailService {
             case "PREMIUM_PLUS" -> "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)";
             case "STUDENT_PACK" -> "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)";
             default -> "linear-gradient(135deg, #667eea 0%, #764ba2 100%)";
+        };
+    }
+
+    /**
+     * Resolve plan primary color from plan type for consistent styling.
+     */
+    private String resolvePlanPrimaryColor(String planType) {
+        return switch (planType) {
+            case "PREMIUM_BASIC" -> "#667eea";
+            case "PREMIUM_PLUS" -> "#f5576c";
+            case "STUDENT_PACK" -> "#0ea5e9";
+            default -> "#4f46e5";
+        };
+    }
+
+    /**
+     * Convert technical payment method to user-friendly Vietnamese label.
+     */
+    private String resolvePaymentMethodLabel(String paymentMethod) {
+        if (paymentMethod == null || paymentMethod.isBlank()) {
+            return "Không xác định";
+        }
+
+        return switch (paymentMethod.toUpperCase()) {
+            case "WALLET" -> "Ví SkillVerse";
+            case "PAYOS" -> "PayOS";
+            case "CASH" -> "Tiền mặt";
+            default -> paymentMethod;
         };
     }
 

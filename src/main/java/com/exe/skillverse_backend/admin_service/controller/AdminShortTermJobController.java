@@ -1,10 +1,11 @@
 package com.exe.skillverse_backend.admin_service.controller;
 
+import com.exe.skillverse_backend.admin_service.dto.request.RejectCancellationRequest;
 import com.exe.skillverse_backend.admin_service.dto.request.ResolveDisputeAdminRequest;
+import com.exe.skillverse_backend.admin_service.dto.response.AdminDisputeResponse;
 import com.exe.skillverse_backend.admin_service.dto.response.AdminJobStatsResponse;
 import com.exe.skillverse_backend.admin_service.service.AdminShortTermJobService;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse;
-import com.exe.skillverse_backend.business_service.entity.Dispute;
 import com.exe.skillverse_backend.business_service.entity.Dispute.DisputeStatus;
 import com.exe.skillverse_backend.business_service.entity.JobStatusAuditLog;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
@@ -119,7 +120,7 @@ public class AdminShortTermJobController {
     @GetMapping("/disputes")
     @PreAuthorize("hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
     @Operation(summary = "Get all disputes", description = "Paginated list of all disputes with optional status filter")
-    public ResponseEntity<Page<Dispute>> getAllDisputes(
+    public ResponseEntity<Page<AdminDisputeResponse>> getAllDisputes(
             @RequestParam(required = false) DisputeStatus status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -130,7 +131,7 @@ public class AdminShortTermJobController {
     @GetMapping("/disputes/{disputeId}")
     @PreAuthorize("hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
     @Operation(summary = "Get dispute detail", description = "Get detailed information about a specific dispute")
-    public ResponseEntity<Dispute> getDisputeDetail(@PathVariable Long disputeId) {
+    public ResponseEntity<AdminDisputeResponse> getDisputeDetail(@PathVariable Long disputeId) {
         return ResponseEntity.ok(adminShortTermJobService.getDisputeDetail(disputeId));
     }
 
@@ -144,11 +145,22 @@ public class AdminShortTermJobController {
     @PostMapping("/disputes/{disputeId}/resolve")
     @PreAuthorize("hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
     @Operation(summary = "Resolve dispute", description = "Admin resolves a dispute with the chosen resolution")
-    public ResponseEntity<Dispute> resolveDispute(
+    public ResponseEntity<AdminDisputeResponse> resolveDispute(
             @PathVariable Long disputeId,
             @RequestBody ResolveDisputeAdminRequest request,
             Authentication authentication) {
         Long adminId = Long.parseLong(authentication.getName());
         return ResponseEntity.ok(adminShortTermJobService.resolveDispute(adminId, disputeId, request));
+    }
+
+    @PostMapping("/disputes/{disputeId}/reject-cancellation")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
+    @Operation(summary = "Reject cancellation request", description = "Admin rejects cancellation request from recruiter. Job returns to IN_PROGRESS and worker can continue working.")
+    public ResponseEntity<ShortTermJobResponse> rejectCancellation(
+            @PathVariable Long disputeId,
+            @RequestBody RejectCancellationRequest request,
+            Authentication authentication) {
+        Long adminId = Long.parseLong(authentication.getName());
+        return ResponseEntity.ok(adminShortTermJobService.rejectCancellation(adminId, disputeId, request));
     }
 }

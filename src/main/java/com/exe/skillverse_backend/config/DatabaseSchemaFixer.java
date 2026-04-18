@@ -275,6 +275,21 @@ public class DatabaseSchemaFixer {
                     this::patchCoursePriceCurrencyFromRevision,
                     this::verifyCoursePriceCurrencyFromRevision);
 
+            applyPatch("create-student-verification-requests-table",
+                    "Create and align student_verification_requests table for student premium verification flow",
+                    this::patchStudentVerificationRequestsTable,
+                    this::verifyStudentVerificationRequestsTable);
+
+                applyPatch("sync-student-verification-status-constraint",
+                    "Sync student_verification_requests.status check constraint with StudentVerificationStatus enum values",
+                    this::patchStudentVerificationStatusConstraint,
+                    this::verifyStudentVerificationStatusConstraint);
+
+            applyPatch("remove-student-verification-ocr-columns",
+                    "Remove obsolete OCR extraction columns from student_verification_requests",
+                    this::patchStudentVerificationRemoveOcrColumns,
+                    this::verifyStudentVerificationOcrColumnsRemoved);
+
             // ─── course_skill_tags ElementCollection table ───────────────────────────
             applyPatch("create-course-skill-tags-table",
                     "Create course_skill_tags ElementCollection table for free-form skill tags",
@@ -306,6 +321,12 @@ public class DatabaseSchemaFixer {
                     "Add thumbnail_media_id FK to course_revisions table for per-revision thumbnail images",
                     this::patchCourseRevisionsThumbnailMediaId,
                     this::verifyCourseRevisionsThumbnailMediaId);
+
+            // ─── job_disputes.dispute_type: add CANCELLATION_REVIEW to check constraint ─────────
+            applyPatch("add-job-disputes-cancellation-review-type",
+                    "Add CANCELLATION_REVIEW to job_disputes dispute_type check constraint — used when recruiter requests admin cancellation review after 5 revisions",
+                    this::patchJobDisputesDisputeTypeConstraint,
+                    this::verifyJobDisputesDisputeTypeConstraint);
 
             log.info("Schema patch infrastructure ready.");
         } finally {
@@ -1772,6 +1793,229 @@ public class DatabaseSchemaFixer {
         return true;
     }
 
+    // ─── student_verification_requests table ────────────────────────────────
+
+    private void patchStudentVerificationRequestsTable() {
+        if (!hasTable("student_verification_requests")) {
+            executeSql("""
+                CREATE TABLE student_verification_requests (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    school_email VARCHAR(255) NOT NULL,
+                    school_domain VARCHAR(255) NOT NULL,
+                    email_domain_valid BOOLEAN NOT NULL DEFAULT FALSE,
+                    status VARCHAR(40) NOT NULL DEFAULT 'EMAIL_OTP_PENDING',
+                    otp_hash VARCHAR(128),
+                    otp_expires_at TIMESTAMP,
+                    otp_attempts INTEGER NOT NULL DEFAULT 0,
+                    otp_verified_at TIMESTAMP,
+                    last_otp_sent_at TIMESTAMP,
+                    temp_image_path TEXT,
+                    image_url TEXT,
+                    image_storage_path TEXT,
+                    image_public_id VARCHAR(255),
+                    image_provider VARCHAR(20),
+                    uploaded_file_name VARCHAR(255),
+                    uploaded_content_type VARCHAR(100),
+                    uploaded_file_size BIGINT,
+                    review_note TEXT,
+                    reviewed_by BIGINT,
+                    reviewed_at TIMESTAMP,
+                    rejection_reason TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """);
+        }
+
+        executeSql("""
+            ALTER TABLE student_verification_requests
+                ADD COLUMN IF NOT EXISTS user_id BIGINT,
+                ADD COLUMN IF NOT EXISTS school_email VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS school_domain VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS email_domain_valid BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS status VARCHAR(40) DEFAULT 'EMAIL_OTP_PENDING',
+                ADD COLUMN IF NOT EXISTS otp_hash VARCHAR(128),
+                ADD COLUMN IF NOT EXISTS otp_expires_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS otp_attempts INTEGER DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS otp_verified_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS last_otp_sent_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS temp_image_path TEXT,
+                ADD COLUMN IF NOT EXISTS image_url TEXT,
+                ADD COLUMN IF NOT EXISTS image_storage_path TEXT,
+                ADD COLUMN IF NOT EXISTS image_public_id VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS image_provider VARCHAR(20),
+                ADD COLUMN IF NOT EXISTS uploaded_file_name VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS uploaded_content_type VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS uploaded_file_size BIGINT,
+                ADD COLUMN IF NOT EXISTS review_note TEXT,
+                ADD COLUMN IF NOT EXISTS reviewed_by BIGINT,
+                ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS rejection_reason TEXT,
+                ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW(),
+                ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
+        """);
+
+        executeSql("""
+            ALTER TABLE student_verification_requests
+                ALTER COLUMN user_id SET NOT NULL,
+                ALTER COLUMN school_email SET NOT NULL,
+                ALTER COLUMN school_domain SET NOT NULL,
+                ALTER COLUMN email_domain_valid SET DEFAULT FALSE,
+                ALTER COLUMN email_domain_valid SET NOT NULL,
+                ALTER COLUMN status SET DEFAULT 'EMAIL_OTP_PENDING',
+                ALTER COLUMN status SET NOT NULL,
+                ALTER COLUMN otp_attempts SET DEFAULT 0,
+                ALTER COLUMN otp_attempts SET NOT NULL,
+                ALTER COLUMN created_at SET DEFAULT NOW(),
+                ALTER COLUMN created_at SET NOT NULL,
+                ALTER COLUMN updated_at SET DEFAULT NOW(),
+                ALTER COLUMN updated_at SET NOT NULL
+        """);
+
+        if (hasTable("users") && !hasForeignKey("student_verification_requests", "fk_svr_user")) {
+            executeSql("""
+                ALTER TABLE student_verification_requests
+                ADD CONSTRAINT fk_svr_user FOREIGN KEY (user_id) REFERENCES users(id)
+            """);
+        }
+
+        if (hasTable("users") && !hasForeignKey("student_verification_requests", "fk_svr_reviewed_by")) {
+            executeSql("""
+                ALTER TABLE student_verification_requests
+                ADD CONSTRAINT fk_svr_reviewed_by FOREIGN KEY (reviewed_by) REFERENCES users(id)
+            """);
+        }
+
+        executeSql("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'chk_svr_status'
+                ) THEN
+                    ALTER TABLE student_verification_requests
+                    ADD CONSTRAINT chk_svr_status
+                    CHECK (status IN ('EMAIL_OTP_PENDING', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'EXPIRED'));
+                END IF;
+            END $$;
+        """);
+
+        executeSql("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'chk_svr_image_provider'
+                ) THEN
+                    ALTER TABLE student_verification_requests
+                    ADD CONSTRAINT chk_svr_image_provider
+                    CHECK (image_provider IS NULL OR image_provider IN ('CLOUDINARY', 'LOCAL'));
+                END IF;
+            END $$;
+        """);
+
+        executeSql("CREATE INDEX IF NOT EXISTS idx_svr_user_id ON student_verification_requests(user_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_svr_status ON student_verification_requests(status)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_svr_created_at ON student_verification_requests(created_at)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_svr_school_email_status ON student_verification_requests(school_email, status)");
+    }
+
+    private boolean verifyStudentVerificationRequestsTable() {
+        if (!hasTable("student_verification_requests")) {
+            return false;
+        }
+
+        return hasColumn("student_verification_requests", "id")
+                && hasColumn("student_verification_requests", "user_id")
+                && hasColumn("student_verification_requests", "school_email")
+                && hasColumn("student_verification_requests", "school_domain")
+                && hasColumn("student_verification_requests", "status")
+                && hasColumn("student_verification_requests", "otp_hash")
+                && hasColumn("student_verification_requests", "image_storage_path")
+                && hasColumn("student_verification_requests", "reviewed_by")
+                && hasColumn("student_verification_requests", "created_at")
+                && hasColumn("student_verification_requests", "updated_at")
+                && hasIndex("idx_svr_user_id")
+                && hasIndex("idx_svr_status")
+                && hasIndex("idx_svr_created_at")
+                && hasIndex("idx_svr_school_email_status")
+                && (!hasTable("users") || hasForeignKey("student_verification_requests", "fk_svr_user"));
+    }
+
+    private void patchStudentVerificationStatusConstraint() {
+        if (!hasTable("student_verification_requests")) {
+            return;
+        }
+
+        if (hasConstraint("student_verification_requests", "chk_svr_status")) {
+            executeSql("ALTER TABLE student_verification_requests DROP CONSTRAINT chk_svr_status");
+        }
+
+        executeSql("""
+            ALTER TABLE student_verification_requests
+            ADD CONSTRAINT chk_svr_status
+            CHECK (status IN ('EMAIL_OTP_PENDING', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'EXPIRED'))
+        """);
+    }
+
+    private boolean verifyStudentVerificationStatusConstraint() {
+        if (!hasTable("student_verification_requests")) {
+            return true;
+        }
+
+        if (!hasConstraint("student_verification_requests", "chk_svr_status")) {
+            return false;
+        }
+
+        try {
+            String definition = jdbcTemplate.queryForObject("""
+                SELECT pg_get_constraintdef(c.oid)
+                FROM pg_constraint c
+                JOIN pg_class t ON t.oid = c.conrelid
+                WHERE t.relname = 'student_verification_requests'
+                  AND c.conname = 'chk_svr_status'
+            """, String.class);
+
+            return definition != null && definition.contains("'EXPIRED'");
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private void patchStudentVerificationRemoveOcrColumns() {
+        if (!hasTable("student_verification_requests")) {
+            return;
+        }
+
+        executeSql("""
+            ALTER TABLE student_verification_requests
+                DROP COLUMN IF EXISTS ocr_raw_text,
+                DROP COLUMN IF EXISTS ocr_readable,
+                DROP COLUMN IF EXISTS ocr_error_message,
+                DROP COLUMN IF EXISTS ocr_extracted_name,
+                DROP COLUMN IF EXISTS ocr_extracted_student_id,
+                DROP COLUMN IF EXISTS ocr_extracted_school,
+                DROP COLUMN IF EXISTS ocr_extracted_expiry_date,
+                DROP COLUMN IF EXISTS ocr_processed_at
+        """);
+    }
+
+    private boolean verifyStudentVerificationOcrColumnsRemoved() {
+        if (!hasTable("student_verification_requests")) {
+            return true;
+        }
+
+        return !hasColumn("student_verification_requests", "ocr_raw_text")
+                && !hasColumn("student_verification_requests", "ocr_readable")
+                && !hasColumn("student_verification_requests", "ocr_error_message")
+                && !hasColumn("student_verification_requests", "ocr_extracted_name")
+                && !hasColumn("student_verification_requests", "ocr_extracted_student_id")
+                && !hasColumn("student_verification_requests", "ocr_extracted_school")
+                && !hasColumn("student_verification_requests", "ocr_extracted_expiry_date")
+                && !hasColumn("student_verification_requests", "ocr_processed_at");
+    }
+
     protected boolean hasForeignKey(String tableName, String constraintName) {
         try {
             var results = jdbcTemplate.queryForList("""
@@ -1802,5 +2046,76 @@ public class DatabaseSchemaFixer {
 
     protected void executeSql(String sql) {
         jdbcTemplate.execute(sql);
+    }
+
+    // ─── job_disputes.dispute_type: add CANCELLATION_REVIEW to check constraint ───
+
+    private void patchJobDisputesDisputeTypeConstraint() {
+        if (!hasTable("job_disputes")) {
+            log.debug("Table job_disputes does not exist yet, skipping patch.");
+            return;
+        }
+
+        // [Nghiệp vụ] DB check constraint `job_disputes_dispute_type_check` được tạo khi bảng được tạo ban đầu.
+        // Khi thêm CANCELLATION_REVIEW vào enum, constraint cần được update để include giá trị mới.
+        // Sử dụng DO $$ block để alter constraint mà không cần drop trước.
+        executeSql("""
+            DO $$
+            DECLARE
+                constraint_exists BOOLEAN;
+            BEGIN
+                -- Kiểm tra xem constraint có tồn tại không
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'job_disputes_dispute_type_check'
+                ) INTO constraint_exists;
+
+                IF constraint_exists THEN
+                    -- Drop constraint cũ
+                    ALTER TABLE job_disputes DROP CONSTRAINT job_disputes_dispute_type_check;
+                END IF;
+
+                -- Tạo constraint mới với đầy đủ các giá trị enum (bao gồm CANCELLATION_REVIEW)
+                ALTER TABLE job_disputes ADD CONSTRAINT job_disputes_dispute_type_check
+                    CHECK (dispute_type IN (
+                        'NO_SUBMISSION',
+                        'POOR_QUALITY',
+                        'MISSING_DELIVERABLE',
+                        'DEADLINE_VIOLATION',
+                        'PAYMENT_ISSUE',
+                        'COMMUNICATION_FAILURE',
+                        'SCOPE_CHANGE',
+                        'SCAM_REPORT',
+                        'OTHER',
+                        'WORKER_PROTECTION',
+                        'RECRUITER_ABUSE',
+                        'CANCELLATION_REVIEW'
+                    ));
+            END $$;
+        """);
+        log.info("job_disputes_dispute_type_check constraint updated with CANCELLATION_REVIEW");
+    }
+
+    private boolean verifyJobDisputesDisputeTypeConstraint() {
+        if (!hasTable("job_disputes")) {
+            return false;
+        }
+
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) AS constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'job_disputes'
+              AND c.conname = 'job_disputes_dispute_type_check'
+        """);
+
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) {
+            return false;
+        }
+
+        String def = results.get(0).get("constraint_def").toString();
+        return def.contains("CANCELLATION_REVIEW");
     }
 }

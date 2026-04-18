@@ -660,312 +660,297 @@ public class BookingServiceImpl implements BookingService {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════
-    // EMAIL TEMPLATE 1: Booking thành công — gửi cho learner
-    // ═══════════════════════════════════════════════════════════
-    private String buildBookingSuccessHtml(Booking booking) {
+        // ═══════════════════════════════════════════════════════════
+        // EMAIL TEMPLATE 1: Booking thành công — gửi cho learner
+        // ═══════════════════════════════════════════════════════════
+        private String buildBookingSuccessHtml(Booking booking) {
         String mentorName = getDisplayName(booking.getMentor());
         String learnerName = getDisplayName(booking.getLearner());
         String time = formatTimeVN(booking.getStartTime());
-        // Meeting link is NOT sent here — will be sent via reminder email 30min before session
-        String price = booking.getPriceVnd() != null ? booking.getPriceVnd().toPlainString() + " VND" : "-";
-        return """
-                <html><head><meta charset=\"UTF-8\" /><style>
-                body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;padding:0}
-                .container{max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(2,6,23,0.08);overflow:hidden}
-                .header{background:linear-gradient(135deg,#4f46e5,#0ea5e9);padding:24px;display:flex;justify-content:center;align-items:center}
-                .logo{width:44px;height:44px;border-radius:10px;overflow:hidden}
-                .content{padding:24px;color:#111827}
-                .pill{display:inline-block;background:#ecfeff;color:#0ea5e9;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;margin-bottom:12px}
-                .card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-top:12px}
-                .row{display:flex;justify-content:space-between;margin:6px 0}
-                .label{color:#6b7280}.value{font-weight:600}
-                .cta{margin-top:20px}
-                .button{background:#4f46e5;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700}
-                .footer{padding:16px;text-align:center;color:#6b7280;font-size:12px}
-                .note{background:#fef3c7;color:#92400e;padding:10px 14px;border-radius:8px;margin-top:12px;font-size:13px}
-                </style></head>
-                <body><div class=\"container\"><div class=\"header\"><img class=\"logo\" src=\"cid:skillverse-logo\" /></div>
-                <div class=\"content\"><div class=\"pill\">Đặt lịch thành công</div>
-                <h2>Chúc mừng, %s!</h2>
-                <p>Bạn đã đặt lịch mentoring với <strong>%s</strong>. Hóa đơn PDF được đính kèm.</p>
-                <div class=\"card\"><div class=\"row\"><div class=\"label\">Thời gian</div><div class=\"value\">%s</div></div>
-                <div class=\"row\"><div class=\"label\">Thời lượng</div><div class=\"value\">%d phút</div></div>
-                <div class=\"row\"><div class=\"label\">Giá</div><div class=\"value\">%s</div></div></div>
-                <div class=\"note\">Link phòng họp sẽ được gửi đến email của bạn trước 30 phút khi buổi học bắt đầu.</div>
-                <div class=\"cta\"><a class=\"button\" href=\"%s\">Xem lịch</a></div></div>
-                <div class=\"footer\">© 2025</div></div></body></html>
-                """
-                .formatted(learnerName, mentorName, time, booking.getDurationMinutes(), price,
-                        "https://skillverse.vn/bookings/" + booking.getId());
-    }
+        String price = formatVnd(booking.getPriceVnd());
 
-    private String buildBookingApprovedHtml(Booking booking, boolean forMentor) {
+        String intro = "<p>Kính gửi <strong>" + learnerName + "</strong>, lịch mentoring của bạn đã được tạo thành công.</p>"
+            + "<p>Hóa đơn PDF của phiên học đã được đính kèm trong email này để bạn tiện đối soát.</p>";
+
+        String details = buildBookingDetailRow("Mentor", mentorName)
+            + buildBookingDetailRow("Thời gian", time)
+            + buildBookingDetailRow("Thời lượng", booking.getDurationMinutes() + " phút")
+            + buildBookingDetailRow("Chi phí", price);
+
+        return buildBookingEmailLayout(
+            "ĐẶT LỊCH THÀNH CÔNG",
+            "Lịch mentoring đã được xác nhận",
+            intro,
+            details,
+            "Xem lịch hẹn",
+            "https://skillverse.vn/bookings/" + booking.getId(),
+            "Link phòng học sẽ được gửi đến email của bạn trước 30 phút khi buổi mentoring bắt đầu.");
+        }
+
+        private String buildBookingApprovedHtml(Booking booking, boolean forMentor) {
         String counterpart = forMentor ? getDisplayName(booking.getLearner()) : getDisplayName(booking.getMentor());
         String roleText = forMentor ? "Học viên" : "Mentor";
         String time = formatTimeVN(booking.getStartTime());
-        String link = booking.getMeetingLink() != null ? booking.getMeetingLink() : "-";
-        return """
-                <html><head><meta charset=\"UTF-8\" /><style>
-                body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;padding:0}
-                .container{max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(2,6,23,0.08);overflow:hidden}
-                .header{background:linear-gradient(135deg,#22c55e,#0ea5e9);padding:24px;display:flex;justify-content:center;align-items:center}
-                .logo{width:44px;height:44px;border-radius:10px;overflow:hidden}
-                .content{padding:24px;color:#111827}
-                .card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-top:12px}
-                .row{display:flex;justify-content:space-between;margin:6px 0}
-                .label{color:#6b7280}.value{font-weight:600}
-                .cta{margin-top:20px}
-                .button{background:#22c55e;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700}
-                .footer{padding:16px;text-align:center;color:#6b7280;font-size:12px}
-                .note{background:#ecfeff;color:#0ea5e9;padding:10px 14px;border-radius:8px;margin-top:12px;font-size:13px}
-                </style></head>
-                <body><div class=\"container\"><div class=\"header\"><img class=\"logo\" src=\"cid:skillverse-logo\" /></div>
-                <div class=\"content\"><h2>%s đã xác nhận!</h2>
-                <div class=\"card\"><div class=\"row\"><div class=\"label\">%s</div><div class=\"value\">%s</div></div>
-                <div class=\"row\"><div class=\"label\">Thời gian</div><div class=\"value\">%s</div></div>
-                <div class=\"row\"><div class=\"label\">Link Jitsi</div><div class=\"value\"><a href=\"%s\">Tham gia</a></div></div>
-                </div>
-                <div class="note">Link phòng họp sẽ được gửi đến email trước 30 phút khi buổi học bắt đầu.</div>
-                <div class=\"cta\"><a class=\"button\" href=\"%s\">Xem chi tiết</a></div>
-                </div><div class=\"footer\">© 2025</div></div></body></html>
-                """
-                .formatted(forMentor ? "Bạn" : "Mentor", roleText, counterpart, time, link,
-                        "https://skillverse.vn/bookings/" + booking.getId());
-    }
+        String meetingLink = booking.getMeetingLink();
+        String meetingLinkText = (meetingLink != null && !meetingLink.isBlank())
+            ? "<a href=\"" + meetingLink + "\" style=\"color:#0f75bc;font-weight:700;text-decoration:none\">Tham gia phòng học</a>"
+            : "Sẽ gửi trước 30 phút";
 
-    private String buildBookingReminderHtml(Booking booking, boolean forMentor, String meetingLink) {
+        String intro = "<p>Lịch mentoring của bạn đã được xác nhận thành công.</p>"
+            + "<p>Vui lòng kiểm tra lại thông tin buổi học bên dưới để chuẩn bị trước giờ tham gia.</p>";
+
+        String details = buildBookingDetailRow(roleText, counterpart)
+            + buildBookingDetailRow("Thời gian", time)
+            + buildBookingDetailRow("Phòng học trực tuyến", meetingLinkText);
+
+        return buildBookingEmailLayout(
+            "LỊCH ĐÃ XÁC NHẬN",
+            forMentor ? "Bạn đã xác nhận lịch mentoring" : "Mentor đã xác nhận lịch mentoring",
+            intro,
+            details,
+            "Xem chi tiết buổi học",
+            "https://skillverse.vn/bookings/" + booking.getId(),
+            "Nếu chưa nhận được link phòng học, hệ thống sẽ tự động gửi thêm email nhắc trước giờ bắt đầu 30 phút.");
+        }
+
+        private String buildBookingReminderHtml(Booking booking, boolean forMentor, String meetingLink) {
         String counterpart = forMentor ? getDisplayName(booking.getLearner()) : getDisplayName(booking.getMentor());
         String roleText = forMentor ? "Học viên" : "Mentor";
         String time = formatTimeVN(booking.getStartTime());
-        String link = meetingLink != null ? meetingLink : "-";
-        return """
-                <html><head><meta charset=\"UTF-8\" /><style>
-                body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;padding:0}
-                .container{max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(2,6,23,0.08);overflow:hidden}
-                .header{background:linear-gradient(135deg,#f59e0b,#0ea5e9);padding:24px;display:flex;justify-content:center;align-items:center}
-                .logo{width:44px;height:44px;border-radius:10px;overflow:hidden}
-                .content{padding:24px;color:#111827}
-                .card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-top:12px}
-                .row{display:flex;justify-content:space-between;margin:6px 0}
-                .label{color:#6b7280}.value{font-weight:600}
-                .cta{margin-top:20px}
-                .button{background:#f59e0b;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700}
-                .footer{padding:16px;text-align:center;color:#6b7280;font-size:12px}
-                </style></head>
-                <body><div class=\"container\"><div class=\"header\"><img class=\"logo\" src=\"cid:skillverse-logo\" /></div>
-                <div class=\"content\"><h2>Đến giờ mentoring</h2>
-                <div class=\"card\"><div class=\"row\"><div class=\"label\">%s</div><div class=\"value\">%s</div></div>
-                <div class=\"row\"><div class=\"label\">Thời gian</div><div class=\"value\">%s</div></div>
-                <div class=\"row\"><div class=\"label\">Link Jitsi</div><div class=\"value\"><a href=\"%s\">Tham gia</a></div></div>
-                </div>
-                <div class=\"cta\"><a class=\"button\" href=\"%s\">Vào phòng</a></div>
-                </div><div class=\"footer\">© 2025</div></div></body></html>
-                """
-                .formatted(roleText, counterpart, time, link, link);
-    }
+        String link = meetingLink != null ? meetingLink : "";
+        String safeJoinLink = (link != null && !link.isBlank()) ? link : "https://skillverse.vn/bookings/" + booking.getId();
+        String meetingLinkText = (link != null && !link.isBlank())
+            ? "<a href=\"" + link + "\" style=\"color:#0f75bc;font-weight:700;text-decoration:none\">Tham gia ngay</a>"
+            : "Vui lòng mở chi tiết lịch hẹn để vào phòng học";
 
-    private String getDisplayName(User user) {
+        String intro = "<p>Buổi mentoring của bạn sắp bắt đầu. Vui lòng vào phòng học đúng giờ để đảm bảo chất lượng buổi trao đổi.</p>";
+
+        String details = buildBookingDetailRow(roleText, counterpart)
+            + buildBookingDetailRow("Thời gian", time)
+            + buildBookingDetailRow("Link phòng học", meetingLinkText);
+
+        return buildBookingEmailLayout(
+            "NHẮC LỊCH MENTORING",
+            "Đến giờ mentoring",
+            intro,
+            details,
+            "Vào phòng học",
+            safeJoinLink,
+            "Trong trường hợp không truy cập được link, vui lòng quay lại trang chi tiết lịch hẹn trên SkillVerse.");
+        }
+
+        private String getDisplayName(User user) {
         String fn = user.getFirstName();
         String ln = user.getLastName();
         String built = ((fn != null ? fn : "") + (ln != null ? " " + ln : "")).trim();
         return built.isEmpty() ? ("User #" + user.getId()) : built;
-    }
+        }
 
-    // EMAIL TEMPLATE 4: Booking bi từ chối — gui cho learner
-    private String buildBookingRejectedHtml(Booking booking, String reason) {
+        // [Nghiệp vụ] Dùng dòng thông tin chuẩn để mọi email booking có cấu trúc nhất quán và dễ đọc.
+        private String buildBookingDetailRow(String label, String value) {
+        String normalizedValue = (value == null || value.isBlank()) ? "-" : value;
+        return """
+            <tr>
+              <td class=\"label\">%s</td>
+              <td class=\"value\">%s</td>
+            </tr>
+            """.formatted(label, normalizedValue);
+        }
+
+        // [Nghiệp vụ] Dùng khung table-based để giữ logo căn giữa ổn định trên đa số email client.
+        private String buildBookingEmailLayout(
+            String badge,
+            String title,
+            String introHtml,
+            String detailRowsHtml,
+            String actionLabel,
+            String actionUrl,
+            String noteHtml) {
+
+        String actionBlock = (actionLabel != null && !actionLabel.isBlank() && actionUrl != null && !actionUrl.isBlank())
+            ? """
+                <div class=\"cta\">
+                  <a class=\"button\" href=\"%s\">%s</a>
+                </div>
+                """.formatted(actionUrl, actionLabel)
+            : "";
+
+        String noteBlock = (noteHtml != null && !noteHtml.isBlank())
+            ? "<div class=\"note\">" + noteHtml + "</div>"
+            : "";
+
+        return """
+            <!doctype html>
+            <html lang=\"vi\">
+            <head>
+              <meta charset=\"UTF-8\" />
+              <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+              <title>SkillVerse Booking</title>
+              <style>
+                body { margin:0; padding:0; background:#f3f6fb; font-family:Arial, Helvetica, sans-serif; color:#132238; }
+                .wrapper { width:100%%; background:#f3f6fb; }
+                .container { width:640px; max-width:640px; background:#ffffff; border-radius:16px; overflow:hidden; border:1px solid #d9e4f1; }
+                                .header { padding:22px 18px; background:#061322; background-image:linear-gradient(120deg,#071321 0%%,#0a1f35 52%%,#0f3b63 100%%); border-bottom:1px solid #1c4d7a; }
+                .logo { width:138px; max-width:138px; height:auto; display:block; margin:0 auto; }
+                                .badge { display:inline-block; margin-top:12px; padding:6px 12px; border-radius:999px; background:#0c2138; color:#6de9ff; border:1px solid #24c8f5; font-size:11px; font-weight:700; letter-spacing:0.4px; }
+                .content { padding:24px; }
+                h1 { margin:0 0 12px 0; font-size:24px; line-height:1.3; color:#10263f; }
+                p { margin:0 0 10px 0; line-height:1.7; font-size:14px; color:#344a63; }
+                .detail-card { width:100%%; border:1px solid #dbe6f3; border-radius:12px; border-collapse:separate; border-spacing:0; margin-top:14px; }
+                .detail-card tr + tr td { border-top:1px solid #e8eff8; }
+                .detail-card td { padding:12px 14px; font-size:14px; }
+                .detail-card .label { color:#617991; width:42%%; }
+                .detail-card .value { color:#163352; font-weight:700; text-align:right; }
+                .note { margin-top:14px; background:#eaf6ff; border:1px solid #cae8ff; color:#1f5f92; border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.6; }
+                .cta { margin-top:20px; text-align:left; }
+                .button { display:inline-block; background:#0f75bc; color:#ffffff !important; text-decoration:none; padding:12px 18px; border-radius:10px; font-size:14px; font-weight:700; }
+                .footer { padding:14px 20px 20px; font-size:12px; text-align:center; color:#6c8098; border-top:1px solid #e6eef8; background:#fbfdff; }
+              </style>
+            </head>
+            <body>
+              <table role=\"presentation\" class=\"wrapper\" cellpadding=\"0\" cellspacing=\"0\">
+                <tr>
+                  <td align=\"center\" style=\"padding:24px 12px;\">
+                <table role=\"presentation\" class=\"container\" cellpadding=\"0\" cellspacing=\"0\">
+                  <tr>
+                    <td class=\"header\" align=\"center\">
+                      <img class=\"logo\" src=\"cid:skillverse-logo\" alt=\"SkillVerse\" />
+                      <div class=\"badge\">%s</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class=\"content\">
+                      <h1>%s</h1>
+                      %s
+                      <table role=\"presentation\" class=\"detail-card\" cellpadding=\"0\" cellspacing=\"0\">
+                    %s
+                      </table>
+                      %s
+                      %s
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class=\"footer\">© 2026 SkillVerse. Email này được gửi tự động từ hệ thống.</td>
+                  </tr>
+                </table>
+                  </td>
+                </tr>
+              </table>
+            </body>
+            </html>
+            """.formatted(badge, title, introHtml, detailRowsHtml, noteBlock, actionBlock);
+        }
+
+        // EMAIL TEMPLATE 4: Booking bị từ chối — gửi cho learner
+        private String buildBookingRejectedHtml(Booking booking, String reason) {
         String mentorName = getDisplayName(booking.getMentor());
-        String learnerName = getDisplayName(booking.getLearner());
         String time = formatTimeVN(booking.getStartTime());
-        String reasonText = reason != null && !reason.isBlank() ? reason : "Mentor đã từ chối lịch hẹn này.";
+        String reasonText = (reason != null && !reason.isBlank())
+            ? reason
+            : "Mentor hiện chưa thể nhận lịch này. Vui lòng chọn khung giờ khác hoặc mentor khác phù hợp hơn.";
         String refundAmount = formatVnd(booking.getPriceVnd());
-        return
-            "<html><head><meta charset=\"UTF-8\" /><style>" +
-            "body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;padding:0}" +
-            ".container{max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(2,6,23,0.08);overflow:hidden}" +
-            ".header{background:linear-gradient(135deg,#ef4444,#dc2626);padding:24px;text-align:center}" +
-            ".logo{width:44px;height:44px;border-radius:10px;overflow:hidden;margin:0 auto}" +
-            ".content{padding:24px;color:#111827}" +
-            ".card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:12px 0}" +
-            ".row{display:flex;justify-content:space-between;margin:6px 0}" +
-            ".label{color:#6b7280}.value{font-weight:600}" +
-            ".reason-box{background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:12px 16px;margin:12px 0}" +
-            ".reason-label{color:#dc2626;font-size:12px;font-weight:700;margin-bottom:4px}" +
-            ".reason-text{color:#991b1b;font-size:14px}" +
-            ".refund{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:12px 16px;margin:12px 0}" +
-            ".refund-label{color:#16a34a;font-size:12px;font-weight:700;margin-bottom:4px}" +
-            ".refund-amount{color:#15803d;font-size:18px;font-weight:700}" +
-            ".cta{margin-top:20px}" +
-            ".button{display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700}" +
-            ".footer{padding:16px;text-align:center;color:#6b7280;font-size:12px}" +
-            "</style></head>" +
-            "<body><div class=\"container\">" +
-            "<div class=\"header\"><img class=\"logo\" src=\"cid:skillverse-logo\" /></div>" +
-            "<div class=\"content\">" +
-            "<h2 style=\"margin:0 0 4px\">Lịch hẹn bị từ chối</h2>" +
-            "<p style=\"color:#6b7280;margin:0 0 16px\">Rất tiếc, lịch hẹn của bạn đã không được chấp nhận.</p>" +
-            "<div class=\"card\">" +
-            "<div class=\"row\"><div class=\"label\">Mentor</div><div class=\"value\">" + mentorName + "</div></div>" +
-            "<div class=\"row\"><div class=\"label\">Thời gian đã đặt</div><div class=\"value\">" + time + "</div></div>" +
-            "<div class=\"row\"><div class=\"label\">Giá dịch vụ</div><div class=\"value\">" + refundAmount + "</div></div>" +
-            "</div>" +
-            "<div class=\"reason-box\">" +
-            "<div class=\"reason-label\">Lý do từ mentor</div>" +
-            "<div class=\"reason-text\">" + reasonText + "</div>" +
-            "</div>" +
-            "<div class=\"refund\">" +
-            "<div class=\"refund-label\">Tiền hoàn về ví</div>" +
-            "<div class=\"refund-amount\">" + refundAmount + "</div>" +
-            "</div>" +
-            "<div class=\"cta\"><a class=\"button\" href=\"https://skillverse.vn/mentors/" + booking.getMentor().getId() + "\">Tìm mentor khác</a></div>" +
-            "</div><div class=\"footer\">&copy; 2025 SkillVerse</div></div></body></html>";
-    }
 
-    // EMAIL TEMPLATE 5: Booking bi hủy — gui cho ca learner va mentor
-    private String buildBookingCancelledHtml(Booking booking, boolean forMentor) {
+        String intro = "<p>Rất tiếc, lịch mentoring của bạn chưa thể được thực hiện theo thời gian đã đặt.</p>"
+            + "<p>Số tiền thanh toán của bạn đã được hoàn về ví SkillVerse để bạn có thể đặt lịch mới ngay lập tức.</p>";
+
+        String details = buildBookingDetailRow("Mentor", mentorName)
+            + buildBookingDetailRow("Thời gian đã đặt", time)
+            + buildBookingDetailRow("Số tiền hoàn", refundAmount);
+
+        return buildBookingEmailLayout(
+            "LỊCH HẸN BỊ TỪ CHỐI",
+            "Cập nhật lịch mentoring",
+            intro,
+            details,
+            "Tìm mentor khác",
+            "https://skillverse.vn/mentors/" + booking.getMentor().getId(),
+            "Lý do từ mentor: <strong>" + reasonText + "</strong>");
+        }
+
+        // EMAIL TEMPLATE 5: Booking bị hủy — gửi cho cả learner và mentor
+        private String buildBookingCancelledHtml(Booking booking, boolean forMentor) {
         String counterpart = forMentor ? getDisplayName(booking.getLearner()) : getDisplayName(booking.getMentor());
         String roleText = forMentor ? "Học viên" : "Mentor";
         String time = formatTimeVN(booking.getStartTime());
-        String cancelledBy = forMentor ? "Học viên đã hủy lịch" : "Mentor đã hủy lịch";
-        return
-            "<html><head><meta charset=\"UTF-8\" /><style>" +
-            "body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;padding:0}" +
-            ".container{max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(2,6,23,0.08);overflow:hidden}" +
-            ".header{background:linear-gradient(135deg,#64748b,#475569);padding:24px;text-align:center}" +
-            ".logo{width:44px;height:44px;border-radius:10px;overflow:hidden;margin:0 auto}" +
-            ".content{padding:24px;color:#111827}" +
-            ".card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:12px 0}" +
-            ".row{display:flex;justify-content:space-between;margin:6px 0}" +
-            ".label{color:#6b7280}.value{font-weight:600}" +
-            ".cancelled{text-decoration:line-through;color:#dc2626}" +
-            ".refund{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:12px 16px;margin:12px 0}" +
-            ".refund-label{color:#16a34a;font-size:12px;font-weight:700;margin-bottom:4px}" +
-            ".refund-amount{color:#15803d;font-size:18px;font-weight:700}" +
-            ".footer{padding:16px;text-align:center;color:#6b7280;font-size:12px}" +
-            "</style></head>" +
-            "<body><div class=\"container\">" +
-            "<div class=\"header\"><img class=\"logo\" src=\"cid:skillverse-logo\" /></div>" +
-            "<div class=\"content\">" +
-            "<h2 style=\"margin:0 0 4px\">Lịch hẹn đã bị hủy</h2>" +
-            "<p style=\"color:#6b7280;margin:0 0 16px\">" + cancelledBy + ".</p>" +
-            "<div class=\"card\">" +
-            "<div class=\"row\"><div class=\"label\">" + roleText + "</div><div class=\"value\">" + counterpart + "</div></div>" +
-            "<div class=\"row\"><div class=\"label\">Thời gian đã đặt</div><div class=\"value cancelled\">" + time + "</div></div>" +
-            "</div>" +
-            "<div class=\"refund\">" +
-            "<div class=\"refund-label\">Tiền đã hoàn về ví</div>" +
-            "<div class=\"refund-amount\">" + formatVnd(booking.getPriceVnd()) + "</div>" +
-            "</div>" +
-            "</div><div class=\"footer\">&copy; 2025 SkillVerse</div></div></body></html>";
-    }
+        String cancelledBy = forMentor ? "Học viên đã hủy lịch mentoring này." : "Mentor đã hủy lịch mentoring này.";
+        String refundAmount = formatVnd(booking.getPriceVnd());
 
-    // EMAIL TEMPLATE 6: Mentor hoàn thành buổi học — gui cho learner
-    private String buildMentorCompletedHtml(Booking booking) {
+        String intro = "<p>Thông báo từ hệ thống: lịch hẹn mentoring đã được hủy thành công.</p>"
+            + "<p>Bạn có thể theo dõi trạng thái và đặt lịch mới trực tiếp trên SkillVerse.</p>";
+
+        String details = buildBookingDetailRow(roleText, counterpart)
+            + buildBookingDetailRow("Thời gian đã đặt", time)
+            + buildBookingDetailRow("Số tiền hoàn", refundAmount);
+
+        return buildBookingEmailLayout(
+            "LỊCH HẸN ĐÃ HỦY",
+            "Thông báo hủy lịch mentoring",
+            intro,
+            details,
+            "Xem lịch hẹn",
+            "https://skillverse.vn/bookings/" + booking.getId(),
+            cancelledBy + " Số tiền đã được hoàn về ví học viên.");
+        }
+
+        // EMAIL TEMPLATE 6: Mentor hoàn thành buổi học — gửi cho learner
+        private String buildMentorCompletedHtml(Booking booking) {
         String mentorName = getDisplayName(booking.getMentor());
-        String learnerName = getDisplayName(booking.getLearner());
         String time = formatTimeVN(booking.getStartTime());
         String actionDeadline = booking.getStartTime()
-                .plusDays(1)
-                .atZone(ZoneId.of("Asia/Ho_Chi_Minh"))
-                .format(DateTimeFormatter.ofPattern("HH:mm, dd/MM/yyyy"));
-        return
-            "<html><head><meta charset=\"UTF-8\" /><style>" +
-            "body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;padding:0}" +
-            ".container{max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(2,6,23,0.08);overflow:hidden}" +
-            ".header{background:linear-gradient(135deg,#8b5cf6,#7c3aed);padding:24px;text-align:center}" +
-            ".logo{width:44px;height:44px;border-radius:10px;overflow:hidden;margin:0 auto}" +
-            ".content{padding:24px;color:#111827}" +
-            ".pill{display:inline-block;background:#f3e8ff;color:#7c3aed;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:700;margin-bottom:12px}" +
-            ".card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:12px 0}" +
-            ".row{display:flex;justify-content:space-between;margin:6px 0}" +
-            ".label{color:#6b7280}.value{font-weight:600}" +
-            ".deadline{background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:12px 16px;margin:12px 0}" +
-            ".deadline-label{color:#d97706;font-size:12px;font-weight:700;margin-bottom:4px}" +
-            ".deadline-time{color:#92400e;font-size:14px;font-weight:600}" +
-            ".warning{background:#f3f4f6;border:1px solid #d1d5db;border-radius:10px;padding:12px 16px;margin:12px 0}" +
-            ".warning-label{color:#374151;font-size:12px;font-weight:700;margin-bottom:4px}" +
-            ".cta{margin-top:20px}" +
-            ".button{display:inline-block;background:#8b5cf6;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700}" +
-            ".footer{padding:16px;text-align:center;color:#6b7280;font-size:12px}" +
-            "</style></head>" +
-            "<body><div class=\"container\">" +
-            "<div class=\"header\"><img class=\"logo\" src=\"cid:skillverse-logo\" /></div>" +
-            "<div class=\"content\">" +
-            "<div class=\"pill\">Cần xác nhận</div>" +
-            "<h2 style=\"margin:0 0 4px\">Mentor đã hoàn tất buổi học</h2>" +
-            "<p style=\"color:#6b7280;margin:0 0 16px\"><strong>" + mentorName + "</strong> đã đánh dấu buổi học là đã hoàn tất. Bạn vui lòng xác nhận để hoàn tiền cho mentor.</p>" +
-            "<div class=\"card\">" +
-            "<div class=\"row\"><div class=\"label\">Mentor</div><div class=\"value\">" + mentorName + "</div></div>" +
-            "<div class=\"row\"><div class=\"label\">Thời gian</div><div class=\"value\">" + time + "</div></div>" +
-            "<div class=\"row\"><div class=\"label\">Số tiền</div><div class=\"value\">" + formatVnd(booking.getPriceVnd()) + "</div></div>" +
-            "</div>" +
-            "<div class=\"deadline\">" +
-            "<div class=\"deadline-label\">Hạn xác nhận</div>" +
-            "<div class=\"deadline-time\">Trước " + actionDeadline + "</div>" +
-            "</div>" +
-            "<div class=\"warning\">" +
-            "<div class=\"warning-label\">Lưu ý</div>" +
-            "<p style=\"margin:0;font-size:13px;color:#374151\">Nếu bạn không xác nhận trong 24h, hệ thống sẽ tự động hoàn tất và thanh toán cho mentor. Nếu có sự cố, bạn có thể mở tranh chấp.</p>" +
-            "</div>" +
-            "<div class=\"cta\"><a class=\"button\" href=\"https://skillverse.vn/bookings/" + booking.getId() + "\">Xác nhận hoàn tất</a></div>" +
-            "</div><div class=\"footer\">&copy; 2025 SkillVerse</div></div></body></html>";
-    }
+            .plusDays(1)
+            .atZone(ZoneId.of("Asia/Ho_Chi_Minh"))
+            .format(DateTimeFormatter.ofPattern("HH:mm, dd/MM/yyyy"));
 
-    // EMAIL TEMPLATE 7: Learner hoàn thành buổi học — gửi cho mentor
-    private String buildLearnerCompletedHtml(Booking booking) {
-        String mentorName = getDisplayName(booking.getMentor());
+        String intro = "<p><strong>" + mentorName + "</strong> đã đánh dấu buổi mentoring là hoàn tất.</p>"
+            + "<p>Vui lòng xác nhận kết quả buổi học để hệ thống tiến hành thanh toán cho mentor đúng hạn.</p>";
+
+        String details = buildBookingDetailRow("Mentor", mentorName)
+            + buildBookingDetailRow("Thời gian", time)
+            + buildBookingDetailRow("Chi phí phiên học", formatVnd(booking.getPriceVnd()));
+
+        String note = "Bạn cần xác nhận trước <strong>" + actionDeadline + "</strong>. Nếu quá hạn 24 giờ, hệ thống sẽ tự động hoàn tất giao dịch.";
+
+        return buildBookingEmailLayout(
+            "CẦN XÁC NHẬN",
+            "Mentor đã hoàn tất buổi học",
+            intro,
+            details,
+            "Xác nhận hoàn tất",
+            "https://skillverse.vn/bookings/" + booking.getId(),
+            note);
+        }
+
+        // EMAIL TEMPLATE 7: Learner hoàn thành buổi học — gửi cho mentor
+        private String buildLearnerCompletedHtml(Booking booking) {
         String learnerName = getDisplayName(booking.getLearner());
         String time = formatTimeVN(booking.getStartTime());
         String deadline = booking.getCompletionDeadline() != null
-                ? booking.getCompletionDeadline()
-                        .atZone(ZoneId.of("Asia/Ho_Chi_Minh"))
-                        .format(DateTimeFormatter.ofPattern("HH:mm, dd/MM/yyyy"))
-                : booking.getStartTime()
-                        .plusDays(1)
-                        .atZone(ZoneId.of("Asia/Ho_Chi_Minh"))
-                        .format(DateTimeFormatter.ofPattern("HH:mm, dd/MM/yyyy"));
-        return
-            "<html><head><meta charset=\"UTF-8\" /><style>" +
-            "body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;padding:0}" +
-            ".container{max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(2,6,23,0.08);overflow:hidden}" +
-            ".header{background:linear-gradient(135deg,#0ea5e9,#0284c7);padding:24px;text-align:center}" +
-            ".logo{width:44px;height:44px;border-radius:10px;overflow:hidden;margin:0 auto}" +
-            ".content{padding:24px;color:#111827}" +
-            ".pill{display:inline-block;background:#e0f2fe;color:#0284c7;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:700;margin-bottom:12px}" +
-            ".card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin:12px 0}" +
-            ".row{display:flex;justify-content:space-between;margin:6px 0}" +
-            ".label{color:#6b7280}.value{font-weight:600}" +
-            ".deadline{background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:12px 16px;margin:12px 0}" +
-            ".deadline-label{color:#d97706;font-size:12px;font-weight:700;margin-bottom:4px}" +
-            ".deadline-time{color:#92400e;font-size:14px;font-weight:600}" +
-            ".warning{background:#f3f4f6;border:1px solid #d1d5db;border-radius:10px;padding:12px 16px;margin:12px 0}" +
-            ".warning-label{color:#374151;font-size:12px;font-weight:700;margin-bottom:4px}" +
-            ".cta{margin-top:20px}" +
-            ".button{display:inline-block;background:#0ea5e9;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700}" +
-            ".footer{padding:16px;text-align:center;color:#6b7280;font-size:12px}" +
-            "</style></head>" +
-            "<body><div class=\"container\">" +
-            "<div class=\"header\"><img class=\"logo\" src=\"cid:skillverse-logo\" /></div>" +
-            "<div class=\"content\">" +
-            "<div class=\"pill\">Cần xác nhận</div>" +
-            "<h2 style=\"margin:0 0 4px\">Học viên đã hoàn tất buổi học</h2>" +
-            "<p style=\"color:#6b7280;margin:0 0 16px\"><strong>" + learnerName + "</strong> đã đánh dấu buổi học là đã hoàn tất. Bạn vui lòng xác nhận để hoàn tất thanh toán.</p>" +
-            "<div class=\"card\">" +
-            "<div class=\"row\"><div class=\"label\">Học viên</div><div class=\"value\">" + learnerName + "</div></div>" +
-            "<div class=\"row\"><div class=\"label\">Thời gian</div><div class=\"value\">" + time + "</div></div>" +
-            "<div class=\"row\"><div class=\"label\">Số tiền</div><div class=\"value\">" + formatVnd(booking.getPriceVnd()) + "</div></div>" +
-            "</div>" +
-            "<div class=\"deadline\">" +
-            "<div class=\"deadline-label\">Hạn xác nhận</div>" +
-            "<div class=\"deadline-time\">Trước " + deadline + "</div>" +
-            "</div>" +
-            "<div class=\"warning\">" +
-            "<div class=\"warning-label\">Lưu ý</div>" +
-            "<p style=\"margin:0;font-size:13px;color:#374151\">Nếu bạn không xác nhận trong 24h, hệ thống sẽ tự động hoàn tất. Nếu có sự cố, bạn có thể mở tranh chấp.</p>" +
-            "</div>" +
-            "<div class=\"cta\"><a class=\"button\" href=\"https://skillverse.vn/bookings/" + booking.getId() + "\">Xác nhận hoàn tất</a></div>" +
-            "</div><div class=\"footer\">&copy; 2025 SkillVerse</div></div></body></html>";
-    }
+            ? booking.getCompletionDeadline()
+                .atZone(ZoneId.of("Asia/Ho_Chi_Minh"))
+                .format(DateTimeFormatter.ofPattern("HH:mm, dd/MM/yyyy"))
+            : booking.getStartTime()
+                .plusDays(1)
+                .atZone(ZoneId.of("Asia/Ho_Chi_Minh"))
+                .format(DateTimeFormatter.ofPattern("HH:mm, dd/MM/yyyy"));
+
+        String intro = "<p><strong>" + learnerName + "</strong> đã xác nhận buổi mentoring hoàn tất.</p>"
+            + "<p>Vui lòng kiểm tra nhanh nội dung phiên học để hoàn tất đối soát và nhận thanh toán.</p>";
+
+        String details = buildBookingDetailRow("Học viên", learnerName)
+            + buildBookingDetailRow("Thời gian", time)
+            + buildBookingDetailRow("Khoản thanh toán", formatVnd(booking.getPriceVnd()));
+
+        String note = "Bạn cần xác nhận trước <strong>" + deadline + "</strong>. Nếu quá hạn, hệ thống sẽ tự động hoàn tất phiên học.";
+
+        return buildBookingEmailLayout(
+            "CẦN XÁC NHẬN",
+            "Học viên đã hoàn tất buổi học",
+            intro,
+            details,
+            "Xác nhận hoàn tất",
+            "https://skillverse.vn/bookings/" + booking.getId(),
+            note);
+        }
     @Transactional
     public Booking cancelByLearner(Long learnerId, Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)

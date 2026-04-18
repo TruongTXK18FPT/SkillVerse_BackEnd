@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.business_service.controller;
 import com.exe.skillverse_backend.business_service.dto.request.OpenDisputeRequest;
 import com.exe.skillverse_backend.business_service.dto.request.ResolveDisputeRequest;
 import com.exe.skillverse_backend.business_service.dto.request.SubmitEvidenceRequest;
+import com.exe.skillverse_backend.business_service.dto.response.UserSubmittedDisputeResponse;
 import com.exe.skillverse_backend.business_service.entity.Dispute;
 import com.exe.skillverse_backend.business_service.entity.DisputeEvidence;
 import com.exe.skillverse_backend.business_service.entity.DisputeResponseEntity;
@@ -17,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -70,7 +72,7 @@ public class DisputeController {
 
     @GetMapping("/job/{jobId}")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<Dispute> getDisputesByJob(
+    public ResponseEntity<List<Dispute>> getDisputesByJob(
             @PathVariable Long jobId,
             Authentication auth) {
         Long userId = JwtUtils.extractUserId(auth);
@@ -78,15 +80,15 @@ public class DisputeController {
         if (disputes.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        // Check user is a party in the dispute or admin
-        Dispute dispute = disputes.get(0);
-        if (!userId.equals(dispute.getInitiatorId())
-                && !userId.equals(dispute.getRespondentId())
-                && auth.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))) {
+        // Check user is a party in ANY dispute for this job, or admin
+        boolean isParty = disputes.stream().anyMatch(d ->
+                userId.equals(d.getInitiatorId()) || userId.equals(d.getRespondentId()));
+        boolean isAdmin = auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+        if (!isParty && !isAdmin) {
             throw new ForbiddenException("You do not have access to disputes for this job");
         }
-        log.info("GET /api/disputes/job/{}", jobId);
-        return ResponseEntity.ok(dispute);
+        log.info("GET /api/disputes/job/{} - returning {} dispute(s)", jobId, disputes.size());
+        return ResponseEntity.ok(disputes);
     }
 
     @GetMapping("/my-disputes")
@@ -97,6 +99,16 @@ public class DisputeController {
         Long userId = JwtUtils.extractUserId(auth);
         log.info("GET /api/disputes/my-disputes for user {}", userId);
         return ResponseEntity.ok(disputeService.getMyDisputes(userId, pageable));
+    }
+
+    @GetMapping("/my-submitted")
+    @PreAuthorize("hasAnyRole('RECRUITER', 'USER')")
+    public ResponseEntity<Page<UserSubmittedDisputeResponse>> getMySubmittedDisputes(
+            Authentication auth,
+            @PageableDefault(size = 12, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        Long userId = JwtUtils.extractUserId(auth);
+        log.info("GET /api/disputes/my-submitted for user {}", userId);
+        return ResponseEntity.ok(disputeService.getMySubmittedDisputes(userId, pageable));
     }
 
     @GetMapping("/all")

@@ -25,6 +25,7 @@ import com.exe.skillverse_backend.premium_service.repository.SubscriptionCancell
 import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
 import com.exe.skillverse_backend.premium_service.service.PremiumEmailService;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
+import com.exe.skillverse_backend.student_verification_service.service.StudentVerificationService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
@@ -67,6 +68,7 @@ public class PremiumServiceImpl implements PremiumService {
         private final PremiumEmailService premiumEmailService;
         private final NotificationServiceImpl notificationService;
         private final ParentStudentLinkRepository parentStudentLinkRepository;
+        private final StudentVerificationService studentVerificationService;
         private final ObjectMapper objectMapper;
 
         private static final List<String> STUDENT_EMAIL_DOMAINS = List.of(
@@ -2171,6 +2173,11 @@ public class PremiumServiceImpl implements PremiumService {
                 PremiumPlan.TargetRole recipientRole = resolveTargetRoleByPrimaryRole(recipient.getPrimaryRole());
                 if (!isPlanPurchasableForRole(plan, recipientRole)) {
                         throw new RuntimeException("Gói này không dành cho loại tài khoản của người nhận.");
+                }
+
+                if (plan.getPlanType() == PremiumPlan.PlanType.STUDENT_PACK
+                                && !studentVerificationService.hasApprovedStudentVerification(recipient.getId())) {
+                        throw new RuntimeException("Bạn cần hoàn tất xác thực sinh viên trước khi mua gói Student Pack.");
                 }
         }
 

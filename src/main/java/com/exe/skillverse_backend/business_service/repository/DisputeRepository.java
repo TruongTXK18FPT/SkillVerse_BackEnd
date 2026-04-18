@@ -13,11 +13,15 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface DisputeRepository extends JpaRepository<Dispute, Long> {
-    Optional<Dispute> findByShortTermJobId(Long jobId);
+    Optional<Dispute> findFirstByShortTermJobId(Long jobId);
+
+    List<Dispute> findByShortTermJobId(Long jobId);
 
     boolean existsByShortTermJobId(Long jobId);
 
     List<Dispute> findByInitiatorId(Long initiatorId);
+
+    Page<Dispute> findByInitiatorId(Long initiatorId, Pageable pageable);
 
     List<Dispute> findByRespondentId(Long respondentId);
 

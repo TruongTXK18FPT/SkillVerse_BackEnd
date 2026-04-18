@@ -34,6 +34,7 @@ import com.exe.skillverse_backend.premium_service.repository.PremiumPlanReposito
 import com.exe.skillverse_backend.premium_service.repository.SubscriptionCancellationRepository;
 import com.exe.skillverse_backend.premium_service.repository.UserSubscriptionRepository;
 import com.exe.skillverse_backend.premium_service.service.impl.PremiumServiceImpl;
+import com.exe.skillverse_backend.student_verification_service.service.StudentVerificationService;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
@@ -90,6 +91,9 @@ class PremiumServiceImplTest {
     @Mock
     private ParentStudentLinkRepository parentStudentLinkRepository;
 
+        @Mock
+        private StudentVerificationService studentVerificationService;
+
     private PremiumServiceImpl premiumService;
     private User childUser;
     private UserSubscription pendingSubscription;
@@ -120,6 +124,7 @@ class PremiumServiceImplTest {
                 premiumEmailService,
                 notificationService,
                 parentStudentLinkRepository,
+                studentVerificationService,
                 new ObjectMapper()));
 
         childUser = User.builder()
@@ -128,6 +133,7 @@ class PremiumServiceImplTest {
                 .build();
 
         when(premiumPlanRepository.countActiveSubscriptions(any(PremiumPlan.class))).thenReturn(0L);
+        when(studentVerificationService.hasApprovedStudentVerification(any())).thenReturn(true);
 
         pendingSubscription = UserSubscription.builder()
                 .id(555L)

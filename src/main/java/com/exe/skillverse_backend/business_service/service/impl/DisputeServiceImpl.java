@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.business_service.dto.request.OpenDisputeRequest;
 import com.exe.skillverse_backend.business_service.dto.request.ResolveDisputeRequest;
 import com.exe.skillverse_backend.business_service.dto.request.SubmitEvidenceRequest;
+import com.exe.skillverse_backend.business_service.dto.response.UserSubmittedDisputeResponse;
 import com.exe.skillverse_backend.business_service.entity.Dispute;
 import com.exe.skillverse_backend.business_service.entity.Dispute.DisputeResolution;
 import com.exe.skillverse_backend.business_service.entity.Dispute.DisputeStatus;
@@ -19,14 +20,14 @@ import com.exe.skillverse_backend.business_service.entity.ShortTermJobApplicatio
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
 import com.exe.skillverse_backend.business_service.repository.DisputeEvidenceRepository;
-import com.exe.skillverse_backend.business_service.repository.DisputeResponseRepository;
 import com.exe.skillverse_backend.business_service.repository.DisputeRepository;
-import com.exe.skillverse_backend.business_service.service.TrustScoreService;
+import com.exe.skillverse_backend.business_service.repository.DisputeResponseRepository;
 import com.exe.skillverse_backend.business_service.repository.EscrowTransactionRepository;
 import com.exe.skillverse_backend.business_service.repository.JobEscrowRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobApplicationRepository;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobRepository;
 import com.exe.skillverse_backend.business_service.service.DisputeService;
+import com.exe.skillverse_backend.business_service.service.TrustScoreService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
@@ -35,10 +36,12 @@ import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -59,6 +62,14 @@ public class DisputeServiceImpl implements DisputeService {
             DisputeStatus.ESCALATED
     );
 
+    private static final Set<ShortTermApplicationStatus> OPENABLE_APPLICATION_STATUSES = EnumSet.of(
+            ShortTermApplicationStatus.REVISION_REQUIRED,
+            ShortTermApplicationStatus.CANCELLATION_REQUESTED,
+            ShortTermApplicationStatus.SUBMITTED,
+            ShortTermApplicationStatus.SUBMITTED_OVERDUE,
+            ShortTermApplicationStatus.DISPUTE_OPENED
+    );
+
     private final DisputeRepository disputeRepository;
     private final DisputeEvidenceRepository disputeEvidenceRepository;
     private final DisputeResponseRepository disputeResponseRepository;
@@ -74,63 +85,60 @@ public class DisputeServiceImpl implements DisputeService {
     public Dispute openDispute(Long userId, OpenDisputeRequest request) {
         log.info("Opening dispute for job {} by user {}", request.getJobId(), userId);
 
-        ShortTermJob job = shortTermJobRepository.findById(request.getJobId())
-                .orElseThrow(() -> new NotFoundException("Job not found with ID: " + request.getJobId()));
+        ShortTermJob preloadedJob = null;
+        if (request.getApplicationId() == null && request.getJobId() != null) {
+            preloadedJob = shortTermJobRepository.findById(request.getJobId())
+                    .orElseThrow(() -> new NotFoundException("Cong viec khong ton tai hoac da bi huy. Khong the mo khieu nai cho cong viec nay."));
 
-        // ================================================================
-        // PROTECTED DISPUTE FLOW — Recruiter CANNOT open disputes directly
-        // Recruiter must contact admin for any issues.
-        // Workers can only open disputes after 5 revision requests + eligibility unlocked.
-        // ================================================================
-
-        // RECRUITER IS BLOCKED — recruiters cannot open disputes via this endpoint
-        if (job.getRecruiterProfile().getUserId().equals(userId)) {
-            throw new ForbiddenException(
-                    "Recruiters cannot open disputes directly. Please contact admin support for assistance.");
+            if (preloadedJob.getRecruiterProfile() != null
+                    && preloadedJob.getRecruiterProfile().getUserId().equals(userId)) {
+                throw new ForbiddenException("Recruiters cannot open disputes directly. Please contact admin support for assistance.");
+            }
         }
 
-        // Verify user is the selected worker for this job
+        ShortTermJobApplication application = resolveApplicationForDispute(userId, request, preloadedJob);
+        ShortTermJob job = application.getShortTermJob();
+
+        if (job == null || job.getId() == null) {
+            throw new NotFoundException("Cong viec khong ton tai hoac da bi huy. Khong the mo khieu nai cho cong viec nay.");
+        }
+
+        if (job.getStatus() == ShortTermJobStatus.CANCELLED || job.getStatus() == ShortTermJobStatus.CLOSED) {
+            throw new NotFoundException("Cong viec khong ton tai hoac da bi huy. Khong the mo khieu nai cho cong viec nay.");
+        }
+
+        if (job.getRecruiterProfile() != null && job.getRecruiterProfile().getUserId().equals(userId)) {
+            throw new ForbiddenException("Recruiters cannot open disputes directly. Please contact admin support for assistance.");
+        }
+
         if (job.getSelectedApplicantId() == null || !job.getSelectedApplicantId().equals(userId)) {
             throw new ForbiddenException("Only assigned worker can open a dispute for this job.");
         }
 
-        // Worker MUST have eligibility unlocked (triggered at revision >= 5)
-        ShortTermJobApplication app = applicationRepository
-                .findByShortTermJobIdAndUserId(job.getId(), userId)
-                .orElseThrow(() -> new NotFoundException("Application not found for this job and user"));
-
-        if (!Boolean.TRUE.equals(app.getDisputeEligibilityUnlocked())) {
-            throw new BadRequestException(
-                    "Dispute eligibility has not been unlocked yet. Disputes can only be opened after " +
-                    "5 revision requests. Please complete the revision process first.");
+        if (application.getUser() == null || !userId.equals(application.getUser().getId())) {
+            throw new ForbiddenException("You can only open disputes for your own application.");
         }
 
-        if (app.getStatus() != ShortTermApplicationStatus.REVISION_REQUIRED
-                && app.getStatus() != ShortTermApplicationStatus.CANCELLATION_REQUESTED
-                && app.getStatus() != ShortTermApplicationStatus.SUBMITTED
-                && app.getStatus() != ShortTermApplicationStatus.SUBMITTED_OVERDUE) {
+        Dispute existingDispute = disputeRepository.findFirstByShortTermJobId(job.getId()).orElse(null);
+        if (existingDispute != null && ACTIVE_DISPUTE_STATUSES.contains(existingDispute.getStatus())) {
+            return existingDispute;
+        }
+
+        if (!Boolean.TRUE.equals(application.getDisputeEligibilityUnlocked())) {
+            throw new BadRequestException(
+                    "Dispute eligibility has not been unlocked yet. Disputes can only be opened after 5 revision requests.");
+        }
+
+        if (!OPENABLE_APPLICATION_STATUSES.contains(application.getStatus())) {
             throw new BadRequestException(
                     "Dispute can only be opened after the 5-revision threshold while the job is still under review.");
         }
 
-        // Reuse the active admin review/dispute if one already exists for this job.
-        Dispute existingDispute = disputeRepository.findByShortTermJobId(request.getJobId()).orElse(null);
-        if (existingDispute != null
-                && existingDispute.getStatus() != DisputeStatus.RESOLVED
-                && existingDispute.getStatus() != DisputeStatus.DISMISSED) {
-            return existingDispute;
-        }
-
-        // Determine respondent (recruiter)
-        Long respondentId = job.getRecruiterProfile().getUserId();
-        Long initiatorId = userId;
-
-        // Create dispute with admin resolution deadline (5 days SLA)
         Dispute dispute = Dispute.builder()
                 .shortTermJob(job)
-                .application(app)
-                .initiatorId(initiatorId)
-                .respondentId(respondentId)
+                .application(application)
+                .initiatorId(userId)
+                .respondentId(job.getRecruiterProfile().getUserId())
                 .disputeType(request.getDisputeType())
                 .reason(request.getReason())
                 .status(DisputeStatus.OPEN)
@@ -140,32 +148,29 @@ public class DisputeServiceImpl implements DisputeService {
 
         dispute = disputeRepository.save(dispute);
 
-        // Update application and job status to DISPUTED
-        app.setStatus(ShortTermApplicationStatus.DISPUTE_OPENED);
-        app.setLastActivityAt(LocalDateTime.now());
-        applicationRepository.save(app);
+        application.setStatus(ShortTermApplicationStatus.DISPUTE_OPENED);
+        application.setLastActivityAt(LocalDateTime.now());
+        applicationRepository.save(application);
 
-        job.setStatus(com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus.DISPUTED);
+        job.setStatus(ShortTermJobStatus.DISPUTED);
         shortTermJobRepository.save(job);
 
-        // Mark escrow as DISPUTED — frozen until admin resolves
-        jobEscrowRepository.findByJobId(request.getJobId()).ifPresent(escrow -> {
+        jobEscrowRepository.findByJobId(job.getId()).ifPresent(escrow -> {
             escrow.setStatus(EscrowStatus.DISPUTED);
             jobEscrowRepository.save(escrow);
-            log.info("Escrow for job {} frozen as DISPUTED", request.getJobId());
+            log.info("Escrow for job {} frozen as DISPUTED", job.getId());
         });
 
-        // Notify respondent (recruiter)
         notificationService.createNotification(
-                respondentId,
-                "Khiếu nại đã được gửi lên Admin",
-                "Ứng viên đã gửi khiếu nại cho công việc \"" + job.getTitle() +
-                "\". Admin sẽ xem xét và giải quyết trong 5 ngày làm việc.",
+                dispute.getRespondentId(),
+                "Khieu nai da duoc gui len Admin",
+                "Ung vien da gui khieu nai cho cong viec \"" + job.getTitle()
+                        + "\". Admin se xem xet va giai quyet trong 5 ngay lam viec.",
                 NotificationType.DISPUTE_OPENED,
                 String.valueOf(dispute.getId())
         );
 
-        log.info("Dispute {} opened for job {} by worker {}", dispute.getId(), request.getJobId(), userId);
+        log.info("Dispute {} opened for job {} by worker {}", dispute.getId(), job.getId(), userId);
         return dispute;
     }
 
@@ -176,12 +181,10 @@ public class DisputeServiceImpl implements DisputeService {
         Dispute dispute = disputeRepository.findById(disputeId)
                 .orElseThrow(() -> new NotFoundException("Dispute not found with ID: " + disputeId));
 
-        // Validate user is a party in the dispute
         if (!dispute.getInitiatorId().equals(userId) && !dispute.getRespondentId().equals(userId)) {
             throw new ForbiddenException("You are not a party in this dispute");
         }
 
-        // Validate dispute is still active
         if (!ACTIVE_DISPUTE_STATUSES.contains(dispute.getStatus())) {
             throw new BadRequestException("Cannot submit evidence to a non-active dispute. Status: " + dispute.getStatus());
         }
@@ -198,7 +201,6 @@ public class DisputeServiceImpl implements DisputeService {
                 .build();
 
         evidence = disputeEvidenceRepository.save(evidence);
-
         log.info("Evidence {} submitted for dispute {}", evidence.getId(), disputeId);
         return evidence;
     }
@@ -210,17 +212,14 @@ public class DisputeServiceImpl implements DisputeService {
         Dispute dispute = disputeRepository.findById(disputeId)
                 .orElseThrow(() -> new NotFoundException("Dispute not found with ID: " + disputeId));
 
-        // Validate user is a party
         if (!dispute.getInitiatorId().equals(userId) && !dispute.getRespondentId().equals(userId)) {
             throw new ForbiddenException("You are not a party in this dispute");
         }
 
-        // Validate dispute is still active
         if (!ACTIVE_DISPUTE_STATUSES.contains(dispute.getStatus())) {
             throw new BadRequestException("Cannot respond to evidence in a non-active dispute. Status: " + dispute.getStatus());
         }
 
-        // Find the evidence
         DisputeEvidence evidence = disputeEvidenceRepository.findById(evidenceId)
                 .orElseThrow(() -> new NotFoundException("Evidence not found with ID: " + evidenceId));
 
@@ -228,9 +227,10 @@ public class DisputeServiceImpl implements DisputeService {
             throw new BadRequestException("Evidence does not belong to this dispute");
         }
 
-        // Get user name
         User user = userRepository.findById(userId).orElse(null);
-        String userName = user != null && user.getFullName() != null ? user.getFullName() : "User";
+        String userName = user != null && user.getFullName() != null && !user.getFullName().isBlank()
+                ? user.getFullName()
+                : "User";
 
         DisputeResponseEntity response = DisputeResponseEntity.builder()
                 .evidence(evidence)
@@ -240,8 +240,7 @@ public class DisputeServiceImpl implements DisputeService {
                 .isAdminResponse(false)
                 .build();
 
-        disputeResponseRepository.save(response);
-
+        response = disputeResponseRepository.save(response);
         log.info("Response added to evidence {} for dispute {}", evidenceId, disputeId);
         return response;
     }
@@ -257,37 +256,110 @@ public class DisputeServiceImpl implements DisputeService {
             throw new BadRequestException("Dispute is already resolved or dismissed");
         }
 
-        dispute.setResolution(request.getResolution());
-        dispute.setResolutionNotes(request.getResolutionNotes());
-        if (request.getPartialRefundPct() != null) {
-            dispute.setPartialRefundPct(request.getPartialRefundPct());
+        if (request.getResolution() == null) {
+            throw new BadRequestException("Resolution is required");
         }
+
+        DisputeResolution resolution = request.getResolution();
+        BigDecimal validatedPartialPct = validateAndNormalizePartialPercentage(
+            resolution,
+            request.getPartialRefundPct()
+        );
+
+        dispute.setResolution(resolution);
+        dispute.setResolutionNotes(request.getResolutionNotes());
+        dispute.setPartialRefundPct(validatedPartialPct);
         dispute.setResolvedBy(adminId);
         dispute.setResolvedAt(LocalDateTime.now());
-        dispute.setStatus(DisputeStatus.RESOLVED);
+        dispute.setStatus(resolution == DisputeResolution.NO_ACTION
+                ? DisputeStatus.DISMISSED
+                : DisputeStatus.RESOLVED);
 
         dispute = disputeRepository.save(dispute);
 
-        // Update job and application status based on resolution
-        updateJobAndApplicationStatus(dispute, request.getResolution());
+        updateJobAndApplicationStatus(dispute, resolution);
 
-        // Handle financial resolution
         JobEscrow escrow = dispute.getShortTermJob() != null
                 ? jobEscrowRepository.findByJobId(dispute.getShortTermJob().getId()).orElse(null)
                 : null;
         if (escrow != null) {
-            handleFinancialResolution(dispute, escrow, request.getResolution());
+            handleFinancialResolution(dispute, escrow, resolution);
         }
 
-        // Notify both parties
         notifyDisputeResolved(dispute);
-
-        // Trigger trust score recalculation for both parties
         trustScoreService.triggerRecalculationOnDispute(dispute.getInitiatorId());
         trustScoreService.triggerRecalculationOnDispute(dispute.getRespondentId());
 
-        log.info("Dispute {} resolved with resolution: {}", disputeId, request.getResolution());
+        log.info("Dispute {} resolved with resolution: {}", disputeId, resolution);
         return dispute;
+    }
+
+    @Override
+    public Dispute resolveDisputeFromAdmin(
+            Long adminId,
+            Long disputeId,
+            com.exe.skillverse_backend.admin_service.dto.request.ResolveDisputeAdminRequest request) {
+        ResolveDisputeRequest mappedRequest = ResolveDisputeRequest.builder()
+                .resolution(request.getResolution())
+                .resolutionNotes(request.getResolutionNotes())
+                .partialRefundPct(request.getPartialRefundPct())
+                .build();
+        return resolveDispute(adminId, disputeId, mappedRequest);
+    }
+
+    private BigDecimal validateAndNormalizePartialPercentage(
+            DisputeResolution resolution,
+            BigDecimal partialRefundPct) {
+        if (!requiresPartialPercentage(resolution)) {
+            return null;
+        }
+
+        if (partialRefundPct == null) {
+            throw new BadRequestException("partialRefundPct is required for partial resolutions");
+        }
+
+        if (partialRefundPct.compareTo(BigDecimal.ONE) < 0
+                || partialRefundPct.compareTo(new BigDecimal("99")) > 0) {
+            throw new BadRequestException("partialRefundPct must be in range 1-99");
+        }
+
+        return partialRefundPct.stripTrailingZeros();
+    }
+
+    private boolean requiresPartialPercentage(DisputeResolution resolution) {
+        return resolution == DisputeResolution.WORKER_PARTIAL
+                || resolution == DisputeResolution.PARTIAL_REFUND
+                || resolution == DisputeResolution.PARTIAL_RELEASE;
+    }
+
+    private ShortTermJobApplication resolveApplicationForDispute(
+            Long userId,
+            OpenDisputeRequest request,
+            ShortTermJob preloadedJob) {
+        if (request.getApplicationId() != null) {
+            ShortTermJobApplication application = applicationRepository.findById(request.getApplicationId())
+                    .orElseThrow(() -> new NotFoundException("Application not found with ID: " + request.getApplicationId()));
+
+            ShortTermJob job = application.getShortTermJob();
+            if (job == null) {
+                throw new NotFoundException("Application is not associated with a short-term job.");
+            }
+
+            if (request.getJobId() != null && !job.getId().equals(request.getJobId())) {
+                log.warn("Open dispute payload mismatch for user {}: jobId {} does not match application {} job {}. Using application job.",
+                        userId, request.getJobId(), request.getApplicationId(), job.getId());
+            }
+
+            return application;
+        }
+
+        ShortTermJob job = preloadedJob != null
+                ? preloadedJob
+                : shortTermJobRepository.findById(request.getJobId())
+                .orElseThrow(() -> new NotFoundException("Cong viec khong ton tai hoac da bi huy. Khong the mo khieu nai cho cong viec nay."));
+
+        return applicationRepository.findByShortTermJobIdAndUserId(job.getId(), userId)
+                .orElseThrow(() -> new NotFoundException("Application not found for this job and user"));
     }
 
     private void handleFinancialResolution(Dispute dispute, JobEscrow escrow, DisputeResolution resolution) {
@@ -296,17 +368,18 @@ public class DisputeServiceImpl implements DisputeService {
         BigDecimal refundAmount = escrow.getEscrowBalance();
 
         User admin = userRepository.findById(dispute.getResolvedBy()).orElse(null);
-        String adminName = admin != null && admin.getFullName() != null ? admin.getFullName() : "Admin";
+        String adminName = admin != null && admin.getFullName() != null && !admin.getFullName().isBlank()
+                ? admin.getFullName()
+                : "Admin";
 
         switch (resolution) {
-            case FULL_REFUND:
-                // Refund recruiter (minus platform fee)
+            case FULL_REFUND -> {
                 escrow.setEscrowBalance(BigDecimal.ZERO);
                 escrow.setStatus(EscrowStatus.REFUNDED);
                 escrow.setRefundedAt(LocalDateTime.now());
                 jobEscrowRepository.save(escrow);
 
-                EscrowTransaction fullRefundTx = EscrowTransaction.builder()
+                EscrowTransaction refundTx = EscrowTransaction.builder()
                         .escrow(escrow)
                         .transactionType(EscrowTransactionType.REFUND)
                         .amount(refundAmount.subtract(platformFee))
@@ -317,11 +390,9 @@ public class DisputeServiceImpl implements DisputeService {
                         .reason("Full refund via dispute resolution")
                         .metadata("{\"disputeId\":" + dispute.getId() + ",\"resolution\":\"FULL_REFUND\"}")
                         .build();
-                escrowTransactionRepository.save(fullRefundTx);
-                break;
-
-            case FULL_RELEASE:
-                // Release full amount to worker (minus platform fee)
+                escrowTransactionRepository.save(refundTx);
+            }
+            case FULL_RELEASE -> {
                 escrow.setEscrowBalance(BigDecimal.ZERO);
                 escrow.setPendingPayoutBalance(totalAmount.subtract(platformFee));
                 escrow.setStatus(EscrowStatus.FULLY_RELEASED);
@@ -353,17 +424,19 @@ public class DisputeServiceImpl implements DisputeService {
                         .metadata("{\"disputeId\":" + dispute.getId() + "}")
                         .build();
                 escrowTransactionRepository.save(feeTx);
-                break;
+            }
+            case PARTIAL_REFUND, PARTIAL_RELEASE, WORKER_PARTIAL -> {
+                BigDecimal splitPct = dispute.getPartialRefundPct().divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP);
 
-            case PARTIAL_REFUND:
-            case PARTIAL_RELEASE:
-            case WORKER_PARTIAL:
-                // Split: recruiter gets refund%, worker gets remaining
-                BigDecimal splitPct = dispute.getPartialRefundPct() != null
-                        ? dispute.getPartialRefundPct().divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP)
-                        : new BigDecimal("0.50");
-                BigDecimal recruiterShare = escrow.getEscrowBalance().multiply(splitPct).setScale(2, RoundingMode.HALF_UP);
-                BigDecimal workerShare = escrow.getEscrowBalance().subtract(recruiterShare);
+                BigDecimal recruiterShare;
+                BigDecimal workerShare;
+                if (resolution == DisputeResolution.PARTIAL_REFUND) {
+                    recruiterShare = escrow.getEscrowBalance().multiply(splitPct).setScale(2, RoundingMode.HALF_UP);
+                    workerShare = escrow.getEscrowBalance().subtract(recruiterShare);
+                } else {
+                    workerShare = escrow.getEscrowBalance().multiply(splitPct).setScale(2, RoundingMode.HALF_UP);
+                    recruiterShare = escrow.getEscrowBalance().subtract(workerShare);
+                }
 
                 escrow.setEscrowBalance(BigDecimal.ZERO);
                 escrow.setPendingPayoutBalance(workerShare);
@@ -371,7 +444,6 @@ public class DisputeServiceImpl implements DisputeService {
                 escrow.setReleasedAt(LocalDateTime.now());
                 jobEscrowRepository.save(escrow);
 
-                // REFUND transaction for recruiter
                 EscrowTransaction refundTx = EscrowTransaction.builder()
                         .escrow(escrow)
                         .transactionType(EscrowTransactionType.REFUND)
@@ -380,12 +452,11 @@ public class DisputeServiceImpl implements DisputeService {
                         .netAmount(recruiterShare)
                         .actorId(dispute.getResolvedBy())
                         .actorName(adminName)
-                        .reason("Partial refund (" + splitPct.multiply(new BigDecimal("100")).setScale(0) + "%) to recruiter via dispute resolution")
+                        .reason("Partial refund to recruiter via dispute resolution")
                         .metadata("{\"disputeId\":" + dispute.getId() + ",\"resolution\":\"" + resolution + "\"}")
                         .build();
                 escrowTransactionRepository.save(refundTx);
 
-                // PARTIAL_RELEASE transaction for worker
                 EscrowTransaction workerTx = EscrowTransaction.builder()
                         .escrow(escrow)
                         .transactionType(EscrowTransactionType.PARTIAL_RELEASE)
@@ -394,41 +465,40 @@ public class DisputeServiceImpl implements DisputeService {
                         .netAmount(workerShare)
                         .actorId(dispute.getResolvedBy())
                         .actorName(adminName)
-                        .reason("Partial release (" + splitPct.multiply(new BigDecimal("100")).setScale(0) + "%) to worker via dispute resolution")
+                        .reason("Partial release to worker via dispute resolution")
                         .metadata("{\"disputeId\":" + dispute.getId() + ",\"resolution\":\"" + resolution + "\"}")
                         .build();
                 escrowTransactionRepository.save(workerTx);
-                break;
-
-            case CANCEL_JOB:
+            }
+            case CANCEL_JOB, RECRUITER_WINS -> {
                 escrow.setEscrowBalance(BigDecimal.ZERO);
                 escrow.setStatus(EscrowStatus.REFUNDED);
                 escrow.setRefundedAt(LocalDateTime.now());
                 jobEscrowRepository.save(escrow);
 
-                EscrowTransaction cancelTx = EscrowTransaction.builder()
+                EscrowTransaction refundTx = EscrowTransaction.builder()
                         .escrow(escrow)
                         .transactionType(EscrowTransactionType.REFUND)
-                        .amount(totalAmount.subtract(platformFee))
+                        .amount(refundAmount.subtract(platformFee))
                         .feeAmount(platformFee)
-                        .netAmount(totalAmount.subtract(platformFee))
+                        .netAmount(refundAmount.subtract(platformFee))
                         .actorId(dispute.getResolvedBy())
                         .actorName(adminName)
-                        .reason("Job cancelled via dispute resolution")
-                        .metadata("{\"disputeId\":" + dispute.getId() + ",\"resolution\":\"CANCEL_JOB\"}")
+                        .reason(resolution == DisputeResolution.CANCEL_JOB
+                                ? "Job cancelled via dispute resolution"
+                                : "Recruiter wins via dispute resolution")
+                        .metadata("{\"disputeId\":" + dispute.getId() + ",\"resolution\":\"" + resolution + "\"}")
                         .build();
-                escrowTransactionRepository.save(cancelTx);
-                break;
-
-            case WORKER_WINS:
-                // Full release to worker
+                escrowTransactionRepository.save(refundTx);
+            }
+            case WORKER_WINS -> {
                 escrow.setEscrowBalance(BigDecimal.ZERO);
                 escrow.setPendingPayoutBalance(totalAmount.subtract(platformFee));
                 escrow.setStatus(EscrowStatus.FULLY_RELEASED);
                 escrow.setReleasedAt(LocalDateTime.now());
                 jobEscrowRepository.save(escrow);
 
-                EscrowTransaction workerWinsTx = EscrowTransaction.builder()
+                EscrowTransaction releaseTx = EscrowTransaction.builder()
                         .escrow(escrow)
                         .transactionType(EscrowTransactionType.RELEASE)
                         .amount(totalAmount.subtract(platformFee))
@@ -439,77 +509,53 @@ public class DisputeServiceImpl implements DisputeService {
                         .reason("Worker wins via dispute resolution")
                         .metadata("{\"disputeId\":" + dispute.getId() + ",\"resolution\":\"WORKER_WINS\"}")
                         .build();
-                escrowTransactionRepository.save(workerWinsTx);
-                break;
-
-            case RECRUITER_WINS:
-                // Full refund to recruiter
-                escrow.setEscrowBalance(BigDecimal.ZERO);
-                escrow.setStatus(EscrowStatus.REFUNDED);
-                escrow.setRefundedAt(LocalDateTime.now());
-                jobEscrowRepository.save(escrow);
-
-                EscrowTransaction recruiterWinsTx = EscrowTransaction.builder()
-                        .escrow(escrow)
-                        .transactionType(EscrowTransactionType.REFUND)
-                        .amount(refundAmount.subtract(platformFee))
-                        .feeAmount(platformFee)
-                        .netAmount(refundAmount.subtract(platformFee))
-                        .actorId(dispute.getResolvedBy())
-                        .actorName(adminName)
-                        .reason("Recruiter wins via dispute resolution")
-                        .metadata("{\"disputeId\":" + dispute.getId() + ",\"resolution\":\"RECRUITER_WINS\"}")
-                        .build();
-                escrowTransactionRepository.save(recruiterWinsTx);
-                break;
-
-            case RESUBMIT_REQUIRED:
-            case NO_ACTION:
-                // No financial action
+                escrowTransactionRepository.save(releaseTx);
+            }
+            case RESUBMIT_REQUIRED, NO_ACTION, RECRUITER_WARNING -> {
                 escrow.setStatus(EscrowStatus.FUNDED);
                 jobEscrowRepository.save(escrow);
-                break;
-
-            default:
-                break;
+            }
+            default -> {
+            }
         }
     }
 
     private void updateJobAndApplicationStatus(Dispute dispute, DisputeResolution resolution) {
         ShortTermJob job = dispute.getShortTermJob();
-        if (job == null) return;
+        ShortTermJobApplication application = dispute.getApplication();
+        if (job == null || application == null) {
+            return;
+        }
 
-        ShortTermJobApplication app = dispute.getApplication();
-        if (app == null) return;
+        LocalDateTime now = LocalDateTime.now();
 
         switch (resolution) {
-            case FULL_RELEASE:
-            case WORKER_WINS:
-            case WORKER_PARTIAL:
-                app.setStatus(ShortTermApplicationStatus.COMPLETED);
+            case FULL_RELEASE, WORKER_WINS, PARTIAL_REFUND, PARTIAL_RELEASE, WORKER_PARTIAL -> {
+                application.setStatus(ShortTermApplicationStatus.COMPLETED);
+                application.setCompletedAt(now);
                 job.setStatus(ShortTermJobStatus.COMPLETED);
-                break;
-            case FULL_REFUND:
-            case RECRUITER_WINS:
-            case CANCEL_JOB:
-                app.setStatus(ShortTermApplicationStatus.CANCELLED);
+                job.setCompletedAt(now);
+            }
+            case FULL_REFUND, RECRUITER_WINS, CANCEL_JOB -> {
+                application.setStatus(ShortTermApplicationStatus.CANCELLED);
                 job.setStatus(ShortTermJobStatus.CANCELLED);
-                break;
-            case RESUBMIT_REQUIRED:
-                app.setStatus(ShortTermApplicationStatus.REVISION_REQUIRED);
+            }
+            case RESUBMIT_REQUIRED, NO_ACTION -> {
+                application.setStatus(ShortTermApplicationStatus.REVISION_REQUIRED);
+                application.setLastActivityAt(now);
                 job.setStatus(ShortTermJobStatus.IN_PROGRESS);
-                break;
-            case RECRUITER_WARNING:
-                app.setStatus(ShortTermApplicationStatus.SUBMITTED);
-                app.setReviewDeadlineAt(LocalDateTime.now().plusHours(48));
-                app.setLastActivityAt(LocalDateTime.now());
+            }
+            case RECRUITER_WARNING -> {
+                application.setStatus(ShortTermApplicationStatus.SUBMITTED);
+                application.setReviewDeadlineAt(now.plusHours(48));
+                application.setLastActivityAt(now);
                 job.setStatus(ShortTermJobStatus.SUBMITTED);
-                break;
-            default:
-                // PARTIAL_REFUND, PARTIAL_RELEASE, NO_ACTION — keep as-is
-                break;
+            }
+            default -> {
+            }
         }
-        applicationRepository.save(app);
+
+        applicationRepository.save(application);
         shortTermJobRepository.save(job);
         log.info("Updated job {} and application status based on resolution {}", job.getId(), resolution);
     }
@@ -519,7 +565,7 @@ public class DisputeServiceImpl implements DisputeService {
             notificationService.createNotification(
                     dispute.getInitiatorId(),
                     "Dispute Resolved",
-                    "Your dispute for job has been resolved with outcome: " + dispute.getResolution(),
+                    "Your dispute has been resolved with outcome: " + dispute.getResolution(),
                     NotificationType.DISPUTE_RESOLVED,
                     String.valueOf(dispute.getId())
             );
@@ -544,9 +590,7 @@ public class DisputeServiceImpl implements DisputeService {
     @Override
     @Transactional(readOnly = true)
     public List<Dispute> getDisputesByJob(Long jobId) {
-        return disputeRepository.findByShortTermJobId(jobId)
-                .map(List::of)
-                .orElse(List.of());
+        return disputeRepository.findByShortTermJobId(jobId);
     }
 
     @Override
@@ -557,16 +601,100 @@ public class DisputeServiceImpl implements DisputeService {
 
     @Override
     @Transactional(readOnly = true)
+    public Page<UserSubmittedDisputeResponse> getMySubmittedDisputes(Long userId, Pageable pageable) {
+        // [Nghiệp vụ] Tab "Disputes đã gửi" chỉ hiển thị các khiếu nại mà user hiện tại là người khởi tạo.
+        Page<Dispute> disputes = disputeRepository.findByInitiatorId(userId, pageable);
+        Map<Long, String> userNames = loadUserDisplayNames(disputes.getContent());
+        return disputes.map(dispute -> toUserSubmittedDisputeResponse(dispute, userNames));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Page<Dispute> getAllDisputes(Pageable pageable) {
-        return disputeRepository.findByStatusIn(
-                Arrays.asList(DisputeStatus.OPEN, DisputeStatus.UNDER_INVESTIGATION, DisputeStatus.AWAITING_RESPONSE),
-                pageable
-        );
+        return disputeRepository.findByStatusIn(List.copyOf(ACTIVE_DISPUTE_STATUSES), pageable);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<DisputeEvidence> getDisputeEvidence(Long disputeId) {
         return disputeEvidenceRepository.findByDisputeIdOrderByCreatedAtDesc(disputeId);
+    }
+
+    // [Nghiệp vụ] Tổng hợp thông tin dispute theo góc nhìn người gửi để FE hiển thị tab quản lý dạng read-only.
+    private UserSubmittedDisputeResponse toUserSubmittedDisputeResponse(
+            Dispute dispute,
+            Map<Long, String> userNames) {
+        ShortTermJob job = dispute.getShortTermJob();
+        ShortTermJobApplication application = dispute.getApplication();
+
+        return UserSubmittedDisputeResponse.builder()
+                .id(dispute.getId())
+                .jobId(job != null ? job.getId() : null)
+                .applicationId(application != null ? application.getId() : null)
+                .jobTitle(job != null ? job.getTitle() : null)
+                .jobStatus(job != null && job.getStatus() != null ? job.getStatus().name() : null)
+                .applicationStatus(application != null && application.getStatus() != null
+                        ? application.getStatus().name()
+                        : null)
+                .initiatorId(dispute.getInitiatorId())
+                .initiatorName(resolveDisplayName(dispute.getInitiatorId(), userNames))
+                .respondentId(dispute.getRespondentId())
+                .respondentName(resolveDisplayName(dispute.getRespondentId(), userNames))
+                .disputeType(dispute.getDisputeType())
+                .reason(dispute.getReason())
+                .status(dispute.getStatus())
+                .resolution(dispute.getResolution())
+                .partialRefundPct(dispute.getPartialRefundPct())
+                .resolutionNotes(dispute.getResolutionNotes())
+                .resolvedBy(dispute.getResolvedBy())
+                .resolvedByName(resolveDisplayName(dispute.getResolvedBy(), userNames))
+                .resolvedAt(dispute.getResolvedAt())
+                .createdAt(dispute.getCreatedAt())
+                .adminResolutionDeadlineAt(dispute.getAdminResolutionDeadlineAt())
+                .escalationLevel(dispute.getEscalationLevel())
+                .priority(dispute.getPriority())
+                .build();
+    }
+
+    private Map<Long, String> loadUserDisplayNames(List<Dispute> disputes) {
+        Set<Long> userIds = new LinkedHashSet<>();
+        for (Dispute dispute : disputes) {
+            addUserId(userIds, dispute.getInitiatorId());
+            addUserId(userIds, dispute.getRespondentId());
+            addUserId(userIds, dispute.getResolvedBy());
+        }
+
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(User::getId, this::buildDisplayName));
+    }
+
+    private void addUserId(Set<Long> userIds, Long userId) {
+        if (userId != null) {
+            userIds.add(userId);
+        }
+    }
+
+    private String resolveDisplayName(Long userId, Map<Long, String> userNames) {
+        if (userId == null) {
+            return null;
+        }
+        return userNames.getOrDefault(userId, "User #" + userId);
+    }
+
+    private String buildDisplayName(User user) {
+        if (user == null) {
+            return null;
+        }
+        if (user.getFullName() != null && !user.getFullName().isBlank()) {
+            return user.getFullName();
+        }
+        if (user.getEmail() != null && !user.getEmail().isBlank()) {
+            return user.getEmail();
+        }
+        return "User #" + user.getId();
     }
 }

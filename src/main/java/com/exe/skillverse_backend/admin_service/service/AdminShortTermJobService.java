@@ -1,9 +1,10 @@
 package com.exe.skillverse_backend.admin_service.service;
 
+import com.exe.skillverse_backend.admin_service.dto.request.RejectCancellationRequest;
 import com.exe.skillverse_backend.admin_service.dto.request.ResolveDisputeAdminRequest;
+import com.exe.skillverse_backend.admin_service.dto.response.AdminDisputeResponse;
 import com.exe.skillverse_backend.admin_service.dto.response.AdminJobStatsResponse;
 import com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse;
-import com.exe.skillverse_backend.business_service.entity.Dispute;
 import com.exe.skillverse_backend.business_service.entity.JobStatusAuditLog;
 import com.exe.skillverse_backend.business_service.entity.Dispute.DisputeStatus;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
@@ -60,12 +61,12 @@ public interface AdminShortTermJobService {
     /**
      * Get paginated list of all disputes, optionally filtered by status
      */
-    Page<Dispute> getAllDisputes(DisputeStatus status, Pageable pageable);
+    Page<AdminDisputeResponse> getAllDisputes(DisputeStatus status, Pageable pageable);
 
     /**
      * Get dispute detail by ID
      */
-    Dispute getDisputeDetail(Long disputeId);
+    AdminDisputeResponse getDisputeDetail(Long disputeId);
 
     /**
      * Get audit trail relevant to a dispute.
@@ -75,7 +76,14 @@ public interface AdminShortTermJobService {
     /**
      * Resolve a dispute (admin action) - handles escrow accordingly
      */
-    Dispute resolveDispute(Long adminId, Long disputeId, ResolveDisputeAdminRequest request);
+    AdminDisputeResponse resolveDispute(Long adminId, Long disputeId, ResolveDisputeAdminRequest request);
+
+    /**
+     * [Nghiệp vụ] Admin từ chối yêu cầu hủy job từ recruiter.
+     * Job quay về IN_PROGRESS, worker được thông báo để tiếp tục làm việc.
+     */
+    com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse
+            rejectCancellation(Long adminId, Long disputeId, RejectCancellationRequest request);
 
     // ==================== DASHBOARD STATS ====================
 

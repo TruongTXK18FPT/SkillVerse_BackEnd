@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.business_service.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -37,10 +38,12 @@ public class Dispute {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "job_id", nullable = false)
+    @JsonIgnore
     private ShortTermJob shortTermJob;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "application_id")
+    @JsonIgnore
     private ShortTermJobApplication application;
 
     @Column(name = "initiator_id", nullable = false)

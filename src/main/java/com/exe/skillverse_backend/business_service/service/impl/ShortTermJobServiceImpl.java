@@ -808,10 +808,6 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         }
 
         int currentRevisionCount = application.getRevisionCount() == null ? 0 : application.getRevisionCount();
-        if (currentRevisionCount >= 5) {
-            throw new BadRequestException(
-                    "Revision limit reached. Recruiter must request admin cancellation review instead of requesting more revisions");
-        }
 
         // Create revision note
         User recruiter = getUserById(userId);
@@ -897,8 +893,10 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         }
 
         disputeRepository.findByShortTermJobId(job.getId())
+                .stream()
                 .filter(dispute -> dispute.getStatus() != Dispute.DisputeStatus.RESOLVED
                         && dispute.getStatus() != Dispute.DisputeStatus.DISMISSED)
+                .findFirst()
                 .ifPresent(dispute -> {
                     throw new BadRequestException("This job already has an active admin review/dispute");
                 });

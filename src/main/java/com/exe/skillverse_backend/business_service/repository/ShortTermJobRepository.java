@@ -82,13 +82,16 @@ public interface ShortTermJobRepository extends JpaRepository<ShortTermJob, Long
     List<ShortTermJob> findByStatusAndCreatedAtBefore(@Param("status") ShortTermJobStatus status, @Param("cutoffDate") LocalDateTime cutoffDate);
 
     /**
-     * Find PUBLISHED or APPLIED jobs with deadline passed (for auto-close scheduler)
+     * Find IN_PROGRESS or APPLIED jobs with deadline passed (for auto-close scheduler)
+     * Only auto-cancel jobs that are truly idle/awaiting — never touch active jobs.
+     * Excludes: IN_PROGRESS, SUBMITTED, UNDER_REVIEW, CANCELLATION_REQUESTED, DISPUTED, ESCALATED, APPROVED, AUTO_APPROVED
      */
-    @Query("SELECT j FROM ShortTermJob j WHERE (j.status = 'PUBLISHED' OR j.status = 'APPLIED') AND j.deadline < :now")
+    @Query("SELECT j FROM ShortTermJob j WHERE j.status IN ('PUBLISHED', 'APPLIED') AND j.deadline < :now")
     List<ShortTermJob> findPublishedJobsWithDeadlinePassed(@Param("now") LocalDateTime now);
 
     /**
-     * Find IN_PROGRESS jobs with deadline passed (for auto-complete or auto-fail)
+     * Find IN_PROGRESS or APPLIED jobs with deadline passed (for auto-complete or auto-fail)
+     * NOTE: IN_PROGRESS jobs should be handled via dispute/cancellation flow, not auto-cancelled here.
      */
     @Query("SELECT j FROM ShortTermJob j WHERE j.status = 'IN_PROGRESS' AND j.deadline < :now")
     List<ShortTermJob> findInProgressJobsWithDeadlinePassed(@Param("now") LocalDateTime now);

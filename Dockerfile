@@ -23,18 +23,19 @@ RUN ./mvnw clean package -DskipTests -B || \
     (echo "Second build attempt failed, retrying in 10 seconds with fresh local repo..." && sleep 10 && rm -rf /root/.m2/repository && ./mvnw clean package -DskipTests -B)
 
 # Runtime stage
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre-jammy
 
-# Set timezone to Vietnam (Asia/Ho_Chi_Minh)
-RUN apk add --no-cache tzdata \
-    && cp /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime \
-    && echo "Asia/Ho_Chi_Minh" > /etc/timezone
-
-# Install curl for health check (as root user)
-RUN apk --no-cache add curl
+# Install runtime dependencies for health check
+RUN apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    tzdata \
+    curl \
+  && ln -snf /usr/share/zoneinfo/Asia/Ho_Chi_Minh /etc/localtime \
+  && echo "Asia/Ho_Chi_Minh" > /etc/timezone \
+  && rm -rf /var/lib/apt/lists/*
 
 # Create app user for security
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+RUN groupadd --system appgroup && useradd --system --gid appgroup --create-home appuser
 
 # Set working directory
 WORKDIR /app

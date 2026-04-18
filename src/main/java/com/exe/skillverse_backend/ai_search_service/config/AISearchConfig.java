@@ -13,7 +13,7 @@ import jakarta.annotation.PostConstruct;
  * Configuration for AI Search Service (Mistral API)
  */
 @Configuration
-@ConfigurationProperties(prefix = "ai.search")
+@ConfigurationProperties(prefix = "skillverse.ai.search")
 @Getter
 @Setter
 @Slf4j

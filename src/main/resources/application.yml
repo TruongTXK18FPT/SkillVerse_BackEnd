@@ -190,6 +190,27 @@ premium:
       - university.
       - student.
 
+student-verification:
+  enabled: ${STUDENT_VERIFICATION_ENABLED:true}
+  storage-provider: ${STUDENT_VERIFICATION_STORAGE_PROVIDER:CLOUDINARY}
+  cloudinary-folder: ${STUDENT_VERIFICATION_CLOUDINARY_FOLDER:skillverse/student-verification}
+  local-storage-path: ${STUDENT_VERIFICATION_LOCAL_STORAGE_PATH:uploads/student-verification}
+  max-file-size-bytes: ${STUDENT_VERIFICATION_MAX_FILE_SIZE_BYTES:10485760}
+  allowed-mime-types:
+    - image/jpeg
+    - image/png
+  allowed-school-domains:
+    - fpt.edu.vn
+    - hcmut.edu.vn
+    - hcmus.edu.vn
+  allowed-domain-suffixes:
+    - .edu.vn
+  otp:
+    length: ${STUDENT_VERIFICATION_OTP_LENGTH:6}
+    expiry-minutes: ${STUDENT_VERIFICATION_OTP_EXPIRY_MINUTES:10}
+    max-attempts: ${STUDENT_VERIFICATION_OTP_MAX_ATTEMPTS:5}
+    resend-cooldown-seconds: ${STUDENT_VERIFICATION_OTP_RESEND_COOLDOWN_SECONDS:60}
+
 # Cloudinary Configuration (Media Upload)
 cloudinary:
   cloud-name: ${CLOUDINARY_CLOUD_NAME:djv7loilz}

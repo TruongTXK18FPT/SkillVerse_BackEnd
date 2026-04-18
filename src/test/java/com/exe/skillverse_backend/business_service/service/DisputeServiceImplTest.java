@@ -140,7 +140,7 @@ class DisputeServiceImplTest {
 
         when(shortTermJobRepository.findById(job.getId())).thenReturn(Optional.of(job));
         when(applicationRepository.findByShortTermJobIdAndUserId(job.getId(), 2L)).thenReturn(Optional.of(application));
-        when(disputeRepository.findByShortTermJobId(job.getId())).thenReturn(Optional.empty());
+        when(disputeRepository.findFirstByShortTermJobId(job.getId())).thenReturn(Optional.empty());
         when(jobEscrowRepository.findByJobId(job.getId())).thenReturn(Optional.of(escrow));
 
         Dispute dispute = service.openDispute(2L, request);
@@ -211,6 +211,70 @@ class DisputeServiceImplTest {
         verify(escrowTransactionRepository, times(2)).save(any());
         verify(trustScoreService).triggerRecalculationOnDispute(2L);
         verify(trustScoreService).triggerRecalculationOnDispute(1L);
+    }
+
+    @Test
+    @DisplayName("resolveDispute should dismiss NO_ACTION disputes and restore workflow")
+    void resolveDispute_ShouldDismissNoActionAndRestoreWorkflow() {
+        ShortTermJob job = job(100L, 1L, 2L);
+        job.setStatus(ShortTermJobStatus.DISPUTED);
+        ShortTermJobApplication application = application(job, 2L, ShortTermApplicationStatus.DISPUTE_OPENED, true);
+        Dispute dispute = Dispute.builder()
+                .id(88L)
+                .shortTermJob(job)
+                .application(application)
+                .initiatorId(2L)
+                .respondentId(1L)
+                .status(Dispute.DisputeStatus.OPEN)
+                .build();
+        JobEscrow escrow = JobEscrow.builder()
+                .id(11L)
+                .job(job)
+                .recruiterId(1L)
+                .workerId(2L)
+                .totalAmount(new BigDecimal("1000000"))
+                .platformFee(new BigDecimal("100000"))
+                .escrowBalance(new BigDecimal("1000000"))
+                .status(JobEscrow.EscrowStatus.DISPUTED)
+                .build();
+
+        when(disputeRepository.findById(dispute.getId())).thenReturn(Optional.of(dispute));
+        when(jobEscrowRepository.findByJobId(job.getId())).thenReturn(Optional.of(escrow));
+
+        Dispute resolved = service.resolveDispute(900L, dispute.getId(),
+                ResolveDisputeRequest.builder()
+                        .resolution(Dispute.DisputeResolution.NO_ACTION)
+                        .resolutionNotes("Dismissed")
+                        .build());
+
+        assertEquals(Dispute.DisputeStatus.DISMISSED, resolved.getStatus());
+        assertEquals(ShortTermApplicationStatus.REVISION_REQUIRED, application.getStatus());
+        assertEquals(ShortTermJobStatus.IN_PROGRESS, job.getStatus());
+        assertEquals(JobEscrow.EscrowStatus.FUNDED, escrow.getStatus());
+    }
+
+    @Test
+    @DisplayName("openDispute should prefer applicationId when frontend sends the wrong jobId")
+    void openDispute_ShouldUseApplicationIdWhenJobIdIsWrong() {
+        ShortTermJob job = job(100L, 1L, 2L);
+        ShortTermJobApplication application = application(job, 2L, ShortTermApplicationStatus.SUBMITTED, true);
+        OpenDisputeRequest request = OpenDisputeRequest.builder()
+                .jobId(999L)
+                .applicationId(application.getId())
+                .disputeType(Dispute.DisputeType.WORKER_PROTECTION)
+                .reason("Worker needs protection")
+                .build();
+
+        when(applicationRepository.findById(application.getId())).thenReturn(Optional.of(application));
+        when(disputeRepository.findFirstByShortTermJobId(job.getId())).thenReturn(Optional.empty());
+        when(jobEscrowRepository.findByJobId(job.getId())).thenReturn(Optional.empty());
+
+        Dispute dispute = service.openDispute(2L, request);
+
+        assertEquals(job.getId(), dispute.getShortTermJob().getId());
+        assertEquals(application.getId(), dispute.getApplication().getId());
+        assertEquals(ShortTermApplicationStatus.DISPUTE_OPENED, application.getStatus());
+        assertEquals(ShortTermJobStatus.DISPUTED, job.getStatus());
     }
 
     private ShortTermJob job(Long jobId, Long recruiterId, Long workerId) {
