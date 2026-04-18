@@ -291,6 +291,11 @@ public class DatabaseSchemaFixer {
                     this::patchSkillsNameUniqueIndex,
                     this::verifySkillsNameUniqueIndex);
 
+            applyPatch("add-course-revisions-course-skill-tags-json-column",
+                    "Add missing course_skill_tags_json column to course_revisions for Hibernate schema validation",
+                    this::patchCourseRevisionsCourseSkillTagsJsonColumn,
+                    this::verifyCourseRevisionsCourseSkillTagsJsonColumn);
+
             applyPatch("fix-course-revisions-course-skill-tags-nullable",
                     "Make course_revisions.course_skill_tags_json nullable — existing revisions have NULL values",
                     this::patchCourseRevisionsCourseSkillTagsNullable,
@@ -1508,7 +1513,24 @@ public class DatabaseSchemaFixer {
         return hasIndex("idx_skills_name_upper");
     }
 
-    // ─── course_revisions.course_skill_tags_json nullable fix ─────────────────────
+    // ─── course_revisions.course_skill_tags_json column + nullable fix ───────────
+
+    private void patchCourseRevisionsCourseSkillTagsJsonColumn() {
+        if (!hasTable("course_revisions")) {
+            log.debug("Table course_revisions does not exist yet, skipping patch.");
+            return;
+        }
+        if (!hasColumn("course_revisions", "course_skill_tags_json")) {
+            executeSql("""
+                ALTER TABLE course_revisions
+                ADD COLUMN course_skill_tags_json JSONB
+            """);
+        }
+    }
+
+    private boolean verifyCourseRevisionsCourseSkillTagsJsonColumn() {
+        return hasColumn("course_revisions", "course_skill_tags_json");
+    }
 
     private void patchCourseRevisionsCourseSkillTagsNullable() {
         // If column doesn't exist yet, Hibernate will create it as nullable.
