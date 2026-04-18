@@ -11,10 +11,12 @@ import com.exe.skillverse_backend.auth_service.service.UserCreationService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
+import com.exe.skillverse_backend.shared.exception.ConflictException;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -98,7 +100,7 @@ public class UserCreationServiceImpl implements UserCreationService {
 
         // Check if user already exists
         if (userRepository.existsByEmail(email)) {
-            throw new IllegalArgumentException("Email already exists: " + email);
+            throw new ConflictException("Email đã được đăng ký");
         }
 
         // Find the role
@@ -123,7 +125,11 @@ public class UserCreationServiceImpl implements UserCreationService {
         // Assign role
         user.getRoles().add(role);
 
-        user = userRepository.save(user);
+        try {
+            user = userRepository.save(user);
+        } catch (DataIntegrityViolationException ex) {
+            throw new ConflictException("Email đã được đăng ký");
+        }
         log.info("Created user with ID: {} for role: {}", user.getId(), primaryRole);
 
         try {

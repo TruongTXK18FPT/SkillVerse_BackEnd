@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.service.UserCreationService;
 import com.exe.skillverse_backend.parent_service.dto.request.LinkStudentRequest;
 import com.exe.skillverse_backend.parent_service.service.ParentService;
+import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
 import com.exe.skillverse_backend.user_service.dto.request.UserRegistrationRequest;
 import com.exe.skillverse_backend.user_service.dto.response.UserRegistrationResponse;
@@ -31,7 +32,7 @@ public class UserRegistrationServiceImpl
     public UserRegistrationResponse register(UserRegistrationRequest request) {
         // Check if email already exists
         if (userCreationService.emailExists(request.getEmail())) {
-            throw new RuntimeException("Email already registered");
+            throw new ConflictException("Email đã được đăng ký");
         }
 
         // Note: Password validation is already handled by @PasswordMatches annotation on
