@@ -151,7 +151,7 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
      */
     @Transactional(readOnly = true)
     @Query("SELECT asub FROM AssignmentSubmission asub " +
-            "WHERE asub.assignment.id = :assignmentId AND asub.isNewest = true AND asub.score IS NULL " +
+            "WHERE asub.assignment.id = :assignmentId AND asub.isNewest = true AND asub.score IS NULL AND asub.isAiGraded = false " +
             "ORDER BY asub.submittedAt ASC")
     List<AssignmentSubmission> findPendingSubmissionsByAssignmentId(@Param("assignmentId") Long assignmentId);
 
@@ -160,7 +160,7 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
      */
     @Transactional(readOnly = true)
     @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub " +
-            "WHERE asub.assignment.id = :assignmentId AND asub.isNewest = true AND asub.score IS NULL")
+            "WHERE asub.assignment.id = :assignmentId AND asub.isNewest = true AND asub.score IS NULL AND asub.isAiGraded = false")
     long countPendingByAssignmentId(@Param("assignmentId") Long assignmentId);
 
     /**
@@ -184,7 +184,7 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
             "JOIN a.module m " +
             "JOIN m.course c " +
             "WHERE c.author.id = :authorId " +
-            "AND asub.isNewest = true AND asub.score IS NULL " +
+            "AND asub.isNewest = true AND asub.score IS NULL AND asub.isAiGraded = false " +
             "ORDER BY asub.submittedAt ASC")
     List<AssignmentSubmission> findAllPendingByAuthorId(@Param("authorId") Long authorId);
 
@@ -211,8 +211,8 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
             "AND asub.isNewest = true " +
             "AND (" +
             "  :filter = 'ALL' " +
-            "  OR (:filter = 'PENDING' AND asub.score IS NULL) " +
-            "  OR (:filter = 'GRADED' AND asub.score IS NOT NULL) " +
+            "  OR (:filter = 'PENDING' AND asub.score IS NULL AND asub.isAiGraded = false) " +
+            "  OR (:filter = 'GRADED' AND (asub.score IS NOT NULL OR asub.isAiGraded = true)) " +
             "  OR (:filter = 'LATE' AND a.dueAt IS NOT NULL AND asub.submittedAt > a.dueAt)" +
             ") " +
             "AND (" +
@@ -247,7 +247,7 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
             "JOIN m.course c " +
             "WHERE c.author.id = :authorId " +
             "AND asub.isNewest = true " +
-            "AND asub.score IS NULL")
+            "AND asub.score IS NULL AND asub.isAiGraded = false")
     long countPendingLatestByAuthorId(@Param("authorId") Long authorId);
 
     @Transactional(readOnly = true)
@@ -257,7 +257,7 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
             "JOIN m.course c " +
             "WHERE c.author.id = :authorId " +
             "AND asub.isNewest = true " +
-            "AND asub.score IS NOT NULL")
+            "AND (asub.score IS NOT NULL OR asub.isAiGraded = true)")
     long countGradedLatestByAuthorId(@Param("authorId") Long authorId);
 
     @Transactional(readOnly = true)
@@ -321,7 +321,7 @@ public interface AssignmentSubmissionRepository extends JpaRepository<Assignment
     long countByAssignmentIdAndIsAiGradedTrueAndMentorConfirmedNull(@Param("assignmentId") Long assignmentId);
 
     @Transactional(readOnly = true)
-    @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub WHERE asub.assignment.id = :assignmentId AND asub.score IS NULL")
+        @Query("SELECT COUNT(asub) FROM AssignmentSubmission asub WHERE asub.assignment.id = :assignmentId AND asub.score IS NULL AND asub.isAiGraded = false")
     long countByAssignmentIdAndScoreIsNull(@Param("assignmentId") Long assignmentId);
 
     /**

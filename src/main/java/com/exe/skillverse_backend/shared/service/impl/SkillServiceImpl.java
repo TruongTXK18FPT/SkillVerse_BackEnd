@@ -36,12 +36,18 @@ public class SkillServiceImpl implements SkillService {
     @Transactional
     public SkillDto create(SkillDto dto) {
         validateName(dto.getName());
+
+        // Normalize: UPPERCASE + replace spaces with underscores.
+        // "java core" → "JAVA_CORE", "java-core" → "JAVA-CORE"
+        String normalizedName = normalizeName(dto.getName());
+
         // Enforce unique theo name+category (nếu muốn)
         skillRepository.findByNameIgnoreCaseAndCategoryIgnoreCase(
-                dto.getName(), safe(dto.getCategory())
+                normalizedName, safe(dto.getCategory())
         ).ifPresent(s -> { throw new ConflictException("SKILL_ALREADY_EXISTS"); });
 
         Skill e = skillMapper.toEntity(dto);
+        e.setName(normalizedName);
         e.setCreatedAt(LocalDateTime.now(clock));
         e.setUpdatedAt(LocalDateTime.now(clock));
 
@@ -61,11 +67,13 @@ public class SkillServiceImpl implements SkillService {
     @Transactional
     public SkillDto update(Long id, SkillDto dto) {
         Skill e = getOrThrow(id);
+        String normalizedName = normalizeName(dto.getName());
+        String normalizedCategory = safe(dto.getCategory());
 
         // nếu đổi name/category thì kiểm tra trùng
-        if (hasChangedNameOrCategory(e, dto)) {
+        if (hasChangedNameOrCategory(e, normalizedName, normalizedCategory)) {
             skillRepository.findByNameIgnoreCaseAndCategoryIgnoreCase(
-                    dto.getName(), safe(dto.getCategory())
+                    normalizedName, normalizedCategory
             ).ifPresent(existing -> {
                 if (!existing.getId().equals(id)) {
                     throw new ConflictException("SKILL_ALREADY_EXISTS");
@@ -86,8 +94,9 @@ public class SkillServiceImpl implements SkillService {
         }
 
         // cập nhật metadata
-        e.setName(dto.getName());
-        e.setCategory(safe(dto.getCategory()));
+        // Normalize name: UPPERCASE + replace spaces with underscores on update
+        e.setName(normalizedName);
+        e.setCategory(normalizedCategory);
         e.setDescription(dto.getDescription());
         e.setUpdatedAt(LocalDateTime.now(clock));
 
@@ -181,7 +190,7 @@ public class SkillServiceImpl implements SkillService {
     public PageResponse<SkillDto> suggestByPrefix(String prefix, Pageable p) {
         if (prefix == null || prefix.isBlank()) return PageResponse.<SkillDto>builder()
                 .items(Collections.emptyList()).page(p.getPageNumber()).size(p.getPageSize()).total(0).build();
-        Page<Skill> page = skillRepository.findByNameStartingWithIgnoreCase(prefix.trim(), p);
+        Page<Skill> page = skillRepository.findByNameContainingIgnoreCase(prefix.trim(), p);
         return toPage(page);
     }
 
@@ -190,9 +199,9 @@ public class SkillServiceImpl implements SkillService {
         return skillRepository.findById(id).orElseThrow(() -> new NotFoundException("SKILL_NOT_FOUND"));
     }
 
-    private boolean hasChangedNameOrCategory(Skill e, SkillDto dto) {
-        return !Objects.equals(normalize(e.getName()), normalize(dto.getName()))
-            || !Objects.equals(normalize(e.getCategory()), normalize(dto.getCategory()));
+    private boolean hasChangedNameOrCategory(Skill e, String normalizedName, String normalizedCategory) {
+        return !Objects.equals(normalizeName(e.getName()), normalizedName)
+            || !Objects.equals(normalize(e.getCategory()), normalize(normalizedCategory));
     }
 
     private void ensureNoCycle(Long nodeId, Long newParentId) {
@@ -211,10 +220,24 @@ public class SkillServiceImpl implements SkillService {
         }
     }
 
-    private String safe(String s) { 
-        return s == null ? null : s.trim(); 
+    private String safe(String s) {
+        return s == null ? null : s.trim();
     }
-    
+
+    /**
+     * Normalize skill name to canonical form: strip non-alphanumeric chars,
+     * collapse to single underscores, then UPPERCASE.
+     * "java core" / "java-core" / "java_core" / "JAVA  CORE" → "JAVA_CORE"
+     */
+    private String normalizeName(String raw) {
+        if (raw == null) return null;
+        return raw.trim()
+                .replaceAll("[^a-zA-Z0-9]+", "_")   // any separator → underscore
+                .replaceAll("_+", "_")                // collapse consecutive underscores
+                .replaceAll("^_|_$", "")              // trim leading/trailing underscores
+                .toUpperCase(Locale.ROOT);
+    }
+
     private String normalize(String s) { 
         return s == null ? null : s.trim().toLowerCase(Locale.ROOT); 
     }

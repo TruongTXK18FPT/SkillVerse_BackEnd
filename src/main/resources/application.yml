@@ -59,8 +59,8 @@ spring:
 
   http:
     client:
-      connect-timeout: ${HTTP_CLIENT_CONNECT_TIMEOUT:30s}
-      read-timeout: ${HTTP_CLIENT_READ_TIMEOUT:5m}
+      connect-timeout: ${HTTP_CLIENT_CONNECT_TIMEOUT:60s}
+      read-timeout: ${HTTP_CLIENT_READ_TIMEOUT:10m}
 
   # Google OAuth2 Configuration (for Google Login)
   # Works for both dev (localhost:5173) and prod (skillverse.vn)
@@ -90,7 +90,7 @@ spring:
         options:
           model: ${MISTRAL_API_MODEL:mistral-large-latest}
           temperature: ${MISTRAL_API_TEMPERATURE:0.7}
-          max-tokens: ${MISTRAL_API_MAX_TOKENS:40000}
+          max-tokens: ${MISTRAL_API_MAX_TOKENS:50000}
 
     # Custom configuration for AI Study Planner (Mistral Small)
     planner:

@@ -26,4 +26,5 @@ public class CourseUpdateDTO {
     private CourseStatus status;
     private BigDecimal price;
     private String currency;
+    private List<String> courseSkills;
 }

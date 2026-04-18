@@ -58,7 +58,7 @@ public interface CourseSkillRepository extends JpaRepository<CourseSkill, Serial
      */
     @Transactional(readOnly = true)
     @Query("SELECT CASE WHEN COUNT(cs) > 0 THEN true ELSE false END " +
-           "FROM CourseSkill cs WHERE cs.course.id = :courseId AND cs.skill.id = :skillId")
+           "FROM CourseSkill cs WHERE cs.id.courseId = :courseId AND cs.id.skillId = :skillId")
     boolean existsByCourseIdAndSkillId(@Param("courseId") Long courseId, @Param("skillId") Long skillId);
 
     /**
@@ -80,7 +80,7 @@ public interface CourseSkillRepository extends JpaRepository<CourseSkill, Serial
      */
     @Modifying
     @Transactional
-    @Query("DELETE FROM CourseSkill cs WHERE cs.course.id = :courseId AND cs.skill.id = :skillId")
+    @Query("DELETE FROM CourseSkill cs WHERE cs.id.courseId = :courseId AND cs.id.skillId = :skillId")
     int deleteByCourseIdAndSkillId(@Param("courseId") Long courseId, @Param("skillId") Long skillId);
 
     /**
@@ -89,4 +89,21 @@ public interface CourseSkillRepository extends JpaRepository<CourseSkill, Serial
     @Transactional(readOnly = true)
     @Query("SELECT cs.skill FROM CourseSkill cs WHERE cs.course.id = :courseId")
     List<Skill> findSkillsByCourseId(@Param("courseId") Long courseId);
+
+    /**
+     * Get all skill IDs for a course — direct table query, bypasses entity field.
+     * Used by CourseService to sync skill links without relying on lazy-loaded entity field.
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT cs.id.skillId FROM CourseSkill cs WHERE cs.id.courseId = :courseId")
+    List<Long> findSkillIdsByCourseId(@Param("courseId") Long courseId);
+
+    /**
+     * Get all skill names for a course — direct table query, bypasses entity field.
+     * Used by CourseService to sync skill links.
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT s.name FROM CourseSkill cs JOIN cs.skill s WHERE cs.id.courseId = :courseId")
+    List<String> findSkillNamesByCourseId(@Param("courseId") Long courseId);
+
 }

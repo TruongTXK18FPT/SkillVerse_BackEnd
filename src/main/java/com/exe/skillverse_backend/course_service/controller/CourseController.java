@@ -70,6 +70,7 @@ public class CourseController {
             @Parameter(description = "Course language") @RequestParam(required = false) String language,
             @Parameter(description = "Learning objectives") @RequestParam(required = false) List<String> learningObjectives,
             @Parameter(description = "Course requirements") @RequestParam(required = false) List<String> requirements,
+            @Parameter(description = "Course skill tags") @RequestParam(required = false) List<String> courseSkills,
             @Parameter(description = "Thumbnail file") @RequestParam(required = false) MultipartFile thumbnailFile,
             @Parameter(description = "Course price") @RequestParam(required = false) BigDecimal price,
             @Parameter(description = "Currency") @RequestParam(required = false) String currency,
@@ -90,6 +91,7 @@ public class CourseController {
         dto.setRequirements(requirements);
         dto.setPrice(price);
         dto.setCurrency(currency);
+        dto.setCourseSkills(courseSkills);
 
         CourseDetailDTO created = courseService.createCourse(authorId, dto, thumbnailFile);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
@@ -109,6 +111,7 @@ public class CourseController {
             @Parameter(description = "Course language") @RequestParam(required = false) String language,
             @Parameter(description = "Learning objectives") @RequestParam(required = false) List<String> learningObjectives,
             @Parameter(description = "Course requirements") @RequestParam(required = false) List<String> requirements,
+            @Parameter(description = "Course skill tags") @RequestParam(required = false) List<String> courseSkills,
             @Parameter(description = "Thumbnail file") @RequestParam(required = false) MultipartFile thumbnailFile,
             @Parameter(description = "Course price") @RequestParam(required = false) BigDecimal price,
             @Parameter(description = "Currency") @RequestParam(required = false) String currency,
@@ -129,6 +132,7 @@ public class CourseController {
         dto.setRequirements(requirements);
         dto.setPrice(price);
         dto.setCurrency(currency);
+        dto.setCourseSkills(courseSkills);
 
         CourseDetailDTO updated = courseService.updateCourse(courseId, dto, actorId, thumbnailFile);
         return ResponseEntity.ok(updated);

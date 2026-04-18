@@ -20,8 +20,8 @@ public interface SkillRepository extends JpaRepository<Skill, Long>, JpaSpecific
     // Tìm theo tên + category (phục vụ enforce unique "name+category")
     Optional<Skill> findByNameIgnoreCaseAndCategoryIgnoreCase(String name, String category);
     
-    // Autocomplete theo prefix
-    Page<Skill> findByNameStartingWithIgnoreCase(String prefix, Pageable pageable);
+    // Autocomplete — contains search (không chỉ prefix)
+    Page<Skill> findByNameContainingIgnoreCase(String name, Pageable pageable);
     
     // Tìm theo category
     Page<Skill> findByCategoryIgnoreCase(String category, Pageable pageable);

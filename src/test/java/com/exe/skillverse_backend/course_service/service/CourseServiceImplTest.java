@@ -32,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Optional;
 
@@ -194,6 +195,7 @@ class CourseServiceImplTest {
                 .currency("VND")
                 .learningObjectivesJson(new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Collections.singletonList("Obj 1")))
                 .requirementsJson(new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Collections.singletonList("Req 1")))
+                .courseSkillTagsJson(new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Arrays.asList("JAVA", "PYTHON")))
                 .build();
 
         CourseDetailDTO mappedDto = new CourseDetailDTO();
@@ -216,6 +218,8 @@ class CourseServiceImplTest {
         assertEquals("vi", result.getLanguage());
         assertEquals("Obj 1", result.getLearningObjectives().get(0));
         assertEquals("Req 1", result.getRequirements().get(0));
+        assertEquals("JAVA", result.getCourseSkills().get(0));
+        assertEquals("PYTHON", result.getCourseSkills().get(1));
     }
 
     @Test

@@ -176,31 +176,6 @@ public class DatabaseSchemaFixer {
                     this::patchAssignmentPromptAuditLogTable,
                     this::verifyAssignmentPromptAuditLogTable);
 
-            applyPatch("create-contract-signatures-table",
-                    "Create contract_signatures table for digital signature tracking",
-                    this::patchContractSignaturesTable,
-                    this::verifyContractSignaturesTable);
-
-            applyPatch("add-violation-reports-reported-user-name",
-                    "Add reported_user_name column to violation_reports for storing reported user's display name",
-                    this::patchViolationReportsReportedUserName,
-                    this::verifyViolationReportsReportedUserName);
-
-            applyPatch("create-job-contracts-table",
-                    "Create job_contracts table for managing employment contracts with digital signatures",
-                    this::patchJobContractsTable,
-                    this::verifyJobContractsTable);
-
-            applyPatch("add-job-postings-posting-fee-charged",
-                    "Add posting_fee_charged column to job_postings for Hibernate schema validation",
-                    this::patchJobPostingsPostingFeeCharged,
-                    this::verifyJobPostingsPostingFeeCharged);
-
-            applyPatch("sync-notifications-type-check-constraint",
-                    "Sync notifications.type check constraint with NotificationType enum values",
-                    this::patchNotificationsTypeConstraint,
-                    this::verifyNotificationsTypeConstraint);
-
             applyPatch("create-interview-schedules-table",
                     "Create interview_schedules table for managing interview sessions",
                     this::patchInterviewSchedulesTable,
@@ -299,6 +274,33 @@ public class DatabaseSchemaFixer {
                     "Sync course.price and course.currency from active_revision for out-of-sync courses",
                     this::patchCoursePriceCurrencyFromRevision,
                     this::verifyCoursePriceCurrencyFromRevision);
+
+            // ─── course_skill_tags ElementCollection table ───────────────────────────
+            applyPatch("create-course-skill-tags-table",
+                    "Create course_skill_tags ElementCollection table for free-form skill tags",
+                    this::patchCourseSkillTagsTable,
+                    this::verifyCourseSkillTagsTable);
+
+            applyPatch("add-course-skill-tags-unique-constraint",
+                    "Add unique constraint on course_skill_tags(course_id, skill_tag) to prevent duplicate tags",
+                    this::patchCourseSkillTagsUniqueConstraint,
+                    this::verifyCourseSkillTagsUniqueConstraint);
+
+            applyPatch("add-skills-name-unique-index",
+                    "Add unique case-insensitive index on skills.name to prevent duplicate skills like 'java' and 'JAVA'",
+                    this::patchSkillsNameUniqueIndex,
+                    this::verifySkillsNameUniqueIndex);
+
+            applyPatch("fix-course-revisions-course-skill-tags-nullable",
+                    "Make course_revisions.course_skill_tags_json nullable — existing revisions have NULL values",
+                    this::patchCourseRevisionsCourseSkillTagsNullable,
+                    this::verifyCourseRevisionsCourseSkillTagsNullable,
+                    false);
+
+            applyPatch("add-course-revisions-thumbnail-media-id",
+                    "Add thumbnail_media_id FK to course_revisions table for per-revision thumbnail images",
+                    this::patchCourseRevisionsThumbnailMediaId,
+                    this::verifyCourseRevisionsThumbnailMediaId);
 
             log.info("Schema patch infrastructure ready.");
         } finally {
@@ -1461,6 +1463,101 @@ public class DatabaseSchemaFixer {
         return true;
     }
 
+    // ─── course_skill_tags ElementCollection table ────────────────────────────
+
+    private void patchCourseSkillTagsTable() {
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS course_skill_tags (
+                course_id BIGINT NOT NULL,
+                skill_tag VARCHAR(255),
+                PRIMARY KEY (course_id, skill_tag)
+            )
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_course_skill_tags_course_id ON course_skill_tags(course_id)");
+    }
+
+    private boolean verifyCourseSkillTagsTable() {
+        return hasTable("course_skill_tags")
+                && hasColumn("course_skill_tags", "course_id")
+                && hasColumn("course_skill_tags", "skill_tag");
+    }
+
+    private void patchCourseSkillTagsUniqueConstraint() {
+        executeSql("""
+            ALTER TABLE course_skill_tags
+            ADD CONSTRAINT course_skill_tags_course_id_skill_tag_key
+            UNIQUE (course_id, skill_tag)
+        """);
+    }
+
+    private boolean verifyCourseSkillTagsUniqueConstraint() {
+        return hasConstraint("course_skill_tags", "course_skill_tags_course_id_skill_tag_key");
+    }
+
+    // ─── skills.name case-insensitive unique index ───────────────────────────────
+
+    private void patchSkillsNameUniqueIndex() {
+        // PostgreSQL: functional unique index on UPPER(name) allows only one of 'java'/'JAVA'/'Java'
+        executeSql("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_name_upper
+            ON skills (UPPER(name))
+        """);
+    }
+
+    private boolean verifySkillsNameUniqueIndex() {
+        return hasIndex("idx_skills_name_upper");
+    }
+
+    // ─── course_revisions.course_skill_tags_json nullable fix ─────────────────────
+
+    private void patchCourseRevisionsCourseSkillTagsNullable() {
+        // If column doesn't exist yet, Hibernate will create it as nullable.
+        // Only apply if the column exists (was created by Hibernate) and has NOT NULL.
+        if (!hasColumn("course_revisions", "course_skill_tags_json")) {
+            return;
+        }
+        try {
+            executeSql("ALTER TABLE course_revisions ALTER COLUMN course_skill_tags_json DROP NOT NULL");
+        } catch (Exception e) {
+            log.debug("Patch drop-not-null skipped (already nullable or column missing): {}", e.getMessage());
+        }
+    }
+
+    private boolean verifyCourseRevisionsCourseSkillTagsNullable() {
+        // Column doesn't exist yet → Hibernate will create it nullable → pass
+        if (!hasColumn("course_revisions", "course_skill_tags_json")) {
+            return true;
+        }
+        var results = jdbcTemplate.queryForList(
+            "SELECT is_nullable FROM information_schema.columns " +
+            "WHERE table_schema = 'public' AND table_name = 'course_revisions' AND column_name = 'course_skill_tags_json'"
+        );
+        return !results.isEmpty() && "YES".equalsIgnoreCase((String) results.get(0).get("is_nullable"));
+    }
+
+    // ─── course_revisions: add thumbnail_media_id FK ────────────────────────────
+
+    private void patchCourseRevisionsThumbnailMediaId() {
+        if (!hasTable("course_revisions")) {
+            log.debug("Table course_revisions does not exist yet, skipping patch.");
+            return;
+        }
+        // Step 1: add column if it doesn't exist
+        if (!hasColumn("course_revisions", "thumbnail_media_id")) {
+            executeSql("""
+                ALTER TABLE course_revisions
+                ADD COLUMN thumbnail_media_id BIGINT
+                REFERENCES media(id) ON DELETE SET NULL
+            """);
+        }
+        // Step 2: add index for faster lookups
+        executeSql("CREATE INDEX IF NOT EXISTS idx_course_revisions_thumbnail_media_id ON course_revisions(thumbnail_media_id)");
+    }
+
+    private boolean verifyCourseRevisionsThumbnailMediaId() {
+        return hasColumn("course_revisions", "thumbnail_media_id");
+    }
+
     private String toSqlLiteral(String rawValue) {
         return "'" + rawValue.replace("'", "''") + "'";
     }
@@ -1659,6 +1756,20 @@ public class DatabaseSchemaFixer {
                 SELECT 1 FROM information_schema.table_constraints
                 WHERE constraint_type = 'FOREIGN KEY'
                   AND table_name = ?
+                  AND constraint_name = ?
+            """, tableName, constraintName);
+            return !results.isEmpty();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Checks if any constraint (any type) with the given name exists on the table. */
+    protected boolean hasConstraint(String tableName, String constraintName) {
+        try {
+            var results = jdbcTemplate.queryForList("""
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE table_name = ?
                   AND constraint_name = ?
             """, tableName, constraintName);
             return !results.isEmpty();

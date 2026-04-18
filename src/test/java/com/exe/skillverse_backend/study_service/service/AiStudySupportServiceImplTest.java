@@ -351,4 +351,209 @@ class AiStudySupportServiceImplTest {
         assertTrue(result.get(0).getStartTime().toLocalDate().equals(today),
                 "Date should be today, got: " + result.get(0).getStartTime().toLocalDate());
     }
+
+    // ─── OVL: Overlap resolution tests ─────────────────────────────────────────────────────
+
+    private List<StudySessionResponse> resolve(
+            List<StudySessionResponse> sessions,
+            GenerateScheduleRequest request) {
+        try {
+            var method = AiStudySupportServiceImpl.class.getDeclaredMethod(
+                    "resolveOverlappingSessions",
+                    List.class, GenerateScheduleRequest.class);
+            method.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<StudySessionResponse> result = (List<StudySessionResponse>) method.invoke(
+                    service, sessions, request);
+            return result;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private GenerateScheduleRequest makeOverlapRequest() {
+        GenerateScheduleRequest req = new GenerateScheduleRequest();
+        req.setDurationMinutes(60);
+        req.setPreferredDays(List.of("MONDAY", "WEDNESDAY", "FRIDAY"));
+        req.setEarliestStartLocalTime("18:00");
+        req.setLatestEndLocalTime("22:00");
+        req.setMaxSessionsPerDay(3);
+        req.setBreakMinutesBetweenSessions(10);
+        req.setDeadline(LocalDate.now().plusDays(30));
+        return req;
+    }
+
+    @Test
+    @DisplayName("OVL-1: Two sessions at same time → second should shift to next gap")
+    void resolveOverlapping_twoSameTime_shiftsSecondSession() {
+        GenerateScheduleRequest req = makeOverlapRequest();
+        LocalDate day = LocalDate.now().plusDays(1);
+        while (day.getDayOfWeek().getValue() > 5) day = day.plusDays(1); // weekday
+
+        // Two sessions both at 19:00-20:00 — clear overlap
+        LocalDateTime slotA = LocalDateTime.of(day, LocalTime.of(19, 0));
+        LocalDateTime slotB = LocalDateTime.of(day, LocalTime.of(19, 0));
+
+        List<StudySessionResponse> input = new ArrayList<>(List.of(
+                session("Session A", slotA, slotA.plusHours(1)),
+                session("Session B", slotB, slotB.plusHours(1))));
+
+        List<StudySessionResponse> result = resolve(input, req);
+
+        // Both sessions must exist
+        assertTrue(result.size() == 2, "Should return both sessions");
+
+        // Sessions on the same day must not overlap
+        LocalDateTime r0 = result.get(0).getStartTime();
+        LocalDateTime r1 = result.get(1).getStartTime();
+        boolean sameDay = r0.toLocalDate().equals(r1.toLocalDate());
+        if (sameDay) {
+            LocalTime s0 = result.get(0).getStartTime().toLocalTime();
+            LocalTime e0 = result.get(0).getEndTime().toLocalTime();
+            LocalTime s1 = result.get(1).getStartTime().toLocalTime();
+            LocalTime e1 = result.get(1).getEndTime().toLocalTime();
+            boolean overlaps = s0.isBefore(e1) && s1.isBefore(e0);
+            assertTrue(!overlaps, "Same-day sessions must not overlap: " +
+                    s0 + "-" + e0 + " vs " + s1 + "-" + e1);
+        }
+        // If different days, that's fine — both placed validly
+    }
+
+    @Test
+    @DisplayName("OVL-2: Three overlapping sessions → all resolved without overlap")
+    void resolveOverlapping_threeOverlapping_resolvesAll() {
+        GenerateScheduleRequest req = makeOverlapRequest();
+        LocalDate day = LocalDate.now().plusDays(1);
+        while (day.getDayOfWeek().getValue() > 5) day = day.plusDays(1);
+
+        // Three sessions at 19:00, 19:30, 20:00 — all overlapping (60-min each)
+        LocalDateTime t1 = LocalDateTime.of(day, LocalTime.of(19, 0));
+        LocalDateTime t2 = LocalDateTime.of(day, LocalTime.of(19, 30));
+        LocalDateTime t3 = LocalDateTime.of(day, LocalTime.of(20, 0));
+
+        List<StudySessionResponse> input = new ArrayList<>(List.of(
+                session("Alpha", t1, t1.plusHours(1)),
+                session("Beta", t2, t2.plusHours(1)),
+                session("Gamma", t3, t3.plusHours(1))));
+
+        List<StudySessionResponse> result = resolve(input, req);
+
+        assertTrue(result.size() == 3);
+        // Verify no two sessions on the same day overlap (LocalTime comparison)
+        for (int i = 0; i < result.size(); i++) {
+            for (int j = i + 1; j < result.size(); j++) {
+                LocalDateTime sA = result.get(i).getStartTime();
+                LocalDateTime eA = result.get(i).getEndTime();
+                LocalDateTime sB = result.get(j).getStartTime();
+                LocalDateTime eB = result.get(j).getEndTime();
+                boolean sameDay = sA.toLocalDate().equals(sB.toLocalDate());
+                if (sameDay) {
+                    boolean overlaps = sA.isBefore(eB) && sB.isBefore(eA);
+                    assertTrue(!overlaps,
+                            "Sessions " + i + " and " + j + " should not overlap on same day: " +
+                            sA + "-" + eA + " vs " + sB + "-" + eB);
+                }
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("OVL-3: Single session → unchanged")
+    void resolveOverlapping_singleSession_unchanged() {
+        GenerateScheduleRequest req = makeOverlapRequest();
+        LocalDate day = LocalDate.now().plusDays(1);
+        while (day.getDayOfWeek().getValue() > 5) day = day.plusDays(1);
+        LocalDateTime t = LocalDateTime.of(day, LocalTime.of(19, 0));
+
+        List<StudySessionResponse> input = List.of(session("Solo", t, t.plusHours(1)));
+        List<StudySessionResponse> result = resolve(input, req);
+
+        assertTrue(result.size() == 1);
+        assertTrue(result.get(0).getStartTime().equals(t));
+    }
+
+    @Test
+    @DisplayName("OVL-4: checkScheduleHealth should flag overlapping sessions as errors")
+    void checkScheduleHealth_overlappingSessions_flagsErrors() {
+        CheckScheduleHealthRequest request = new CheckScheduleHealthRequest();
+        LocalDateTime day = LocalDate.now().plusDays(1).atStartOfDay();
+        // Two sessions that overlap at the same time
+        request.setSessions(new ArrayList<>(List.of(
+                session("Study A", day.withHour(19).withMinute(0), day.withHour(20).withMinute(0)),
+                session("Study B", day.withHour(19).withMinute(15), day.withHour(20).withMinute(15)))));
+        request.setTimezone("Asia/Ho_Chi_Minh");
+
+        ScheduleHealthReport report = service.checkScheduleHealth(request);
+
+        boolean hasOverlapError = report.getErrors().stream()
+                .anyMatch(e -> e.contains("Trùng lịch"));
+        assertTrue(hasOverlapError, "Should flag overlapping sessions as error. Got: " + report.getErrors());
+    }
+
+    @Test
+    @DisplayName("OVL-5: isPreferredDay returns true when no preferred days specified")
+    void isPreferredDay_noPreferredDays_returnsTrue() {
+        // Null/empty preferredDays should accept any day
+        GenerateScheduleRequest req = new GenerateScheduleRequest();
+        req.setPreferredDays(null);
+        // Use reflection
+        try {
+            var method = AiStudySupportServiceImpl.class.getDeclaredMethod(
+                    "isPreferredDay", LocalDate.class, List.class);
+            method.setAccessible(true);
+
+            LocalDate monday = LocalDate.of(2026, 4, 20); // Monday
+            boolean resultNull = (boolean) method.invoke(service, monday, (List<String>) null);
+            assertTrue(resultNull, "null preferredDays should accept any day");
+
+            @SuppressWarnings("unchecked")
+            List<String> empty = new ArrayList<>();
+            boolean resultEmpty = (boolean) method.invoke(service, monday, empty);
+            assertTrue(resultEmpty, "empty preferredDays should accept any day");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Test
+    @DisplayName("OVL-6: resolveOverlappingSessions handles null session gracefully")
+    void resolveOverlapping_nullSession_skipped() {
+        GenerateScheduleRequest req = makeOverlapRequest();
+        LocalDate day = LocalDate.now().plusDays(1);
+        while (day.getDayOfWeek().getValue() > 5) day = day.plusDays(1);
+        LocalDateTime t = LocalDateTime.of(day, LocalTime.of(19, 0));
+
+        // Single null session — method should return it as-is (not throw)
+        List<StudySessionResponse> input = new ArrayList<>();
+        input.add(null);
+        input.add(session("Valid", t, t.plusHours(1)));
+
+        List<StudySessionResponse> result = resolve(input, req);
+        assertTrue(result.size() == 2, "Should return both sessions (null + valid)");
+        // null sorts last (LocalDateTime.MAX), so Valid comes first
+        assertTrue(result.get(0).getTitle().equals("Valid"), "Valid session should be first after sort");
+        assertTrue(result.get(1) == null, "Null session should be last after sort");
+    }
+
+    @Test
+    @DisplayName("OVL-7: Non-overlapping sessions on different days are unchanged")
+    void resolveOverlapping_differentDays_unchanged() {
+        GenerateScheduleRequest req = makeOverlapRequest();
+        LocalDate day1 = LocalDate.now().plusDays(1);
+        while (day1.getDayOfWeek().getValue() > 5) day1 = day1.plusDays(1);
+        LocalDate day2 = day1.plusDays(1);
+
+        LocalDateTime t1 = LocalDateTime.of(day1, LocalTime.of(19, 0));
+        LocalDateTime t2 = LocalDateTime.of(day2, LocalTime.of(19, 0));
+
+        List<StudySessionResponse> input = new ArrayList<>(List.of(
+                session("Day A", t1, t1.plusHours(1)),
+                session("Day B", t2, t2.plusHours(1))));
+
+        List<StudySessionResponse> result = resolve(input, req);
+
+        assertTrue(result.size() == 2, "Should return both sessions unchanged");
+        assertTrue(result.get(0).getStartTime().equals(t1));
+        assertTrue(result.get(1).getStartTime().equals(t2));
+    }
 }

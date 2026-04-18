@@ -115,6 +115,15 @@ public class Course {
   @Builder.Default
   private List<String> requirements = new ArrayList<>();
 
+  @ElementCollection
+  @CollectionTable(
+      name = "course_skill_tags",
+      joinColumns = @JoinColumn(name = "course_id")
+  )
+  @Column(name = "skill_tag", length = 255)
+  @Builder.Default
+  private List<String> courseSkillTags = new ArrayList<>();
+
   /* ====== Timestamps ====== */
   @Builder.Default
   @Column(name = "created_at", nullable = false, updatable = false)
@@ -197,7 +206,16 @@ public class Course {
   @ToString.Exclude @EqualsAndHashCode.Exclude
   private List<Certificate> certificates = new ArrayList<>();
 
-  // Course <- CourseSkill (bảng nối N-N giữa course và skill)
+  /**
+   * N:N join table links to Skill entities.
+   *
+   * <p>Populated by {@code CourseServiceImpl.syncCourseSkillLinks()} whenever a course
+   * is created or updated with skill tag names. This OneToMany is the inverse side —
+   * CourseMapper ignores it (maps via {@code courseSkillTags} String field instead).
+   *
+   * <p>Both sides stay in sync so that BM25 index (plain String) and taxonomy queries
+   * (Skill entity hierarchy) both work for course recommendations.
+   */
   @Builder.Default
   @OneToMany(mappedBy = "course", cascade = {CascadeType.PERSIST, CascadeType.MERGE})
   @ToString.Exclude @EqualsAndHashCode.Exclude

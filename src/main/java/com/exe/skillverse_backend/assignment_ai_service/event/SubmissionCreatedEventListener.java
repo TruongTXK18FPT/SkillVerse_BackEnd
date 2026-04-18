@@ -22,9 +22,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * - AFTER_COMMIT: ensures submission is persisted before grading starts
  * - @Async: runs in separate thread to not block the HTTP response
  * - Idempotent: skips if already AI-graded or mentor-confirmed
- * - Dead letter: after 3 failed attempts, marks MANUAL_FALLBACK and notifies student
+ * - Dead letter: after 3 failed attempts, notify the student that manual mentor grading is needed
  * - Retry: failed submissions with attemptCount < 3 are picked up by AiGradingRetryJob
- * - 100% Auto-Pass: when trustAiEnabled=true, AI grades and auto-confirms immediately
+ * - 100% Auto-Pass: when AI grading succeeds, the grading service auto-confirms and persists the final score
  */
 @Component
 @RequiredArgsConstructor
@@ -96,16 +96,6 @@ public class SubmissionCreatedEventListener {
             log.info("[AI-Grading] Triggering AI grading for submission {}", submissionId);
             aiGradingService.generateAiGrade(submissionId, null);
 
-            // Notify student: AI grading completed, awaiting mentor review
-            notificationService.createNotification(
-                    studentId,
-                    "AI đã chấm bài xong!",
-                    "Bài tập '" + assignment.getTitle()
-                            + "' đã được AI chấm. Mentor sẽ xem xét trong thời gian sớm nhất.",
-                    NotificationType.ASSIGNMENT_GRADED,
-                    submissionId.toString(),
-                    null
-            );
             log.info("[AI-Grading] AI grading completed for submission {}", submissionId);
 
         } catch (IllegalArgumentException e) {

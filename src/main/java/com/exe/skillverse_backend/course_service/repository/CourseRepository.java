@@ -170,4 +170,56 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
         GROUP BY c.id, c.title, c.description, c.shortDescription, c.category, c.level, c.createdAt
         """)
     List<Object[]> findAllPublicCourseProjections();
+
+    /**
+     * V2: includes learningObjectives, requirements, and courseSkillTags for BM25 index.
+     * Returns Object[] (11 columns):
+     * [id, title, description, shortDescription, category, level,
+     *  createdAt, enrollmentCount, learningObjectives, requirements, courseSkillTags]
+     *
+     * <p>Filters to:
+     * - Course.status = PUBLIC (only live courses)
+     * - Only the APPROVED revision via Course.active_revision_id
+     * - Metadata from CourseRevision (not Course) for correctness after revision publishes
+     *
+     * <p>Metadata columns are JSONB on CourseRevision. Cast to TEXT so AiCourseCatalogServiceImpl
+     * can parse them as JSON arrays and join into searchable text.
+     */
+    @Transactional(readOnly = true)
+    @Query(value = """
+        SELECT c.id, c.title, c.description, c.short_description, c.category, c.level,
+               c.created_at, COUNT(e.user_id),
+               cr.learning_objectives_json::TEXT,
+               cr.requirements_json::TEXT,
+               cr.course_skill_tags_json::TEXT
+        FROM courses c
+        INNER JOIN course_revisions cr ON cr.id = c.active_revision_id
+        LEFT JOIN course_enrollment e ON c.id = e.course_id
+        WHERE c.status = 'PUBLIC'
+        GROUP BY c.id, c.title, c.short_description, c.category, c.level, c.created_at, cr.id,
+                 cr.learning_objectives_json, cr.requirements_json, cr.course_skill_tags_json
+        """,
+        nativeQuery = true)
+    List<Object[]> findAllPublicCourseProjectionsV2();
+
+    /**
+     * Fetch a single PUBLIC course by ID with its active revision metadata.
+     * Used for incremental BM25 catalog refresh on course revision approval.
+     */
+    @Transactional(readOnly = true)
+    @Query(value = """
+        SELECT c.id, c.title, c.description, c.short_description, c.category, c.level,
+               c.created_at, COUNT(e.user_id),
+               cr.learning_objectives_json::TEXT,
+               cr.requirements_json::TEXT,
+               cr.course_skill_tags_json::TEXT
+        FROM courses c
+        INNER JOIN course_revisions cr ON cr.id = c.active_revision_id
+        LEFT JOIN course_enrollment e ON c.id = e.course_id
+        WHERE c.status = 'PUBLIC' AND c.id = :courseId
+        GROUP BY c.id, c.title, c.short_description, c.category, c.level, c.created_at, cr.id,
+                 cr.learning_objectives_json, cr.requirements_json, cr.course_skill_tags_json
+        """,
+        nativeQuery = true)
+    List<Object[]> findPublicCourseById(@Param("courseId") Long courseId);
 }

@@ -2,8 +2,6 @@ package com.exe.skillverse_backend.course_service.entity;
 
 import com.exe.skillverse_backend.shared.entity.Skill;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Embeddable;
 import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -17,15 +15,18 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.io.Serializable;
-
-@Embeddable
-@Data @NoArgsConstructor @AllArgsConstructor @Builder
-class CourseSkillId implements Serializable {
-  @Column(name = "course_id") private Long courseId;
-  @Column(name = "skill_id")  private Long skillId;
-}
-
+/**
+ * N:N join table between Course and Skill.
+ *
+ * <p>Populated by CourseServiceImpl.syncCourseSkillLinks() whenever a course is created
+ * or updated with skill tag names. The links are kept in sync with course_skill_tags
+ * (ElementCollection) — both are updated together so BM25 index (plain String) and
+ * taxonomy queries (Skill entity) both work.
+ *
+ * <p>Entity field vs embedded ID:
+ * - Direct entity references (course, skill) are LAZY to avoid N+1 on collection loads.
+ * - The embedded ID (CourseSkillId) holds the bare FK values for efficient queries.
+ */
 @Entity @Table(name = "course_skill")
 @Data @NoArgsConstructor @AllArgsConstructor @Builder
 public class CourseSkill {

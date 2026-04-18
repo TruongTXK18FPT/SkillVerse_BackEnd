@@ -7,8 +7,14 @@ import com.exe.skillverse_backend.course_service.entity.AssignmentCriteria;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
 import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.CourseSkill;
+import com.exe.skillverse_backend.course_service.entity.CourseSkillId;
 import com.exe.skillverse_backend.course_service.entity.LessonAttachment;
 import com.exe.skillverse_backend.course_service.entity.Module;
+import com.exe.skillverse_backend.course_service.event.CourseRevisionApprovedEvent;
+import com.exe.skillverse_backend.course_service.repository.CourseSkillRepository;
+import com.exe.skillverse_backend.shared.repository.SkillRepository;
+import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.course_service.entity.Quiz;
 import com.exe.skillverse_backend.course_service.entity.QuizOption;
 import com.exe.skillverse_backend.course_service.entity.QuizQuestion;
@@ -33,8 +39,10 @@ import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
+import com.exe.skillverse_backend.shared.exception.MediaOperationException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -60,11 +68,16 @@ import java.util.EnumSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -73,6 +86,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
@@ -92,6 +106,10 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
     private final AssignmentRepository assignmentRepository;
     private final MediaRepository mediaRepository;
     private final CourseRevisionFeatureProperties courseRevisionFeatureProperties;
+    private final SkillRepository skillRepository;
+    private final ApplicationEventPublisher eventPublisher;
+    private final CourseSkillRepository courseSkillRepository;
+    private final CloudinaryService cloudinaryService;
     private final Clock clock;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
@@ -181,6 +199,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .currency(course.getCurrency())
                 .learningObjectivesJson(writeJsonSafely(course.getLearningObjectives(), "[]"))
                 .requirementsJson(writeJsonSafely(course.getRequirements(), "[]"))
+                .courseSkillTagsJson(writeJsonSafely(course.getCourseSkillTags(), "[]"))
                 .contentSnapshotJson(CourseRevisionSnapshotAssembler.buildCourseContentSnapshot(
                         objectMapper,
                         course,
@@ -342,7 +361,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
 
     @Override
     @Transactional
-    public CourseRevisionDTO updateRevision(Long revisionId, CourseRevisionUpdateDTO dto, Long actorId) {
+    public CourseRevisionDTO updateRevision(Long revisionId, CourseRevisionUpdateDTO dto, Long actorId, MultipartFile thumbnailFile) {
         ensureRevisionWriteEnabled();
 
         CourseRevision revision = getRevisionOrThrow(revisionId);
@@ -353,6 +372,15 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         if (revision.getStatus() != CourseRevisionStatus.DRAFT
                 && revision.getStatus() != CourseRevisionStatus.REJECTED) {
             throw new ConflictException("COURSE_REVISION_NOT_EDITABLE_IN_STATUS_" + revision.getStatus());
+        }
+
+        // Handle thumbnail: upload new file if provided, otherwise use thumbnailMediaId from DTO
+        if (thumbnailFile != null && !thumbnailFile.isEmpty()) {
+            Media uploaded = uploadRevisionThumbnail(thumbnailFile, actorId);
+            revision.setThumbnail(uploaded);
+        } else if (dto.getThumbnailMediaId() != null) {
+            Media existing = mediaRepository.findById(dto.getThumbnailMediaId()).orElse(null);
+            revision.setThumbnail(existing);
         }
 
         if (dto.getTitle() != null) {
@@ -374,6 +402,9 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         }
         if (dto.getRequirements() != null) {
             revision.setRequirementsJson(writeJsonSafely(dto.getRequirements(), "[]"));
+        }
+        if (dto.getCourseSkills() != null) {
+            revision.setCourseSkillTagsJson(writeJsonSafely(dto.getCourseSkills(), "[]"));
         }
         if (dto.getContentSnapshotJson() != null) {
             JsonNode canonicalizedSnapshot = normalizeContentSnapshot(parseJsonSafely(dto.getContentSnapshotJson()));
@@ -446,11 +477,21 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         // so keeping them in sync prevents 400 errors and incorrect wallet charges.
         course.setPrice(saved.getPrice());
         course.setCurrency(saved.getCurrency());
+        course.setThumbnail(saved.getThumbnail());
         courseRepository.save(course);
 
         // Sync AI grading fields from approved revision snapshot → live assignments table
-        // This ensures SubmissionCreatedEventListener sees correct ai_grading_enabled
+        // This ensures SubmissionCreatedEventListener reads correct ai_grading_enabled
         syncAssignmentAiGradingFieldsFromSnapshot(saved.getContentSnapshotJson());
+
+        // Sync course_skill (N:N) links from the approved revision's skill tags.
+        // Keeps the N:N entity table in sync with the active revision so taxonomy-based
+        // course recommendations work correctly after revision approval.
+        syncCourseSkillLinksFromRevision(course.getId(), saved.getCourseSkillTagsJson());
+
+        // Publish event to trigger immediate BM25 catalog refresh for this course.
+        // Replaces 5-minute scheduled refresh for real-time index update.
+        eventPublisher.publishEvent(new CourseRevisionApprovedEvent(this, course.getId(), saved.getId()));
 
         String autoUpgradeReasonCode = "POLICY_MANUAL_ONLY";
 
@@ -471,6 +512,93 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
     }
 
     /**
+     * Syncs course_skill (N:N) links from the approved revision's skill tags.
+     *
+     * <p>When a revision is approved, its {@code courseSkillTagsJson} becomes the active
+     * source of truth for course skills. This method mirrors the same upsert logic as
+     * {@code CourseServiceImpl.syncCourseSkillLinks()} so the N:N entity table stays in
+     * sync with the approved revision — enabling taxonomy-based course recommendations.
+     *
+     * <p>Flow on approval:
+     * <ol>
+     *   <li>Extract skill names from {@code revision.getCourseSkillTagsJson()}</li>
+     *   <li>Delete all existing {@code course_skill} links for this course</li>
+     *   <li>Upsert {@code Skill} entities (find-or-create by name)</li>
+     *   <li>Create new {@code CourseSkill} links</li>
+     * </ol>
+     *
+     * @param courseId the course being revised
+     * @param courseSkillTagsJson JSON array of skill tag names (e.g. ["JAVA","SPRING"])
+     */
+    private void syncCourseSkillLinksFromRevision(Long courseId, JsonNode courseSkillTagsJson) {
+        if (courseId == null) return;
+
+        List<String> skillNames = toStringList(courseSkillTagsJson);
+        if (skillNames.isEmpty()) {
+            courseSkillRepository.deleteByCourseId(courseId);
+            log.info("[RevisionSkillSync] Course {} approved with no skill tags, cleared all links", courseId);
+            return;
+        }
+
+        // Delete all existing links first — revision is the source of truth on approval
+        courseSkillRepository.deleteByCourseId(courseId);
+
+        // Fetch course once outside loop to satisfy @MapsId FK requirement
+        Course course = courseRepository.findById(courseId)
+                .orElseThrow(() -> new IllegalStateException("Course " + courseId + " not found"));
+
+        for (String name : skillNames) {
+            Skill skill = skillRepository.findByNameIgnoreCase(name)
+                    .orElseGet(() -> {
+                        Skill newSkill = Skill.builder().name(name).build();
+                        return skillRepository.save(newSkill);
+                    });
+
+            CourseSkill link = CourseSkill.builder()
+                    .id(new CourseSkillId(courseId, skill.getId()))
+                    .course(course)
+                    .skill(skill)
+                    .build();
+            courseSkillRepository.save(link);
+            log.debug("[RevisionSkillSync] Linked course {} to skill '{}' (id={})",
+                    courseId, name, skill.getId());
+        }
+
+        log.info("[RevisionSkillSync] Synced {} skill links for course {} on revision approval",
+                skillNames.size(), courseId);
+    }
+
+    /**
+     * Convert a JSON array node to a deduplicated list of UPPERCASE, trimmed strings.
+     *
+     * <p>Normalization ensures consistency:
+     * <ul>
+     *   <li>All names are trimmed and converted to UPPERCASE</li>
+     *   <li>Duplicates are removed — ["java", "JAVA", "java"] becomes ["JAVA"]</li>
+     * </ul>
+     *
+     * <p>This keeps the N:N entity table in sync with the ElementCollection
+     * {@code course_skill_tags} and prevents duplicate Skill entities from forming.
+     */
+    private List<String> toStringList(JsonNode jsonNode) {
+        if (jsonNode == null || !jsonNode.isArray()) {
+            return Collections.emptyList();
+        }
+        // Trim + normalize to canonical form (non-alphanumeric → underscore, UPPERCASE).
+        // "java core" / "java-core" / "java_core" → "JAVA_CORE"
+        return StreamSupport.stream(jsonNode.spliterator(), false)
+                .map(node -> node == null || node.isNull() ? null :
+                    node.asText().trim()
+                        .replaceAll("[^a-zA-Z0-9]+", "_")
+                        .replaceAll("_+", "_")
+                        .replaceAll("^_|_$", "")
+                        .toUpperCase(Locale.ROOT))
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    /**
      * Syncs AI grading fields (aiGradingEnabled, gradingStyle, aiGradingPrompt,
      * trustAiEnabled) from the approved revision's snapshot JSON into the live
      * assignments table. This ensures SubmissionCreatedEventListener reads correct
@@ -482,6 +610,29 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         JsonNode modules = snapshot.path("modules");
         if (!modules.isArray()) { return; }
 
+        // Bước 1: Collect tất cả assignment IDs từ snapshot (1 pass)
+        List<Long> assignmentIds = new ArrayList<>();
+        for (JsonNode module : modules) {
+            JsonNode lessons = module.path("lessons");
+            if (!lessons.isArray()) { continue; }
+            for (JsonNode lesson : lessons) {
+                if (!"assignment".equals(lesson.path("type").asText(null))) { continue; }
+                Long id = lesson.path("id").asLong(0L);
+                if (id != null && id != 0L) assignmentIds.add(id);
+            }
+        }
+
+        if (assignmentIds.isEmpty()) {
+            log.debug("[RevisionApproval] AI grading sync: no assignment lessons found in snapshot");
+            return;
+        }
+
+        // Bước 2: Batch query — 1 query duy nhất thay vì N+1
+        Map<Long, Assignment> dbMap = assignmentRepository.findAllById(assignmentIds)
+                .stream()
+                .collect(Collectors.toMap(Assignment::getId, Function.identity()));
+
+        // Bước 3: Sync với in-memory lookup (0 query)
         int synced = 0;
         for (JsonNode module : modules) {
             JsonNode lessons = module.path("lessons");
@@ -493,40 +644,41 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 Long assignmentId = lesson.path("id").asLong(0L);
                 if (assignmentId == null || assignmentId == 0L) { continue; }
 
-                assignmentRepository.findById(assignmentId).ifPresent(assignment -> {
-                    boolean changed = false;
+                Assignment assignment = dbMap.get(assignmentId);
+                if (assignment == null) { continue; }
 
-                    boolean newAiEnabled = lesson.path("aiGradingEnabled").asBoolean(false);
-                    if (newAiEnabled != Boolean.TRUE.equals(assignment.getAiGradingEnabled())) {
-                        assignment.setAiGradingEnabled(newAiEnabled);
-                        changed = true;
-                    }
+                boolean changed = false;
 
-                    String newGradingStyle = lesson.path("gradingStyle").asText(null);
-                    if (!equalsNullSafe(newGradingStyle, assignment.getGradingStyle())) {
-                        assignment.setGradingStyle(newGradingStyle);
-                        changed = true;
-                    }
+                boolean newAiEnabled = lesson.path("aiGradingEnabled").asBoolean(false);
+                if (newAiEnabled != Boolean.TRUE.equals(assignment.getAiGradingEnabled())) {
+                    assignment.setAiGradingEnabled(newAiEnabled);
+                    changed = true;
+                }
 
-                    String newAiPrompt = lesson.path("aiGradingPrompt").asText(null);
-                    if (!equalsNullSafe(newAiPrompt, assignment.getAiGradingPrompt())) {
-                        assignment.setAiGradingPrompt(newAiPrompt);
-                        changed = true;
-                    }
+                String newGradingStyle = lesson.path("gradingStyle").asText(null);
+                if (!equalsNullSafe(newGradingStyle, assignment.getGradingStyle())) {
+                    assignment.setGradingStyle(newGradingStyle);
+                    changed = true;
+                }
 
-                    boolean newTrustEnabled = lesson.path("trustAiEnabled").asBoolean(false);
-                    if (newTrustEnabled != Boolean.TRUE.equals(assignment.getTrustAiEnabled())) {
-                        assignment.setTrustAiEnabled(newTrustEnabled);
-                        changed = true;
-                    }
+                String newAiPrompt = lesson.path("aiGradingPrompt").asText(null);
+                if (!equalsNullSafe(newAiPrompt, assignment.getAiGradingPrompt())) {
+                    assignment.setAiGradingPrompt(newAiPrompt);
+                    changed = true;
+                }
 
-                    if (changed) {
-                        assignment.setUpdatedAt(now());
-                        assignmentRepository.save(assignment);
-                        log.info("[RevisionApproval] Synced AI grading fields to assignment {}: aiEnabled={}, trustAi={}",
-                                assignmentId, newAiEnabled, newTrustEnabled);
-                    }
-                });
+                boolean newTrustEnabled = lesson.path("trustAiEnabled").asBoolean(false);
+                if (newTrustEnabled != Boolean.TRUE.equals(assignment.getTrustAiEnabled())) {
+                    assignment.setTrustAiEnabled(newTrustEnabled);
+                    changed = true;
+                }
+
+                if (changed) {
+                    assignment.setUpdatedAt(now());
+                    assignmentRepository.save(assignment);
+                    log.info("[RevisionApproval] Synced AI grading fields to assignment {}: aiEnabled={}, trustAi={}",
+                            assignmentId, newAiEnabled, newTrustEnabled);
+                }
                 synced++;
             }
         }
@@ -594,7 +746,9 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     .currency(source.getCurrency())
                     .learningObjectivesJson(defaultJsonArray(source.getLearningObjectivesJson()))
                     .requirementsJson(defaultJsonArray(source.getRequirementsJson()))
+                    .courseSkillTagsJson(defaultJsonArray(source.getCourseSkillTagsJson()))
                     .contentSnapshotJson(defaultContentSnapshot(source.getContentSnapshotJson()))
+                    .thumbnail(source.getThumbnail())
                     .sourceRevisionId(source.getId())
                     .sourceCourseStatus(course.getStatus().name())
                     .createdBy(actorId)
@@ -616,6 +770,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .currency(course.getCurrency())
                 .learningObjectivesJson(writeJsonSafely(course.getLearningObjectives(), "[]"))
                 .requirementsJson(writeJsonSafely(course.getRequirements(), "[]"))
+                .courseSkillTagsJson(writeJsonSafely(course.getCourseSkillTags(), "[]"))
                 .contentSnapshotJson(defaultContentSnapshot(
                         CourseRevisionSnapshotAssembler.buildCourseContentSnapshot(
                                 objectMapper,
@@ -745,6 +900,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     revision.getCurrency(),
                     defaultJsonArray(revision.getLearningObjectivesJson()),
                     defaultJsonArray(revision.getRequirementsJson()),
+                    defaultJsonArray(revision.getCourseSkillTagsJson()),
                     defaultContentSnapshot(revision.getContentSnapshotJson())
             );
             return sha256Hex(snapshot.toString());
@@ -768,6 +924,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                     course.getCurrency(),
                     writeJsonSafely(course.getLearningObjectives(), "[]"),
                     writeJsonSafely(course.getRequirements(), "[]"),
+                    writeJsonSafely(course.getCourseSkillTags(), "[]"),
                     CourseRevisionSnapshotAssembler.buildCourseContentSnapshot(
                             objectMapper,
                             course,
@@ -792,6 +949,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             String currency,
             JsonNode learningObjectives,
             JsonNode requirements,
+            JsonNode courseSkillTags,
             JsonNode contentSnapshot
     ) {
         ObjectNode root = objectMapper.createObjectNode();
@@ -808,6 +966,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         putNullableText(root, "price", normalizeMoney(price));
         root.set("learningObjectives", canonicalizeStringArray(learningObjectives));
         root.set("requirements", canonicalizeStringArray(requirements));
+        root.set("courseSkillTags", canonicalizeStringArray(courseSkillTags));
         root.set("contentSnapshot", canonicalizeContentSnapshotForHash(contentSnapshot));
         return root;
     }
@@ -1090,7 +1249,10 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .currency(revision.getCurrency())
                 .learningObjectivesJson(toJsonText(revision.getLearningObjectivesJson(), "[]"))
                 .requirementsJson(toJsonText(revision.getRequirementsJson(), "[]"))
+                .courseSkillTagsJson(toJsonText(revision.getCourseSkillTagsJson(), "[]"))
                 .contentSnapshotJson(toJsonText(revision.getContentSnapshotJson(), "{}"))
+                .thumbnailMediaId(revision.getThumbnail() != null ? revision.getThumbnail().getId() : null)
+                .thumbnailUrl(revision.getThumbnail() != null ? revision.getThumbnail().getUrl() : null)
                 .sourceRevisionId(revision.getSourceRevisionId())
                 .sourceCourseStatus(revision.getSourceCourseStatus())
                 .createdBy(revision.getCreatedBy())
@@ -1111,6 +1273,36 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .size(page.getSize())
                 .total(page.getTotalElements())
                 .build();
+    }
+
+    /**
+     * Upload thumbnail for a course revision to Cloudinary.
+     * Mirrors {@link com.exe.skillverse_backend.course_service.service.impl.CourseServiceImpl#uploadThumbnail}.
+     */
+    private Media uploadRevisionThumbnail(MultipartFile thumbnailFile, Long uploaderId) {
+        try {
+            log.info("Uploading thumbnail for revision: {}", thumbnailFile.getOriginalFilename());
+            String folder = "skillverse/revisions/" + uploaderId;
+            Map<String, Object> uploadResult = cloudinaryService.uploadImage(thumbnailFile, folder);
+            String publicUrl = (String) uploadResult.get("url");
+            String publicId = (String) uploadResult.get("public_id");
+            String resourceType = (String) uploadResult.get("resource_type");
+            Media thumbnail = new Media();
+            thumbnail.setUrl(publicUrl);
+            thumbnail.setType(thumbnailFile.getContentType());
+            thumbnail.setFileName(thumbnailFile.getOriginalFilename());
+            thumbnail.setFileSize(thumbnailFile.getSize());
+            thumbnail.setUploadedBy(uploaderId);
+            thumbnail.setUploadedAt(java.time.LocalDateTime.now());
+            thumbnail.setCloudinaryPublicId(publicId);
+            thumbnail.setCloudinaryResourceType(resourceType);
+            Media saved = mediaRepository.save(thumbnail);
+            log.info("Revision thumbnail uploaded: {} - {}", saved.getId(), saved.getUrl());
+            return saved;
+        } catch (Exception e) {
+            log.error("Failed to upload revision thumbnail: {}", e.getMessage());
+            throw new MediaOperationException("Thumbnail upload failed: " + e.getMessage(), e);
+        }
     }
 
     private JsonNode writeJsonSafely(Object value, String fallbackJson) {

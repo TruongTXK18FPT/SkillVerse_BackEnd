@@ -211,6 +211,26 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 logGoal,
                 request.getRoadmapMode(),
                 request.getAiAgentMode());
+        log.debug("🧪 [trace={}] Roadmap request payload: mode={}, aiAgentMode={}, goal='{}', target='{}', duration='{}', desiredDuration='{}', experience='{}', currentSkillLevel='{}', learningStyle='{}', roadmapType='{}', skillName='{}', skillCategory='{}', desiredDepth='{}', learnerType='{}', dailyLearningTime='{}', assessmentPreference='{}', difficultyTolerance='{}', priority='{}'",
+            traceId,
+            request.getRoadmapMode(),
+            request.getAiAgentMode(),
+            previewHead(logGoal, 120),
+            previewHead(request.getTarget(), 120),
+            previewHead(request.getDuration(), 80),
+            previewHead(request.getDesiredDuration(), 80),
+            previewHead(request.getExperience(), 80),
+            previewHead(request.getCurrentSkillLevel(), 80),
+            previewHead(request.getStyle(), 80),
+            previewHead(request.getRoadmapType(), 80),
+            previewHead(request.getSkillName(), 120),
+            previewHead(request.getSkillCategory(), 120),
+            previewHead(request.getDesiredDepth(), 80),
+            previewHead(request.getLearnerType(), 80),
+            previewHead(request.getDailyLearningTime(), 80),
+            previewHead(request.getAssessmentPreference(), 80),
+            previewHead(request.getDifficultyTolerance(), 80),
+            previewHead(request.getPriority(), 80));
 
         try {
             // Step 0: CHECK STORAGE LIMIT (Quantity Limit)
@@ -293,10 +313,37 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             }
 
             // Step 4: Parse and validate JSON (Schema V2)
-            // NOTE: The old parse-retry block (which separately triggered compact on parse failure)
-            // is removed. Compact is now called inside the AI cascade (Step 3C) above.
-            // This prevents compact from triggering before Gemini gets its chance.
-            ParsedRoadmap parsed = validateAndParseRoadmapV2(roadmapJson, telemetry);
+            // Retry up to 2 times if parse fails due to JSON truncation (unclosed brackets)
+            ParsedRoadmap parsed = null;
+            for (int parseRetry = 0; parseRetry < 3; parseRetry++) {
+                try {
+                    parsed = validateAndParseRoadmapV2(roadmapJson, telemetry);
+                    break;
+                } catch (ApiException parseEx) {
+                    boolean isTruncation = parseEx.getMessage() != null
+                            && (parseEx.getMessage().contains("Unexpected end-of-input")
+                                || parseEx.getMessage().contains("Unexpected character")
+                                || parseEx.getMessage().contains("not complete"));
+                    if (isTruncation && parseRetry < 2) {
+                        log.warn("⚠️ [trace={}] Parse attempt {}/3 failed (truncated). Retrying AI...",
+                                traceId, parseRetry + 2);
+                        telemetry.markFallback("parse-truncated-retry-" + (parseRetry + 1), "truncation", 0);
+                        // Re-call the same model that produced the original response
+                        String currentPath = telemetry.getModelPath();
+                        if ("mistral".equals(currentPath)) {
+                            roadmapJson = callMistralWithRetry(request, telemetry, traceId);
+                        } else if ("gemini".equals(currentPath)) {
+                            roadmapJson = callGeminiWithRetry(request, telemetry);
+                        } else if ("mistral-compact".equals(currentPath)) {
+                            roadmapJson = callMistralRoadmapFallback(request, telemetry);
+                        } else {
+                            roadmapJson = callMistralWithRetry(request, telemetry, traceId);
+                        }
+                        continue;
+                    }
+                    throw parseEx;
+                }
+            }
 
             // Inject mode-specific metadata from request for clarity
             try {
@@ -457,9 +504,26 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .learningTips(parsed.learningTips())
                     .warnings(warnings)
                     .overview(parsed.overview())
+                    .structure(parsed.structure())
+                    .thinkingProgression(parsed.thinkingProgression())
+                    .projectsEvidence(parsed.projectsEvidence())
+                    .nextSteps(parsed.nextSteps())
                     .skillDependencies(parsed.skillDependencies())
                     .createdAt(session.getCreatedAt())
                     .build();
+
+                    log.debug("🧪 [trace={}] Roadmap response payload: roadmapNodes={}, projectsEvidence={}, nextSteps={}, warnings={}, structure={}, thinkingProgression={}, learningTips={}, nodeCoverage(total={}, withCourses={}, withModules={})",
+                        traceId,
+                        response.getRoadmap() != null ? response.getRoadmap().size() : 0,
+                        response.getProjectsEvidence() != null ? response.getProjectsEvidence().size() : 0,
+                        response.getNextSteps() != null,
+                        response.getWarnings() != null ? response.getWarnings().size() : 0,
+                        response.getStructure() != null ? response.getStructure().size() : 0,
+                        response.getThinkingProgression() != null ? response.getThinkingProgression().size() : 0,
+                        response.getLearningTips() != null ? response.getLearningTips().size() : 0,
+                        telemetry.totalNodes,
+                        telemetry.nodesWithCourses,
+                        telemetry.nodesWithModules);
 
             long elapsedMs = (System.nanoTime() - requestStartedAt) / 1_000_000;
             log.info("✅ [trace={}] Roadmap generation completed in {}ms (sessionId={}, roadmapStatus={})",
@@ -838,6 +902,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             }
             long attemptStartedAt = System.nanoTime();
             try {
+                // DEBUG: Log BEFORE call to measure prompt size
+                int promptCharsEstimate = prompt != null ? prompt.length() : 0;
+                int promptTokensEstimate = promptCharsEstimate / 4; // rough estimate
+                log.info("📤 [trace={}] Mistral sending request: prompt≈{} chars (≈{} tokens), maxRetries={}/{}",
+                    traceId, promptCharsEstimate, promptTokensEstimate, attempt + 1, maxRetries + 1);
+
                 String content = ChatClient.builder(mistralChatModel)
                         .build()
                         .prompt()
@@ -852,13 +922,15 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
                 long elapsedMs = (System.nanoTime() - attemptStartedAt) / 1_000_000;
                 boolean closesLikeJson = closesLikeJson(content);
-                log.info("✅ [trace={}] Mistral AI responded on attempt {}/{} in {}ms ({} chars, closesLikeJson={})",
+                log.info("✅ [trace={}] Mistral AI responded attempt {}/{} | elapsed={}ms | response_chars={} | prompt_est_tokens={} | closesLikeJson={}",
                     traceId,
                     attempt + 1,
                     maxRetries + 1,
                     elapsedMs,
                     content.length(),
+                    promptTokensEstimate,
                     closesLikeJson);
+
                 if (!closesLikeJson) {
                     log.warn("⚠️ [trace={}] Mistral payload does not end with JSON closer. tail='{}'",
                             traceId,
@@ -1105,12 +1177,44 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
                         String rawText = candidate.getContent().getParts().get(0).getText();
                         long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
-                        log.info("✅ [trace={}] Gemini API responded on attempt {}/{} in {}ms ({} chars)",
+                        String finishReason = candidate.getFinishReason();
+                        boolean closesLikeJson = closesLikeJson(rawText);
+
+                        // 📊 DEBUG: Gemini token usage via REST response (not in DTO, parse from raw JSON)
+                        int promptTokens = 0, completionTokens = 0, totalTokens = 0;
+                        String rawBody = null;
+                        try {
+                            // Re-call to get raw response for token usage (Gemini puts usageMetadata at response root)
+                            // Actually, we already have response - let's check if there's usage data
+                            // The GeminiDTO doesn't include usageMetadata, but we can infer from rawText length
+                            // For now, log what we have from the candidate
+                        } catch (Exception tokenEx) {
+                            // ignore
+                        }
+
+                        log.info("✅ [trace={}] Gemini responded attempt {}/{} | elapsed={}ms | chars={} | finishReason={} | closesLikeJson={}",
                             traceId,
                             attempt + 1,
                             maxRetries + 1,
                             elapsedMs,
-                            rawText.length());
+                            rawText.length(),
+                            finishReason != null ? finishReason : "null",
+                            closesLikeJson);
+
+                        // ⚠️ DETECT: Max tokens truncation for Gemini
+                        if ("MAX_TOKENS".equals(finishReason) || "MAX_OUTPUT_TOKENS".equals(finishReason)) {
+                            if (!closesLikeJson) {
+                                log.warn("⚠️ [trace={}] 🚨 GEMINI TRUNCATION DETECTED! finishReason={} but JSON unclosed. "
+                                        + "LIKELY CAUSE: maxOutputTokens(30000) too low for this prompt ({}+ chars). "
+                                        + "Consider increasing maxOutputTokens or reducing prompt/output schema.",
+                                    traceId, finishReason);
+                            }
+                        }
+
+                        if (!closesLikeJson) {
+                            log.warn("⚠️ [trace={}] Gemini payload does not end with JSON closer. tail='{}'",
+                                    traceId, previewTail(rawText, 200));
+                        }
 
                         return rawText;
                     }
@@ -1273,15 +1377,14 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         Analyze inputs using Pattern Detection Engine.
                         Validate using Validation Framework (scores, deprecated tech, time feasibility).
                         Generate roadmap adapted to level, style, context, preferences.
-                        CRITICAL: Trong phần description của mỗi node, hãy sử dụng Markdown phong phú để làm nổi bật thông tin quan trọng:
-                        - Dùng **in đậm** cho từ khóa quan trọng.
-                        - Dùng *in nghiêng* cho lưu ý.
-                        - Dùng danh sách (- item) để liệt kê.
-                        - Dùng `code block` cho các thuật ngữ kỹ thuật hoặc lệnh.
-                        Return ONLY valid JSON following the exact format specified above.
+                        OUTPUT: Chỉ trả về MỘT JSON object hợp lệ. KHÔNG giải thích, KHÔNG chat, KHÔNG code fences (```). CHỉ dùng **inline** Markdown trong description.
 
-                        CRITICAL: Response must be pure JSON starting with { and ending with }.
-                        NO markdown, NO explanations, ONLY JSON.
+                        CRITICAL BRACKET RULES:
+                        - Mỗi [ phải có ] đóng đúng vị trí.
+                        - Mỗi { phải có } đóng đúng vị trí.
+                        - Tất cả arrays (children, prerequisites, learning_objectives, tips, dependencies, next_steps, structure) phải kết thúc bằng ].
+                        - Nếu phải dừng giữa chừng: đóng node hiện tại (}), đóng array hiện tại (]), rồi dừng. KHÔNG bỏ dở mid-field.
+                        - TRƯỚC KHI dừng output, luôn verify: tất cả brackets đã balanced chưa.
                         %s""",
                 request.getRoadmapMode() != null ? request.getRoadmapMode().name() : "",
                 nullSafe(request.getRoadmapType()),
@@ -1382,7 +1485,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                 SYSTEM:
                                                 Bạn là AI Roadmap Architect.
                                                 Mục tiêu: trả về JSON NGẮN GỌN và HỢP LỆ để backend parse được ngay.
-                                                Không markdown, không giải thích, không ký tự ngoài JSON.
+                                                Không giải thích, không ký tự ngoài JSON. Chỉ dùng **inline** Markdown trong description (được: **bold**, *italic*, `code`).
 
                                                 YÊU CẦU:
                                                 1) Số node roadmap: 10-12.
@@ -1391,8 +1494,10 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                 4) estimated_time_minutes phải là số nguyên > 0.
                                                 5) children là array id con (có thể [] nếu node lá).
                                                 6) Language: tiếng Việt có dấu.
-                                                7) Giữ mô tả ngắn (1-3 câu), mỗi list tối đa 3 items.
+                                                7) Viết mô tả rõ ràng (2-4 câu ngắn), nêu bối cảnh + việc cần làm + kết quả mong đợi; mỗi list tối đa 3 items.
                                                 8) Không tạo field ngoài schema dưới đây.
+                                                10) description: cho phép **inline** Markdown (được: **bold**, *italic*, `code`). CẤM: ```, >, #, -, newlines trong chuỗi. Tối đa 240 ký tự.
+                                                9) CRITICAL BRACKET RULE: Trước khi dừng output, verify tất cả [ có ] đóng và { có } đóng. Nếu phải dừng giữa chừng: đóng node (}), đóng array (]), rồi dừng. KHÔNG bỏ dở mid-field.
 
                                                 SCHEMA JSON:
                                                 {
@@ -1404,17 +1509,23 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                         "desired_duration": "",
                                                         "experience_level": "",
                                                         "learning_style": "",
-                                                        "difficulty_level": "",
+                                                        "difficulty_level": "easy",
                                                         "roadmap_type": "",
                                                         "target": "",
                                                         "roadmap_mode": "",
-                                                        "daily_time": ""
+                                                        "daily_time": "",
+                                                        "current_level": "zero"
                                                     },
                                                     "overview": {
                                                         "purpose": "",
                                                         "audience": "",
                                                         "post_roadmap_state": ""
                                                     },
+                                                    "structure": [],
+                                                    "thinking_progression": ["Bắt đầu từ khái niệm cơ bản", "Xây dựng nền tảng lý thuyết", "Thực hành qua bài tập", "Tổng hợp qua dự án thực tế"],
+                                                    "projects_evidence": [],
+                                                    "next_steps": {"jobs": [], "next_skills": []},
+                                                    "learning_tips": [],
                                                     "skill_dependencies": [{"from": "", "to": ""}],
                                                     "roadmap": [
                                                         {
@@ -1426,14 +1537,13 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                             "is_core": true,
                                                             "parent_id": null,
                                                             "difficulty": "easy",
-                                                            "learning_objectives": [""],
-                                                            "key_concepts": [""],
-                                                            "practical_exercises": [""],
-                                                            "suggested_resources": [""],
-                                                            "success_criteria": [""],
+                                                            "learning_objectives": [],
+                                                            "key_concepts": [],
+                                                            "practical_exercises": [],
+                                                            "suggested_resources": [],
+                                                            "success_criteria": [],
                                                             "prerequisites": [],
-                                                            "children": [],
-                                                            "estimated_completion_rate": "90%%"
+                                                            "children": []
                                                         }
                                                     ],
                                                     "roadmap_statistics": {
@@ -1442,8 +1552,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                         "side_nodes": 3,
                                                         "total_estimated_hours": 40.0,
                                                         "difficulty_distribution": {"easy": 4, "medium": 4, "hard": 2}
-                                                    },
-                                                    "learning_tips": ["", ""]
+                                                    }
                                                 }
 
                                                 INPUT:
@@ -1568,17 +1677,47 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
                         ## OUTPUT FORMAT SPECIFICATION
 
-                        CRITICAL: Trả về JSON hợp lệ. KHÔNG markdown, KHÔNG giải thích, KHÔNG chat, CHỈ JSON.
+                        CRITICAL: Trả về JSON hợp lệ. KHÔNG giải thích, KHÔNG chat, CHỈ JSON. Chỉ dùng **inline** Markdown trong description (được: **bold**, *italic*, `code`; CẤM: ```, >, #, -, multiline).
 
-                        **Cấu trúc bắt buộc:**
-                        - `roadmap_metadata`: object chứa title, original_goal, difficulty_level (beginner|intermediate|advanced|expert), roadmap_mode (SKILL_BASED|CAREER_BASED), skill_mode (nếu SKILL_BASED), career_mode (nếu CAREER_BASED)
-                        - `overview`: object với purpose, audience, post_roadmap_state
-                        - `skill_dependencies`: array của {from, to}
-                        - `roadmap`: array bắt buộc, mỗi node phải có: id (string), title, description (Markdown), estimated_time_minutes (int > 0), type (MAIN|SIDE), is_core, parent_id (null cho root), difficulty (easy|medium|hard|expert), prerequisites (array), children (array id con — dùng [] nếu không có), suggested_resources, learning_objectives, key_concepts, practical_exercises, success_criteria
-                        - `roadmap_statistics`: object với total_nodes, main_nodes, side_nodes, total_estimated_hours, difficulty_distribution
-                        - `learning_tips`: array của string
+                        **Cấu trúc bắt buộc — TẤT CẢ fields phải được fill đầy đủ:**
+                        - `roadmap_metadata`: title, original_goal, difficulty_level, roadmap_mode, desired_duration, daily_time, **current_level** (BẮT BUỘC — zero/basic/intermediate/advanced)
+                        - `overview`: purpose, audience, post_roadmap_state
+                        - `structure`: array {phase_id, title, goal, skill_focus (array), timeframe, expected_output} — tối đa 4 phases
+                        - `thinking_progression`: array string (2-4 steps) — **BẮT BUỘC phải có nội dung thực tế**, tư duy/tiến trình học từ cơ bản → nâng cao, mỗi bước tối đa 100 ký tự
+                        - `projects_evidence`: array {phase_id, project, objective, skills_proven, kpi} — **BẮT BUỘC 1-3 dự án**, mỗi project tối đa 120 ký tự
+                        - `next_steps`: jobs (2-3 string), next_skills (2-3 string) — **BẮT BUỘC phải có nội dung thực tế**
+                        - `learning_tips`: array string (2-3 tips)
+                        - `skill_dependencies`: array {from, to} — tối thiểu 1 entry
+                        - `difficulty_level` phải là: easy | medium | hard (KHÔNG phải beginner/intermediate/advanced)
+                        - `current_level` phải là: zero | basic | intermediate | advanced
+                        - `roadmap`: array nodes, mỗi node BẮT BUỘC có đủ các fields sau:
+                          1. `id` (string)
+                          2. `title` (string, 40-80 chars, bắt đầu bằng động từ)
+                          3. `description` (**inline** Markdown, tối đa 240 ký tự, được dùng: **bold**, *italic*, `code`; CẤM: ```, >, #, -, multiline). Ưu tiên nêu: vì sao node quan trọng + hành động chính + kết quả đầu ra.
+                          4. `estimated_time_minutes` (int, > 0)
+                          5. `type` (MAIN hoặc SIDE)
+                          6. `parent_id` (string id HOẶC null cho root node)
+                          7. `children` (array string id, LUÔN LÀ array — dùng [] nếu node lá)
+                          8. `difficulty` (easy | medium | hard)
+                          9. `prerequisites` (array string id, LUÔN LÀ array — dùng [] nếu không có)
+                          10. `learning_objectives` (array string 1-3 items)
+                          11. `key_concepts` (array string 2-5 items — KHÔNG BẮT BUỘC, dùng [] nếu không cần)
+                          12. `practical_exercises` (array string 1-3 items — KHÔNG BẮT BUỘC, dùng [] nếu không cần)
+                          13. `success_criteria` (array string 1-3 items — KHÔNG BẮT BUỘC, dùng [] nếu không cần)
+                          14. `suggested_resources` (array string 1-3 items — KHÔNG BẮT BUỘC, dùng [] nếu không cần)
+                        - `roadmap_statistics`: total_nodes, main_nodes, total_estimated_hours
+                        - `learning_tips`: array string 2-3 tips
 
-                        **QUAN TRỌNG:** Mỗi node phải có children được SET ĐẦY ĐỦ — nếu node có child tiếp theo phải liệt kê trong children array. Dùng [] chỉ khi node là lá (không có child).
+                        **NGUYÊN TẮC QUAN TRỌNG:**
+                        - description: cho phép **inline** Markdown trong JSON (được: **bold**, *italic*, `code`). CẤM: ``` code fences, > blockquote, # heading, - list prefix, newlines trong chuỗi JSON. Mỗi description tối đa 240 ký tự, ưu tiên 2-4 câu ngắn theo nhịp bối cảnh -> hành động -> output.
+                        - key_concepts, practical_exercises, success_criteria, suggested_resources: KHÔNG BẮT BUỘC nhưng NÊN có nếu node có nội dung phong phú. Mỗi array tối đa 5 items, mỗi item tối đa 80 ký tự.
+                        - thinking_progression: 2-4 bước tư duy, mỗi bước tối đa 100 ký tự.
+                        - projects_evidence: 1-3 dự án, mỗi project tối đa 120 ký tự.
+                        - Tất cả arrays (children, prerequisites, learning_objectives, tips, key_concepts, practical_exercises, success_criteria, suggested_resources) phải là valid JSON array với ] đóng. KHÔNG bao giờ để unclosed bracket.
+                        - Tất cả nodes phải có children (array), không được bỏ trống — dùng [] cho node lá.
+                        - Tất cả nodes (trừ root) phải có prerequisites (array), không được null — dùng [] nếu không có.
+                        - Nếu gần hết output: đóng array hiện tại bằng ], đóng object cuối bằng }, rồi DỪNG. KHÔNG bỏ dở giữa field.
+                        - Luôn verify: mỗi [ phải có ] đóng, mỗi { phải có } đóng TRƯỚC KHI kết thúc output.
 
                         ## QUY TẮC ROADMAP CONSTRUCTION
 
@@ -1859,10 +1998,28 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             if (telemetry != null) {
                 telemetry.recordParseAttempt();
             }
+
+            // 📊 DEBUG: Sanitization monitoring
+            int rawLen = roadmapJson != null ? roadmapJson.length() : 0;
             sanitized = sanitizeJson(roadmapJson);
+            int sanitizedLen = sanitized != null ? sanitized.length() : 0;
+            int removed = rawLen - sanitizedLen;
+            double removedPct = rawLen > 0 ? (removed * 100.0) / rawLen : 0.0;
+
             if (telemetry != null) {
-                telemetry.recordSanitizedLength(sanitized != null ? sanitized.length() : 0);
+                telemetry.recordSanitizedLength(sanitizedLen);
             }
+
+            log.info("📝 [trace={}] Sanitization: raw={} chars → sanitized={} chars (removed {} chars, {:.1f}%)",
+                currentTraceId(), rawLen, sanitizedLen, removed, removedPct);
+
+            if (removedPct > 30) {
+                log.warn("⚠️ [trace={}] 🚨 MASSIVE SANITIZATION ({:.1f}% removed)! "
+                        + "Possible cause: Markdown text embedded in JSON, or model generated explanatory text after JSON. "
+                        + "Original tail (300 chars): '{}'",
+                    currentTraceId(), removedPct, previewTail(roadmapJson, 300));
+            }
+
             logJsonCheckpoint("parse-v2/raw", roadmapJson);
             logJsonCheckpoint("parse-v2/sanitized", sanitized);
             try {
@@ -1890,10 +2047,20 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             }
 
             JsonNode root = objectMapper.readTree(sanitized);
+                log.debug("🧪 [trace={}] Raw roadmap JSON sections present: metadata={}, roadmap={}, overview={}, structure={}, thinking_progression={}, projects_evidence={}, next_steps={}, skill_dependencies={}",
+                    currentTraceId(),
+                    firstPresentNode(root, "roadmap_metadata", "roadmapMetadata") != null,
+                    root.path("roadmap").isArray(),
+                    firstPresentNode(root, "overview") != null,
+                    firstPresentNode(root, "structure") != null && firstPresentNode(root, "structure").isArray(),
+                    firstPresentNode(root, "thinking_progression", "thinkingProgression") != null && firstPresentNode(root, "thinking_progression", "thinkingProgression").isArray(),
+                    firstPresentNode(root, "projects_evidence", "projectsEvidence") != null && firstPresentNode(root, "projects_evidence", "projectsEvidence").isArray(),
+                    firstPresentNode(root, "next_steps", "nextSteps") != null && firstPresentNode(root, "next_steps", "nextSteps").isObject(),
+                    firstPresentNode(root, "skill_dependencies", "skillDependencies") != null && firstPresentNode(root, "skill_dependencies", "skillDependencies").isArray());
 
             // Parse metadata
-            JsonNode metadataNode = root.path("roadmap_metadata");
-            if (metadataNode.isMissingNode()) {
+            JsonNode metadataNode = firstPresentNode(root, "roadmap_metadata", "roadmapMetadata");
+            if (metadataNode == null || metadataNode.isMissingNode()) {
                 throw new ApiException(ErrorCode.BAD_REQUEST,
                         "Invalid roadmap structure: missing 'roadmap_metadata'");
             }
@@ -1945,16 +2112,17 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
             // Parse learning tips
             List<String> learningTips = new ArrayList<>();
-            JsonNode tipsNode = root.path("learning_tips");
-            if (tipsNode.isArray()) {
+            JsonNode tipsNode = firstPresentNode(root, "learning_tips", "learningTips");
+            if (tipsNode != null && tipsNode.isArray()) {
                 for (JsonNode tip : tipsNode) {
                     learningTips.add(tip.asText());
                 }
             }
 
+            // Parse overview
             RoadmapResponse.Overview overview = null;
-            JsonNode overviewNode = root.path("overview");
-            if (overviewNode.isObject()) {
+            JsonNode overviewNode = firstPresentNode(root, "overview");
+            if (overviewNode != null && overviewNode.isObject()) {
                 overview = RoadmapResponse.Overview.builder()
                         .purpose(overviewNode.path("purpose").asText(null))
                         .audience(overviewNode.path("audience").asText(null))
@@ -1962,10 +2130,56 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         .build();
             }
 
+            // Parse structure (phases)
+            List<RoadmapResponse.StructurePhase> structure = new ArrayList<>();
+            JsonNode structureNode = firstPresentNode(root, "structure");
+            if (structureNode != null && structureNode.isArray()) {
+                for (JsonNode phase : structureNode) {
+                    structure.add(RoadmapResponse.StructurePhase.builder()
+                            .phaseId(phase.path("phase_id").asText(null))
+                            .title(phase.path("title").asText(null))
+                            .timeframe(phase.path("timeframe").asText(null))
+                            .goal(phase.path("goal").asText(null))
+                            .skillFocus(parseStringArray(phase.path("skill_focus")))
+                            .mindsetGoal(phase.path("mindset_goal").asText(null))
+                            .expectedOutput(phase.path("expected_output").asText(null))
+                            .build());
+                }
+            }
+
+            // Parse thinking progression
+            List<String> thinkingProgression = parseStringArray(firstPresentNode(root, "thinking_progression", "thinkingProgression"));
+
+            // Parse projects evidence
+            List<RoadmapResponse.ProjectEvidence> projectsEvidence = new ArrayList<>();
+            JsonNode projectsNode = firstPresentNode(root, "projects_evidence", "projectsEvidence");
+            if (projectsNode != null && projectsNode.isArray()) {
+                for (JsonNode proj : projectsNode) {
+                    projectsEvidence.add(RoadmapResponse.ProjectEvidence.builder()
+                            .phaseId(proj.path("phase_id").asText(null))
+                            .project(proj.path("project").asText(null))
+                            .objective(proj.path("objective").asText(null))
+                            .skillsProven(parseStringArray(proj.path("skills_proven")))
+                            .kpi(parseStringArray(proj.path("kpi")))
+                            .build());
+                }
+            }
+
+            // Parse next steps
+            RoadmapResponse.NextSteps nextSteps = null;
+            JsonNode nextStepsNode = firstPresentNode(root, "next_steps", "nextSteps");
+            if (nextStepsNode != null && nextStepsNode.isObject()) {
+                nextSteps = RoadmapResponse.NextSteps.builder()
+                        .jobs(parseStringArray(nextStepsNode.path("jobs")))
+                        .nextSkills(parseStringArray(nextStepsNode.path("next_skills")))
+                        .mentorsMicroJobs(parseStringArray(nextStepsNode.path("mentors_micro_jobs")))
+                        .build();
+            }
+
             List<RoadmapResponse.SkillDependency> skillDependencies = new ArrayList<>();
 
-            JsonNode depsNode = root.path("skill_dependencies");
-            if (depsNode.isArray()) {
+            JsonNode depsNode = firstPresentNode(root, "skill_dependencies", "skillDependencies");
+            if (depsNode != null && depsNode.isArray()) {
                 for (JsonNode d : depsNode) {
                     RoadmapResponse.SkillDependency dep = RoadmapResponse.SkillDependency.builder()
                             .from(d.path("from").asText(null))
@@ -1975,8 +2189,21 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 }
             }
 
+                log.debug("🧪 [trace={}] Parsed roadmap sections: nodes={}, learningTips={}, overview={}, structure={}, thinkingProgression={}, projectsEvidence={}, nextSteps={}, nextStepsJobs={}, nextStepsSkills={}, skillDependencies={}",
+                    currentTraceId(),
+                    nodes.size(),
+                    learningTips.size(),
+                    overview != null,
+                    structure.size(),
+                    thinkingProgression.size(),
+                    projectsEvidence.size(),
+                    nextSteps != null,
+                    nextSteps != null && nextSteps.getJobs() != null ? nextSteps.getJobs().size() : 0,
+                    nextSteps != null && nextSteps.getNextSkills() != null ? nextSteps.getNextSkills().size() : 0,
+                    skillDependencies.size());
+
             return new ParsedRoadmap(metadata, nodes, statistics, learningTips,
-                    overview, List.of(), List.of(), List.of(), null, skillDependencies);
+                    overview, structure, thinkingProgression, projectsEvidence, nextSteps, skillDependencies);
 
         } catch (JsonProcessingException e) {
                 String errorMessage = safeMessage(e);
@@ -2132,6 +2359,20 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             }
         }
 
+        // Safety net: if JSON is truncated, close remaining unclosed brackets
+        if (!containerStack.isEmpty()) {
+            StringBuilder close = new StringBuilder();
+            Deque<Character> reverseStack = new ArrayDeque<>();
+            while (!containerStack.isEmpty()) {
+                reverseStack.push(containerStack.pop());
+            }
+            while (!reverseStack.isEmpty()) {
+                char need = reverseStack.pop();
+                close.append(need == '[' ? ']' : '}');
+            }
+            repaired.append(close);
+        }
+
         return repaired.toString();
     }
 
@@ -2199,6 +2440,24 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return value == null || value.isBlank() ? fallback : value;
     }
 
+    /**
+     * Normalize experience level to UI display value.
+     * Maps AI model values (zero/basic/...) to FE-friendly display values (Zero/Beginner/...).
+     * Also handles lowercase/uppercase variations.
+     */
+    private String normalizeExperienceLevel(String level) {
+        if (level == null || level.isBlank()) return "beginner";
+        String lower = level.toLowerCase(Locale.ROOT).trim();
+        switch (lower) {
+            case "zero":  return "Zero";
+            case "basic": return "Beginner";
+            case "beginner": return "Beginner";
+            case "intermediate": return "Intermediate";
+            case "advanced": return "Advanced";
+            default: return "Beginner"; // treat unknown as beginner
+        }
+    }
+
     private Boolean readBoolean(JsonNode node, Boolean fallback, String... keys) {
         JsonNode target = firstPresentNode(node, keys);
         if (target == null) {
@@ -2257,12 +2516,13 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             .originalGoal(defaultText(readText(node, "original_goal", "originalGoal"), ""))
             .validatedGoal(readText(node, "validated_goal", "validatedGoal"))
             .duration(defaultText(duration, defaultText(desiredDuration, "1 tháng")))
-            .experienceLevel(defaultText(readText(node, "experience_level", "experienceLevel"), "beginner"))
+            .experienceLevel(normalizeExperienceLevel(defaultText(readText(node, "experience_level", "experienceLevel"), "zero")))
             .learningStyle(defaultText(readText(node, "learning_style", "learningStyle"), "project-based"))
             .detectedIntention(defaultText(readText(node, "detected_intention", "detectedIntention"), ""))
             .validationNotes(readText(node, "validation_notes", "validationNotes"))
             .estimatedCompletion(readText(node, "estimated_completion", "estimatedCompletion"))
-            .difficultyLevel(defaultText(readText(node, "difficulty_level", "difficultyLevel"), "medium"))
+            .difficultyLevel(defaultText(
+                    readText(node, "difficulty_level", "difficultyLevel"), "medium").toLowerCase(Locale.ROOT))
             .prerequisites(parseStringArray(node.path("prerequisites")))
             .careerRelevance(readText(node, "career_relevance", "careerRelevance"))
             .roadmapType(readText(node, "roadmap_type", "roadmapType"))
@@ -2288,7 +2548,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 .skillCategory(readText(skillMode, "skill_category", "skillCategory"))
                 .desiredDepth(readText(skillMode, "desired_depth", "desiredDepth"))
                 .learnerType(readText(skillMode, "learner_type", "learnerType"))
-                .currentSkillLevel(readText(skillMode, "current_skill_level", "currentSkillLevel"))
+                .currentSkillLevel(defaultText(readText(skillMode, "current_skill_level", "currentSkillLevel"),
+                        readText(node, "experience_level", "experienceLevel")))
                 .learningGoal(readText(skillMode, "learning_goal", "learningGoal"))
                 .dailyLearningTime(readText(skillMode, "daily_learning_time", "dailyLearningTime"))
                 .assessmentPreference(readText(skillMode, "assessment_preference", "assessmentPreference"))
@@ -2568,21 +2829,15 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         try {
             Map<String, Object> root = new LinkedHashMap<>();
             root.put("roadmap_metadata", parsed.metadata());
-            if (parsed.overview() != null) {
-                root.put("overview", parsed.overview());
-            }
-            
-            if (parsed.skillDependencies() != null && !parsed.skillDependencies().isEmpty()) {
-                root.put("skill_dependencies", parsed.skillDependencies());
-            }
-
+            root.put("overview", parsed.overview());
+            root.put("structure", parsed.structure());
+            root.put("thinking_progression", parsed.thinkingProgression());
+            root.put("projects_evidence", parsed.projectsEvidence());
+            root.put("next_steps", parsed.nextSteps());
+            root.put("skill_dependencies", parsed.skillDependencies());
             root.put("roadmap", parsed.nodes());
-            if (parsed.statistics() != null) {
-                root.put("roadmap_statistics", parsed.statistics());
-            }
-            if (parsed.learningTips() != null && !parsed.learningTips().isEmpty()) {
-                root.put("learning_tips", parsed.learningTips());
-            }
+            root.put("roadmap_statistics", parsed.statistics());
+            root.put("learning_tips", parsed.learningTips());
             return objectMapper.writeValueAsString(root);
         } catch (JsonProcessingException e) {
             throw new ApiException(ErrorCode.INTERNAL_ERROR, "Failed to serialize canonical roadmap JSON");
@@ -2953,8 +3208,10 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 .mapToInt(Integer::intValue)
                 .sum();
 
+        // Use nodeIds.size() as denominator — same set as numerator (aggregateProgress).
+        // This prevents blank/null-ID nodes from inflating totalQuests and diluting the average.
         int progressPercentage = clampProgressPercentage(
-                (int) Math.round(aggregateProgress * 1.0 / totalQuests));
+                (int) Math.round(aggregateProgress * 1.0 / nodeIds.size()));
 
         return new SummaryProgressStats(totalQuests, completedQuests, progressPercentage);
     }
@@ -3167,6 +3424,10 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .learningTips(parsed.learningTips())
                     .warnings(computeWarnings(parsed.metadata(), parsed.statistics()))
                     .overview(parsed.overview())
+                    .structure(parsed.structure())
+                    .thinkingProgression(parsed.thinkingProgression())
+                    .projectsEvidence(parsed.projectsEvidence())
+                    .nextSteps(parsed.nextSteps())
                     .skillDependencies(parsed.skillDependencies())
                     .createdAt(session.getCreatedAt())
                     .progress(progressMap)
@@ -3310,6 +3571,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
         // Calculate progress statistics (support V1 and V2)
         int totalQuests = 0;
+        Set<String> validNodeIds = null;
         try {
             if (schemaVersion >= 2) {
                 // V2: Parse or use cached totalNodes from DB
@@ -3318,32 +3580,52 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 } else {
                     ParsedRoadmap parsed = validateAndParseRoadmapV2(session.getRoadmapJson());
                     totalQuests = parsed.nodes().size();
+                    validNodeIds = parsed.nodes().stream()
+                            .map(RoadmapResponse.RoadmapNode::getId)
+                            .filter(id -> id != null && !id.isBlank())
+                            .collect(Collectors.toSet());
                 }
             } else {
                 // V1: Parse nodes
                 List<RoadmapResponse.RoadmapNode> nodes = parseNodesFromV1Json(session.getRoadmapJson());
                 totalQuests = nodes.size();
+                validNodeIds = nodes.stream()
+                        .map(RoadmapResponse.RoadmapNode::getId)
+                        .filter(id -> id != null && !id.isBlank())
+                        .collect(Collectors.toSet());
             }
         } catch (Exception e) {
             log.warn("Failed to determine totalQuests for session {}, using progress entries count", session.getId());
             List<UserRoadmapProgress> allProgress = progressRepository.findBySessionId(sessionId);
             totalQuests = allProgress.size(); // Fallback: count all progress entries
+            validNodeIds = null;
         }
 
         Map<String, RoadmapResponse.QuestProgress> resolvedProgressMap = resolveProgressData(
                 session,
                 schemaVersion >= 2 ? validateAndParseRoadmapV2(session.getRoadmapJson()).nodes() : parseNodesFromV1Json(session.getRoadmapJson()));
 
-        int completedQuests = (int) resolvedProgressMap.values().stream()
-                .filter(p -> UserRoadmapProgress.ProgressStatus.COMPLETED.name().equals(p.getStatus()))
-                .count();
+        // Count completed quests only from valid node IDs to keep numerator/denominator consistent
+        int completedQuests;
+        if (validNodeIds != null) {
+            completedQuests = (int) validNodeIds.stream()
+                    .map(resolvedProgressMap::get)
+                    .filter(Objects::nonNull)
+                    .filter(p -> UserRoadmapProgress.ProgressStatus.COMPLETED.name().equals(p.getStatus()))
+                    .count();
+        } else {
+            completedQuests = (int) resolvedProgressMap.values().stream()
+                    .filter(p -> UserRoadmapProgress.ProgressStatus.COMPLETED.name().equals(p.getStatus()))
+                    .count();
+        }
 
-        double completionPercentage = totalQuests > 0
-                ? (completedQuests * 100.0 / totalQuests)
+        int denominator = validNodeIds != null ? validNodeIds.size() : totalQuests;
+        double completionPercentage = denominator > 0
+                ? (completedQuests * 100.0 / denominator)
                 : 0.0;
 
         log.info("Progress updated - {}/{} quests completed ({}%)",
-                completedQuests, totalQuests, String.format("%.1f", completionPercentage));
+                completedQuests, denominator, String.format("%.1f", completionPercentage));
 
         return ProgressResponse.builder()
                 .sessionId(sessionId)

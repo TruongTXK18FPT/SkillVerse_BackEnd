@@ -1914,7 +1914,7 @@ public class JourneyServiceImpl implements JourneyService {
                 journey != null ? journey.getTitle() : null,
                 roadmapSession != null ? roadmapSession.getTitle() : null,
                 "Roadmap node"), 200, "Roadmap node"));
-        request.setTopics(collectNodeTopics(node, 16, request.getChildBranchTitles()));
+        request.setTopics(collectNodeTopics(node, 16));
         request.setDesiredOutcome(firstNonBlank(request.getDesiredOutcome(), buildDefaultDesiredOutcome(roadmapSession, journey, node)));
         request.setFreeTimeDescription(firstNonBlank(
                 request.getFreeTimeDescription(),
@@ -1925,6 +1925,13 @@ public class JourneyServiceImpl implements JourneyService {
         request.setPreferredDays(normalizePreferredDays(request.getPreferredDays()));
         if (request.getPreferredTimeWindows() == null || request.getPreferredTimeWindows().isEmpty()) {
             request.setPreferredTimeWindows(defaultPreferredTimeWindows(request.getStudyPreference()));
+        }
+        // Defensive: if user submitted deadline < startDate, auto-override and log
+        if (request.getDeadline() != null && request.getStartDate() != null
+                && request.getDeadline().isBefore(request.getStartDate())) {
+            log.warn("[StudyPlan] Invalid deadline {} < startDate {} for node {}, auto-overriding",
+                    request.getDeadline(), request.getStartDate(), node.getId());
+            request.setDeadline(null);
         }
         if (request.getDeadline() == null || request.getDeadline().isBefore(startDate)) {
             request.setDeadline(resolveDefaultDeadline(node, startDate, durationMinutes, maxSessionsPerDay));
@@ -1987,9 +1994,6 @@ public class JourneyServiceImpl implements JourneyService {
         target.setChronotype(source.getChronotype());
         target.setIdealFocusWindows(source.getIdealFocusWindows() != null
                 ? new ArrayList<>(source.getIdealFocusWindows())
-                : null);
-        target.setChildBranchTitles(source.getChildBranchTitles() != null
-                ? new ArrayList<>(source.getChildBranchTitles())
                 : null);
         target.setSuggestedModuleIds(source.getSuggestedModuleIds() != null
                 ? new ArrayList<>(source.getSuggestedModuleIds())
@@ -2090,7 +2094,7 @@ public class JourneyServiceImpl implements JourneyService {
         int sessionCount = Math.max(3, (int) Math.ceil((double) estimatedMinutes / durationMinutes));
         sessionCount = Math.min(MAX_STUDY_TASKS_PER_NODE, sessionCount);
 
-        List<String> focusItems = collectNodeTopics(node, 20, request.getChildBranchTitles());
+        List<String> focusItems = collectNodeTopics(node, 20);
         if (focusItems.isEmpty()) {
             focusItems = List.of(firstNonBlank(node.getDescription(), node.getTitle(), "Core topic"));
         }
@@ -2319,19 +2323,11 @@ public class JourneyServiceImpl implements JourneyService {
         builder.append("\n");
     }
 
-    private List<String> collectNodeTopics(RoadmapResponse.RoadmapNode node, int limit, List<String> childBranchTitles) {
+    private List<String> collectNodeTopics(RoadmapResponse.RoadmapNode node, int limit) {
         LinkedHashSet<String> topics = new LinkedHashSet<>();
         topics.addAll(sanitizeTextList(node.getLearningObjectives(), limit));
         topics.addAll(sanitizeTextList(node.getKeyConcepts(), limit));
         topics.addAll(sanitizeTextList(node.getPracticalExercises(), limit));
-        // GAP-6 fix: include child branch topics so AI generates sessions for them
-        if (childBranchTitles != null && !childBranchTitles.isEmpty()) {
-            childBranchTitles.stream()
-                    .filter(Objects::nonNull)
-                    .map(String::trim)
-                    .filter(t -> !t.isBlank())
-                    .forEach(t -> topics.add("[Child] " + t));
-        }
         if (topics.isEmpty()) {
             topics.add(firstNonBlank(node.getTitle(), "Core roadmap topic"));
         }

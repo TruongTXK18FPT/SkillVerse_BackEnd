@@ -24,4 +24,5 @@ public class CourseCreateDTO {
     private Long thumbnailMediaId; // Back to thumbnailMediaId
     private BigDecimal price;
     private String currency;
+    private List<String> courseSkills;
 }

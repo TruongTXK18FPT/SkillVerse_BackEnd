@@ -15,6 +15,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import com.exe.skillverse_backend.shared.entity.Media;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -91,6 +92,15 @@ public class CourseRevision {
     @Column(name = "requirements_json", nullable = false, columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)
     private JsonNode requirementsJson;
+
+    @Column(name = "course_skill_tags_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private JsonNode courseSkillTagsJson;
+
+    /** Thumbnail media — each revision can carry its own thumbnail. Synced to Course.thumbnail on approval. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "thumbnail_media_id")
+    private Media thumbnail;
 
     @Column(name = "content_snapshot_json", nullable = false, columnDefinition = "jsonb")
     @JdbcTypeCode(SqlTypes.JSON)

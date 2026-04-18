@@ -7,6 +7,7 @@ import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStat
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface CourseRevisionService {
 
@@ -25,7 +26,7 @@ public interface CourseRevisionService {
 
     CourseRevisionDTO submitRevision(Long revisionId, Long actorId);
 
-    CourseRevisionDTO updateRevision(Long revisionId, CourseRevisionUpdateDTO dto, Long actorId);
+    CourseRevisionDTO updateRevision(Long revisionId, CourseRevisionUpdateDTO dto, Long actorId, MultipartFile thumbnailFile);
 
     CourseRevisionDTO approveRevision(Long revisionId, Long adminId);
 

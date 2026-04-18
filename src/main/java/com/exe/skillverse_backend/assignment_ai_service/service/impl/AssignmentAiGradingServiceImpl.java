@@ -183,11 +183,11 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                     submissionId, criteria.getId(), score);
         }
 
-        // Trust AI: auto-confirm when enabled (100% automation)
-        // Sets score, feedback, gradedAt, isPassed — student sees PASS immediately.
-        // Mentor sees result in grading list for audit but takes NO action.
-        // No confidence threshold — always auto-confirm when trustAiEnabled=true.
-        if (Boolean.TRUE.equals(assignment.getTrustAiEnabled())) {
+        // Auto-confirm: when aiGradingEnabled=true on the assignment, AI results are automatically
+        // confirmed. Sets score, feedback, gradedAt, isPassed — student sees result immediately.
+        // Mentor sees it in "Đã chấm" tab (status=GRADED) for audit but takes NO action.
+        // trustAiEnabled is now legacy — removed from all logic per spec 2026-04-17.
+        if (Boolean.TRUE.equals(assignment.getAiGradingEnabled())) {
             submission.setMentorConfirmed(true);
             submission.setScore(result.getTotalScore());
             submission.setFeedback(result.getOverallFeedback());

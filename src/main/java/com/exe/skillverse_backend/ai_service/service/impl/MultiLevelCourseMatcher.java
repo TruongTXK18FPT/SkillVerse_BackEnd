@@ -65,8 +65,18 @@ public class MultiLevelCourseMatcher {
     /** Pre-select limit for CAREER_BASED roadmaps (many skills, wide scope) */
     public static final int CAREER_BASED_LIMIT = 15;
 
-    /** Max courses assigned to a single node */
-    private static final int MAX_COURSES_PER_NODE = 1;
+    /**
+     * Max courses assigned to a single roadmap node — differentiated by roadmap type.
+     *
+     * <ul>
+     *   <li>SKILL_BASED  = 1 course/node  (narrow skill scope, each course covers enough)</li>
+     *   <li>CAREER_BASED = 3 courses/node (wide career scope, node may need beginner+intermediate+advanced)</li>
+     * </ul>
+     *
+     * <p>Selected dynamically in {@link #matchNodesToCoursesAndModules} via {@code roadmapMode}.
+     */
+    private static final int MAX_COURSES_PER_SKILL_NODE = 1;
+    private static final int MAX_COURSES_PER_CAREER_NODE = 3;
 
     /** Penalize courses that miss core intent anchors from topic (e.g., java, spring). */
     private static final int ANCHOR_MISS_PENALTY = 4;
@@ -125,8 +135,10 @@ public class MultiLevelCourseMatcher {
         }
 
         int limit = CAREER_BASED_LIMIT;
+        int maxCoursesPerNode = MAX_COURSES_PER_CAREER_NODE;
         if ("SKILL_BASED".equalsIgnoreCase(roadmapMode)) {
             limit = SKILL_BASED_LIMIT;
+            maxCoursesPerNode = MAX_COURSES_PER_SKILL_NODE;
         }
 
         // === PHASE A: Global pre-selection (fallback pool) ===
@@ -231,7 +243,7 @@ public class MultiLevelCourseMatcher {
 
             scored.sort((a, b) -> Integer.compare(b.finalScore, a.finalScore));
             List<String> selectedCourseIds = scored.stream()
-                    .limit(MAX_COURSES_PER_NODE)
+                    .limit(maxCoursesPerNode)
                     .map(sc -> String.valueOf(sc.course.getId()))
                     .collect(Collectors.toList());
 

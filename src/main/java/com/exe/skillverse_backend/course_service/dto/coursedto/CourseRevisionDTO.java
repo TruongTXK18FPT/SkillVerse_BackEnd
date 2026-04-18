@@ -30,10 +30,13 @@ public class CourseRevisionDTO {
 
     private String learningObjectivesJson;
     private String requirementsJson;
+    private String courseSkillTagsJson;
     private String contentSnapshotJson;
     private Long sourceRevisionId;
     private String sourceCourseStatus;
 
+    private Long thumbnailMediaId;
+    private String thumbnailUrl;
     private Long createdBy;
     private Instant createdAt;
     private Instant updatedAt;

@@ -1,7 +1,10 @@
 package com.exe.skillverse_backend.shared.entity;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
 import lombok.ToString;
 
 import java.time.LocalDateTime;
@@ -22,6 +25,9 @@ import jakarta.persistence.Table;
 @Entity
 @Table(name = "skills")
 @Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Skill {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -48,9 +54,11 @@ public class Skill {
     @ToString.Exclude @EqualsAndHashCode.Exclude
     private List<CourseSkill> courseSkills;
 
+    @lombok.Builder.Default
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    @lombok.Builder.Default
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt = LocalDateTime.now();
 

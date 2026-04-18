@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.ai_service.service.TaxonomyService;
 import com.exe.skillverse_backend.ai_service.service.dto.CourseCatalogEntry;
 import com.exe.skillverse_backend.ai_service.service.dto.CourseCatalogEntry.ModuleEntry;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
+import com.exe.skillverse_backend.course_service.event.CourseRevisionApprovedEvent;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
@@ -12,6 +13,7 @@ import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -72,7 +74,7 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
     private static final double BM25_FALLBACK_THRESHOLD = 1.25;
     private static final double TF_IDF_SCORE_SCALE = 6.0;
     /** Minimum BM25 score to consider a result relevant. Below this → return empty (fallback to global). */
-    private static final double BM25_MIN_RELEVANCE_THRESHOLD = 2.0;
+    private static final double BM25_MIN_RELEVANCE_THRESHOLD = 1.0;
 
     private static final double QUALITY_BOOST_MAX_RATIO = 0.25;
     private static final double QUALITY_ENROLLMENT_WEIGHT = 0.60;
@@ -136,20 +138,175 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
     @PostConstruct
     public void init() {
         log.info("[Catalog] @PostConstruct — building index on startup...");
-        buildIndex();
-        log.info("[Catalog] Startup index built. {} courses indexed.", totalCourses);
+        if (safeBuildIndex("startup")) {
+            log.info("[Catalog] Startup index built. {} courses indexed.", totalCourses);
+        } else {
+            log.warn("[Catalog] Startup index build skipped; catalog will remain empty until the next successful refresh.");
+        }
     }
 
     @Transactional(readOnly = true)
     public void scheduledRefresh() {
         log.info("[Catalog] Scheduled refresh starting...");
-        buildIndex();
-        log.info("[Catalog] Scheduled refresh done. {} courses indexed.", totalCourses);
+        if (safeBuildIndex("scheduled refresh")) {
+            log.info("[Catalog] Scheduled refresh done. {} courses indexed.", totalCourses);
+        }
     }
 
     @Override
     public void refresh() {
-        buildIndex();
+        safeBuildIndex("manual refresh");
+    }
+
+    /**
+     * Incrementally refresh a single course in the BM25 index.
+     * Used for event-driven updates when a course revision is approved,
+     * replacing the need to rebuild the entire index.
+     */
+    @Transactional(readOnly = true)
+    public void refreshCourse(Long courseId) {
+        if (courseId == null) {
+            return;
+        }
+
+        // Remove old entry from all index structures
+        courseIndex.remove(courseId);
+        courseTermFreqs.remove(courseId);
+        docLengths.remove(courseId);
+        moduleIndex.remove(courseId);
+        moduleEntryIndex.remove(courseId);
+        prerequisiteIndex.remove(courseId);
+
+        // Remove from inverted index and document frequencies
+        for (Map.Entry<String, List<Long>> entry : new ConcurrentHashMap<>(invertedIndex).entrySet()) {
+            if (entry.getValue().contains(courseId)) {
+                entry.getValue().remove(courseId);
+                if (entry.getValue().isEmpty()) {
+                    invertedIndex.remove(entry.getKey());
+                    documentFreqs.remove(entry.getKey());
+                }
+            }
+        }
+
+        // Re-load and index the course if it's PUBLIC with an active revision
+        List<Object[]> rows = courseRepository.findPublicCourseById(courseId);
+        if (rows == null || rows.isEmpty()) {
+            log.info("[Catalog] Course {} is no longer public or has no active revision — removed from index.", courseId);
+            recalculateAvgDocLength();
+            return;
+        }
+
+        Object[] row = rows.get(0);
+        Long id = ((Number) row[0]).longValue();
+        String title = (String) row[1];
+        String description = (String) row[2];
+        String shortDesc = (String) row[3];
+        String category = (String) row[4];
+        String level = (String) row[5];
+        Instant createdAt = toInstant(row.length > 6 ? row[6] : null);
+        long enrollmentCount = toLong(row.length > 7 ? row[7] : null);
+        String learningObjectives = listToString(row.length > 8 ? row[8] : null);
+        String requirements = listToString(row.length > 9 ? row[9] : null);
+        String courseSkillTags = listToString(row.length > 10 ? row[10] : null);
+
+        // Build course entry
+        CourseCatalogEntry entry = CourseCatalogEntry.builder()
+                .id(id)
+                .title(safe(title))
+                .description(safe(description))
+                .shortDescription(safe(shortDesc))
+                .category(safe(category))
+                .level(safe(level))
+                .createdAt(createdAt)
+                .enrollmentCount(enrollmentCount)
+                .averageRating(0.0)
+                .moduleIds(new ArrayList<>())
+                .modules(new ArrayList<>())
+                .build();
+        courseIndex.put(id, entry);
+
+        // Build searchable text
+        String searchable = (safe(title) + " " +
+                safe(description) + " " +
+                safe(shortDesc) + " " +
+                safe(category) + " " +
+                safe(learningObjectives) + " " +
+                safe(requirements) + " " +
+                safe(courseSkillTags)).toLowerCase();
+
+        // Add module titles
+        List<Object[]> moduleRows = moduleRepository.findAllModulesWithCourseId(List.of(courseId));
+        for (Object[] mr : moduleRows) {
+            Long mid = ((Number) mr[1]).longValue();
+            String modTitle = (String) mr[2];
+            int orderIdx = mr[3] != null ? ((Number) mr[3]).intValue() : 0;
+            entry.getModuleIds().add(mid);
+            entry.getModules().add(ModuleEntry.builder()
+                    .id(mid)
+                    .title(safe(modTitle))
+                    .orderIndex(orderIdx)
+                    .build());
+            searchable += " " + safe(modTitle);
+        }
+
+        // Tokenize and update index structures
+        List<String> terms = tokenizeWithBigrams(searchable);
+        Map<String, Long> termFreq = new HashMap<>();
+        for (String term : terms) {
+            termFreq.merge(term, 1L, Long::sum);
+        }
+
+        docLengths.put(id, terms.size());
+        courseTermFreqs.put(id, termFreq);
+
+        for (String term : termFreq.keySet()) {
+            invertedIndex.computeIfAbsent(term, k -> new ArrayList<>()).add(id);
+            documentFreqs.merge(term, 1L, Long::sum);
+        }
+
+        // Prerequisite index
+        List<Object[]> prereqRows = moduleRepository.findPrerequisitesByCourseIds(List.of(courseId));
+        for (Object[] pr : prereqRows) {
+            Long moduleId = (Long) pr[0];
+            Long prereqId = (Long) pr[1];
+            prerequisiteIndex.computeIfAbsent(moduleId, k -> new ArrayList<>()).add(prereqId);
+        }
+
+        // Update global stats
+        maxEnrollmentCount = Math.max(maxEnrollmentCount, enrollmentCount);
+        if (createdAt != null) {
+            long epoch = createdAt.toEpochMilli();
+            if (minCreatedAtEpochMillis == 0 || epoch < minCreatedAtEpochMillis) {
+                minCreatedAtEpochMillis = epoch;
+            }
+            if (epoch > maxCreatedAtEpochMillis) {
+                maxCreatedAtEpochMillis = epoch;
+            }
+        }
+        recalculateAvgDocLength();
+
+        log.info("[Catalog] Course {} refreshed in index with {} modules, {} searchable terms.",
+                id, entry.getModuleIds().size(), termFreq.size());
+    }
+
+    private void recalculateAvgDocLength() {
+        if (docLengths.isEmpty()) {
+            avgDocLength = 1;
+            totalCourses = 0;
+            return;
+        }
+        totalCourses = docLengths.size();
+        avgDocLength = (int) (docLengths.values().stream().mapToInt(Integer::intValue).sum() / totalCourses);
+    }
+
+    /**
+     * Event-driven: trigger immediate index update when a course revision is approved.
+     */
+    @EventListener
+    public void onCourseRevisionApproved(CourseRevisionApprovedEvent event) {
+        log.info("[Catalog] Received CourseRevisionApprovedEvent — refreshing course {} (revision {})",
+                event.getCourseId(), event.getRevisionId());
+        refreshCourse(event.getCourseId());
     }
 
     @Override
@@ -171,7 +328,9 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
         if (!loaded) {
             synchronized (this) {
                 if (!loaded) {
-                    buildIndex();
+                    if (!safeBuildIndex("lazy pre-select")) {
+                        return List.of();
+                    }
                 }
             }
         }
@@ -332,12 +491,13 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
         Map<Long, List<ModuleEntry>> newModuleEntryIndex = new ConcurrentHashMap<>(256);
         Map<Long, List<Long>> newPrereqIndex = new ConcurrentHashMap<>(256);
         Map<Long, StringBuilder> moduleTitlesBuilder = new ConcurrentHashMap<>(256);
+        Map<Long, String> courseSearchableText = new ConcurrentHashMap<>(256);
         long newMaxEnrollment = 1;
         long newMinCreatedAt = Long.MAX_VALUE;
         long newMaxCreatedAt = Long.MIN_VALUE;
 
         // === Phase 1: Load all PUBLIC courses ===
-        List<Object[]> courseRows = courseRepository.findAllPublicCourseProjections();
+        List<Object[]> courseRows = courseRepository.findAllPublicCourseProjectionsV2();
         for (Object[] row : courseRows) {
             Long id = ((Number) row[0]).longValue();
             String title = (String) row[1];
@@ -347,6 +507,9 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
             String level = (String) row[5];
             Instant createdAt = toInstant(row.length > 6 ? row[6] : null);
             long enrollmentCount = toLong(row.length > 7 ? row[7] : null);
+            String learningObjectives = listToString(row.length > 8 ? row[8] : null);
+            String requirements = listToString(row.length > 9 ? row[9] : null);
+            String courseSkillTags = listToString(row.length > 10 ? row[10] : null);
 
             if (createdAt != null) {
                 long epoch = createdAt.toEpochMilli();
@@ -368,6 +531,14 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
                     .moduleIds(new ArrayList<>())
                     .modules(new ArrayList<>())
                     .build());
+            // Build searchable text from metadata fields for BM25 indexing
+            courseSearchableText.put(id, (safe(title) + " " +
+                    safe(description) + " " +
+                    safe(shortDesc) + " " +
+                    safe(category) + " " +
+                    safe(learningObjectives) + " " +
+                    safe(requirements) + " " +
+                    safe(courseSkillTags)));
         }
 
         if (newIndex.isEmpty()) {
@@ -421,10 +592,7 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
             Long cid = course.getId();
             // Include module titles in searchable text so BM25 can match courses by module topic
             StringBuilder moduleTitles = moduleTitlesBuilder.get(cid);
-            String searchable = (course.getTitle() + " " +
-                    course.getDescription() + " " +
-                    course.getShortDescription() + " " +
-                    course.getCategory() +
+            String searchable = (courseSearchableText.getOrDefault(cid, "") + " " +
                     (moduleTitles != null ? moduleTitles.toString() : "")).toLowerCase();
 
             // Tokenize with bigrams for compound phrases
@@ -476,6 +644,16 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
             minCreatedAtEpochMillis = newMinCreatedAt == Long.MAX_VALUE ? 0 : newMinCreatedAt;
             maxCreatedAtEpochMillis = newMaxCreatedAt == Long.MIN_VALUE ? 0 : newMaxCreatedAt;
             loaded = true;
+        }
+    }
+
+    private boolean safeBuildIndex(String reason) {
+        try {
+            buildIndex();
+            return true;
+        } catch (RuntimeException ex) {
+            log.warn("[Catalog] {} index build skipped: {}", reason, ex.getMessage(), ex);
+            return false;
         }
     }
 
@@ -756,6 +934,57 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
 
     private String safe(String s) {
         return s != null ? s : "";
+    }
+
+    private String listToString(Object field) {
+        if (field == null) return "";
+        if (field instanceof List<?> list) {
+            return list.stream()
+                    .filter(v -> v != null)
+                    .map(v -> v.toString())
+                    .collect(Collectors.joining(" "));
+        }
+        // Handle JSON string from PostgreSQL JSONB::TEXT (e.g. "[\"Java\",\"Spring\"]")
+        String str = field.toString().trim();
+        if (str.startsWith("[")) {
+            return parseJsonArray(str);
+        }
+        return str;
+    }
+
+    private String parseJsonArray(String json) {
+        if (json == null || json.isBlank()) return "";
+        String inner = json.trim();
+        if (inner.startsWith("[") && inner.endsWith("]")) {
+            inner = inner.substring(1, inner.length() - 1).trim();
+        }
+        if (inner.isEmpty()) return "";
+        StringBuilder result = new StringBuilder();
+        boolean inQuote = false;
+        boolean escape = false;
+        for (int i = 0; i < inner.length(); i++) {
+            char ch = inner.charAt(i);
+            if (escape) {
+                escape = false;
+                continue;
+            }
+            if (ch == '\\') {
+                escape = true;
+                continue;
+            }
+            if (ch == '"') {
+                inQuote = !inQuote;
+                continue;
+            }
+            if (!inQuote && ch == ',') {
+                result.append(' ');
+                continue;
+            }
+            if (!inQuote && ch != '"') {
+                result.append(ch);
+            }
+        }
+        return result.toString().replaceAll("\\s+", " ").trim();
     }
 
     // Stopword list — built from a sorted deduplicated set to avoid Set.of() crashes.

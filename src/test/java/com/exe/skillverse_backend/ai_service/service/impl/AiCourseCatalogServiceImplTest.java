@@ -16,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -71,8 +72,8 @@ class AiCourseCatalogServiceImplTest {
     @DisplayName("preSelectCourses should use taxonomy expansion when base terms have no direct hit")
     void preSelectCourses_ShouldUseTaxonomyExpansion() {
         Instant now = Instant.parse("2026-04-10T10:15:30Z");
-        when(courseRepository.findAllPublicCourseProjections()).thenReturn(List.<Object[]>of(
-                row(1L, "Spring Boot API", "Build backend services", "", "Backend", "Beginner", now, 20L)
+        when(courseRepository.findAllPublicCourseProjectionsV2()).thenReturn(List.<Object[]>of(
+                rowV2(1L, "Spring Boot API", "Build backend services", "", "Backend", "Beginner", now, 20L)
         ));
 
         when(taxonomyService.expandQueryWithTaxonomy(eq("microservice orchestration"), anySet(), anyInt()))
@@ -93,9 +94,9 @@ class AiCourseCatalogServiceImplTest {
         Instant oldDate = Instant.parse("2024-01-10T10:15:30Z");
         Instant newDate = Instant.parse("2026-03-10T10:15:30Z");
 
-        when(courseRepository.findAllPublicCourseProjections()).thenReturn(List.of(
-                row(1L, "Backend Fundamentals", "backend roadmap", "", "Backend", "Beginner", oldDate, 2L),
-                row(2L, "Backend Fundamentals", "backend roadmap", "", "Backend", "Beginner", newDate, 300L)
+        when(courseRepository.findAllPublicCourseProjectionsV2()).thenReturn(List.of(
+                rowV2(1L, "Backend Fundamentals", "backend roadmap", "", "Backend", "Beginner", oldDate, 2L),
+                rowV2(2L, "Backend Fundamentals", "backend roadmap", "", "Backend", "Beginner", newDate, 300L)
         ));
 
         when(taxonomyService.expandQueryWithTaxonomy(anyString(), anySet(), anyInt()))
@@ -113,9 +114,9 @@ class AiCourseCatalogServiceImplTest {
     @DisplayName("preSelectCourses should blend TF-IDF fallback when BM25 confidence is low")
     void preSelectCourses_ShouldUseTfIdfFallbackForLowBm25() {
         Instant sameDate = Instant.parse("2026-01-10T10:15:30Z");
-        when(courseRepository.findAllPublicCourseProjections()).thenReturn(List.of(
-                row(1L, "Backend for Java", "backend basics", "", "Backend", "Beginner", sameDate, 10L),
-                row(2L, "Backend for Node", "backend basics", "", "Backend", "Beginner", sameDate, 10L)
+        when(courseRepository.findAllPublicCourseProjectionsV2()).thenReturn(List.of(
+                rowV2(1L, "Backend for Java", "backend basics", "", "Backend", "Beginner", sameDate, 10L),
+                rowV2(2L, "Backend for Node", "backend basics", "", "Backend", "Beginner", sameDate, 10L)
         ));
 
         when(taxonomyService.expandQueryWithTaxonomy(anyString(), anySet(), anyInt()))
@@ -134,9 +135,9 @@ class AiCourseCatalogServiceImplTest {
     @DisplayName("preSelectCourses should down-rank completed courses for same user")
     void preSelectCourses_ShouldApplyUserHistoryPenalty() {
         Instant sameDate = Instant.parse("2026-01-10T10:15:30Z");
-        when(courseRepository.findAllPublicCourseProjections()).thenReturn(List.of(
-                row(1L, "Backend Fundamentals", "backend roadmap", "", "Backend", "Beginner", sameDate, 10L),
-                row(2L, "Backend Fundamentals", "backend roadmap", "", "Backend", "Beginner", sameDate, 300L)
+        when(courseRepository.findAllPublicCourseProjectionsV2()).thenReturn(List.of(
+                rowV2(1L, "Backend Fundamentals", "backend roadmap", "", "Backend", "Beginner", sameDate, 10L),
+                rowV2(2L, "Backend Fundamentals", "backend roadmap", "", "Backend", "Beginner", sameDate, 300L)
         ));
 
         when(taxonomyService.expandQueryWithTaxonomy(anyString(), anySet(), anyInt()))
@@ -159,7 +160,7 @@ class AiCourseCatalogServiceImplTest {
         verify(courseEnrollmentRepository).findByUserIdAndCourseIdIn(eq(99L), anyList());
     }
 
-    private Object[] row(
+        private Object[] rowV2(
             Long id,
             String title,
             String description,
@@ -175,8 +176,11 @@ class AiCourseCatalogServiceImplTest {
                 shortDescription,
                 category,
                 level,
-                createdAt,
-                enrollmentCount
+                                Timestamp.from(createdAt),
+                                enrollmentCount,
+                                "[]",
+                                "[]",
+                                "[]"
         };
     }
 

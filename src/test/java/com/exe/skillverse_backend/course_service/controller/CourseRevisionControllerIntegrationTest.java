@@ -169,7 +169,7 @@ class CourseRevisionControllerIntegrationTest {
         long revisionId = 300L;
         long actorId = 7L;
 
-        when(courseRevisionService.updateRevision(org.mockito.ArgumentMatchers.eq(revisionId), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(actorId)))
+        when(courseRevisionService.updateRevision(org.mockito.ArgumentMatchers.eq(revisionId), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(actorId), org.mockito.ArgumentMatchers.isNull()))
                 .thenReturn(CourseRevisionDTO.builder()
                         .id(revisionId)
                         .courseId(10L)
@@ -187,7 +187,7 @@ class CourseRevisionControllerIntegrationTest {
                 .andExpect(jsonPath("$.status").value("DRAFT"))
                 .andExpect(jsonPath("$.title").value("Updated title"));
 
-        verify(courseRevisionService).updateRevision(org.mockito.ArgumentMatchers.eq(revisionId), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(actorId));
+        verify(courseRevisionService).updateRevision(org.mockito.ArgumentMatchers.eq(revisionId), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(actorId), org.mockito.ArgumentMatchers.isNull());
     }
 
     @Test
@@ -198,7 +198,7 @@ class CourseRevisionControllerIntegrationTest {
                 .content("{\"title\":\"Updated title\"}"))
                 .andExpect(status().isForbidden());
 
-        verify(courseRevisionService, never()).updateRevision(org.mockito.ArgumentMatchers.eq(300L), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7L));
+        verify(courseRevisionService, never()).updateRevision(org.mockito.ArgumentMatchers.eq(300L), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.isNull());
     }
 
     private RequestPostProcessor jwtWithRole(Long userId, String role) {

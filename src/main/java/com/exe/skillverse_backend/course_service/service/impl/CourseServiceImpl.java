@@ -8,6 +8,9 @@ import com.exe.skillverse_backend.course_service.dto.coursedto.CourseSummaryDTO;
 import com.exe.skillverse_backend.course_service.dto.coursedto.CourseUpdateDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
+import com.exe.skillverse_backend.course_service.entity.CourseSkill;
+import com.exe.skillverse_backend.course_service.entity.CourseSkillId;
+import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
@@ -17,6 +20,7 @@ import com.exe.skillverse_backend.course_service.policy.CourseDeletionPolicy;
 import com.exe.skillverse_backend.course_service.policy.CourseRevisionFeatureProperties;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseSkillRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
@@ -31,6 +35,7 @@ import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.MediaOperationException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.repository.SkillRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -40,6 +45,7 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -73,6 +79,8 @@ public class CourseServiceImpl implements CourseService {
     private final CourseDeletionPolicy courseDeletionPolicy;
     private final CourseRevisionRepository courseRevisionRepository;
     private final CourseRevisionFeatureProperties courseRevisionFeatureProperties;
+    private final SkillRepository skillRepository;
+    private final CourseSkillRepository courseSkillRepository;
     private final ObjectMapper objectMapper;
     // TODO: inject ApplicationEventPublisher for events
 
@@ -107,6 +115,11 @@ public class CourseServiceImpl implements CourseService {
 
         Course saved = courseRepository.save(entity);
         log.info("Course created with id={} by author={}", saved.getId(), authorId);
+
+        // Sync skill tags → Skill entities (N:N links)
+        if (dto.getCourseSkills() != null && !dto.getCourseSkills().isEmpty()) {
+            syncCourseSkillLinks(saved.getId(), dto.getCourseSkills());
+        }
 
         return courseMapper.toDetailDto(saved);
     }
@@ -147,6 +160,12 @@ public class CourseServiceImpl implements CourseService {
 
         Course saved = courseRepository.save(course);
         log.info("Course {} updated by actor {}", courseId, actorId);
+
+        // Sync skill tags → Skill entities (N:N links).
+        // Only sync when dto explicitly provides courseSkills; null means "no change to skills".
+        if (dto.getCourseSkills() != null) {
+            syncCourseSkillLinks(courseId, dto.getCourseSkills());
+        }
 
         return courseMapper.toDetailDto(saved);
     }
@@ -739,6 +758,7 @@ public class CourseServiceImpl implements CourseService {
         detail.setCurrency(revision.getCurrency());
         detail.setLearningObjectives(toStringList(revision.getLearningObjectivesJson()));
         detail.setRequirements(toStringList(revision.getRequirementsJson()));
+        detail.setCourseSkills(toStringList(revision.getCourseSkillTagsJson()));
     }
 
     private void applyRevisionToSummary(CourseSummaryDTO summary, CourseRevision revision) {
@@ -919,5 +939,85 @@ public class CourseServiceImpl implements CourseService {
         }
         log.info("Restored {} suspended courses for unbanned mentor {}", suspendedCourses.size(), authorId);
         return suspendedCourses.size();
+    }
+
+    /**
+     * Syncs course_skill (N:N) links from plain skill tag names.
+     * Called after course creation or update.
+     *
+     * <p>Flow:
+     * <ul>
+     *   <li>For each tag name → findOrCreate Skill entity (upsert)</li>
+     *   <li>For each Skill → create CourseSkill link if not exists</li>
+     *   <li>Remove CourseSkill links for tags no longer present</li>
+     * </ul>
+     *
+     * <p>Keeps course_skill_tags (ElementCollection) in sync with course_skill (N:N entity).
+     * The plain String tags are used for BM25 indexing; the entity links enable taxonomy.
+     *
+     * @param courseId the course ID
+     * @param skillNames list of skill tag names (e.g. ["JAVA", "SPRING"])
+     */
+    @Transactional
+    public void syncCourseSkillLinks(Long courseId, List<String> skillNames) {
+        if (skillNames == null || skillNames.isEmpty()) {
+            // No skills → delete all existing links
+            courseSkillRepository.deleteByCourseId(courseId);
+            log.debug("[SkillLink] Course {} has no skill tags, cleared all links", courseId);
+            return;
+        }
+
+        // Deduplicate and normalize names — ALL non-alphanumeric → underscore, then UPPERCASE.
+        // "java core" / "java-core" → "JAVA_CORE". Consistent with SkillServiceImpl.normalizeName()
+        List<String> normalized = skillNames.stream()
+                .filter(n -> n != null && !n.isBlank())
+                .map(n -> n.trim().replaceAll("[^a-zA-Z0-9]+", "_")
+                             .replaceAll("_+", "_")
+                             .replaceAll("^_|_$", "")
+                             .toUpperCase(Locale.ROOT))
+                .distinct()
+                .collect(Collectors.toList());
+
+        // Fetch Course once to satisfy @MapsId FK requirement on CourseSkill
+        Course course = courseRepository.findById(courseId)
+                .orElseThrow(() -> new IllegalStateException("Course " + courseId + " not found"));
+
+        // Step 1: Ensure Skill entity exists for each tag (upsert)
+        for (String name : normalized) {
+            Skill skill = skillRepository.findByNameIgnoreCase(name)
+                    .orElseGet(() -> {
+                        Skill newSkill = Skill.builder().name(name).build();
+                        return skillRepository.save(newSkill);
+                    });
+
+            // Step 2: Create CourseSkill link if not exists
+            if (!courseSkillRepository.existsByCourseIdAndSkillId(courseId, skill.getId())) {
+                CourseSkill link = CourseSkill.builder()
+                        .id(new CourseSkillId(courseId, skill.getId()))
+                        .course(course)
+                        .skill(skill)
+                        .build();
+                courseSkillRepository.save(link);
+                log.debug("[SkillLink] Linked course {} to skill '{}' (id={})",
+                        courseId, name, skill.getId());
+            }
+        }
+
+        // Step 3: Remove links for tags no longer present
+        List<String> currentNames = courseSkillRepository.findSkillNamesByCourseId(courseId);
+        List<String> toRemove = currentNames.stream()
+                .filter(n -> !normalized.contains(n))
+                .collect(Collectors.toList());
+
+        for (String nameToRemove : toRemove) {
+            skillRepository.findByNameIgnoreCase(nameToRemove).ifPresent(skill -> {
+                courseSkillRepository.deleteByCourseIdAndSkillId(courseId, skill.getId());
+                log.debug("[SkillLink] Unlinked course {} from skill '{}' (id={})",
+                        courseId, nameToRemove, skill.getId());
+            });
+        }
+
+        log.info("[SkillLink] Synced {} skill links for course {} (added={}, removed={})",
+                normalized.size(), courseId, normalized.size() - (int) currentNames.stream().filter(normalized::contains).count(), toRemove.size());
     }
 }

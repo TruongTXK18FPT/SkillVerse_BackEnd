@@ -51,7 +51,8 @@ class SkillServiceImplTest {
     @DisplayName("create should reject duplicate name and category combinations")
     void create_ShouldRejectDuplicateNameAndCategoryCombinations() {
         SkillDto dto = SkillDto.builder().name("Spring Boot").category("Backend").build();
-        when(skillRepository.findByNameIgnoreCaseAndCategoryIgnoreCase("Spring Boot", "Backend"))
+        // Service normalizes to UPPERCASE before checking uniqueness
+        when(skillRepository.findByNameIgnoreCaseAndCategoryIgnoreCase("SPRING_BOOT", "Backend"))
                 .thenReturn(Optional.of(skill(10L, null, null, null)));
 
         assertThrows(ConflictException.class, () -> service.create(dto));
@@ -66,16 +67,17 @@ class SkillServiceImplTest {
                 .category("Backend")
                 .parentSkillId(1L)
                 .build();
-        Skill parent = skill(1L, "Spring", "Backend", null);
-        Skill entity = skill(null, "Spring Security", "Backend", null);
+        Skill parent = skill(1L, "SPRING", "Backend", null);
+        Skill entity = skill(null, "SPRING SECURITY", "Backend", null);
 
-        when(skillRepository.findByNameIgnoreCaseAndCategoryIgnoreCase("Spring Security", "Backend"))
+        // Service normalizes to UPPERCASE before uniqueness check and persistence
+        when(skillRepository.findByNameIgnoreCaseAndCategoryIgnoreCase("SPRING_SECURITY", "Backend"))
                 .thenReturn(Optional.empty());
         when(skillRepository.findById(1L)).thenReturn(Optional.of(parent));
         when(skillMapper.toEntity(dto)).thenReturn(entity);
         when(skillMapper.toDto(any(Skill.class))).thenReturn(SkillDto.builder()
                 .id(2L)
-                .name("Spring Security")
+                .name("SPRING SECURITY")
                 .parentSkillId(1L)
                 .createdAt(LocalDateTime.now(fixedClock))
                 .updatedAt(LocalDateTime.now(fixedClock))
@@ -85,6 +87,7 @@ class SkillServiceImplTest {
 
         assertEquals(2L, response.getId());
         assertEquals(1L, response.getParentSkillId());
+        assertEquals("SPRING SECURITY", response.getName());
     }
 
     @Test

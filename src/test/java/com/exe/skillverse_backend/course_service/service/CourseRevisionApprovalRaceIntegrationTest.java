@@ -51,8 +51,10 @@ import com.exe.skillverse_backend.course_service.service.impl.QuizServiceImpl;
 import com.exe.skillverse_backend.course_service.service.impl.RevisionPinnedContentResolver;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.repository.SkillRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseSkillRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -140,6 +142,10 @@ class CourseRevisionApprovalRaceIntegrationTest {
     @Mock
     private MediaRepository mediaRepository;
     @Mock
+    private SkillRepository skillRepository;
+    @Mock
+    private CourseSkillRepository courseSkillRepository;
+    @Mock
     private NotificationService notificationService;
     @Mock
     private org.springframework.context.ApplicationEventPublisher eventPublisher;
@@ -175,6 +181,10 @@ class CourseRevisionApprovalRaceIntegrationTest {
                 assignmentRepository,
                 mediaRepository,
                 courseRevisionFeatureProperties,
+                skillRepository,
+                eventPublisher,
+                courseSkillRepository,
+                cloudinaryService,
                 revisionClock,
                 revisionObjectMapper,
                 meterRegistry

@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.shared.config.CustomMapperConfig;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.mapper.MediaMapper;
+import org.mapstruct.AfterMapping;
 import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -34,6 +35,7 @@ public interface CourseMapper {
     @Mapping(target = "language", source = "language")
     @Mapping(target = "learningObjectives", source = "learningObjectives")
     @Mapping(target = "requirements", source = "requirements")
+    @Mapping(target = "courseSkills", source = "courseSkillTags")
     @Mapping(target = "status", source = "status")
     @Mapping(target = "author", source = "author")
     @Mapping(target = "thumbnail", source = "thumbnail")
@@ -165,7 +167,15 @@ public interface CourseMapper {
     @Mapping(target = "purchases", ignore = true)
     @Mapping(target = "certificates", ignore = true)
     @Mapping(target = "courseSkills", ignore = true)
+    @Mapping(target = "courseSkillTags", source = "createDto.courseSkills")
     Course toEntity(CourseCreateDTO createDto, User author, Media thumbnail);
+
+    @AfterMapping
+    default void afterToEntity(CourseCreateDTO dto, @MappingTarget Course course) {
+        if (course.getCourseSkillTags() == null) {
+            course.setCourseSkillTags(new java.util.ArrayList<>());
+        }
+    }
 
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "title", source = "updateDto.title")
@@ -196,7 +206,17 @@ public interface CourseMapper {
     @Mapping(target = "purchases", ignore = true)
     @Mapping(target = "certificates", ignore = true)
     @Mapping(target = "courseSkills", ignore = true)
+    @Mapping(target = "courseSkillTags", source = "updateDto.courseSkills")
     void updateEntity(@MappingTarget Course course, CourseUpdateDTO updateDto, Media thumbnail);
+
+    @AfterMapping
+    default void afterUpdateEntity(CourseUpdateDTO dto, @MappingTarget Course course) {
+        if (dto.getCourseSkills() != null) {
+            course.setCourseSkillTags(new java.util.ArrayList<>(dto.getCourseSkills()));
+        } else if (course.getCourseSkillTags() == null) {
+            course.setCourseSkillTags(new java.util.ArrayList<>());
+        }
+    }
 
     // Helper method to map from ID to Media entity (for cases where only ID is
     // provided)

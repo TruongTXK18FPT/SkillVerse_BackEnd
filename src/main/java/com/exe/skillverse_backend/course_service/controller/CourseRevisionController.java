@@ -18,12 +18,15 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/course-revisions")
@@ -80,11 +83,12 @@ public class CourseRevisionController {
     public ResponseEntity<CourseRevisionDTO> updateRevision(
             @Parameter(description = "Revision ID") @PathVariable @NotNull Long revisionId,
             @AuthenticationPrincipal Jwt jwt,
-            @RequestBody CourseRevisionUpdateDTO dto) {
+            @ModelAttribute CourseRevisionUpdateDTO dto,
+            @Parameter(description = "Thumbnail file") @RequestParam(required = false) MultipartFile thumbnailFile) {
 
         Long actorId = JwtUtils.extractUserId(jwt);
         log.info("Updating course revision {} by user {}", revisionId, actorId);
-        CourseRevisionDTO updated = courseRevisionService.updateRevision(revisionId, dto, actorId);
+        CourseRevisionDTO updated = courseRevisionService.updateRevision(revisionId, dto, actorId, thumbnailFile);
         return ResponseEntity.ok(updated);
     }
 }

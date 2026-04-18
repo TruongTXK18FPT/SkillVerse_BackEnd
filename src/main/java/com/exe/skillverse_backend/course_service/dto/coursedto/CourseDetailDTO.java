@@ -27,6 +27,7 @@ public class CourseDetailDTO {
     private String language;
     private List<String> learningObjectives;
     private List<String> requirements;
+    private List<String> courseSkills;
     private CourseStatus status;
     private UserDto author;
     private MediaDTO thumbnail;

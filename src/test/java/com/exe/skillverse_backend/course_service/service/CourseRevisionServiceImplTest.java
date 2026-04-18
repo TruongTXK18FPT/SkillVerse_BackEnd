@@ -23,13 +23,18 @@ import com.exe.skillverse_backend.course_service.policy.CourseRevisionFeaturePro
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseSkillRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 import com.exe.skillverse_backend.course_service.service.impl.CourseRevisionServiceImpl;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.repository.SkillRepository;
+import com.exe.skillverse_backend.shared.entity.Skill;
+import com.exe.skillverse_backend.course_service.entity.CourseSkill;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -43,6 +48,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -60,6 +66,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
@@ -97,6 +104,18 @@ class CourseRevisionServiceImplTest {
 
     @Mock
     private CourseRevisionFeatureProperties courseRevisionFeatureProperties;
+
+    @Mock
+    private SkillRepository skillRepository;
+
+    @Mock
+    private CourseSkillRepository courseSkillRepository;
+
+        @Mock
+        private ApplicationEventPublisher eventPublisher;
+
+        @Mock
+        private CloudinaryService cloudinaryService;
 
     @Mock
     private Clock clock;
@@ -192,6 +211,7 @@ class CourseRevisionServiceImplTest {
                 .status(CourseStatus.PUBLIC)
                 .title("Course A")
                 .modules(List.of(module))
+                .courseSkillTags(List.of("JAVA", "PYTHON"))
                 .build();
 
         when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
@@ -1063,7 +1083,7 @@ class CourseRevisionServiceImplTest {
         when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(revision));
         when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        CourseRevisionDTO updated = courseRevisionService.updateRevision(revisionId, dto, authorId);
+        CourseRevisionDTO updated = courseRevisionService.updateRevision(revisionId, dto, authorId, null);
 
         JsonNode snapshot = objectMapper.readTree(updated.getContentSnapshotJson());
         assertTrue(snapshot.path("compatibility").path("autoCompatibleOnly").isBoolean());
@@ -1847,6 +1867,10 @@ class CourseRevisionServiceImplTest {
             return assignment;
         });
 
+        // Mock skill sync for approve step (no skills in this test revision)
+        lenient().when(courseSkillRepository.deleteByCourseId(course.getId())).thenReturn(0);
+        lenient().when(skillRepository.findByNameIgnoreCase(anyString())).thenReturn(Optional.empty());
+
         CourseRevisionDTO submitResult = courseRevisionService.submitRevision(revisionId, authorId);
         assertEquals(CourseRevisionStatus.PENDING, submitResult.getStatus());
 
@@ -2132,7 +2156,6 @@ class CourseRevisionServiceImplTest {
         when(courseRevisionFeatureProperties.isWriteEnabled()).thenReturn(true);
         when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
         when(courseRevisionRepository.findById(baselineRevisionId)).thenReturn(Optional.of(baseline));
-        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
         draft.setRejectedSnapshotHash(computeSnapshotHashForDraft(draft));
 
         ConflictException noChangesSinceReject = assertThrows(
@@ -2231,7 +2254,7 @@ class CourseRevisionServiceImplTest {
 
         BadRequestException exception = assertThrows(
                 BadRequestException.class,
-                () -> courseRevisionService.updateRevision(revisionId, dto, authorId)
+                () -> courseRevisionService.updateRevision(revisionId, dto, authorId, null)
         );
 
         assertTrue(exception.getMessage().contains("COURSE_REVISION_CONTENT_SNAPSHOT_TOO_LARGE"));
@@ -2265,7 +2288,7 @@ class CourseRevisionServiceImplTest {
 
         BadRequestException exception = assertThrows(
                 BadRequestException.class,
-                () -> courseRevisionService.updateRevision(revisionId, dto, authorId)
+                () -> courseRevisionService.updateRevision(revisionId, dto, authorId, null)
         );
 
         assertTrue(exception.getMessage().contains("COURSE_REVISION_UNSUPPORTED_SNAPSHOT_VERSION"));
@@ -2299,7 +2322,7 @@ class CourseRevisionServiceImplTest {
         when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
         when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        CourseRevisionDTO result = courseRevisionService.updateRevision(revisionId, dto, authorId);
+        CourseRevisionDTO result = courseRevisionService.updateRevision(revisionId, dto, authorId, null);
 
         assertEquals(revisionId, result.getId());
         assertTrue(result.getContentSnapshotJson().contains("\"snapshotVersion\":1"));
@@ -2347,7 +2370,7 @@ class CourseRevisionServiceImplTest {
         when(courseRevisionRepository.findById(revisionId)).thenReturn(Optional.of(draft));
         when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        CourseRevisionDTO result = courseRevisionService.updateRevision(revisionId, dto, authorId);
+        CourseRevisionDTO result = courseRevisionService.updateRevision(revisionId, dto, authorId, null);
 
         assertEquals(revisionId, result.getId());
         assertTrue(result.getContentSnapshotJson().contains("Lesson local draft"));
@@ -2472,7 +2495,8 @@ class CourseRevisionServiceImplTest {
         putNullableText(root, "price", normalizeMoney(revision.getPrice()));
         root.set("learningObjectives", canonicalizeStringArray(revision.getLearningObjectivesJson()));
         root.set("requirements", canonicalizeStringArray(revision.getRequirementsJson()));
-        root.set("contentSnapshot", canonicalizeJsonNode(defaultContentSnapshot(revision.getContentSnapshotJson())));
+                root.set("courseSkillTags", canonicalizeStringArray(revision.getCourseSkillTagsJson()));
+                root.set("contentSnapshot", canonicalizeContentSnapshotForHash(revision.getContentSnapshotJson()));
 
         return sha256Hex(root.toString());
     }
@@ -2624,6 +2648,16 @@ class CourseRevisionServiceImplTest {
         return snapshotObject;
     }
 
+        private JsonNode canonicalizeContentSnapshotForHash(JsonNode contentSnapshot) {
+                JsonNode normalized = defaultContentSnapshot(contentSnapshot);
+                if (!(normalized instanceof ObjectNode normalizedObject)) {
+                        return canonicalizeJsonNode(normalized);
+                }
+                ObjectNode hashSafeSnapshot = normalizedObject.deepCopy();
+                hashSafeSnapshot.remove("compatibility");
+                return canonicalizeJsonNode(hashSafeSnapshot);
+        }
+
     private JsonNode canonicalizeJsonNode(JsonNode source) {
         if (source == null || source.isNull()) {
             return objectMapper.nullNode();
@@ -2691,6 +2725,9 @@ class CourseRevisionServiceImplTest {
         when(clock.instant()).thenReturn(now);
         when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(courseRepository.save(course)).thenReturn(course);
+        // No skills in this test revision — deleteByCourseId called, loop skipped (no findByName)
+        lenient().when(courseSkillRepository.deleteByCourseId(course.getId())).thenReturn(0);
+        lenient().when(skillRepository.findByNameIgnoreCase(anyString())).thenReturn(Optional.empty());
 
         CourseRevisionDTO result = courseRevisionService.approveRevision(revisionId, adminId);
 

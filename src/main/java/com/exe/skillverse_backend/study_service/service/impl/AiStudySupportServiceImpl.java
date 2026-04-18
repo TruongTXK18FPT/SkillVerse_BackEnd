@@ -24,6 +24,7 @@ import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
+import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -324,6 +325,10 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         } else {
             fullPrompt.append("9) Han che hoc khuya.\n");
         }
+        // OVL-1: Explicitly forbid overlapping sessions
+        fullPrompt.append("10) TUYET DOI KHONG TAO 2 PHIEN TRUNG GIO TRONG CUNG NGAY.\n");
+        fullPrompt.append("    Kiem tra lai truoc khi tra ve: moi phien phai co thoi gian bat dau va ket thuc KHAC NHAU.\n");
+        fullPrompt.append("    Neu co khoang trong, di chuyen sang gio tiep theo trong cung ngay hoac sang ngay tiep.\n");
 
         return fullPrompt.toString();
     }
@@ -386,7 +391,10 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
 
         List<StudySessionResponse> parsed = parseResponse(response);
         ZoneId zone = ZoneId.of(request.getTimezone() != null && !request.getTimezone().isBlank() ? request.getTimezone() : "Asia/Ho_Chi_Minh");
-        return normalizeSessions(parsed, request.getDurationMinutes(), zone, request);
+        parsed = normalizeSessions(parsed, request.getDurationMinutes(), zone, request);
+        // OVL-3: resolve any overlapping sessions AI generated
+        parsed = resolveOverlappingSessions(parsed, request);
+        return parsed;
     }
 
     @Override
@@ -476,7 +484,10 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             }
 
             ZoneId zone = ZoneId.of("Asia/Ho_Chi_Minh");
-            return normalizeSessions(parsed, inferredDuration, zone, fakeRequest);
+            parsed = normalizeSessions(parsed, inferredDuration, zone, fakeRequest);
+            // OVL-3: resolve any overlapping sessions AI generated during refinement
+            parsed = resolveOverlappingSessions(parsed, fakeRequest);
+            return parsed;
             
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Error processing schedule for refinement", e);
@@ -494,7 +505,46 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 && hasLateNightSessions(proposed, zone)) {
             throw new RuntimeException("Phát hiện phiên học khuya (sau 23:00 hoặc trước 06:00). Vui lòng xác nhận trước khi tạo lịch.");
         }
-        
+
+        // OVL-5: Check for conflicts with existing user sessions before saving
+        List<String> conflictWarnings = new ArrayList<>();
+        for (StudySessionResponse resp : proposed) {
+            if (resp.getStartTime() == null || resp.getEndTime() == null) continue;
+            List<StudySession> conflicts = studySessionRepository
+                    .findOverlappingSessions(userId, resp.getStartTime(), resp.getEndTime());
+            for (StudySession conflict : conflicts) {
+                String msg = "Session '" + resp.getTitle() + "' trùng với '" + conflict.getTitle()
+                        + "' lúc " + conflict.getStartTime().toLocalDate() + " "
+                        + conflict.getStartTime().toLocalTime() + "-"
+                        + conflict.getEndTime().toLocalTime();
+                log.warn(msg);
+                conflictWarnings.add(msg);
+            }
+        }
+        if (!conflictWarnings.isEmpty()) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Phát hiện trùng lịch với sessions đã có: " + String.join("; ", conflictWarnings));
+        }
+
+        // FIX-2: Reject sessions with zero or negative duration before saving.
+        // AI should never return these, but the guard prevents DB pollution.
+        for (StudySessionResponse resp : proposed) {
+            if (resp.getStartTime() == null || resp.getEndTime() == null) {
+                throw new ApiException(ErrorCode.BAD_REQUEST,
+                    "Phiên '" + resp.getTitle() + "' thiếu thời gian bắt đầu/kết thúc");
+            }
+            if (!resp.getEndTime().isAfter(resp.getStartTime())) {
+                throw new ApiException(ErrorCode.BAD_REQUEST,
+                    "Phiên '" + resp.getTitle() + "' có endTime không hợp lệ: " +
+                    "phải sau startTime");
+            }
+            int duration = (int) Duration.between(resp.getStartTime(), resp.getEndTime()).toMinutes();
+            if (duration < 5) { // minimum 5 minutes to be a meaningful session
+                throw new ApiException(ErrorCode.BAD_REQUEST,
+                    "Phiên '" + resp.getTitle() + "' quá ngắn (" + duration + " phút), tối thiểu 5 phút");
+            }
+        }
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -783,11 +833,20 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             }
             LocalTime st = s.getStartTime().toLocalTime();
             LocalTime et = s.getEndTime().toLocalTime();
-            if (st.isBefore(earliest)) {
-                errors.add("Phiên bắt đầu trước giờ cho phép ("+earliest+"): " + s.getTitle());
+            LocalDate sessionDate = s.getStartTime().toLocalDate();
+            // FIX-1: Compare full LocalDateTime so sessions on different days aren't
+            // falsely flagged just because their LocalTime falls outside the window.
+            // (normalizeSessions already enforces bounds for AI-generated sessions;
+            // this check primarily guards manual sessions that bypass normalization.)
+            LocalDateTime sessionStart = s.getStartTime();
+            LocalDateTime sessionEnd = s.getEndTime();
+            LocalDateTime earliestDateTime = LocalDateTime.of(sessionDate, earliest);
+            LocalDateTime latestDateTime = LocalDateTime.of(sessionDate, latest);
+            if (sessionStart.isBefore(earliestDateTime)) {
+                errors.add("Phiên bắt đầu trước giờ cho phép ("+earliest+" ngày "+sessionDate+"): " + s.getTitle());
             }
-            if (et.isAfter(latest) || et.equals(latest)) {
-                errors.add("Phiên kết thúc sau giờ cho phép ("+latest+"): " + s.getTitle());
+            if (sessionEnd.isAfter(latestDateTime) || sessionEnd.equals(latestDateTime)) {
+                errors.add("Phiên kết thúc sau giờ cho phép ("+latest+" ngày "+sessionDate+"): " + s.getTitle());
             }
             int durMin = (int) Duration.between(s.getStartTime(), s.getEndTime()).toMinutes();
             LocalDate day = s.getStartTime().toLocalDate();
@@ -820,6 +879,20 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                     .title(s.getTitle())
                     .score(score)
                     .build());
+        }
+
+        // OVL-4: Detect overlapping session pairs
+        for (int i = 0; i < sessions.size(); i++) {
+            for (int j = i + 1; j < sessions.size(); j++) {
+                StudySessionResponse a = sessions.get(i);
+                StudySessionResponse b = sessions.get(j);
+                if (a.getStartTime() != null && a.getEndTime() != null
+                        && b.getStartTime() != null && b.getEndTime() != null
+                        && sessionsOverlap(a.getStartTime(), a.getEndTime(), b.getStartTime(), b.getEndTime())) {
+                    errors.add("Trùng lịch: '" + a.getTitle() + "' và '" + b.getTitle()
+                            + "' cùng " + a.getStartTime().toLocalDate());
+                }
+            }
         }
 
         boolean healthy = errors.isEmpty();
@@ -1068,5 +1141,179 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
     private String safeTruncate(String text, int maxLen) {
         if (text == null) return "";
         return text.length() <= maxLen ? text : text.substring(0, maxLen) + "...";
+    }
+
+    // ─── OVL-2: Overlap resolution ────────────────────────────────────────────
+
+    /**
+     * Resolves overlapping sessions by shifting each conflicting session
+     * to the next available slot (same day or next preferred day).
+     * Sessions are processed in chronological order.
+     */
+    private List<StudySessionResponse> resolveOverlappingSessions(
+            List<StudySessionResponse> sessions,
+            GenerateScheduleRequest request) {
+
+        if (sessions == null || sessions.size() <= 1) {
+            // Return empty list (not the input reference) so caller can't mutate internal state
+            return sessions != null ? new ArrayList<>(sessions) : List.of();
+        }
+
+        List<StudySessionResponse> result = new ArrayList<>();
+        List<StudySessionResponse> pending = new ArrayList<>(sessions);
+
+        // Sort pending by startTime so earliest sessions are placed first
+        pending.sort(Comparator.comparing(
+                (StudySessionResponse s) -> s != null && s.getStartTime() != null ? s.getStartTime() : LocalDateTime.MAX));
+
+        for (StudySessionResponse candidate : pending) {
+            if (candidate == null || candidate.getStartTime() == null || candidate.getEndTime() == null) {
+                result.add(candidate);
+                continue;
+            }
+
+            LocalDateTime originalEnd = candidate.getEndTime();
+            int duration = (int) Duration.between(candidate.getStartTime(), originalEnd).toMinutes();
+            LocalDateTime originalStart = candidate.getStartTime();
+
+            // Check if this session overlaps with any already-placed session
+            boolean overlaps = result.stream()
+                    .anyMatch(existing -> existing.getStartTime() != null
+                            && existing.getEndTime() != null
+                            && sessionsOverlap(originalStart, originalEnd,
+                                    existing.getStartTime(), existing.getEndTime()));
+
+            LocalDateTime finalSlotStart;
+            LocalDateTime finalSlotEnd;
+            if (overlaps) {
+                log.info("Session '{}' at {} overlaps with placed sessions, finding next available slot",
+                        candidate.getTitle(), originalStart);
+                finalSlotStart = findNextAvailableSlot(result, originalStart, duration, request);
+                finalSlotEnd = finalSlotStart.plusMinutes(duration);
+                log.info("Shifted '{}' to new slot: {} - {}", candidate.getTitle(), finalSlotStart, finalSlotEnd);
+            } else {
+                finalSlotStart = originalStart;
+                finalSlotEnd = originalEnd;
+            }
+
+            result.add(StudySessionResponse.builder()
+                    .id(candidate.getId())
+                    .title(candidate.getTitle())
+                    .description(candidate.getDescription())
+                    .startTime(finalSlotStart)
+                    .endTime(finalSlotEnd)
+                    .status(candidate.getStatus())
+                    .build());
+        }
+
+        return result;
+    }
+
+    /**
+     * Finds the next available time slot for a session that avoids all
+     * already-placed sessions. Tries same day first, then next preferred day.
+     */
+    private LocalDateTime findNextAvailableSlot(
+            List<StudySessionResponse> existing,
+            LocalDateTime desiredStart,
+            int durationMinutes,
+            GenerateScheduleRequest request) {
+
+        LocalTime earliest = resolveEarliestAllowedTime(request);
+        LocalTime latest = resolveLatestAllowedTime(request);
+        int maxPerDay = request.getMaxSessionsPerDay() != null ? request.getMaxSessionsPerDay() : 3;
+        int breakMin = request.getBreakMinutesBetweenSessions() != null ? request.getBreakMinutesBetweenSessions() : 10;
+
+        LocalDate targetDay = desiredStart.toLocalDate();
+        LocalTime desiredTime = desiredStart.toLocalTime();
+
+        // Build sorted list of occupied slots on the target day
+        List<LocalDateTime[]> daySlots = existing.stream()
+                .filter(s -> s.getStartTime() != null
+                        && s.getStartTime().toLocalDate().equals(targetDay))
+                .map(s -> new LocalDateTime[]{s.getStartTime(), s.getEndTime()})
+                .sorted(Comparator.comparing(a -> a[0]))
+                .toList();
+
+        long sessionsOnDay = daySlots.size();
+
+        // Try same day — scan from desiredTime forward
+        if (sessionsOnDay < maxPerDay) {
+            LocalTime searchStart = desiredTime.isBefore(earliest) ? earliest : desiredTime;
+
+            // Check if desired slot itself is free (compare LocalTime portions)
+            LocalTime searchEnd = searchStart.plusMinutes(durationMinutes);
+            boolean desiredFree = daySlots.stream().noneMatch(slot ->
+                    searchStart.isBefore(slot[1].toLocalTime()) &&
+                    searchEnd.isAfter(slot[0].toLocalTime()));
+
+            if (desiredFree) {
+                LocalTime proposedEnd = searchStart.plusMinutes(durationMinutes);
+                if (!proposedEnd.isAfter(latest)) {
+                    return LocalDateTime.of(targetDay, searchStart);
+                }
+            }
+
+            // Scan for a gap after each occupied slot — don't break early,
+            // keep searching all gaps since later gaps might fit the candidate
+            for (LocalDateTime[] slot : daySlots) {
+                LocalTime slotEnd = slot[1].toLocalTime();
+                LocalTime gapStart = slotEnd.plusMinutes(breakMin);
+                LocalTime gapEnd = gapStart.plusMinutes(durationMinutes);
+
+                // Skip if this gap's end exceeds latest
+                if (gapEnd.isAfter(latest)) {
+                    continue; // try next gap, don't give up
+                }
+
+                // Verify this gap doesn't overlap with any existing session on same day
+                final LocalTime gs = gapStart;
+                final LocalTime ge = gapEnd;
+                boolean gapFree = daySlots.stream().noneMatch(other ->
+                        gs.isBefore(other[1].toLocalTime()) &&
+                        ge.isAfter(other[0].toLocalTime()));
+
+                if (gapFree) {
+                    return LocalDateTime.of(targetDay, gapStart);
+                }
+            }
+            // No gap found on this day
+        }
+
+        // No slot on this day — find next preferred day
+        LocalDate nextDay = targetDay.plusDays(1);
+        LocalDate deadline = request.getDeadline() != null ? request.getDeadline() : targetDay.plusDays(60);
+
+        while (nextDay.isBefore(deadline) || nextDay.isEqual(deadline)) {
+            if (isPreferredDay(nextDay, request.getPreferredDays())) {
+                return LocalDateTime.of(nextDay, earliest);
+            }
+            nextDay = nextDay.plusDays(1);
+        }
+
+        // Fallback: no preferred day found, return original (let normalizeSessions handle later)
+        log.warn("Could not find preferred day slot within deadline for session at {}", desiredStart);
+        return desiredStart;
+    }
+
+    /**
+     * Returns true if the given date falls on a preferred day of the week,
+     * or if no preferred days are specified.
+     */
+    private boolean isPreferredDay(LocalDate date, List<String> preferredDays) {
+        if (preferredDays == null || preferredDays.isEmpty()) {
+            return true;
+        }
+        DayOfWeek dow = date.getDayOfWeek();
+        return preferredDays.contains(dow.name());
+    }
+
+    /**
+     * Checks whether two time ranges overlap.
+     */
+    private boolean sessionsOverlap(
+            LocalDateTime startA, LocalDateTime endA,
+            LocalDateTime startB, LocalDateTime endB) {
+        return startA.isBefore(endB) && startB.isBefore(endA);
     }
 }
