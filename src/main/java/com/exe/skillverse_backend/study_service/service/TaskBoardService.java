@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.study_service.service;
 
 import com.exe.skillverse_backend.study_service.dto.request.CreateTaskRequest;
 import com.exe.skillverse_backend.study_service.dto.request.UpdateTaskRequest;
+import com.exe.skillverse_backend.study_service.dto.response.CompleteAllTasksResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
 import java.util.List;
@@ -61,4 +62,16 @@ public interface TaskBoardService {
      *                                  target equals source, or validation fails
      */
     void deleteColumn(UUID columnId, UUID targetColumnId);
+
+    /**
+     * Mark all tasks linked to a specific roadmap node as done.
+     * Finds tasks via [ROADMAP_NODE_LINK] userNotes marker, updates each to Done column
+     * with userProgress=100, then triggers RoadmapCompletionSyncService to derive node completion.
+     *
+     * @param userId          the user
+     * @param roadmapSessionId  the roadmap session ID
+     * @param nodeId          the node ID to complete
+     * @return CompleteAllTasksResponse with done/failed counts
+     */
+    CompleteAllTasksResponse completeAllTasksForNode(Long userId, Long roadmapSessionId, String nodeId);
 }

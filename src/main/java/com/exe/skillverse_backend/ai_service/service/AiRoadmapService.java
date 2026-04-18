@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.ai_service.service;
 import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
 import com.exe.skillverse_backend.ai_service.dto.request.UpdateProgressRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion;
+import com.exe.skillverse_backend.ai_service.dto.response.CompleteNodeResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.ProgressResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
@@ -64,4 +65,15 @@ public interface AiRoadmapService {
         void permanentDeleteRoadmap(Long sessionId, Long userId);
 
         void restoreRoadmap(Long sessionId, Long userId);
+
+        /**
+         * Atomically mark a node as complete.
+         * Step 1: marks all linked study-plan tasks as done (within this transaction).
+         * Step 2: marks the node itself as complete (enforces sequential locking).
+         * Both steps are executed in a single transaction — rollback on either step
+         * reverts the entire operation.
+         *
+         * @return CompleteNodeResponse with task counts and completion result
+         */
+        CompleteNodeResponse completeNode(Long sessionId, Long userId, String nodeId);
 }

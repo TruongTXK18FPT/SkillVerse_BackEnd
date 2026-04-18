@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.ai_service.dto.gemini.GeminiDTO;
 import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
 import com.exe.skillverse_backend.ai_service.dto.request.UpdateProgressRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion;
+import com.exe.skillverse_backend.ai_service.dto.response.CompleteNodeResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.ProgressResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
@@ -3530,6 +3531,14 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
      */
     @Transactional
     public ProgressResponse updateProgress(Long sessionId, Long userId, UpdateProgressRequest request) {
+        return updateProgressInternal(sessionId, userId, request, true);
+        }
+
+        private ProgressResponse updateProgressInternal(
+            Long sessionId,
+            Long userId,
+            UpdateProgressRequest request,
+            boolean enforceSequentialLockingCheck) {
         log.info("Updating progress for session {} - quest: {}, completed: {}",
                 sessionId, request.getQuestId(), request.getCompleted());
 
@@ -3541,7 +3550,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         }
 
         // Sequential Locking: Verify prerequisites are completed before allowing progress
-        if (Boolean.TRUE.equals(request.getCompleted())) {
+        if (Boolean.TRUE.equals(request.getCompleted()) && enforceSequentialLockingCheck) {
             enforceSequentialLocking(session, request.getQuestId());
         }
 
@@ -4065,36 +4074,92 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             }
         }
 
-        // Compute status for each node
+        // Compute status for each node in roadmap order.
+        // Only the first pending node can be AVAILABLE/IN_PROGRESS; later nodes remain LOCKED.
+        boolean encounteredFirstPendingNode = false;
         for (RoadmapResponse.RoadmapNode node : nodes) {
+            if (node == null || node.getId() == null || node.getId().isBlank()) {
+                continue;
+            }
             String nodeId = node.getId();
 
             if (completedNodeIds.contains(nodeId)) {
                 node.setNodeStatus("COMPLETED");
-            } else if (inProgressNodeIds.contains(nodeId)) {
-                node.setNodeStatus("IN_PROGRESS");
-            } else {
-                // Check if prerequisites are all completed
-                boolean allPrereqsCompleted = true;
-                if (node.getPrerequisites() != null && !node.getPrerequisites().isEmpty()) {
-                    for (String prereqId : node.getPrerequisites()) {
-                        if (!completedNodeIds.contains(prereqId)) {
-                            allPrereqsCompleted = false;
-                            break;
-                        }
-                    }
-                }
+                continue;
+            }
 
-                node.setNodeStatus(allPrereqsCompleted ? "AVAILABLE" : "LOCKED");
+            if (!encounteredFirstPendingNode) {
+                encounteredFirstPendingNode = true;
+
+                if (inProgressNodeIds.contains(nodeId)) {
+                    node.setNodeStatus("IN_PROGRESS");
+                } else if (arePrerequisitesCompleted(node, completedNodeIds)) {
+                    node.setNodeStatus("AVAILABLE");
+                } else {
+                    node.setNodeStatus("LOCKED");
+                }
+            } else {
+                node.setNodeStatus("LOCKED");
             }
         }
 
         return nodes;
     }
 
+    private boolean arePrerequisitesCompleted(
+            RoadmapResponse.RoadmapNode node,
+            Set<String> completedNodeIds) {
+        if (node == null || node.getPrerequisites() == null || node.getPrerequisites().isEmpty()) {
+            return true;
+        }
+
+        for (String prereqId : node.getPrerequisites()) {
+            if (!completedNodeIds.contains(prereqId)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private RoadmapResponse.RoadmapNode findFirstSequentialPlayableNode(
+            List<RoadmapResponse.RoadmapNode> nodes,
+            Map<String, RoadmapResponse.QuestProgress> progressMap) {
+        Set<String> completedNodeIds = new HashSet<>();
+        Set<String> inProgressNodeIds = new HashSet<>();
+        if (progressMap != null) {
+            for (Map.Entry<String, RoadmapResponse.QuestProgress> entry : progressMap.entrySet()) {
+                if (entry.getValue() != null && "COMPLETED".equals(entry.getValue().getStatus())) {
+                    completedNodeIds.add(entry.getKey());
+                } else if (entry.getValue() != null && entry.getValue().getProgress() != null
+                        && entry.getValue().getProgress() > 0) {
+                    inProgressNodeIds.add(entry.getKey());
+                }
+            }
+        }
+
+        for (RoadmapResponse.RoadmapNode node : nodes) {
+            if (node == null || node.getId() == null || node.getId().isBlank()) {
+                continue;
+            }
+
+            String nodeId = node.getId();
+            if (completedNodeIds.contains(nodeId)) {
+                continue;
+            }
+
+            if (inProgressNodeIds.contains(nodeId) || arePrerequisitesCompleted(node, completedNodeIds)) {
+                return node;
+            }
+
+            return null;
+        }
+
+        return null;
+    }
+
     /**
-     * Enforce sequential locking: cannot complete a node unless all prerequisites are COMPLETED.
-     * Throws FORBIDDEN (403) if any prerequisite is not done.
+     * Enforce sequential locking: cannot complete a node unless it is the next playable node in roadmap order.
+     * Throws FORBIDDEN (403) if the caller tries to skip ahead.
      */
     private void enforceSequentialLocking(RoadmapSession session, String questId) {
         try {
@@ -4108,46 +4173,19 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 nodes = parseNodesFromV1Json(session.getRoadmapJson());
             }
 
-            // Find the target node
-            RoadmapResponse.RoadmapNode targetNode = null;
-            for (RoadmapResponse.RoadmapNode node : nodes) {
-                if (questId.equals(node.getId())) {
-                    targetNode = node;
-                    break;
-                }
+            Map<String, RoadmapResponse.QuestProgress> progressSnapshot = roadmapCompletionSyncService.overlayDerivedProgressSnapshot(
+                    session,
+                    nodes,
+                    loadProgressData(session.getId()));
+            RoadmapResponse.RoadmapNode nextPlayableNode = findFirstSequentialPlayableNode(nodes, progressSnapshot);
+            if (nextPlayableNode == null) {
+                throw new ApiException(ErrorCode.FORBIDDEN,
+                        "Bạn cần hoàn thành node trước đó trước khi mở node tiếp theo.");
             }
 
-            if (targetNode == null) {
-                log.warn("Quest '{}' not found in roadmap {} — skipping lock check", questId, session.getId());
-                return; // Quest not found, let it pass (defensive)
-            }
-
-            // Check prerequisites
-            if (targetNode.getPrerequisites() != null && !targetNode.getPrerequisites().isEmpty()) {
-                List<UserRoadmapProgress> allProgress = progressRepository.findBySessionId(session.getId());
-                Set<String> completedIds = allProgress.stream()
-                        .filter(p -> p.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
-                        .map(UserRoadmapProgress::getQuestId)
-                        .collect(Collectors.toSet());
-
-                List<String> uncompletedPrereqs = targetNode.getPrerequisites().stream()
-                        .filter(prereq -> !completedIds.contains(prereq))
-                        .collect(Collectors.toList());
-
-                if (!uncompletedPrereqs.isEmpty()) {
-                    // Find titles for better UX error message
-                    Map<String, String> idToTitle = new HashMap<>();
-                    for (RoadmapResponse.RoadmapNode node : nodes) {
-                        idToTitle.put(node.getId(), node.getTitle());
-                    }
-
-                    String uncompletedNames = uncompletedPrereqs.stream()
-                            .map(id -> idToTitle.getOrDefault(id, id))
-                            .collect(Collectors.joining(", "));
-
-                    throw new ApiException(ErrorCode.FORBIDDEN,
-                            String.format("Bạn cần hoàn thành các node tiên quyết trước: [%s]", uncompletedNames));
-                }
+            if (!questId.equals(nextPlayableNode.getId())) {
+                throw new ApiException(ErrorCode.FORBIDDEN,
+                        String.format("Bạn cần hoàn thành node '%s' trước.", nextPlayableNode.getTitle()));
             }
         } catch (ApiException e) {
             throw e; // Re-throw ApiException (FORBIDDEN)
@@ -4287,6 +4325,67 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         int unarchived = taskBoardService.unarchiveTasksByRoadmapSession(userId, sessionId);
         log.info("♻️ Restored roadmap {} for user {} (set to PAUSED, unarchived {} tasks)",
                 sessionId, userId, unarchived);
+    }
+
+    @Override
+    @Transactional
+    public CompleteNodeResponse completeNode(Long sessionId, Long userId, String nodeId) {
+        // Verify session ownership
+        RoadmapSession session = roadmapSessionRepository.findByIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Roadmap not found"));
+        if (session.getStatus() == RoadmapStatus.DELETED) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Cannot complete a deleted roadmap");
+        }
+
+        // Validate nodeId exists and is the next sequential playable node before any side-effects.
+        // This keeps the roadmap strictly step-by-step and prevents skipping sibling nodes.
+        Integer schemaVersion = session.getSchemaVersion() != null ? session.getSchemaVersion() : 1;
+        List<RoadmapResponse.RoadmapNode> nodes;
+        if (schemaVersion >= 2) {
+            ParsedRoadmap parsed = validateAndParseRoadmapV2(session.getRoadmapJson());
+            nodes = parsed.nodes();
+        } else {
+            nodes = parseNodesFromV1Json(session.getRoadmapJson());
+        }
+        Map<String, RoadmapResponse.QuestProgress> progressSnapshot = roadmapCompletionSyncService.overlayDerivedProgressSnapshot(
+                session,
+                nodes,
+                loadProgressData(session.getId()));
+        RoadmapResponse.RoadmapNode nextPlayableNode = findFirstSequentialPlayableNode(nodes, progressSnapshot);
+        if (nextPlayableNode == null) {
+            throw new ApiException(ErrorCode.FORBIDDEN,
+                    "Bạn cần hoàn thành node trước đó trước khi mở node tiếp theo.");
+        }
+        if (!nodeId.equals(nextPlayableNode.getId())) {
+            throw new ApiException(ErrorCode.FORBIDDEN,
+                    String.format("Bạn cần hoàn thành node '%s' trước.", nextPlayableNode.getTitle()));
+        }
+
+        // Step 1: Mark all linked tasks done (single batch sync after)
+        var taskResult = taskBoardService.completeAllTasksForNode(userId, sessionId, nodeId);
+
+        // Step 2: Mark node complete — sequential locking enforced inside.
+        // If ApiException is thrown (prerequisites not met), it propagates up through
+        // the same @Transactional boundary, causing full rollback of task updates.
+        // If it succeeds, nodeCompleted=true and the transaction commits.
+        int totalTasks = taskResult.getDoneCount();
+        boolean nodeCompleted = true;
+        String message;
+        if (totalTasks == 0) {
+            message = "Node marked as complete.";
+        } else {
+            message = String.format("%d task(s) marked done. Node marked as complete.", totalTasks);
+        }
+
+        updateProgressInternal(sessionId, userId,
+            UpdateProgressRequest.builder().questId(nodeId).completed(true).build(), false);
+
+        return CompleteNodeResponse.builder()
+                .doneCount(taskResult.getDoneCount())
+                .failedCount(0)
+                .nodeCompleted(nodeCompleted)
+                .message(message)
+                .build();
     }
 
     private int cleanupRoadmapLinksFromTasks(Long userId, Long roadmapSessionId) {

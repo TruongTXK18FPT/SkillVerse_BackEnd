@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.ai_service.controller;
 import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
 import com.exe.skillverse_backend.ai_service.dto.request.UpdateProgressRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion;
+import com.exe.skillverse_backend.ai_service.dto.response.CompleteNodeResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.ProgressResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
@@ -404,6 +405,27 @@ public class RoadmapController {
                 ProgressResponse response = aiRoadmapService.updateProgress(sessionId, userId, request);
 
                 return ResponseEntity.ok(response);
+        }
+
+        /**
+         * Atomically mark a roadmap node as complete.
+         * Marks all linked study-plan tasks as done, then marks the node itself complete.
+         * Both steps run in a single transaction — rollback on either step reverts everything.
+         * @param sessionId roadmap session ID
+         * @param nodeId    node/quest ID to complete
+         * @param authentication current user
+         * @return CompleteNodeResponse with task counts and whether node was marked complete
+         */
+        @PostMapping("/{sessionId}/nodes/{nodeId}/complete")
+        @Operation(summary = "Complete Node", description = "Atomically mark all linked tasks and the node itself as complete")
+        public ResponseEntity<CompleteNodeResponse> completeNode(
+                        @PathVariable Long sessionId,
+                        @PathVariable String nodeId,
+                        Authentication authentication) {
+                Jwt jwt = (Jwt) authentication.getPrincipal();
+                Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+                CompleteNodeResponse result = aiRoadmapService.completeNode(sessionId, userId, nodeId);
+                return ResponseEntity.ok(result);
         }
 
         // =========================================================================

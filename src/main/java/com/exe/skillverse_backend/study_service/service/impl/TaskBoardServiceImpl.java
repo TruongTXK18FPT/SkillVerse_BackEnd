@@ -7,6 +7,7 @@ import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.study_service.dto.request.CreateTaskRequest;
 import com.exe.skillverse_backend.study_service.dto.request.UpdateTaskRequest;
+import com.exe.skillverse_backend.study_service.dto.response.CompleteAllTasksResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
 import com.exe.skillverse_backend.study_service.entity.StudySession;
@@ -186,6 +187,67 @@ public class TaskBoardServiceImpl implements TaskBoardService {
                     roadmapSessionId, userId, ex.getMessage());
             return 0;
         }
+    }
+
+    @Override
+    @Transactional
+    public CompleteAllTasksResponse completeAllTasksForNode(Long userId, Long roadmapSessionId, String nodeId) {
+        if (nodeId == null || nodeId.isBlank()) {
+            return CompleteAllTasksResponse.builder().doneCount(0).failedCount(0).build();
+        }
+
+        // Step 1: narrow the search to tasks linked to this roadmap session.
+        // The repository query already excludes archived tasks.
+        String roadmapMarker = "roadmap=" + roadmapSessionId;
+        List<Task> roadmapTasks = taskRepository.findByUserIdAndUserNotesContaining(userId, roadmapMarker);
+
+        // Step 2: regex-check the target node on the smaller roadmap-scoped result set.
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "\\[ROADMAP_NODE_LINK\\](?:\\s+journey=\\d+)?\\s+roadmap=" + roadmapSessionId + "\\s+node=([^\\s]+)",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+        List<Task> linkedTasks = roadmapTasks.stream()
+                .filter(task -> {
+                    String notes = task.getUserNotes();
+                    if (notes == null || notes.isBlank()) {
+                        return false;
+                    }
+                    java.util.regex.Matcher markerMatcher = pattern.matcher(notes);
+                    return markerMatcher.find() && nodeId.equals(markerMatcher.group(1));
+                })
+                .collect(java.util.stream.Collectors.toList());
+
+        if (linkedTasks.isEmpty()) {
+            return CompleteAllTasksResponse.builder().doneCount(0).failedCount(0).build();
+        }
+
+        // Step 3: Find "Done" column
+        List<TaskColumn> columns = taskColumnRepository.findByUserIdOrderByOrderIndexAsc(userId);
+        TaskColumn doneColumn = null;
+        for (TaskColumn col : columns) {
+            if ("done".equals(col.getName().toLowerCase())) {
+                doneColumn = col;
+                break;
+            }
+        }
+
+        // Step 4: Update all tasks — any failure rolls back the entire operation
+        int doneCount = 0;
+        for (Task task : linkedTasks) {
+            task.setUserProgress(100);
+            if (doneColumn != null) {
+                task.setColumn(doneColumn);
+                task.setStatus("Done");
+            }
+            taskRepository.save(task);
+            doneCount++;
+        }
+
+        // Step 5: Single sync after all tasks updated — single recompute instead of N calls
+        if (doneCount > 0) {
+            roadmapCompletionSyncService.syncTaskProgress(linkedTasks.get(0));
+        }
+
+        return CompleteAllTasksResponse.builder().doneCount(doneCount).failedCount(0).build();
     }
 
     @Override

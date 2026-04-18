@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.study_service.controller;
 
 import com.exe.skillverse_backend.study_service.dto.request.CreateTaskRequest;
 import com.exe.skillverse_backend.study_service.dto.request.UpdateTaskRequest;
+import com.exe.skillverse_backend.study_service.dto.response.CompleteAllTasksResponse;
 import com.exe.skillverse_backend.study_service.dto.response.ClearOverdueTasksResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
@@ -128,6 +129,16 @@ public class TaskBoardController {
                 .columnId(columnId)
                 .message(message)
                 .build());
+    }
+
+    @PostMapping("/nodes/{roadmapSessionId}/{nodeId}/complete-all")
+    public ResponseEntity<CompleteAllTasksResponse> completeAllTasksForNode(
+            @PathVariable Long roadmapSessionId,
+            @PathVariable String nodeId,
+            Authentication authentication) {
+        CompleteAllTasksResponse result = taskBoardService.completeAllTasksForNode(
+                getUserId(authentication), roadmapSessionId, nodeId);
+        return ResponseEntity.ok(result);
     }
 
     @PatchMapping("/tasks/{taskId}/move")
