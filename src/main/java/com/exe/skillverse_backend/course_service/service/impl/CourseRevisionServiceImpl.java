@@ -398,13 +398,13 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         if (dto.getPrice() != null) revision.setPrice(dto.getPrice());
         if (dto.getCurrency() != null) revision.setCurrency(dto.getCurrency());
         if (dto.getLearningObjectives() != null) {
-            revision.setLearningObjectivesJson(writeJsonSafely(dto.getLearningObjectives(), "[]"));
+            revision.setLearningObjectivesJson(writeJsonSafely(normalizeDtoStringList(dto.getLearningObjectives()), "[]"));
         }
         if (dto.getRequirements() != null) {
-            revision.setRequirementsJson(writeJsonSafely(dto.getRequirements(), "[]"));
+            revision.setRequirementsJson(writeJsonSafely(normalizeDtoStringList(dto.getRequirements()), "[]"));
         }
         if (dto.getCourseSkills() != null) {
-            revision.setCourseSkillTagsJson(writeJsonSafely(dto.getCourseSkills(), "[]"));
+            revision.setCourseSkillTagsJson(writeJsonSafely(normalizeDtoStringList(dto.getCourseSkills()), "[]"));
         }
         if (dto.getContentSnapshotJson() != null) {
             JsonNode canonicalizedSnapshot = normalizeContentSnapshot(parseJsonSafely(dto.getContentSnapshotJson()));
@@ -584,9 +584,9 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         if (jsonNode == null || !jsonNode.isArray()) {
             return Collections.emptyList();
         }
-        // Trim + normalize to canonical form (non-alphanumeric → underscore, UPPERCASE).
-        // "java core" / "java-core" / "java_core" → "JAVA_CORE"
-        return StreamSupport.stream(jsonNode.spliterator(), false)
+        // Sentinel: "__EMPTY__" is sent by FE when user intentionally clears all items.
+        // Normalize first, then check — sentinel survives canonicalization as "__EMPTY__".
+        List<String> normalized = StreamSupport.stream(jsonNode.spliterator(), false)
                 .map(node -> node == null || node.isNull() ? null :
                     node.asText().trim()
                         .replaceAll("[^a-zA-Z0-9]+", "_")
@@ -596,6 +596,46 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .filter(value -> value != null && !value.isBlank())
                 .distinct()
                 .toList();
+        if (normalized.contains("__EMPTY__")) {
+            // Sentinel only means "clear" when it's the sole item.
+            // If mixed with real items → treat as normal items (sentinel was likely
+            // a user-entered skill name that coincidentally matched the sentinel).
+            if (normalized.size() == 1) {
+                return Collections.emptyList();
+            }
+            normalized = normalized.stream().filter(s -> !"__EMPTY__".equals(s)).toList();
+        }
+        return normalized;
+    }
+
+    /**
+     * Normalizes a List&lt;String&gt; received from DTO multipart binding.
+     * FE sends "__EMPTY__" as a sentinel when the user intentionally clears an array field,
+     * because Spring @ModelAttribute cannot distinguish missing field from empty array.
+     * This method detects the sentinel and returns an empty list to signal "clear".
+     */
+    private List<String> normalizeDtoStringList(List<String> items) {
+        if (items == null || items.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> normalized = items.stream()
+                .filter(s -> s != null && !s.isBlank())
+                .map(s -> s.trim()
+                        .replaceAll("[^a-zA-Z0-9]+", "_")
+                        .replaceAll("_+", "_")
+                        .replaceAll("^_|_$", "")
+                        .toUpperCase(Locale.ROOT))
+                .distinct()
+                .toList();
+        if (normalized.contains("__EMPTY__")) {
+            // Sentinel only means "clear" when it's the sole item.
+            if (normalized.size() == 1) {
+                return Collections.emptyList();
+            }
+            // Mixed with real items → ignore sentinel, keep the real items only.
+            normalized = normalized.stream().filter(s -> !"__EMPTY__".equals(s)).toList();
+        }
+        return normalized;
     }
 
     /**

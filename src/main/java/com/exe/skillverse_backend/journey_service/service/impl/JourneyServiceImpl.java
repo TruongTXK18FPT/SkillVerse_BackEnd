@@ -1622,6 +1622,11 @@ public class JourneyServiceImpl implements JourneyService {
             throw new ApiException(ErrorCode.NOT_FOUND, "Roadmap node not found for id: " + normalizedNodeId);
         }
 
+        if ("LOCKED".equals(node.getNodeStatus())) {
+            throw new ApiException(ErrorCode.BAD_REQUEST,
+                    "Node này đang bị khóa. Vui lòng hoàn thành các node prerequisite trước.");
+        }
+
         if (isRoadmapNodeCompleted(roadmap, normalizedNodeId)) {
             return Map.of(
                     "message", "Node này đã hoàn thành. Hãy tạo/kích hoạt plan cho node tiếp theo.",
