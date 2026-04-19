@@ -13,6 +13,7 @@ import com.exe.skillverse_backend.course_service.repository.AssignmentRepository
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
 import com.exe.skillverse_backend.course_service.repository.SubmissionCriteriaScoreRepository;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.dto.NotificationPayload;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
@@ -216,6 +217,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                                 + result.getTotalScore() + "/" + assignment.getMaxScore() + " - " + passStatus,
                         com.exe.skillverse_backend.notification_service.entity.NotificationType.ASSIGNMENT_GRADED,
                         submissionId.toString(),
+                        NotificationPayload.forAssignmentGraded(assignment.getId(), submissionId),
                         null
                 );
             }
@@ -262,6 +264,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                         + assignment.getTitle() + "'",
                 NotificationType.ASSIGNMENT_GRADED,
                 submissionId.toString(),
+                NotificationPayload.forAssignmentGraded(assignment.getId(), submissionId),
                 studentId
         );
 
@@ -273,6 +276,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                         + "' đã được gửi. Mentor sẽ xem xét trong thời gian sớm nhất.",
                 NotificationType.ASSIGNMENT_GRADED,
                 submissionId.toString(),
+                NotificationPayload.forAssignmentGraded(assignment.getId(), submissionId),
                 null
         );
 

@@ -3,11 +3,13 @@ package com.exe.skillverse_backend.journey_service.service.impl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,7 +41,10 @@ import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -249,6 +254,190 @@ class JourneyServiceImplStudyPlanTest {
         assertEquals(ErrorCode.NOT_FOUND, ex.getErrorCode());
         assertEquals("Roadmap not found", ex.getMessage());
     }
+
+    @Test
+    void createStudyPlanForRoadmapNode_sanitizesInvalidTimeBoundsAndAvoidsOverlaps() {
+        User user = User.builder().id(9L).email("overlap@example.com").build();
+        RoadmapSession roadmapSession = RoadmapSession.builder()
+                .id(57L)
+                .user(user)
+                .title("Roadmap overlap")
+                .roadmapJson("{\"roadmap\":[]}")
+                .build();
+
+        when(roadmapSessionRepository.findByIdAndUserId(57L, 9L)).thenReturn(Optional.of(roadmapSession));
+        when(journeyRepository.findByRoadmapSessionId(57L)).thenReturn(Optional.empty());
+        when(aiRoadmapService.getRoadmapById(57L, 9L)).thenReturn(buildRoadmapResponse(57L, "node-1"));
+        when(taskBoardService.getBoard(9L)).thenReturn(List.of(TaskColumnResponse.builder()
+                .id(UUID.randomUUID())
+                .name("To Do")
+                .tasks(List.of())
+                .build()));
+
+        LocalDate requestedStartDate = LocalDate.now().plusDays(1);
+        LocalDateTime duplicatedStart = LocalDateTime.of(requestedStartDate, LocalTime.of(23, 30));
+        LocalDateTime duplicatedEnd = duplicatedStart.plusMinutes(90);
+
+        when(aiStudySupportService.generateProposedSchedule(anyLong(), any())).thenReturn(List.of(
+                StudySessionResponse.builder()
+                        .title("Session 1")
+                        .description("Practice 1")
+                        .startTime(duplicatedStart)
+                        .endTime(duplicatedEnd)
+                        .build(),
+                StudySessionResponse.builder()
+                        .title("Session 2")
+                        .description("Practice 2")
+                        .startTime(duplicatedStart)
+                        .endTime(duplicatedEnd)
+                        .build(),
+                StudySessionResponse.builder()
+                        .title("Session 3")
+                        .description("Practice 3")
+                        .startTime(duplicatedStart)
+                        .endTime(duplicatedEnd)
+                        .build()));
+
+        when(taskBoardService.createTask(anyLong(), any(CreateTaskRequest.class))).thenAnswer(invocation -> {
+            CreateTaskRequest request = invocation.getArgument(1);
+            return TaskResponse.builder()
+                    .id(UUID.randomUUID())
+                    .title(request.getTitle())
+                    .description(request.getDescription())
+                    .userNotes(request.getUserNotes())
+                    .columnId(request.getColumnId())
+                    .priority(request.getPriority())
+                    .startDate(request.getStartDate())
+                    .endDate(request.getEndDate())
+                    .deadline(request.getDeadline())
+                    .status("todo")
+                    .userProgress(0)
+                    .build();
+        });
+
+        GenerateScheduleRequest request = new GenerateScheduleRequest();
+        request.setStartDate(requestedStartDate);
+        request.setDeadline(requestedStartDate.plusDays(4));
+        request.setTimezone("Asia/Ho_Chi_Minh");
+        request.setDurationMinutes(90);
+        request.setMaxSessionsPerDay(2);
+        request.setBreakMinutesBetweenSessions(10);
+        request.setStudyPreference("flexible");
+        request.setPreferredDays(List.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"));
+        request.setPreferredTimeWindows(List.of("08:00-10:30", "19:00-21:30"));
+        request.setEarliestStartLocalTime("23:30");
+        request.setLatestEndLocalTime("22:30");
+        request.setAvoidLateNight(Boolean.TRUE);
+        request.setAllowLateNight(Boolean.FALSE);
+
+        Object result = service.createStudyPlanForRoadmapNode(user, 57L, "node-1", request);
+
+        Map<?, ?> payload = assertInstanceOf(Map.class, result);
+        assertEquals(Boolean.TRUE, payload.get("created"));
+        assertEquals(3, payload.get("taskCount"));
+
+        ArgumentCaptor<GenerateScheduleRequest> scheduleCaptor = ArgumentCaptor.forClass(GenerateScheduleRequest.class);
+        verify(aiStudySupportService).generateProposedSchedule(anyLong(), scheduleCaptor.capture());
+        GenerateScheduleRequest sentRequest = scheduleCaptor.getValue();
+        LocalTime sentEarliest = LocalTime.parse(sentRequest.getEarliestStartLocalTime());
+        LocalTime sentLatest = LocalTime.parse(sentRequest.getLatestEndLocalTime());
+        assertTrue(sentEarliest.isBefore(sentLatest));
+
+        ArgumentCaptor<CreateTaskRequest> taskCaptor = ArgumentCaptor.forClass(CreateTaskRequest.class);
+        verify(taskBoardService, times(3)).createTask(anyLong(), taskCaptor.capture());
+
+        List<CreateTaskRequest> createdTasks = taskCaptor.getAllValues().stream()
+                .sorted(Comparator.comparing(CreateTaskRequest::getStartDate))
+                .toList();
+
+        assertEquals(3, createdTasks.size());
+        for (CreateTaskRequest createdTask : createdTasks) {
+            assertNotNull(createdTask.getStartDate());
+            assertNotNull(createdTask.getEndDate());
+            assertTrue(createdTask.getStartDate().toLocalTime().isBefore(LocalTime.of(23, 0)));
+            assertTrue(createdTask.getEndDate().isAfter(createdTask.getStartDate()));
+        }
+
+        for (int i = 1; i < createdTasks.size(); i++) {
+            CreateTaskRequest previous = createdTasks.get(i - 1);
+            CreateTaskRequest current = createdTasks.get(i);
+            assertTrue(!current.getStartDate().isBefore(previous.getEndDate()));
+        }
+    }
+
+        @Test
+        void createStudyPlanForRoadmapNode_prefersEarliestStartOverMorningWindow() {
+                User user = User.builder().id(9L).email("earliest@example.com").build();
+                RoadmapSession roadmapSession = RoadmapSession.builder()
+                                .id(58L)
+                                .user(user)
+                                .title("Roadmap earliest")
+                                .roadmapJson("{\"roadmap\":[]}")
+                                .build();
+
+                when(roadmapSessionRepository.findByIdAndUserId(58L, 9L)).thenReturn(Optional.of(roadmapSession));
+                when(journeyRepository.findByRoadmapSessionId(58L)).thenReturn(Optional.empty());
+                when(aiRoadmapService.getRoadmapById(58L, 9L)).thenReturn(buildRoadmapResponse(58L, "node-1"));
+                when(taskBoardService.getBoard(9L)).thenReturn(List.of(TaskColumnResponse.builder()
+                                .id(UUID.randomUUID())
+                                .name("To Do")
+                                .tasks(List.of())
+                                .build()));
+
+                LocalDate startDate = LocalDate.now().plusDays(1);
+                when(aiStudySupportService.generateProposedSchedule(anyLong(), any())).thenReturn(List.of(
+                                StudySessionResponse.builder()
+                                                .title("Session morning")
+                                                .description("Morning AI slot")
+                                                .startTime(LocalDateTime.of(startDate, LocalTime.of(8, 0)))
+                                                .endTime(LocalDateTime.of(startDate, LocalTime.of(9, 30)))
+                                                .build()));
+
+                when(taskBoardService.createTask(anyLong(), any(CreateTaskRequest.class))).thenAnswer(invocation -> {
+                        CreateTaskRequest request = invocation.getArgument(1);
+                        return TaskResponse.builder()
+                                        .id(UUID.randomUUID())
+                                        .title(request.getTitle())
+                                        .description(request.getDescription())
+                                        .userNotes(request.getUserNotes())
+                                        .columnId(request.getColumnId())
+                                        .priority(request.getPriority())
+                                        .startDate(request.getStartDate())
+                                        .endDate(request.getEndDate())
+                                        .deadline(request.getDeadline())
+                                        .status("todo")
+                                        .userProgress(0)
+                                        .build();
+                });
+
+                GenerateScheduleRequest request = new GenerateScheduleRequest();
+                request.setStartDate(startDate);
+                request.setDeadline(startDate.plusDays(3));
+                request.setTimezone("Asia/Ho_Chi_Minh");
+                request.setDurationMinutes(90);
+                request.setMaxSessionsPerDay(2);
+                request.setBreakMinutesBetweenSessions(10);
+                request.setStudyPreference("flexible");
+                request.setPreferredDays(List.of("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"));
+                request.setPreferredTimeWindows(List.of("08:00-10:30", "19:00-21:30"));
+                request.setEarliestStartLocalTime("11:55");
+                request.setLatestEndLocalTime("22:30");
+                request.setAvoidLateNight(Boolean.TRUE);
+                request.setAllowLateNight(Boolean.FALSE);
+
+                Object result = service.createStudyPlanForRoadmapNode(user, 58L, "node-1", request);
+
+                Map<?, ?> payload = assertInstanceOf(Map.class, result);
+                assertEquals(Boolean.TRUE, payload.get("created"));
+                assertEquals(1, payload.get("taskCount"));
+
+                ArgumentCaptor<CreateTaskRequest> taskCaptor = ArgumentCaptor.forClass(CreateTaskRequest.class);
+                verify(taskBoardService).createTask(anyLong(), taskCaptor.capture());
+
+                CreateTaskRequest createdTask = taskCaptor.getValue();
+                assertNotNull(createdTask.getStartDate());
+                assertTrue(!createdTask.getStartDate().toLocalTime().isBefore(LocalTime.of(11, 55)));
+        }
 
     private RoadmapResponse buildRoadmapResponse(Long sessionId, String nodeId) {
         return RoadmapResponse.builder()

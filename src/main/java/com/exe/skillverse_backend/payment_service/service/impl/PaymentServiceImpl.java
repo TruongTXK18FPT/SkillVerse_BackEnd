@@ -12,6 +12,7 @@ import com.exe.skillverse_backend.course_service.service.EnrollmentService;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.dto.NotificationPayload;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.payment_service.dto.request.CreatePaymentRequest;
 import com.exe.skillverse_backend.payment_service.dto.response.CreatePaymentResponse;
@@ -349,7 +350,9 @@ public class PaymentServiceImpl implements PaymentService {
                             "Mua khóa học thành công",
                             "Bạn đã mua khóa học '" + course.getTitle() + "'",
                             NotificationType.SYSTEM,
-                            transaction.getInternalReference());
+                            transaction.getInternalReference(),
+                            NotificationPayload.forCoursePurchase(courseId),
+                            null);
 
                     try {
                         byte[] pdf = invoiceService.generatePaymentInvoice(savedTransaction);

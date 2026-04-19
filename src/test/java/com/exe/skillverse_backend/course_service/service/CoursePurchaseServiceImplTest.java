@@ -15,6 +15,7 @@ import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepo
 import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.service.impl.CoursePurchaseServiceImpl;
+import com.exe.skillverse_backend.notification_service.dto.NotificationPayload;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.event.PaymentSuccessEvent;
@@ -148,7 +149,8 @@ class CoursePurchaseServiceImplTest {
         verify(courseEnrollmentRepository).save(enrollmentCaptor.capture());
         assertEquals(learner.getId(), enrollmentCaptor.getValue().getUser().getId());
         assertEquals(course.getId(), enrollmentCaptor.getValue().getCourse().getId());
-        verify(notificationService).createNotification(anyLong(), anyString(), anyString(), any(), anyString());
+        verify(notificationService).createNotification(
+                anyLong(), anyString(), anyString(), any(), anyString(), any(NotificationPayload.class), any());
     }
 
     @Test

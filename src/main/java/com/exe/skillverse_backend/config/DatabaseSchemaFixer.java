@@ -107,6 +107,11 @@ public class DatabaseSchemaFixer {
                     this::patchNotificationsTypeConstraint,
                     this::verifyNotificationsTypeConstraint);
 
+                applyPatch("add-notifications-payload-json-column",
+                    "Add payload_json JSONB column to notifications for structured navigation payload",
+                    this::patchNotificationsPayloadJsonColumn,
+                    this::verifyNotificationsPayloadJsonColumn);
+
             // ─── Course-related entity oid → TEXT patches ────────────────────────
             // Hibernate @Lob on String maps to oid in PostgreSQL.
             // These patches convert oid columns to TEXT so Hibernate reads them correctly.
@@ -1058,6 +1063,18 @@ public class DatabaseSchemaFixer {
             }
         }
         return true;
+    }
+
+    private void patchNotificationsPayloadJsonColumn() {
+        if (!hasTable("notifications")) {
+            log.debug("Table notifications does not exist yet, skipping patch.");
+            return;
+        }
+        executeSql("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS payload_json JSONB");
+    }
+
+    private boolean verifyNotificationsPayloadJsonColumn() {
+        return hasTable("notifications") && hasColumn("notifications", "payload_json");
     }
 
     private void patchInterviewSchedulesTable() {

@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -676,6 +677,37 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 }
             }
 
+            // Step 7: Shift sessions before current time on same day (TP-1)
+            // Catches "created at 11 PM → session at 8 AM same day" scenarios.
+            // Only shift when effectiveBaseDate IS today — explicit future startDate must be respected.
+            if (hasExplicitStartDate
+                    && effectiveBaseDate.isEqual(nowVn.toLocalDate())
+                    && start.toLocalDate().isEqual(effectiveBaseDate)
+                    && start.toLocalTime().isBefore(nowVn.toLocalTime())) {
+                LocalDate nextDay = effectiveBaseDate.plusDays(1);
+                int attempts = 0;
+                while (!isValidStudyDay(nextDay, request.getPreferredDays()) && attempts < 30) {
+                    nextDay = nextDay.plusDays(1);
+                    attempts++;
+                }
+                start = LocalDateTime.of(nextDay, preferredStart);
+                end = start.plusMinutes(durationMinutes);
+
+                // Re-apply time bounds after shift (Fix: TP-1 no longer bypasses Step 5 bounds)
+                if (shouldRespectBounds) {
+                    if (start.toLocalTime().isBefore(earliestAllowed)) {
+                        log.info("Step7: shifted start {} before earliest {}, clipping to {}", start, earliestAllowed, earliestAllowed);
+                        start = LocalDateTime.of(nextDay, earliestAllowed);
+                        end = start.plusMinutes(durationMinutes);
+                    }
+                    if (end.toLocalTime().isAfter(latestAllowed)) {
+                        log.info("Step7: shifted end {} after latest {}, adjusting start", end, latestAllowed);
+                        start = LocalDateTime.of(nextDay, latestAllowed.minusMinutes(durationMinutes));
+                        end = start.plusMinutes(durationMinutes);
+                    }
+                }
+            }
+
             result.add(StudySessionResponse.builder()
                     .id(s.getId())
                     .title(s.getTitle())
@@ -693,21 +725,42 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
      * Resolves the preferred start time from GenerateScheduleRequest.
      */
     private LocalTime resolvePreferredStartTime(GenerateScheduleRequest request) {
-        if (request.getPreferredTimeWindows() != null) {
-            for (String window : request.getPreferredTimeWindows()) {
-                LocalTime parsed = parseTimeRangeStart(window);
-                if (parsed != null) {
-                    return parsed;
-                }
-            }
-        }
+        LocalTime earliestRequested = null;
         if (request.getEarliestStartLocalTime() != null && !request.getEarliestStartLocalTime().isBlank()) {
             try {
-                return LocalTime.parse(request.getEarliestStartLocalTime());
+                earliestRequested = LocalTime.parse(request.getEarliestStartLocalTime());
             } catch (Exception ex) {
                 log.warn("Could not parse earliestStartLocalTime '{}': {}", request.getEarliestStartLocalTime(), ex.getMessage());
             }
         }
+
+        if (request.getPreferredTimeWindows() != null && !request.getPreferredTimeWindows().isEmpty()) {
+            List<LocalTime> windowStarts = request.getPreferredTimeWindows().stream()
+                    .map(this::parseTimeRangeStart)
+                    .filter(Objects::nonNull)
+                    .sorted()
+                    .collect(Collectors.toList());
+
+            if (!windowStarts.isEmpty()) {
+                if (earliestRequested != null) {
+                    final LocalTime earliestBound = earliestRequested;
+                    LocalTime firstEligibleWindow = windowStarts.stream()
+                            .filter(windowStart -> !windowStart.isBefore(earliestBound))
+                            .findFirst()
+                            .orElse(null);
+                    if (firstEligibleWindow != null) {
+                        return firstEligibleWindow;
+                    }
+                    return earliestRequested;
+                }
+                return windowStarts.get(0);
+            }
+        }
+
+        if (earliestRequested != null) {
+            return earliestRequested;
+        }
+
         // Default: afternoon/evening window — most users study after work
         String studyPref = request.getStudyPreference() != null ? request.getStudyPreference().toLowerCase(Locale.ROOT) : "";
         return switch (studyPref) {
@@ -747,6 +800,57 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             log.warn("Could not parse time range '{}': {}", window, ex.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Resolves ALL window start times from preferredTimeWindows.
+     * Returns list of LocalTime for each window's start hour.
+     * Used for round-robin distribution across multiple time windows.
+     */
+    private List<LocalTime> resolveAllWindowStartTimes(GenerateScheduleRequest request) {
+        List<LocalTime> windows = new ArrayList<>();
+        LocalTime earliestRequested = null;
+        if (request.getEarliestStartLocalTime() != null && !request.getEarliestStartLocalTime().isBlank()) {
+            try {
+                earliestRequested = LocalTime.parse(request.getEarliestStartLocalTime());
+            } catch (Exception ex) {
+                log.warn("Could not parse earliestStartLocalTime '{}': {}", request.getEarliestStartLocalTime(), ex.getMessage());
+            }
+        }
+
+        if (request.getPreferredTimeWindows() != null) {
+            for (String window : request.getPreferredTimeWindows()) {
+                LocalTime start = parseTimeRangeStart(window);
+                if (start != null) {
+                    if (earliestRequested != null && start.isBefore(earliestRequested)) {
+                        continue;
+                    }
+                    windows.add(start);
+                }
+            }
+        }
+
+        if (windows.isEmpty() && earliestRequested != null) {
+            windows.add(earliestRequested);
+        }
+        return windows;
+    }
+
+    /**
+     * Checks if a date falls on a valid study day based on preferred days.
+     */
+    private boolean isValidStudyDay(LocalDate date, List<String> preferredDays) {
+        if (preferredDays == null || preferredDays.isEmpty()) {
+            return true;
+        }
+        DayOfWeek dow = date.getDayOfWeek();
+        String englishDay = dow.name().substring(0, 3);
+        return preferredDays.stream().anyMatch(d -> {
+            if (d == null || d.isBlank()) return false;
+            String normalized = d.trim().toUpperCase(Locale.ROOT);
+            if (normalized.length() < 3) return false;
+            return normalized.startsWith(englishDay) || englishDay.startsWith(normalized.substring(0, 3));
+        });
     }
 
     /**
@@ -1166,6 +1270,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         pending.sort(Comparator.comparing(
                 (StudySessionResponse s) -> s != null && s.getStartTime() != null ? s.getStartTime() : LocalDateTime.MAX));
 
+        int windowIndex = 0;
         for (StudySessionResponse candidate : pending) {
             if (candidate == null || candidate.getStartTime() == null || candidate.getEndTime() == null) {
                 result.add(candidate);
@@ -1185,15 +1290,52 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
 
             LocalDateTime finalSlotStart;
             LocalDateTime finalSlotEnd;
+            boolean incrementedWindowIndex = false;
             if (overlaps) {
                 log.info("Session '{}' at {} overlaps with placed sessions, finding next available slot",
                         candidate.getTitle(), originalStart);
-                finalSlotStart = findNextAvailableSlot(result, originalStart, duration, request);
+                finalSlotStart = findNextAvailableSlot(result, originalStart, duration, request, windowIndex);
                 finalSlotEnd = finalSlotStart.plusMinutes(duration);
                 log.info("Shifted '{}' to new slot: {} - {}", candidate.getTitle(), finalSlotStart, finalSlotEnd);
             } else {
                 finalSlotStart = originalStart;
                 finalSlotEnd = originalEnd;
+            }
+
+            // DE-DUPE: If this session and the previous are on the same day
+            // and within breakMinutes of each other, shift this one.
+            // Handles AI returning all sessions at the same start time (e.g., 18:30, 18:30, 18:30).
+            if (!result.isEmpty()) {
+                StudySessionResponse prev = result.get(result.size() - 1);
+                if (prev.getStartTime() != null && prev.getEndTime() != null
+                        && finalSlotStart.toLocalDate().equals(prev.getStartTime().toLocalDate())) {
+                    int breakMin = request.getBreakMinutesBetweenSessions() != null ? request.getBreakMinutesBetweenSessions() : 10;
+                    LocalTime prevEndTime = prev.getEndTime().toLocalTime();
+                    LocalTime breakEndTime = prevEndTime.plusMinutes(breakMin);
+                    LocalTime latest = resolveLatestAllowedTime(request);
+                    if (finalSlotStart.toLocalTime().isBefore(breakEndTime)) {
+                        if (breakEndTime.plusMinutes(duration).isAfter(latest)) {
+                            // Overflow to next preferred day with round-robin
+                            windowIndex++;
+                            incrementedWindowIndex = true;
+                            finalSlotStart = findNextAvailableSlot(result, finalSlotStart, duration, request, windowIndex);
+                            finalSlotEnd = finalSlotStart.plusMinutes(duration);
+                            log.info("Session '{}' deduplicated (overflow): shifted to {} - {}",
+                                    candidate.getTitle(), finalSlotStart, finalSlotEnd);
+                        } else {
+                            finalSlotStart = LocalDateTime.of(finalSlotStart.toLocalDate(), breakEndTime);
+                            finalSlotEnd = finalSlotStart.plusMinutes(duration);
+                            log.info("Session '{}' deduplicated (same day): shifted to {} - {}",
+                                    candidate.getTitle(), finalSlotStart, finalSlotEnd);
+                        }
+                    }
+                }
+            }
+
+            // Track day overflow for round-robin.
+            // Increment exactly once per candidate when it moves to a new day.
+            if (!incrementedWindowIndex && !finalSlotStart.toLocalDate().equals(originalStart.toLocalDate())) {
+                windowIndex++;
             }
 
             result.add(StudySessionResponse.builder()
@@ -1217,10 +1359,13 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             List<StudySessionResponse> existing,
             LocalDateTime desiredStart,
             int durationMinutes,
-            GenerateScheduleRequest request) {
+            GenerateScheduleRequest request,
+            int windowIndex) {
 
         LocalTime earliest = resolveEarliestAllowedTime(request);
         LocalTime latest = resolveLatestAllowedTime(request);
+        List<LocalTime> windowStartTimes = resolveAllWindowStartTimes(request);
+        int windowCount = windowStartTimes.size();
         int maxPerDay = request.getMaxSessionsPerDay() != null ? request.getMaxSessionsPerDay() : 3;
         int breakMin = request.getBreakMinutesBetweenSessions() != null ? request.getBreakMinutesBetweenSessions() : 10;
 
@@ -1286,7 +1431,60 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
 
         while (nextDay.isBefore(deadline) || nextDay.isEqual(deadline)) {
             if (isPreferredDay(nextDay, request.getPreferredDays())) {
-                return LocalDateTime.of(nextDay, earliest);
+                // Extract to final variable for lambda capture
+                LocalDate dayToCheck = nextDay;
+
+                // Build slots for nextDay to check availability
+                List<LocalDateTime[]> nextDaySlots = existing.stream()
+                        .filter(s -> s.getStartTime() != null
+                                && s.getStartTime().toLocalDate().equals(dayToCheck))
+                        .map(s -> new LocalDateTime[]{s.getStartTime(), s.getEndTime()})
+                        .sorted(Comparator.comparing(a -> a[0]))
+                        .toList();
+                long sessionsOnNextDay = nextDaySlots.size();
+
+                if (sessionsOnNextDay < maxPerDay) {
+                    // Pick time from round-robin windows
+                    LocalTime windowTime;
+                    if (windowCount > 0) {
+                        int idx = windowIndex % windowCount;
+                        windowTime = windowStartTimes.get(idx);
+                        if (windowTime.isBefore(earliest)) windowTime = earliest;
+                        if (windowTime.plusMinutes(durationMinutes).isAfter(latest)) {
+                            windowTime = latest.minusMinutes(durationMinutes);
+                        }
+                    } else {
+                        windowTime = earliest;
+                    }
+
+                    // Check if windowTime is free on nextDay
+                    final LocalTime candidateWindowStart = windowTime;
+                    final LocalTime searchEnd = candidateWindowStart.plusMinutes(durationMinutes);
+                    boolean windowFree = nextDaySlots.stream().noneMatch(slot ->
+                            candidateWindowStart.isBefore(slot[1].toLocalTime()) &&
+                            searchEnd.isAfter(slot[0].toLocalTime()));
+
+                    if (windowFree) {
+                        return LocalDateTime.of(dayToCheck, candidateWindowStart);
+                    }
+
+                    // Slot occupied — scan gaps on nextDay
+                    for (LocalDateTime[] slot : nextDaySlots) {
+                        LocalTime slotEnd = slot[1].toLocalTime();
+                        LocalTime gapStart = slotEnd.plusMinutes(breakMin);
+                        LocalTime gapEnd = gapStart.plusMinutes(durationMinutes);
+                        if (gapEnd.isAfter(latest)) continue;
+                        final LocalTime gs = gapStart;
+                        final LocalTime ge = gapEnd;
+                        boolean gapFree = nextDaySlots.stream().noneMatch(other ->
+                                gs.isBefore(other[1].toLocalTime()) &&
+                                ge.isAfter(other[0].toLocalTime()));
+                        if (gapFree) {
+                            return LocalDateTime.of(dayToCheck, gapStart);
+                        }
+                    }
+                }
+                // nextDay full or window occupied — try next preferred day
             }
             nextDay = nextDay.plusDays(1);
         }

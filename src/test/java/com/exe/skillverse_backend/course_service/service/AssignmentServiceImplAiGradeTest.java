@@ -19,6 +19,7 @@ import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.repository.SubmissionCriteriaScoreRepository;
 import com.exe.skillverse_backend.course_service.service.impl.AssignmentServiceImpl;
 import com.exe.skillverse_backend.course_service.service.impl.RevisionPinnedContentResolver;
+import com.exe.skillverse_backend.notification_service.dto.NotificationPayload;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
@@ -237,6 +238,7 @@ class AssignmentServiceImplAiGradeTest {
                 msgCaptor.capture(),
                 eq(NotificationType.ASSIGNMENT_GRADED),
                 eq("100"),
+                any(NotificationPayload.class),
                 eq(7L)
         );
         assertTrue(msgCaptor.getValue().contains("85"));
@@ -314,7 +316,8 @@ class AssignmentServiceImplAiGradeTest {
 
         // One notification for dispute clear, one for grading result
         verify(notificationService, org.mockito.Mockito.times(2))
-                .createNotification(anyLong(), any(), any(), any(NotificationType.class), any(), any());
+                .createNotification(anyLong(), any(), any(), any(NotificationType.class), any(),
+                        any(NotificationPayload.class), any());
     }
 
     // ========================================================================

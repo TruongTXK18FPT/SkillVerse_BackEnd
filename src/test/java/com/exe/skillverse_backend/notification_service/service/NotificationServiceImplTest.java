@@ -12,6 +12,7 @@ import com.exe.skillverse_backend.notification_service.service.FcmService;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
 import com.exe.skillverse_backend.user_service.dto.response.UserProfileResponse;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -55,7 +56,13 @@ class NotificationServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new NotificationServiceImpl(notificationRepository, userRepository, userProfileService, postRepository, fcmService);
+        service = new NotificationServiceImpl(
+                notificationRepository,
+                userRepository,
+                userProfileService,
+                postRepository,
+                fcmService,
+                new ObjectMapper());
     }
 
     @Test

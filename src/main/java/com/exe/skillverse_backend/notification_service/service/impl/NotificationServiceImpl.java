@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.notification_service.service.impl;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.community_service.repository.PostRepository;
+import com.exe.skillverse_backend.notification_service.dto.NotificationPayload;
 import com.exe.skillverse_backend.notification_service.dto.NotificationResponse;
 import com.exe.skillverse_backend.notification_service.entity.Notification;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
@@ -10,6 +11,10 @@ import com.exe.skillverse_backend.notification_service.repository.NotificationRe
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.notification_service.service.FcmService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -26,20 +31,27 @@ public class NotificationServiceImpl implements NotificationService {
     private final UserProfileService userProfileService;
     private final PostRepository postRepository;
     private final FcmService fcmService;
+    private final ObjectMapper objectMapper;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createNotification(Long userId, String title, String message, NotificationType type, String relatedId,
             Long senderId) {
-        persistNotification(userId, title, message, type, relatedId, senderId);
+        persistNotification(userId, title, message, type, relatedId, null, senderId);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createNotification(Long userId, String title, String message, NotificationType type, String relatedId) {
-        persistNotification(userId, title, message, type, relatedId, null);
+        persistNotification(userId, title, message, type, relatedId, null, null);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void createNotification(Long userId, String title, String message, NotificationType type, String relatedId,
+            NotificationPayload payload, Long senderId) {
+        persistNotification(userId, title, message, type, relatedId, payload, senderId);
     }
 
     private void persistNotification(Long userId, String title, String message, NotificationType type, String relatedId,
-            Long senderId) {
+            NotificationPayload payload, Long senderId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
@@ -49,6 +61,7 @@ public class NotificationServiceImpl implements NotificationService {
                 .message(message)
                 .type(type)
                 .relatedId(relatedId)
+                .payloadJson(serializePayload(payload))
                 .senderId(senderId)
                 .isRead(false)
                 .build();
@@ -57,8 +70,8 @@ public class NotificationServiceImpl implements NotificationService {
 
         // Send push notification to mobile devices (async, non-blocking)
         if (fcmService.isFirebaseEnabled()) {
-            String dataPayload = "type=" + type.name() + ",notificationId=" + notification.getId() +
-                    (relatedId != null ? ",relatedId=" + relatedId : "");
+            Map<String, String> pushData = buildPushData(notification, payload);
+            String dataPayload = toDataPayload(pushData);
             fcmService.sendPushNotification(userId, title, message, dataPayload);
         }
     }
@@ -98,6 +111,10 @@ public class NotificationServiceImpl implements NotificationService {
         String senderName = null;
         String senderAvatar = null;
         String postTitle = null;
+        NotificationPayload payload = deserializePayload(notification.getPayloadJson());
+        if (payload == null) {
+            payload = deriveLegacyPayload(notification);
+        }
 
         if (notification.getSenderId() != null) {
             try {
@@ -151,11 +168,129 @@ public class NotificationServiceImpl implements NotificationService {
                 .type(notification.getType())
                 .isRead(notification.isRead())
                 .relatedId(notification.getRelatedId())
+                .payload(payload)
                 .senderId(notification.getSenderId())
                 .senderName(senderName)
                 .senderAvatar(senderAvatar)
                 .createdAt(notification.getCreatedAt())
                 .postTitle(postTitle)
                 .build();
+    }
+
+    private String serializePayload(NotificationPayload payload) {
+        if (payload == null) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    private NotificationPayload deserializePayload(String payloadJson) {
+        if (payloadJson == null || payloadJson.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(payloadJson, NotificationPayload.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private NotificationPayload deriveLegacyPayload(Notification notification) {
+        if (notification.getType() == NotificationType.ASSIGNMENT_GRADED) {
+            Long submissionId = parseLong(notification.getRelatedId());
+            return NotificationPayload.forAssignmentGraded(null, submissionId);
+        }
+
+        String title = notification.getTitle() != null
+                ? notification.getTitle().toLowerCase()
+                : "";
+        if (notification.getType() == NotificationType.SYSTEM && title.contains("mua khóa học")) {
+            Long courseId = parseCourseId(notification.getRelatedId());
+            return NotificationPayload.forCoursePurchase(courseId);
+        }
+
+        return null;
+    }
+
+    private Long parseLong(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(raw);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Long parseCourseId(String relatedId) {
+        if (relatedId == null || relatedId.isBlank()) {
+            return null;
+        }
+        if (relatedId.startsWith("COURSE_")) {
+            return parseLong(relatedId.substring("COURSE_".length()));
+        }
+        return parseLong(relatedId);
+    }
+
+    private Map<String, String> buildPushData(Notification notification, NotificationPayload payload) {
+        Map<String, String> data = new LinkedHashMap<>();
+        data.put("type", notification.getType().name());
+        data.put("notificationId", String.valueOf(notification.getId()));
+        if (notification.getRelatedId() != null && !notification.getRelatedId().isBlank()) {
+            data.put("relatedId", notification.getRelatedId());
+        }
+
+        NotificationPayload effectivePayload = payload != null ? payload : deriveLegacyPayload(notification);
+        if (effectivePayload == null) {
+            return data;
+        }
+
+        if (effectivePayload.getAction() != null) {
+            NotificationPayload.Action action = effectivePayload.getAction();
+            if (action.getKey() != null && !action.getKey().isBlank()) {
+                data.put("actionKey", action.getKey());
+            }
+            if (action.getPath() != null && !action.getPath().isBlank()) {
+                data.put("actionPath", action.getPath());
+            }
+            if (action.getAnchor() != null && !action.getAnchor().isBlank()) {
+                data.put("actionAnchor", action.getAnchor());
+            }
+        }
+
+        if (effectivePayload.getResource() != null) {
+            NotificationPayload.Resource resource = effectivePayload.getResource();
+            if (resource.getCourseId() != null) {
+                data.put("resourceCourseId", String.valueOf(resource.getCourseId()));
+            }
+            if (resource.getAssignmentId() != null) {
+                data.put("resourceAssignmentId", String.valueOf(resource.getAssignmentId()));
+            }
+            if (resource.getSubmissionId() != null) {
+                data.put("resourceSubmissionId", String.valueOf(resource.getSubmissionId()));
+            }
+        }
+
+        data.put("payloadVersion", "2");
+        return data;
+    }
+
+    private String toDataPayload(Map<String, String> data) {
+        StringBuilder builder = new StringBuilder();
+        for (Map.Entry<String, String> entry : data.entrySet()) {
+            if (entry.getValue() == null || entry.getValue().isBlank()) {
+                continue;
+            }
+            if (builder.length() > 0) {
+                builder.append(',');
+            }
+            builder.append(entry.getKey()).append('=').append(entry.getValue());
+        }
+        return builder.toString();
     }
 }

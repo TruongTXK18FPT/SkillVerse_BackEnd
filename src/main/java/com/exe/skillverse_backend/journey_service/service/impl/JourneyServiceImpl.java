@@ -48,6 +48,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.DayOfWeek;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -1962,10 +1963,99 @@ public class JourneyServiceImpl implements JourneyService {
         if (request.getAvoidLateNight() == null && request.getAllowLateNight() == null) {
             request.setAvoidLateNight(Boolean.TRUE);
         }
+        sanitizeScheduleTimeBounds(request, durationMinutes, node.getId());
+
+        LocalTime preferredStart = resolvePreferredStartTime(request);
+        LocalDate todayInZone = LocalDate.now(zoneId);
+        LocalTime currentTimeInZone = LocalTime.now(zoneId);
+        if (startDate.isEqual(todayInZone) && preferredStart.isBefore(currentTimeInZone)) {
+            LocalDate shiftedStartDate = findNextValidStudyDate(startDate.plusDays(1), request.getPreferredDays());
+            log.info(
+                    "[StudyPlan] Node {} startDate shifted from {} to {} because preferredStart {} has passed current time {}",
+                    node.getId(),
+                    startDate,
+                    shiftedStartDate,
+                    preferredStart,
+                    currentTimeInZone);
+            request.setStartDate(shiftedStartDate);
+            startDate = shiftedStartDate;
+
+            if (request.getDeadline() == null || request.getDeadline().isBefore(startDate)) {
+                request.setDeadline(resolveDefaultDeadline(node, startDate, durationMinutes, maxSessionsPerDay));
+            }
+        }
+
+        log.info(
+                "[StudyPlan] Node {} constraints => startDate={}, deadline={}, duration={}m, maxSessionsPerDay={}, preferredDays={}, preferredWindows={}, earliest={}, latest={}, avoidLateNight={}, allowLateNight={}",
+                node.getId(),
+                request.getStartDate(),
+                request.getDeadline(),
+                durationMinutes,
+                request.getMaxSessionsPerDay(),
+                request.getPreferredDays(),
+                request.getPreferredTimeWindows(),
+                request.getEarliestStartLocalTime(),
+                request.getLatestEndLocalTime(),
+                request.getAvoidLateNight(),
+                request.getAllowLateNight());
+
         // Propagate suggestedModuleIds from the roadmap node so AiStudySupportServiceImpl
         // can load course content for the AI prompt
         request.setSuggestedModuleIds(node.getSuggestedModuleIds());
         return request;
+    }
+
+    private void sanitizeScheduleTimeBounds(
+            GenerateScheduleRequest request,
+            int durationMinutes,
+            String nodeId) {
+        LocalTime preferredStart = resolvePreferredStartTime(request);
+        LocalTime parsedEarliest = parseLocalTime(request.getEarliestStartLocalTime());
+        LocalTime parsedLatest = parseLocalTime(request.getLatestEndLocalTime());
+
+        LocalTime earliest = parsedEarliest != null ? parsedEarliest : preferredStart;
+        LocalTime latest = parsedLatest != null ? parsedLatest : resolveLatestAllowedTime(request, durationMinutes);
+
+        int earliestMinutes = toMinuteOfDay(earliest);
+        int latestMinutes = toMinuteOfDay(latest);
+
+        if (latestMinutes <= earliestMinutes) {
+            LocalTime fallbackEarliest = preferredStart;
+            LocalTime fallbackLatest = resolveLatestAllowedTime(request, durationMinutes);
+            earliestMinutes = toMinuteOfDay(fallbackEarliest);
+            latestMinutes = toMinuteOfDay(fallbackLatest);
+
+            log.warn(
+                    "[StudyPlan] Invalid time bounds for node {} (earliest={} latest={}), normalized to earliest={} latest={}.",
+                    nodeId,
+                    earliest,
+                    latest,
+                    fallbackEarliest,
+                    fallbackLatest);
+        }
+
+        int minimumWindow = Math.max(30, durationMinutes);
+        if (latestMinutes - earliestMinutes < minimumWindow) {
+            int adjustedEarliest = Math.max(0, latestMinutes - minimumWindow);
+            if (adjustedEarliest >= latestMinutes) {
+                adjustedEarliest = Math.max(0, Math.min(21 * 60, earliestMinutes));
+                latestMinutes = Math.min(23 * 60 + 59, adjustedEarliest + minimumWindow);
+            }
+
+            log.warn(
+                    "[StudyPlan] Tight time window for node {} (earliest={} latest={} duration={}m), adjusted to earliest={} latest={}",
+                    nodeId,
+                    fromMinuteOfDay(earliestMinutes),
+                    fromMinuteOfDay(latestMinutes),
+                    durationMinutes,
+                    fromMinuteOfDay(adjustedEarliest),
+                    fromMinuteOfDay(latestMinutes));
+
+            earliestMinutes = adjustedEarliest;
+        }
+
+        request.setEarliestStartLocalTime(fromMinuteOfDay(earliestMinutes).toString());
+        request.setLatestEndLocalTime(fromMinuteOfDay(latestMinutes).toString());
     }
 
     private void copyScheduleRequest(GenerateScheduleRequest source, GenerateScheduleRequest target) {
@@ -2032,25 +2122,85 @@ public class JourneyServiceImpl implements JourneyService {
 
         int durationMinutes = safeDurationMinutes(request.getDurationMinutes());
         int breakMinutes = safeBreakMinutes(request.getBreakMinutesBetweenSessions());
+        int maxSessionsPerDay = safeMaxSessionsPerDay(request.getMaxSessionsPerDay());
         LocalDate baseDate = request.getStartDate() != null
                 ? request.getStartDate()
                 : LocalDate.now(resolveStudyTimeZone(request.getTimezone()));
-        LocalDateTime fallbackCursor = LocalDateTime.of(baseDate, resolvePreferredStartTime(request));
-        List<StudySessionResponse> normalized = new ArrayList<>();
+        ZoneId zoneId = resolveStudyTimeZone(request.getTimezone());
+        LocalDateTime nowInZone = LocalDateTime.now(zoneId);
 
-        for (StudySessionResponse session : sessions) {
-            if (session == null) {
-                continue;
-            }
+        List<String> preferredDays = normalizePreferredDays(request.getPreferredDays());
+        LocalTime preferredStart = resolvePreferredStartTime(request);
+        LocalTime earliestAllowed = parseLocalTime(request.getEarliestStartLocalTime());
+        if (earliestAllowed == null) {
+            earliestAllowed = preferredStart;
+        }
+        LocalTime dayStartTime = earliestAllowed.isAfter(preferredStart) ? earliestAllowed : preferredStart;
+        LocalTime latestAllowed = resolveLatestAllowedTime(request, durationMinutes);
+        int latestAllowedMinutes = toMinuteOfDay(latestAllowed);
+        int dayStartMinutes = toMinuteOfDay(dayStartTime);
+        if (latestAllowedMinutes - dayStartMinutes < durationMinutes) {
+            dayStartTime = fromMinuteOfDay(Math.max(0, latestAllowedMinutes - durationMinutes));
+        }
+
+        LocalDate initialDate = findNextValidStudyDate(baseDate, preferredDays);
+        LocalDateTime fallbackCursor = LocalDateTime.of(initialDate, dayStartTime);
+        List<StudySessionResponse> normalized = new ArrayList<>();
+        Map<LocalDate, Integer> sessionsPerDay = new HashMap<>();
+
+        List<StudySessionResponse> orderedSessions = sessions.stream()
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(
+                        StudySessionResponse::getStartTime,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .collect(Collectors.toList());
+
+        for (StudySessionResponse session : orderedSessions) {
             LocalDateTime startTime = session.getStartTime();
             if (startTime == null || startTime.toLocalDate().isBefore(baseDate)) {
                 startTime = fallbackCursor;
             }
 
-            LocalDateTime endTime = session.getEndTime();
-            if (endTime == null || !endTime.isAfter(startTime)) {
-                endTime = startTime.plusMinutes(durationMinutes);
+            if (startTime.isBefore(fallbackCursor)) {
+                log.info(
+                        "normalizeGeneratedSessions: shifting overlapping session '{}' from {} to {}",
+                        firstNonBlank(session.getTitle(), "Study session"),
+                        startTime,
+                        fallbackCursor);
+                startTime = fallbackCursor;
             }
+
+            LocalDate targetDate = findNextValidStudyDate(startTime.toLocalDate(), preferredDays);
+            LocalTime targetTime = startTime.toLocalTime();
+            if (targetTime.isBefore(dayStartTime)) {
+                targetTime = dayStartTime;
+            }
+
+            if (toMinuteOfDay(targetTime) + durationMinutes > latestAllowedMinutes) {
+                targetDate = findNextValidStudyDate(targetDate.plusDays(1), preferredDays);
+                targetTime = dayStartTime;
+            }
+
+            if (baseDate.isEqual(nowInZone.toLocalDate())
+                    && targetDate.isEqual(baseDate)
+                    && LocalDateTime.of(targetDate, targetTime).isBefore(nowInZone)) {
+                log.info(
+                        "normalizeGeneratedSessions: shifting past-time session '{}' from {} to next study day",
+                        firstNonBlank(session.getTitle(), "Study session"),
+                        LocalDateTime.of(targetDate, targetTime));
+                targetDate = findNextValidStudyDate(targetDate.plusDays(1), preferredDays);
+                targetTime = dayStartTime;
+            }
+
+            while (sessionsPerDay.getOrDefault(targetDate, 0) >= maxSessionsPerDay) {
+                targetDate = findNextValidStudyDate(targetDate.plusDays(1), preferredDays);
+                targetTime = dayStartTime;
+            }
+
+            startTime = LocalDateTime.of(targetDate, targetTime);
+            LocalDateTime endTime = startTime.plusMinutes(durationMinutes);
+
+            sessionsPerDay.merge(targetDate, 1, Integer::sum);
 
             String title = safeTruncate(
                     firstNonBlank(session.getTitle(), node.getTitle(), "Study session"),
@@ -2070,6 +2220,18 @@ public class JourneyServiceImpl implements JourneyService {
                     .build());
 
             fallbackCursor = endTime.plusMinutes(breakMinutes);
+            LocalDate fallbackDate = findNextValidStudyDate(fallbackCursor.toLocalDate(), preferredDays);
+            LocalTime fallbackTime = fallbackCursor.toLocalTime();
+            if (fallbackTime.isBefore(dayStartTime)) {
+                fallbackTime = dayStartTime;
+            }
+            if (toMinuteOfDay(fallbackTime) + durationMinutes > latestAllowedMinutes
+                    || sessionsPerDay.getOrDefault(fallbackDate, 0) >= maxSessionsPerDay) {
+                fallbackDate = findNextValidStudyDate(fallbackDate.plusDays(1), preferredDays);
+                fallbackTime = dayStartTime;
+            }
+            fallbackCursor = LocalDateTime.of(fallbackDate, fallbackTime);
+
             if (normalized.size() >= MAX_STUDY_TASKS_PER_NODE) {
                 break;
             }
@@ -2093,6 +2255,21 @@ public class JourneyServiceImpl implements JourneyService {
                 : resolveDefaultDeadline(node, startDate, durationMinutes, maxSessionsPerDay);
         LocalTime firstSlot = resolvePreferredStartTime(request);
 
+        // TP-3: Bump start date if preferred time is already past (late-hour creation)
+        LocalDateTime nowInZone = LocalDateTime.now(resolveStudyTimeZone(request.getTimezone()));
+        LocalDate effectiveStartDate = startDate;
+        if (startDate.isEqual(nowInZone.toLocalDate())
+                && firstSlot.isBefore(nowInZone.toLocalTime())) {
+            effectiveStartDate = startDate.plusDays(1);
+            int attempts = 0;
+            while (!isValidStudyDay(effectiveStartDate, normalizePreferredDays(request.getPreferredDays())) && attempts < 30) {
+                effectiveStartDate = effectiveStartDate.plusDays(1);
+                attempts++;
+            }
+            log.info("buildFallbackSessions: startDate {} bumped to {} (firstSlot {} < now {})",
+                    startDate, effectiveStartDate, firstSlot, nowInZone.toLocalTime());
+        }
+
         int estimatedMinutes = node.getEstimatedTimeMinutes() != null && node.getEstimatedTimeMinutes() > 0
                 ? node.getEstimatedTimeMinutes()
                 : durationMinutes * 3;
@@ -2108,7 +2285,7 @@ public class JourneyServiceImpl implements JourneyService {
         for (int i = 0; i < sessionCount; i++) {
             int dayOffset = i / maxSessionsPerDay;
             int slotOffset = i % maxSessionsPerDay;
-            LocalDate sessionDate = startDate.plusDays(dayOffset);
+            LocalDate sessionDate = effectiveStartDate.plusDays(dayOffset);
             if (sessionDate.isAfter(deadline)) {
                 sessionDate = deadline;
             }
@@ -2409,22 +2586,63 @@ public class JourneyServiceImpl implements JourneyService {
         }
     }
 
+    private LocalTime parseLocalTime(String rawValue) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalTime.parse(rawValue.trim());
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private int toMinuteOfDay(LocalTime time) {
+        return time.getHour() * 60 + time.getMinute();
+    }
+
+    private LocalTime fromMinuteOfDay(int minuteOfDay) {
+        int safe = Math.max(0, Math.min(23 * 60 + 59, minuteOfDay));
+        return LocalTime.of(safe / 60, safe % 60);
+    }
+
+    private LocalDate findNextValidStudyDate(LocalDate candidate, List<String> normalizedPreferredDays) {
+        LocalDate day = candidate;
+        int attempts = 0;
+        while (!isValidStudyDay(day, normalizedPreferredDays) && attempts < 60) {
+            day = day.plusDays(1);
+            attempts++;
+        }
+        return day;
+    }
+
     private LocalTime resolvePreferredStartTime(GenerateScheduleRequest request) {
-        if (request.getPreferredTimeWindows() != null) {
-            for (String window : request.getPreferredTimeWindows()) {
-                LocalTime parsed = parseTimeRangeStart(window);
-                if (parsed != null) {
-                    return parsed;
+        LocalTime earliestRequested = parseLocalTime(request.getEarliestStartLocalTime());
+
+        if (request.getPreferredTimeWindows() != null && !request.getPreferredTimeWindows().isEmpty()) {
+            List<LocalTime> windowStarts = request.getPreferredTimeWindows().stream()
+                    .map(this::parseTimeRangeStart)
+                    .filter(Objects::nonNull)
+                    .sorted()
+                    .collect(Collectors.toList());
+
+            if (!windowStarts.isEmpty()) {
+                if (earliestRequested != null) {
+                    LocalTime firstEligibleWindow = windowStarts.stream()
+                            .filter(windowStart -> !windowStart.isBefore(earliestRequested))
+                            .findFirst()
+                            .orElse(null);
+                    if (firstEligibleWindow != null) {
+                        return firstEligibleWindow;
+                    }
+                    return earliestRequested;
                 }
+                return windowStarts.get(0);
             }
         }
 
-        if (request.getEarliestStartLocalTime() != null && !request.getEarliestStartLocalTime().isBlank()) {
-            try {
-                return LocalTime.parse(request.getEarliestStartLocalTime().trim());
-            } catch (Exception ignored) {
-                // Ignore invalid custom time and fallback.
-            }
+        if (earliestRequested != null) {
+            return earliestRequested;
         }
 
         String studyPreference = request.getStudyPreference() != null
@@ -2451,6 +2669,59 @@ public class JourneyServiceImpl implements JourneyService {
         } catch (Exception ex) {
             return null;
         }
+    }
+
+    private LocalTime parseTimeRangeEnd(String range) {
+        if (range == null || range.isBlank()) {
+            return null;
+        }
+        String[] parts = range.split("-");
+        if (parts.length < 2) {
+            return null;
+        }
+        try {
+            return LocalTime.parse(parts[1].trim());
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    private LocalTime resolveLatestAllowedTime(GenerateScheduleRequest request, int durationMinutes) {
+        LocalTime explicitLatest = parseLocalTime(request.getLatestEndLocalTime());
+        if (explicitLatest != null) {
+            return explicitLatest;
+        }
+
+        if (request.getPreferredTimeWindows() != null && !request.getPreferredTimeWindows().isEmpty()) {
+            LocalTime windowLatest = request.getPreferredTimeWindows().stream()
+                    .map(this::parseTimeRangeEnd)
+                    .filter(Objects::nonNull)
+                    .max(LocalTime::compareTo)
+                    .orElse(null);
+            if (windowLatest != null) {
+                return windowLatest;
+            }
+        }
+
+        String studyPreference = request.getStudyPreference() != null
+                ? request.getStudyPreference().trim().toLowerCase(Locale.ROOT)
+                : "";
+        LocalTime fallback = switch (studyPreference) {
+            case "morning" -> LocalTime.of(10, 30);
+            case "afternoon" -> LocalTime.of(17, 30);
+            case "evening", "night" -> LocalTime.of(22, 30);
+            default -> LocalTime.of(22, 30);
+        };
+
+        LocalTime preferredStart = resolvePreferredStartTime(request);
+        int minLatest = toMinuteOfDay(preferredStart) + Math.max(30, durationMinutes);
+        if (minLatest > 23 * 60 + 59) {
+            return LocalTime.of(23, 59);
+        }
+        if (toMinuteOfDay(fallback) <= toMinuteOfDay(preferredStart)) {
+            return fromMinuteOfDay(minLatest);
+        }
+        return fallback;
     }
 
     private int safeDurationMinutes(int durationMinutes) {
@@ -2533,6 +2804,23 @@ public class JourneyServiceImpl implements JourneyService {
             case "night", "evening" -> new ArrayList<>(List.of("18:30-22:00"));
             default -> new ArrayList<>(List.of("18:30-21:30"));
         };
+    }
+
+    /**
+     * Checks if a date falls on a valid study day based on normalized preferred days.
+     */
+    private boolean isValidStudyDay(LocalDate date, List<String> normalizedPreferredDays) {
+        if (normalizedPreferredDays == null || normalizedPreferredDays.isEmpty()) {
+            return true;
+        }
+        DayOfWeek dow = date.getDayOfWeek();
+        String englishDay = dow.name().substring(0, 3);
+        return normalizedPreferredDays.stream().anyMatch(d -> {
+            if (d == null || d.isBlank()) return false;
+            String normalized = d.trim().toUpperCase(Locale.ROOT);
+            if (normalized.length() < 3) return false;
+            return normalized.startsWith(englishDay) || englishDay.startsWith(normalized.substring(0, 3));
+        });
     }
 
     private String findNextEligibleNodeId(RoadmapResponse roadmap, List<RoadmapResponse.RoadmapNode> nodes) {
