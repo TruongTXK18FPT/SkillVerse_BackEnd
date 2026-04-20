@@ -19,7 +19,6 @@ import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepo
 import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.service.CoursePurchaseService;
-import com.exe.skillverse_backend.notification_service.dto.NotificationPayload;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
@@ -207,9 +206,7 @@ public class CoursePurchaseServiceImpl implements CoursePurchaseService {
                     "Mua khóa học thành công",
                     "Bạn đã mua khóa học '" + course.getTitle() + "'",
                     NotificationType.SYSTEM,
-                    "COURSE_" + course.getId(),
-                    NotificationPayload.forCoursePurchase(course.getId()),
-                    null);
+                    "COURSE_" + course.getId());
         } catch (Exception e) {
             log.warn("Failed to create notification for wallet course purchase: {}", e.getMessage());
         }

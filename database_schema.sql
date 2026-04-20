@@ -2191,7 +2191,6 @@ CREATE TABLE notifications (
     type       VARCHAR(50) NOT NULL,
     is_read    BOOLEAN NOT NULL DEFAULT FALSE,
     related_id VARCHAR(255),
-    payload_json JSONB,
     sender_id  BIGINT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

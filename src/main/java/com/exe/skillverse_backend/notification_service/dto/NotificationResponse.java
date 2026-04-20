@@ -18,7 +18,6 @@ public class NotificationResponse {
     private NotificationType type;
     private boolean isRead;
     private String relatedId;
-    private NotificationPayload payload;
     private Long senderId;
     private String senderName;
     private String senderAvatar;

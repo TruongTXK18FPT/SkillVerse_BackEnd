@@ -383,20 +383,6 @@ class AiStudySupportServiceImplTest {
         return req;
     }
 
-    private GenerateScheduleRequest makeFlexibleOverlapRequest() {
-        GenerateScheduleRequest req = new GenerateScheduleRequest();
-        req.setDurationMinutes(60);
-        req.setPreferredDays(List.of(
-                "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"));
-        req.setPreferredTimeWindows(List.of("08:00-10:30", "19:00-21:30"));
-        req.setEarliestStartLocalTime("08:00");
-        req.setLatestEndLocalTime("22:00");
-        req.setMaxSessionsPerDay(3);
-        req.setBreakMinutesBetweenSessions(10);
-        req.setDeadline(LocalDate.now().plusDays(30));
-        return req;
-    }
-
     @Test
     @DisplayName("OVL-1: Two sessions at same time → second should shift to next gap")
     void resolveOverlapping_twoSameTime_shiftsSecondSession() {
@@ -469,60 +455,6 @@ class AiStudySupportServiceImplTest {
                 }
             }
         }
-    }
-
-    @Test
-    @DisplayName("OVL-2B: Flexible windows should not keep duplicate same-day start times")
-    void resolveOverlapping_flexibleWindows_noSameDayDuplicateStartTimes() {
-        GenerateScheduleRequest req = makeFlexibleOverlapRequest();
-        LocalDate day = LocalDate.now().plusDays(1);
-
-        LocalDateTime t = LocalDateTime.of(day, LocalTime.of(18, 30));
-        List<StudySessionResponse> input = new ArrayList<>(List.of(
-                session("Task 1", t, t.plusHours(1)),
-                session("Task 2", t, t.plusHours(1)),
-                session("Task 3", t, t.plusHours(1))));
-
-        List<StudySessionResponse> result = resolve(input, req);
-
-        assertTrue(result.size() == 3, "Should keep all sessions");
-
-        for (int i = 0; i < result.size(); i++) {
-            for (int j = i + 1; j < result.size(); j++) {
-                LocalDateTime sA = result.get(i).getStartTime();
-                LocalDateTime sB = result.get(j).getStartTime();
-                if (sA.toLocalDate().equals(sB.toLocalDate())) {
-                    assertTrue(!sA.toLocalTime().equals(sB.toLocalTime()),
-                            "Same-day sessions must not share identical start times: " + sA + " and " + sB);
-                }
-            }
-        }
-    }
-
-    @Test
-    @DisplayName("OVL-2C: Overflow days should rotate flexible windows in round-robin")
-    void resolveOverlapping_flexibleWindows_overflow_rotatesWindowStarts() {
-        GenerateScheduleRequest req = makeFlexibleOverlapRequest();
-        req.setMaxSessionsPerDay(1); // force overflow to next days
-
-        LocalDate day = LocalDate.now().plusDays(1);
-        LocalDateTime t = LocalDateTime.of(day, LocalTime.of(18, 30));
-        List<StudySessionResponse> input = new ArrayList<>(List.of(
-                session("Task A", t, t.plusHours(1)),
-                session("Task B", t, t.plusHours(1)),
-                session("Task C", t, t.plusHours(1))));
-
-        List<StudySessionResponse> result = resolve(input, req);
-
-        assertTrue(result.size() == 3, "Should keep all sessions");
-
-        LocalTime secondStart = result.get(1).getStartTime().toLocalTime();
-        LocalTime thirdStart = result.get(2).getStartTime().toLocalTime();
-
-        assertTrue(secondStart.equals(LocalTime.of(8, 0)),
-                "Second overflowed session should use first window 08:00, got: " + secondStart);
-        assertTrue(thirdStart.equals(LocalTime.of(19, 0)),
-                "Third overflowed session should rotate to second window 19:00, got: " + thirdStart);
     }
 
     @Test

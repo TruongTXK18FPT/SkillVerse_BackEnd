@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.notification_service.service;
 
-import com.exe.skillverse_backend.notification_service.dto.NotificationPayload;
 import com.exe.skillverse_backend.notification_service.dto.NotificationResponse;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import org.springframework.data.domain.Page;
@@ -11,9 +10,6 @@ public interface NotificationService {
             Long senderId);
 
     void createNotification(Long userId, String title, String message, NotificationType type, String relatedId);
-
-    void createNotification(Long userId, String title, String message, NotificationType type, String relatedId,
-            NotificationPayload payload, Long senderId);
 
     Page<NotificationResponse> getUserNotifications(Long userId, Boolean isRead, Pageable pageable);
 

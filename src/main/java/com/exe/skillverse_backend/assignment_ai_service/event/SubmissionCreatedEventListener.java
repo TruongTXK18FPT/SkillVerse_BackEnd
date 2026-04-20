@@ -6,7 +6,6 @@ import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
-import com.exe.skillverse_backend.notification_service.dto.NotificationPayload;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -132,7 +131,6 @@ public class SubmissionCreatedEventListener {
                             + "' sẽ được mentor chấm thủ công. Vui lòng chờ.",
                     NotificationType.ASSIGNMENT_GRADED,
                     submissionId.toString(),
-                    NotificationPayload.forAssignmentGraded(assignment.getId(), submissionId),
                     null
             );
         } else {

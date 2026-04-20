@@ -55,9 +55,6 @@ public class Notification {
     @Column(name = "related_id")
     private String relatedId; // Can be ID of post, payment, etc.
 
-    @Column(name = "payload_json", columnDefinition = "jsonb")
-    private String payloadJson;
-
     @Column(name = "sender_id")
     private Long senderId;
 

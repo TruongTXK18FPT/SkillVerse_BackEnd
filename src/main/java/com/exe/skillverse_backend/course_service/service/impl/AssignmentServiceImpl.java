@@ -22,7 +22,6 @@ import com.exe.skillverse_backend.course_service.repository.SubmissionCriteriaSc
 import com.exe.skillverse_backend.course_service.service.AssignmentService;
 import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
-import com.exe.skillverse_backend.notification_service.dto.NotificationPayload;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
@@ -349,9 +348,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                     "Bài đã được gửi cho mentor chấm thủ công",
                     "Bài tập '" + assignment.getTitle() + "' sẽ được mentor xem xét và chấm điểm.",
                     NotificationType.ASSIGNMENT_GRADED,
-                    saved.getId().toString(),
-                    NotificationPayload.forAssignmentGraded(assignmentId, saved.getId()),
-                    null
+                    saved.getId().toString()
             );
         }
 
@@ -425,7 +422,6 @@ public class AssignmentServiceImpl implements AssignmentService {
                             + "': " + totalScore + "/" + assignment.getMaxScore() + " - " + reGradeStatus,
                     NotificationType.ASSIGNMENT_GRADED,
                     submission.getId().toString(),
-                    NotificationPayload.forAssignmentGraded(assignment.getId(), submission.getId()),
                     graderId
             );
         }
@@ -449,7 +445,6 @@ public class AssignmentServiceImpl implements AssignmentService {
                 "Bài tập '" + assignment.getTitle() + "' đã được chấm: " + totalScore + "/" + assignment.getMaxScore() + " - " + passStatus,
                 NotificationType.ASSIGNMENT_GRADED,
                 saved.getId().toString(),
-                NotificationPayload.forAssignmentGraded(assignment.getId(), saved.getId()),
                 graderId
         );
         

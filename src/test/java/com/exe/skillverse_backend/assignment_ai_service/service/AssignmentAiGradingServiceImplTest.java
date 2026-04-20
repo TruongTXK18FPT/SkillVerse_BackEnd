@@ -10,7 +10,6 @@ import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
-import com.exe.skillverse_backend.notification_service.dto.NotificationPayload;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
@@ -307,7 +306,7 @@ class AssignmentAiGradingServiceImplTest {
         // Two notifications: one to mentor, one to student
         verify(notificationService, times(2)).createNotification(
                 anyLong(), anyString(), anyString(),
-                any(), anyString(), any(NotificationPayload.class), any());
+                any(), anyString(), any());
     }
 
     @Test
