@@ -26,6 +26,13 @@ public class QuestionBank {
 
     private String jobRole;
 
+    /**
+     * [V3] Skill cụ thể mà question bank phục vụ (e.g., "REACT", "JAVA_SPRING_BOOT").
+     * Cho phép lookup question bank theo skill thay vì chỉ domain+jobRole.
+     */
+    @Column(name = "skill_name", length = 100)
+    private String skillName;
+
     @Column(nullable = false)
     private String title;
 

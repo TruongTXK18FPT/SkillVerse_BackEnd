@@ -328,6 +328,35 @@ public class DatabaseSchemaFixer {
                     this::patchJobDisputesDisputeTypeConstraint,
                     this::verifyJobDisputesDisputeTypeConstraint);
 
+            // ═══════════════════════════════════════════════════════════════════
+            // V3 PHASE 1 — Skill-Centric Redesign patches
+            // ═══════════════════════════════════════════════════════════════════
+
+            applyPatch("v3-create-mentor-skill-verification-requests",
+                    "Create mentor_skill_verification_requests table for mentor skill verification workflow",
+                    this::patchMentorSkillVerificationRequestsTable,
+                    this::verifyMentorSkillVerificationRequestsTable);
+
+            applyPatch("v3-create-mentor-verification-evidences",
+                    "Create mentor_verification_evidences table for evidence linked to verification requests",
+                    this::patchMentorVerificationEvidencesTable,
+                    this::verifyMentorVerificationEvidencesTable);
+
+            applyPatch("v3-add-question-bank-questions-verified-fields",
+                    "Add is_verified, verified_by, verified_at, verification_source to question_bank_questions",
+                    this::patchQuestionBankQuestionsVerifiedFields,
+                    this::verifyQuestionBankQuestionsVerifiedFields);
+
+            applyPatch("v3-add-journeys-skill-name",
+                    "Add skill_name column to journeys for single-skill journey model",
+                    this::patchJourneysSkillName,
+                    this::verifyJourneysSkillName);
+
+            applyPatch("v3-add-question-banks-skill-name",
+                    "Add skill_name column to question_banks for skill-specific question bank lookup",
+                    this::patchQuestionBanksSkillName,
+                    this::verifyQuestionBanksSkillName);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -2117,5 +2146,143 @@ public class DatabaseSchemaFixer {
 
         String def = results.get(0).get("constraint_def").toString();
         return def.contains("CANCELLATION_REVIEW");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V3 PHASE 1 — Mentor Skill Verification
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private void patchMentorSkillVerificationRequestsTable() {
+        if (hasTable("mentor_skill_verification_requests")) {
+            log.debug("Table mentor_skill_verification_requests already exists, skipping.");
+            return;
+        }
+        executeSql("""
+            CREATE TABLE mentor_skill_verification_requests (
+                id BIGSERIAL PRIMARY KEY,
+                mentor_id BIGINT NOT NULL,
+                skill_name VARCHAR(100) NOT NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                github_url VARCHAR(500),
+                portfolio_url VARCHAR(500),
+                additional_notes TEXT,
+                review_note TEXT,
+                reviewed_by BIGINT,
+                requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                reviewed_at TIMESTAMPTZ,
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT fk_msvr_mentor FOREIGN KEY (mentor_id) REFERENCES users(id),
+                CONSTRAINT fk_msvr_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id),
+                CONSTRAINT chk_msvr_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED'))
+            )
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_msvr_mentor_status ON mentor_skill_verification_requests(mentor_id, status)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_msvr_status_requested ON mentor_skill_verification_requests(status, requested_at)");
+        log.info("Created mentor_skill_verification_requests table with indexes.");
+    }
+
+    private boolean verifyMentorSkillVerificationRequestsTable() {
+        return hasTable("mentor_skill_verification_requests")
+                && hasColumn("mentor_skill_verification_requests", "mentor_id")
+                && hasColumn("mentor_skill_verification_requests", "skill_name")
+                && hasColumn("mentor_skill_verification_requests", "status");
+    }
+
+    private void patchMentorVerificationEvidencesTable() {
+        if (hasTable("mentor_verification_evidences")) {
+            log.debug("Table mentor_verification_evidences already exists, skipping.");
+            return;
+        }
+        executeSql("""
+            CREATE TABLE mentor_verification_evidences (
+                id BIGSERIAL PRIMARY KEY,
+                verification_request_id BIGINT NOT NULL,
+                evidence_type VARCHAR(30) NOT NULL,
+                evidence_url VARCHAR(1000),
+                description TEXT,
+                certificate_id BIGINT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT fk_mve_request FOREIGN KEY (verification_request_id)
+                    REFERENCES mentor_skill_verification_requests(id) ON DELETE CASCADE,
+                CONSTRAINT fk_mve_certificate FOREIGN KEY (certificate_id)
+                    REFERENCES external_certificates(id),
+                CONSTRAINT chk_mve_type CHECK (evidence_type IN ('CERTIFICATE', 'GITHUB', 'PORTFOLIO_LINK', 'WORK_EXPERIENCE'))
+            )
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_mve_request ON mentor_verification_evidences(verification_request_id)");
+        log.info("Created mentor_verification_evidences table with indexes.");
+    }
+
+    private boolean verifyMentorVerificationEvidencesTable() {
+        return hasTable("mentor_verification_evidences")
+                && hasColumn("mentor_verification_evidences", "verification_request_id")
+                && hasColumn("mentor_verification_evidences", "evidence_type")
+                && hasColumn("mentor_verification_evidences", "certificate_id");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V3 PHASE 1 — Question Bank verified-only + skill_name
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private void patchQuestionBankQuestionsVerifiedFields() {
+        if (!hasTable("question_bank_questions")) {
+            log.debug("Table question_bank_questions does not exist yet, skipping.");
+            return;
+        }
+        executeSql("""
+            ALTER TABLE question_bank_questions
+                ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS verified_by BIGINT,
+                ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ,
+                ADD COLUMN IF NOT EXISTS verification_source VARCHAR(50)
+        """);
+        // Backward compat: mark all existing active questions as verified
+        executeSql("""
+            UPDATE question_bank_questions
+            SET is_verified = TRUE, verification_source = 'LEGACY_MIGRATION'
+            WHERE is_verified = FALSE AND is_active = TRUE
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_qbq_verified ON question_bank_questions(question_bank_id, is_verified, difficulty)");
+        log.info("Added verified fields to question_bank_questions.");
+    }
+
+    private boolean verifyQuestionBankQuestionsVerifiedFields() {
+        if (!hasTable("question_bank_questions")) return true;
+        return hasColumn("question_bank_questions", "is_verified")
+                && hasColumn("question_bank_questions", "verified_by")
+                && hasColumn("question_bank_questions", "verified_at")
+                && hasColumn("question_bank_questions", "verification_source");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V3 PHASE 1 — Journey skill_name + Question Bank skill_name
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private void patchJourneysSkillName() {
+        if (!hasTable("journeys")) {
+            log.debug("Table journeys does not exist yet, skipping.");
+            return;
+        }
+        executeSql("ALTER TABLE journeys ADD COLUMN IF NOT EXISTS skill_name VARCHAR(100)");
+        log.info("Added skill_name column to journeys.");
+    }
+
+    private boolean verifyJourneysSkillName() {
+        if (!hasTable("journeys")) return true;
+        return hasColumn("journeys", "skill_name");
+    }
+
+    private void patchQuestionBanksSkillName() {
+        if (!hasTable("question_banks")) {
+            log.debug("Table question_banks does not exist yet, skipping.");
+            return;
+        }
+        executeSql("ALTER TABLE question_banks ADD COLUMN IF NOT EXISTS skill_name VARCHAR(100)");
+        log.info("Added skill_name column to question_banks.");
+    }
+
+    private boolean verifyQuestionBanksSkillName() {
+        if (!hasTable("question_banks")) return true;
+        return hasColumn("question_banks", "skill_name");
     }
 }

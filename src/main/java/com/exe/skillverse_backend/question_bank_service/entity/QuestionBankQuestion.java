@@ -56,6 +56,25 @@ public class QuestionBankQuestion {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    /**
+     * [V3] Câu hỏi đã được xác thực bởi mentor/admin chưa.
+     * Production assessment chỉ sử dụng câu hỏi đã verified.
+     */
+    @Column(name = "is_verified", nullable = false)
+    @Builder.Default
+    private Boolean isVerified = false;
+
+    /** User ID của người verify câu hỏi */
+    @Column(name = "verified_by")
+    private Long verifiedBy;
+
+    @Column(name = "verified_at")
+    private LocalDateTime verifiedAt;
+
+    /** Nguồn verify: ADMIN_MANUAL, MENTOR_REVIEW, LEGACY_MIGRATION, AI_DRAFT_APPROVED */
+    @Column(name = "verification_source", length = 50)
+    private String verificationSource;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

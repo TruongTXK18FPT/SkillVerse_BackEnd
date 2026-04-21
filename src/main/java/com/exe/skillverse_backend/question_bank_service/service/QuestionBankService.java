@@ -13,6 +13,8 @@ import java.util.Optional;
 
 public interface QuestionBankService {
 
+    int MIN_READY_QUESTION_COUNT_PER_LEVEL = 50;
+
     QuestionBankResponse createBank(CreateQuestionBankRequest request);
 
     Page<QuestionBankSummaryResponse> listBanks(String domain, String industry, String jobRole, Pageable pageable);
@@ -35,7 +37,7 @@ public interface QuestionBankService {
      * Check whether a question bank has sufficient questions in ALL four difficulty levels
      * to meet the minimum pool size requirement for each level.
      * @param bankId the question bank ID
-     * @return true if every difficulty level has >= MIN_QUESTION_BANK_POOL_SIZE (200) active questions
+     * @return true if every difficulty level has >= MIN_READY_QUESTION_COUNT_PER_LEVEL active questions
      */
     boolean isBankReadyForAllLevels(Long bankId);
 

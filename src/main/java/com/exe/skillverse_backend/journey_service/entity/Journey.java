@@ -28,6 +28,7 @@ import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Entity representing a user's guided learning journey.
@@ -44,6 +45,12 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class Journey {
+
+    /**
+     * [V3] Chỉ cho phép 3 domain chính trong Phase 1.
+     * Journey cũ với domain khác vẫn giữ nguyên, chỉ chặn tạo mới.
+     */
+    public static final Set<String> ALLOWED_DOMAINS = Set.of("IT", "DESIGN", "BUSINESS");
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -100,6 +107,13 @@ public class Journey {
      */
     @Column(name = "goal", length = 100)
     private String goal;
+
+    /**
+     * [V3] Skill duy nhất được chọn cho journey này (e.g., "REACT", "JAVA_SPRING_BOOT").
+     * Mỗi journey chỉ gắn với 1 skill, thay vì multi-skill cũ.
+     */
+    @Column(name = "skill_name", length = 100)
+    private String skillName;
 
     /**
      * Current status of the journey

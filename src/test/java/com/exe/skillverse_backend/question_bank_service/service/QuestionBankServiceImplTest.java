@@ -23,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -140,6 +141,32 @@ class QuestionBankServiceImplTest {
 
         assertEquals(3, questions.size());
         assertEquals(2L, questions.stream().filter(q -> q.questionId().equals(2L)).findFirst().orElseThrow().questionId());
+    }
+
+    @Test
+    @DisplayName("isBankReadyForAllLevels should accept banks with at least 50 questions per difficulty")
+    void isBankReadyForAllLevels_ShouldAcceptFiftyQuestionsPerDifficulty() {
+        when(questionBankQuestionRepository.countByDifficulty(10L)).thenReturn(List.of(
+                new Object[]{"BEGINNER", 50L},
+                new Object[]{"INTERMEDIATE", 50L},
+                new Object[]{"ADVANCED", 50L},
+                new Object[]{"EXPERT", 50L}
+        ));
+
+        assertTrue(service.isBankReadyForAllLevels(10L));
+    }
+
+    @Test
+    @DisplayName("isBankReadyForAllLevels should reject banks with any difficulty below 50 questions")
+    void isBankReadyForAllLevels_ShouldRejectDifficultyBelowFifty() {
+        when(questionBankQuestionRepository.countByDifficulty(11L)).thenReturn(List.of(
+                new Object[]{"BEGINNER", 50L},
+                new Object[]{"INTERMEDIATE", 50L},
+                new Object[]{"ADVANCED", 50L},
+                new Object[]{"EXPERT", 49L}
+        ));
+
+        assertFalse(service.isBankReadyForAllLevels(11L));
     }
 
     @Test

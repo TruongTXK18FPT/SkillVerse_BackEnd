@@ -32,7 +32,7 @@ public interface QuestionBankQuestionRepository extends JpaRepository<QuestionBa
     long countByQuestionBankId(Long bankId);
 
     @Query(value = "SELECT * FROM question_bank_questions " +
-            "WHERE question_bank_id = :bankId AND is_active = true AND difficulty = :difficulty " +
+            "WHERE question_bank_id = :bankId AND is_active = true AND is_verified = true AND difficulty = :difficulty " +
             "ORDER BY RANDOM() LIMIT :limit",
             nativeQuery = true)
     List<QuestionBankQuestion> findRandomActiveByBankAndDifficulty(
@@ -41,7 +41,7 @@ public interface QuestionBankQuestionRepository extends JpaRepository<QuestionBa
             @Param("limit") int limit);
 
     @Query(value = "SELECT * FROM question_bank_questions " +
-            "WHERE question_bank_id = :bankId AND is_active = true AND id NOT IN (:excludeIds) " +
+            "WHERE question_bank_id = :bankId AND is_active = true AND is_verified = true AND id NOT IN (:excludeIds) " +
             "ORDER BY RANDOM() LIMIT :limit",
             nativeQuery = true)
     List<QuestionBankQuestion> findRandomActiveByBankExcluding(
@@ -51,7 +51,7 @@ public interface QuestionBankQuestionRepository extends JpaRepository<QuestionBa
 
     // ===== Level-targeted random selection (no exclude) =====
     @Query(value = "SELECT * FROM question_bank_questions " +
-            "WHERE question_bank_id = :bankId AND is_active = true AND difficulty = :difficulty " +
+            "WHERE question_bank_id = :bankId AND is_active = true AND is_verified = true AND difficulty = :difficulty " +
             "ORDER BY RANDOM() LIMIT :limit",
             nativeQuery = true)
     List<QuestionBankQuestion> findRandomActiveByBankAndDifficultyExact(
@@ -61,7 +61,7 @@ public interface QuestionBankQuestionRepository extends JpaRepository<QuestionBa
 
     // ===== Level-targeted random selection with exclude =====
     @Query(value = "SELECT * FROM question_bank_questions " +
-            "WHERE question_bank_id = :bankId AND is_active = true AND difficulty = :difficulty " +
+            "WHERE question_bank_id = :bankId AND is_active = true AND is_verified = true AND difficulty = :difficulty " +
             "AND id NOT IN (:excludeIds) ORDER BY RANDOM() LIMIT :limit",
             nativeQuery = true)
     List<QuestionBankQuestion> findRandomActiveByBankAndDifficultyExcluding(
@@ -95,7 +95,7 @@ public interface QuestionBankQuestionRepository extends JpaRepository<QuestionBa
 
     // ===== Select random questions by skill area + difficulty =====
     @Query(value = "SELECT * FROM question_bank_questions " +
-            "WHERE question_bank_id = :bankId AND is_active = true " +
+            "WHERE question_bank_id = :bankId AND is_active = true AND is_verified = true " +
             "AND skill_area = :skillArea AND difficulty = :difficulty " +
             "ORDER BY RANDOM() LIMIT :limit",
             nativeQuery = true)

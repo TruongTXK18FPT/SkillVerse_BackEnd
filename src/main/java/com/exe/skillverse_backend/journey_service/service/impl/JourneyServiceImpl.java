@@ -82,7 +82,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class JourneyServiceImpl implements JourneyService {
 
     private static final int MAX_ASSESSMENT_ATTEMPTS = 2;
-    private static final int MIN_QUESTION_BANK_POOL_SIZE = 200;
+    private static final int DEFAULT_RECOVERED_QUESTION_COUNT = 15;
     private static final int MIN_SKILL_JOURNEY_BANK_SEED_QUESTIONS = 5;
     private static final String QUESTION_BANK_PROMPT_MARKER = "question bank id=";
     private static final String FULL_QB_PROMPT_PREFIX = "Full QB: " + QUESTION_BANK_PROMPT_MARKER;
@@ -174,6 +174,17 @@ public class JourneyServiceImpl implements JourneyService {
     public JourneySummaryResponse startJourney(User user, StartJourneyRequest request) {
         log.info("Starting new journey for user: {} with domain: {}", user.getEmail(), request.getDomain());
 
+        // Validate V3 allowed domains
+        if (!Journey.ALLOWED_DOMAINS.contains(request.getDomain())) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Domain không hợp lệ. Hệ thống hiện chỉ hỗ trợ " + String.join(", ", Journey.ALLOWED_DOMAINS));
+        }
+
+        // V3: Extract single skillName from request if available
+        String skillName = null;
+        if (request.getSkills() != null && !request.getSkills().isEmpty()) {
+            skillName = request.getSkills().get(0);
+        }
+
         // Create journey entity
         Journey journey = Journey.builder()
                 .user(user)
@@ -184,6 +195,7 @@ public class JourneyServiceImpl implements JourneyService {
                 .industry(request.getIndustry())
                 .jobRole(request.getJobRole())
                 .goal(request.getGoal())
+                .skillName(skillName)
                 .status(Journey.JourneyStatus.ASSESSMENT_PENDING)
                 .assessmentData(convertRequestToJson(request))
                 .progressPercentage(0)
@@ -441,7 +453,8 @@ public class JourneyServiceImpl implements JourneyService {
 
     /**
      * Try to generate test from question bank.
-     * Uses per-difficulty threshold: ALL four levels must have >= MIN_QUESTION_BANK_POOL_SIZE.
+     * Uses per-difficulty threshold: ALL four levels must have
+     * >= QuestionBankService.MIN_READY_QUESTION_COUNT_PER_LEVEL.
      * Falls back to AI if any level is insufficient or bank is not found.
      * @return AssessmentTest if bank was used, null if bank should not be used
      */
@@ -520,7 +533,7 @@ public class JourneyServiceImpl implements JourneyService {
                     generationPrompt);
         }
 
-        // === Per-difficulty threshold: ALL 4 levels must be >= 200 ===
+        // === Per-difficulty threshold: ALL 4 levels must be >= 50 ===
         if (!questionBankService.isBankReadyForAllLevels(bankId)) {
             Map<String, Long> breakdown = bank.getDifficultyBreakdown();
             String detail = (breakdown != null)
@@ -529,7 +542,7 @@ public class JourneyServiceImpl implements JourneyService {
                             .collect(Collectors.joining(", "))
                     : "n/a";
             log.info("QB {} not ready (all levels must be >= {}): {}. Falling back to AI — questions will be saved to bank for future use.",
-                    bankId, MIN_QUESTION_BANK_POOL_SIZE, detail);
+                    bankId, QuestionBankService.MIN_READY_QUESTION_COUNT_PER_LEVEL, detail);
             return null;
         }
 
@@ -1069,7 +1082,7 @@ public class JourneyServiceImpl implements JourneyService {
             QuestionBankResponse bank = questionBankService.getBankById(bankId);
             int targetCount = test.getQuestionCount() != null && test.getQuestionCount() > 0
                     ? test.getQuestionCount()
-                    : MIN_QUESTION_BANK_POOL_SIZE;
+                    : DEFAULT_RECOVERED_QUESTION_COUNT;
 
             List<QuestionInfo> recoveredQuestions = questionBankService.selectRandomQuestions(
                     bankId, targetCount, bank.getDifficultyDistribution());

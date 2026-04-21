@@ -37,7 +37,6 @@ public class QuestionBankServiceImpl implements QuestionBankService {
     private static final String DEFAULT_DIFFICULTY_DISTRIBUTION =
             "{\"BEGINNER\":0.20,\"INTERMEDIATE\":0.35,\"ADVANCED\":0.30,\"EXPERT\":0.15}";
 
-    private static final int MIN_QUESTION_BANK_POOL_SIZE = 200;
     private static final String[] REQUIRED_DIFFICULTY_LEVELS = {"BEGINNER", "INTERMEDIATE", "ADVANCED", "EXPERT"};
 
     @Override
@@ -159,9 +158,9 @@ public class QuestionBankServiceImpl implements QuestionBankService {
         StringBuilder missingLevels = new StringBuilder();
         for (String level : REQUIRED_DIFFICULTY_LEVELS) {
             long count = difficultyBreakdown.getOrDefault(level, 0L);
-            if (count < MIN_QUESTION_BANK_POOL_SIZE) {
+            if (count < MIN_READY_QUESTION_COUNT_PER_LEVEL) {
                 if (missingLevels.length() > 0) missingLevels.append(", ");
-                missingLevels.append(level).append("(=").append(count).append("/").append(MIN_QUESTION_BANK_POOL_SIZE).append(")");
+                missingLevels.append(level).append("(=").append(count).append("/").append(MIN_READY_QUESTION_COUNT_PER_LEVEL).append(")");
             }
         }
 
@@ -171,7 +170,7 @@ public class QuestionBankServiceImpl implements QuestionBankService {
         }
 
         log.info("Question bank {} is ready for all 4 difficulty levels (all >= {} questions). Breakdown: {}",
-                bankId, MIN_QUESTION_BANK_POOL_SIZE, difficultyBreakdown);
+                bankId, MIN_READY_QUESTION_COUNT_PER_LEVEL, difficultyBreakdown);
         return true;
     }
 

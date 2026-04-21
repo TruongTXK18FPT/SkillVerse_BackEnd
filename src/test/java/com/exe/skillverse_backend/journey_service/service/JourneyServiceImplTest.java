@@ -239,7 +239,7 @@ class JourneyServiceImplTest {
 
         JourneySummaryResponse response = service.startJourney(user, StartJourneyRequest.builder()
                 .type("SKILL")
-                .domain("SERVICE")
+                .domain("BUSINESS")
                 .industry("CUSTOMER_SERVICE")
                 .subCategory("CUSTOMER_SERVICE")
                 .jobRole("CUSTOMER_SERVICE")
@@ -248,7 +248,7 @@ class JourneyServiceImplTest {
                 .skills(List.of("Communication Skills", "Complaint Resolution"))
                 .build());
 
-        assertEquals("SERVICE", response.getDomain());
+        assertEquals("BUSINESS", response.getDomain());
         assertEquals("CUSTOMER_SERVICE", response.getIndustry());
         assertEquals("CUSTOMER_SERVICE", response.getJobRole());
         assertEquals(Journey.JourneyStatus.ASSESSMENT_PENDING, response.getStatus());
