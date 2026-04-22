@@ -23,6 +23,7 @@ import com.exe.skillverse_backend.mentor_booking_service.repository.BookingDispu
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingReviewRepository;
 import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -68,6 +69,7 @@ public class BookingServiceImpl implements BookingService {
     private final ObjectMapper objectMapper;
     private final EmailService emailService;
     private final InvoiceService invoiceService;
+    private final JourneyRepository journeyRepository;
 
     @Value("${jitsi.base-url:https://meet.jit.si}")
     private String jitsiBaseUrl;
@@ -105,9 +107,21 @@ public class BookingServiceImpl implements BookingService {
                 .durationMinutes(request.getDurationMinutes())
                 .status(BookingStatus.PENDING)
                 .priceVnd(request.getPriceVnd())
+                .journeyId(request.getJourneyId())
+                .nodeId(request.getNodeId())
+                .nodeSkillId(request.getNodeSkillId())
+                .bookingType(request.getBookingType())
                 .build();
 
         Booking saved = bookingRepository.save(booking);
+
+        // V3 Phase 1: auto-set finalVerificationRequired when booking is JOURNEY_MENTORING
+        if ("JOURNEY_MENTORING".equals(request.getBookingType()) && request.getJourneyId() != null) {
+            journeyRepository.findById(request.getJourneyId()).ifPresent(journey -> {
+                journey.setFinalVerificationRequired(true);
+                journeyRepository.save(journey);
+            });
+        }
 
         walletService.freezeCashForBooking(learnerId, request.getPriceVnd(), saved.getId());
 
@@ -267,6 +281,28 @@ public class BookingServiceImpl implements BookingService {
         }
     }
 
+    /**
+     * V3 Phase 1: After a JOURNEY_MENTORING booking is voided (rejected/cancelled/refunded),
+     * check if the journey still has any active booking. If not, reset finalVerificationRequired
+     * to false so the learner can still complete the journey without being permanently blocked.
+     */
+    private void resetFinalVerificationIfNoActiveBooking(Booking booking) {
+        if (booking.getJourneyId() == null || !"JOURNEY_MENTORING".equals(booking.getBookingType())) {
+            return;
+        }
+        List<BookingStatus> activeStatuses = List.of(
+                BookingStatus.PENDING, BookingStatus.CONFIRMED,
+                BookingStatus.ONGOING, BookingStatus.PENDING_COMPLETION);
+        boolean hasActiveBooking = bookingRepository.existsActiveJourneyBookingForAnyMentor(
+                booking.getJourneyId(), activeStatuses);
+        if (!hasActiveBooking) {
+            journeyRepository.findById(booking.getJourneyId()).ifPresent(journey -> {
+                journey.setFinalVerificationRequired(false);
+                journeyRepository.save(journey);
+            });
+        }
+    }
+
     private void ensureLearnerIsNotMentor(User learner, User mentor) {
         if (learner != null && mentor != null && Objects.equals(learner.getId(), mentor.getId())) {
             throw new IllegalArgumentException("Bạn không thể tự đặt lịch với chính mình");
@@ -323,6 +359,10 @@ public class BookingServiceImpl implements BookingService {
         booking.setStatus(BookingStatus.REJECTED);
         booking.setMeetingLink(null);
         Booking saved = bookingRepository.save(booking);
+
+        // V3 Phase 1: if this was a JOURNEY_MENTORING booking and no active booking remains,
+        // reset finalVerificationRequired so learner is not permanently stuck.
+        resetFinalVerificationIfNoActiveBooking(saved);
 
         // Part 3: Idempotency check before refund
         boolean alreadyRefunded = transactionRepository.existsByReferenceIdAndReferenceTypeAndStatus(
@@ -958,16 +998,27 @@ public class BookingServiceImpl implements BookingService {
         if (!booking.getLearner().getId().equals(learnerId)) {
             throw new IllegalArgumentException("Không có quyền hủy booking này");
         }
-        if (booking.getStatus() != BookingStatus.PENDING && booking.getStatus() != BookingStatus.CONFIRMED) {
-            throw new IllegalStateException("Chỉ được hủy khi pending/confirmed");
-        }
-        if (LocalDateTime.now().isAfter(booking.getStartTime().minusDays(1))) {
-            throw new IllegalStateException("Chỉ hủy trước tối thiểu 1 ngày");
+        // V3 Phase 1: JOURNEY_MENTORING has no fixed session window.
+        // Once CONFIRMED the mentor has committed — learner cannot unilaterally cancel.
+        // Only PENDING (mentor not yet responded) is cancellable.
+        if ("JOURNEY_MENTORING".equals(booking.getBookingType())) {
+            if (booking.getStatus() != BookingStatus.PENDING) {
+                throw new IllegalStateException(
+                        "Booking hỗ trợ hành trình chỉ có thể hủy khi mentor chưa xác nhận. Liên hệ admin nếu cần hỗ trợ.");
+            }
+        } else {
+            if (booking.getStatus() != BookingStatus.PENDING && booking.getStatus() != BookingStatus.CONFIRMED) {
+                throw new IllegalStateException("Chỉ được hủy khi pending/confirmed");
+            }
+            if (LocalDateTime.now().isAfter(booking.getStartTime().minusDays(1))) {
+                throw new IllegalStateException("Chỉ hủy trước tối thiểu 1 ngày");
+            }
         }
 
         booking.setStatus(BookingStatus.CANCELLED);
         booking.setMeetingLink(null);
         Booking saved = bookingRepository.save(booking);
+        resetFinalVerificationIfNoActiveBooking(saved);
 
         // Part 3: Throw exception on unfreeze failure instead of swallowing
         walletService.unfreezeForBooking(learnerId, saved.getPriceVnd(), saved.getId());
@@ -1176,6 +1227,9 @@ public class BookingServiceImpl implements BookingService {
                 .learnerName(learnerName)
                 .learnerAvatar(learnerAvatar)
                 .disputeId(disputeRepository.findByBooking_Id(booking.getId()).map(d -> d.getId()).orElse(null))
+                .journeyId(booking.getJourneyId())
+                .nodeId(booking.getNodeId())
+                .bookingType(booking.getBookingType())
                 .chatAllowed(isChatAllowed(booking))
                 .build();
     }

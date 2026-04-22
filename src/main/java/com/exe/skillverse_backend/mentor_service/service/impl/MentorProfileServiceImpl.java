@@ -17,12 +17,14 @@ import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.mentor_service.service.MentorProfileService;
+import com.exe.skillverse_backend.mentor_verification_service.repository.MentorSkillVerificationRequestRepository;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 import com.exe.skillverse_backend.shared.service.MediaService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -84,6 +86,7 @@ public class MentorProfileServiceImpl implements MentorProfileService {
     private final MediaRepository mediaRepository;
     private final MediaService mediaService;
     private final ObjectMapper objectMapper;
+    private final MentorSkillVerificationRequestRepository verificationRequestRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -807,5 +810,45 @@ public class MentorProfileServiceImpl implements MentorProfileService {
             }
         }
         return new String[0];
+    }
+
+    // ─── Skill Verification Methods ────────────────────────────────────────────
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MentorProfileResponse> findMentorsByVerifiedSkill(String skillName) {
+        if (skillName == null || skillName.isBlank()) {
+            return List.of();
+        }
+        String normalizedSkill = SkillNameUtils.normalize(skillName);
+
+        List<User> mentors = verificationRequestRepository.findMentorsByVerifiedSkill(normalizedSkill);
+
+        return mentors.stream()
+                .map(mentor -> mentorProfileRepository.findByUserId(mentor.getId()))
+                .flatMap(Optional::stream)
+                .filter(profile -> profile.getApplicationStatus() == ApplicationStatus.APPROVED)
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> getVerifiedSkillsByMentorId(Long mentorId) {
+        return verificationRequestRepository.findApprovedByMentorId(mentorId)
+                .stream()
+                .map(req -> req.getSkillName())
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean hasVerifiedSkill(Long mentorId, String skillName) {
+        if (skillName == null || skillName.isBlank()) {
+            return false;
+        }
+        String normalizedSkill = SkillNameUtils.normalize(skillName);
+        return verificationRequestRepository.existsVerifiedSkill(mentorId, normalizedSkill);
     }
 }

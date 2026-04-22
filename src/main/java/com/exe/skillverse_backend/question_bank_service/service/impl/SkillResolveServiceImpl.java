@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.question_bank_service.service.QuestionBankServ
 import com.exe.skillverse_backend.question_bank_service.service.SkillResolveService;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -334,14 +335,7 @@ public class SkillResolveServiceImpl implements SkillResolveService {
     // ================================================================
 
     private String normalizeSkillName(String skillName) {
-        if (skillName == null || skillName.isBlank()) {
-            throw new ApiException(ErrorCode.BAD_REQUEST, "Skill name is required");
-        }
-        return skillName.trim()
-                .replaceAll("[^a-zA-Z0-9]+", "_")
-                .replaceAll("^_+|_+$", "")
-                .replaceAll("_+", "_")
-                .toUpperCase(Locale.ROOT);
+        return SkillNameUtils.normalizeRequired(skillName);
     }
 
     private String formatSkillLabel(String normalizedSkill) {

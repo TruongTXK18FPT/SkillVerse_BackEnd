@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingDisputeEvidenceRepository;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingDisputeRepository;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingDisputeResponseRepository;
+import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
 import com.exe.skillverse_backend.mentor_booking_service.service.impl.BookingDisputeServiceImpl;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
@@ -62,6 +63,9 @@ class BookingDisputeServiceImplTest {
     @Mock
     private WalletService walletService;
 
+    @Mock
+    private JourneyRepository journeyRepository;
+
     private BookingDisputeServiceImpl service;
 
     @BeforeEach
@@ -73,7 +77,8 @@ class BookingDisputeServiceImplTest {
                 responseRepository,
                 userRepository,
                 notificationService,
-                walletService);
+                walletService,
+                journeyRepository);
         lenient().when(disputeRepository.save(any(BookingDispute.class))).thenAnswer(invocation -> {
             BookingDispute dispute = invocation.getArgument(0);
             if (dispute.getId() == null) {

@@ -174,6 +174,20 @@ public class Journey {
     @Column(name = "last_activity_at")
     private Instant lastActivityAt;
 
+    // ─── V3 Phase 1: final verification gate flags ─────────────────────────────
+    // Null/false for legacy journeys so the gate only enforces on new flows.
+    @Builder.Default
+    @Column(name = "final_verification_required")
+    private Boolean finalVerificationRequired = false;
+
+    @Builder.Default
+    @Column(name = "node_locked_after_verify")
+    private Boolean nodeLockedAfterVerify = false;
+
+    @Builder.Default
+    @Column(name = "journey_output_verification_required")
+    private Boolean journeyOutputVerificationRequired = false;
+
     @Builder.Default
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
@@ -205,7 +219,11 @@ public class Journey {
         ACTIVE,
         COMPLETED,
         PAUSED,
-        CANCELLED
+        CANCELLED,
+        // V3 Phase 1 — node mentoring / final verification gate lifecycle
+        COMPLETED_UNVERIFIED,
+        AWAITING_VERIFICATION,
+        COMPLETED_VERIFIED
     }
 
     /**

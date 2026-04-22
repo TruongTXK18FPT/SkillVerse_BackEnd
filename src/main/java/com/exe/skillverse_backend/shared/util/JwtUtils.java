@@ -61,4 +61,5 @@ public final class JwtUtils {
                 "Cannot extract userId: authentication is not a JwtAuthenticationToken (was: "
                 + authentication.getClass().getSimpleName() + ")");
     }
+
 }

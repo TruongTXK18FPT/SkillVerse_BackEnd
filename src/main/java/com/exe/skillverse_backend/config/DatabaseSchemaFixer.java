@@ -357,6 +357,25 @@ public class DatabaseSchemaFixer {
                     this::patchQuestionBanksSkillName,
                     this::verifyQuestionBanksSkillName);
 
+            // ═══════════════════════════════════════════════════════════════════
+            // V3 PHASE 1 — Node Mentoring + Final Verification Gate
+            // ═══════════════════════════════════════════════════════════════════
+
+            applyPatch("v3-node-mentoring-core-tables",
+                    "Create node mentoring core tables: assignments, submissions, reviews, verifications, output assessments, completion reports",
+                    this::patchNodeMentoringCoreTables,
+                    this::verifyNodeMentoringCoreTables);
+
+            applyPatch("v3-mentor-bookings-node-context",
+                    "Add optional node/journey context columns to mentor_bookings",
+                    this::patchMentorBookingsNodeContext,
+                    this::verifyMentorBookingsNodeContext);
+
+            applyPatch("v3-journey-final-gate-flags",
+                    "Add final verification gate flag columns to journeys",
+                    this::patchJourneyFinalGateFlags,
+                    this::verifyJourneyFinalGateFlags);
+
             applyPatch("v3-create-question-bank-submissions",
                     "Create question_bank_submissions and question_bank_submission_questions tables for mentor contribution review flow",
                     this::patchQuestionBankSubmissionTables,
@@ -366,6 +385,26 @@ public class DatabaseSchemaFixer {
                     "Add primary_skill column to job_postings and short_term_jobs",
                     this::patchJobPostingsPrimarySkill,
                     this::verifyJobPostingsPrimarySkill);
+
+            // ─── V3 Phase 1 — journeys status check constraint ─────────────────
+            // Old constraint was created before V3 and does not include
+            // COMPLETED_UNVERIFIED / AWAITING_VERIFICATION / COMPLETED_VERIFIED.
+            // Attempting to set status = COMPLETED_UNVERIFIED raises:
+            //   DataIntegrityViolationException: journeys_status_check
+            applyPatch("v3-fix-journeys-status-constraint",
+                    "Recreate journeys_status_check to include V3 Phase 1 statuses (COMPLETED_UNVERIFIED, AWAITING_VERIFICATION, COMPLETED_VERIFIED)",
+                    this::patchJourneysStatusConstraint,
+                    this::verifyJourneysStatusConstraint);
+
+            // ─── V3 Phase 1 — normalize legacy mentor skill_name values ────────
+            // Skills entered as "BACKEND", "BACK_END", "back end", "back-end" etc.
+            // must resolve to the same canonical form so the separator-agnostic
+            // REGEXP_REPLACE query in MentorSkillVerificationRequestRepository works
+            // for both stored values and incoming query parameters.
+            applyPatch("v3-normalize-mentor-skill-names",
+                    "Normalize legacy skill_name values in mentor_skill_verification_requests to UPPER_SNAKE canonical form",
+                    this::patchNormalizeMentorSkillNames,
+                    this::verifyNormalizeMentorSkillNames);
 
             log.info("Schema patch infrastructure ready.");
         } finally {
@@ -2305,6 +2344,219 @@ public class DatabaseSchemaFixer {
         return hasColumn("question_banks", "skill_name");
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V3 PHASE 1 — Node Mentoring core tables
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    private void patchNodeMentoringCoreTables() {
+        // roadmap_node_assignments — snapshot assignment hiện tại của node
+        if (!hasTable("roadmap_node_assignments")) {
+            executeSql("""
+                CREATE TABLE roadmap_node_assignments (
+                    id BIGSERIAL PRIMARY KEY,
+                    journey_id BIGINT NOT NULL,
+                    roadmap_session_id BIGINT,
+                    node_id VARCHAR(100) NOT NULL,
+                    node_skill_id BIGINT,
+                    assignment_source VARCHAR(30) NOT NULL DEFAULT 'SYSTEM_GENERATED',
+                    title VARCHAR(255),
+                    description TEXT,
+                    created_by BIGINT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ,
+                    CONSTRAINT fk_rna_journey FOREIGN KEY (journey_id) REFERENCES journeys(id) ON DELETE CASCADE,
+                    CONSTRAINT chk_rna_source CHECK (assignment_source IN ('SYSTEM_GENERATED','MENTOR_REFINED'))
+                )
+            """);
+            executeSql("CREATE INDEX IF NOT EXISTS idx_rna_journey_node ON roadmap_node_assignments(journey_id, node_id)");
+            log.info("Created roadmap_node_assignments table.");
+        }
+
+        // roadmap_node_submissions — evidence record hiện tại của learner
+        if (!hasTable("roadmap_node_submissions")) {
+            executeSql("""
+                CREATE TABLE roadmap_node_submissions (
+                    id BIGSERIAL PRIMARY KEY,
+                    journey_id BIGINT NOT NULL,
+                    roadmap_session_id BIGINT,
+                    node_id VARCHAR(100) NOT NULL,
+                    assignment_id BIGINT,
+                    learner_id BIGINT NOT NULL,
+                    submission_text TEXT NOT NULL,
+                    evidence_url VARCHAR(1000),
+                    attachment_url VARCHAR(1000),
+                    submission_status VARCHAR(30) NOT NULL DEFAULT 'SUBMITTED',
+                    verification_status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+                    mentor_feedback TEXT,
+                    submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ,
+                    CONSTRAINT fk_rns_journey FOREIGN KEY (journey_id) REFERENCES journeys(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_rns_assignment FOREIGN KEY (assignment_id) REFERENCES roadmap_node_assignments(id),
+                    CONSTRAINT fk_rns_learner FOREIGN KEY (learner_id) REFERENCES users(id),
+                    CONSTRAINT chk_rns_submission_status CHECK (submission_status IN ('DRAFT','SUBMITTED','REWORK_REQUESTED','RESUBMITTED','WITHDRAWN')),
+                    CONSTRAINT chk_rns_verification_status CHECK (verification_status IN ('PENDING','UNDER_REVIEW','APPROVED','REJECTED','VERIFIED')),
+                    CONSTRAINT uq_rns_current UNIQUE (journey_id, node_id)
+                )
+            """);
+            executeSql("CREATE INDEX IF NOT EXISTS idx_rns_learner_status ON roadmap_node_submissions(learner_id, verification_status)");
+            log.info("Created roadmap_node_submissions table.");
+        }
+
+        // roadmap_node_reviews — mentor review record
+        if (!hasTable("roadmap_node_reviews")) {
+            executeSql("""
+                CREATE TABLE roadmap_node_reviews (
+                    id BIGSERIAL PRIMARY KEY,
+                    submission_id BIGINT NOT NULL,
+                    mentor_id BIGINT NOT NULL,
+                    booking_id BIGINT,
+                    score INTEGER,
+                    feedback TEXT,
+                    review_result VARCHAR(30) NOT NULL,
+                    reviewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT fk_rnr_submission FOREIGN KEY (submission_id) REFERENCES roadmap_node_submissions(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_rnr_mentor FOREIGN KEY (mentor_id) REFERENCES users(id),
+                    CONSTRAINT fk_rnr_booking FOREIGN KEY (booking_id) REFERENCES mentor_bookings(id),
+                    CONSTRAINT chk_rnr_result CHECK (review_result IN ('APPROVED','REWORK_REQUESTED','REJECTED'))
+                )
+            """);
+            executeSql("CREATE INDEX IF NOT EXISTS idx_rnr_submission ON roadmap_node_reviews(submission_id)");
+            executeSql("CREATE INDEX IF NOT EXISTS idx_rnr_mentor ON roadmap_node_reviews(mentor_id)");
+            log.info("Created roadmap_node_reviews table.");
+        }
+
+        // roadmap_node_verifications — mentor node verification record
+        if (!hasTable("roadmap_node_verifications")) {
+            executeSql("""
+                CREATE TABLE roadmap_node_verifications (
+                    id BIGSERIAL PRIMARY KEY,
+                    submission_id BIGINT NOT NULL,
+                    mentor_id BIGINT NOT NULL,
+                    booking_id BIGINT,
+                    node_verification_status VARCHAR(30) NOT NULL,
+                    verification_note TEXT,
+                    verified_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT fk_rnv_submission FOREIGN KEY (submission_id) REFERENCES roadmap_node_submissions(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_rnv_mentor FOREIGN KEY (mentor_id) REFERENCES users(id),
+                    CONSTRAINT fk_rnv_booking FOREIGN KEY (booking_id) REFERENCES mentor_bookings(id),
+                    CONSTRAINT chk_rnv_status CHECK (node_verification_status IN ('VERIFIED','REJECTED'))
+                )
+            """);
+            executeSql("CREATE INDEX IF NOT EXISTS idx_rnv_submission ON roadmap_node_verifications(submission_id)");
+            log.info("Created roadmap_node_verifications table.");
+        }
+
+        // journey_output_assessments — optional final output assessment
+        if (!hasTable("journey_output_assessments")) {
+            executeSql("""
+                CREATE TABLE journey_output_assessments (
+                    id BIGSERIAL PRIMARY KEY,
+                    journey_id BIGINT NOT NULL,
+                    learner_id BIGINT NOT NULL,
+                    mentor_id BIGINT,
+                    submission_text TEXT,
+                    evidence_url VARCHAR(1000),
+                    attachment_url VARCHAR(1000),
+                    score INTEGER,
+                    feedback TEXT,
+                    assessment_status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+                    submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    assessed_at TIMESTAMPTZ,
+                    CONSTRAINT fk_joa_journey FOREIGN KEY (journey_id) REFERENCES journeys(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_joa_learner FOREIGN KEY (learner_id) REFERENCES users(id),
+                    CONSTRAINT fk_joa_mentor FOREIGN KEY (mentor_id) REFERENCES users(id),
+                    CONSTRAINT chk_joa_status CHECK (assessment_status IN ('PENDING','APPROVED','REJECTED'))
+                )
+            """);
+            executeSql("CREATE INDEX IF NOT EXISTS idx_joa_journey ON journey_output_assessments(journey_id)");
+            log.info("Created journey_output_assessments table.");
+        }
+
+        // journey_completion_reports — final mentor confirmation / gate decision
+        if (!hasTable("journey_completion_reports")) {
+            executeSql("""
+                CREATE TABLE journey_completion_reports (
+                    id BIGSERIAL PRIMARY KEY,
+                    journey_id BIGINT NOT NULL,
+                    mentor_id BIGINT NOT NULL,
+                    booking_id BIGINT,
+                    gate_decision VARCHAR(30) NOT NULL,
+                    completion_note TEXT,
+                    confirmed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT fk_jcr_journey FOREIGN KEY (journey_id) REFERENCES journeys(id) ON DELETE CASCADE,
+                    CONSTRAINT fk_jcr_mentor FOREIGN KEY (mentor_id) REFERENCES users(id),
+                    CONSTRAINT fk_jcr_booking FOREIGN KEY (booking_id) REFERENCES mentor_bookings(id),
+                    CONSTRAINT chk_jcr_decision CHECK (gate_decision IN ('PASS','FAIL','PENDING'))
+                )
+            """);
+            executeSql("CREATE INDEX IF NOT EXISTS idx_jcr_journey ON journey_completion_reports(journey_id)");
+            log.info("Created journey_completion_reports table.");
+        }
+    }
+
+    private boolean verifyNodeMentoringCoreTables() {
+        return hasTable("roadmap_node_assignments")
+                && hasTable("roadmap_node_submissions")
+                && hasTable("roadmap_node_reviews")
+                && hasTable("roadmap_node_verifications")
+                && hasTable("journey_output_assessments")
+                && hasTable("journey_completion_reports")
+                && hasColumn("roadmap_node_submissions", "submission_text")
+                && hasColumn("roadmap_node_submissions", "verification_status")
+                && hasColumn("journey_completion_reports", "gate_decision");
+    }
+
+    // ─── mentor_bookings node/journey context ──────────────────────────────────
+
+    private void patchMentorBookingsNodeContext() {
+        if (!hasTable("mentor_bookings")) {
+            log.debug("Table mentor_bookings does not exist yet, skipping.");
+            return;
+        }
+        executeSql("""
+            ALTER TABLE mentor_bookings
+                ADD COLUMN IF NOT EXISTS journey_id BIGINT,
+                ADD COLUMN IF NOT EXISTS roadmap_session_id BIGINT,
+                ADD COLUMN IF NOT EXISTS node_id VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS node_skill_id BIGINT,
+                ADD COLUMN IF NOT EXISTS booking_type VARCHAR(30)
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_mb_journey_node ON mentor_bookings(journey_id, node_id)");
+        log.info("Added node/journey context columns to mentor_bookings.");
+    }
+
+    private boolean verifyMentorBookingsNodeContext() {
+        if (!hasTable("mentor_bookings")) return true;
+        return hasColumn("mentor_bookings", "journey_id")
+                && hasColumn("mentor_bookings", "roadmap_session_id")
+                && hasColumn("mentor_bookings", "node_id")
+                && hasColumn("mentor_bookings", "node_skill_id")
+                && hasColumn("mentor_bookings", "booking_type");
+    }
+
+    // ─── journeys final gate flags ─────────────────────────────────────────────
+
+    private void patchJourneyFinalGateFlags() {
+        if (!hasTable("journeys")) {
+            log.debug("Table journeys does not exist yet, skipping.");
+            return;
+        }
+        executeSql("""
+            ALTER TABLE journeys
+                ADD COLUMN IF NOT EXISTS final_verification_required BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS node_locked_after_verify BOOLEAN DEFAULT FALSE,
+                ADD COLUMN IF NOT EXISTS journey_output_verification_required BOOLEAN DEFAULT FALSE
+        """);
+        log.info("Added final gate flag columns to journeys.");
+    }
+
+    private boolean verifyJourneyFinalGateFlags() {
+        if (!hasTable("journeys")) return true;
+        return hasColumn("journeys", "final_verification_required")
+                && hasColumn("journeys", "node_locked_after_verify")
+                && hasColumn("journeys", "journey_output_verification_required");
+    }
+
     private void patchQuestionBankSubmissionTables() {
         if (!hasTable("question_bank_submissions")) {
             executeSql("""
@@ -2369,5 +2621,104 @@ public class DatabaseSchemaFixer {
                 && hasTable("question_bank_submission_questions")
                 && hasColumn("question_bank_submission_questions", "submission_id")
                 && hasColumn("question_bank_submission_questions", "question_text");
+    }
+
+    // ─── V3 Phase 1 — journeys status check constraint ───────────────────────
+
+    private void patchJourneysStatusConstraint() {
+        if (!hasTable("journeys")) {
+            log.debug("Table journeys does not exist yet, skipping.");
+            return;
+        }
+        executeSql("ALTER TABLE journeys DROP CONSTRAINT IF EXISTS journeys_status_check");
+        executeSql("""
+            ALTER TABLE journeys ADD CONSTRAINT journeys_status_check CHECK (
+                status IN (
+                    'NOT_STARTED',
+                    'ASSESSMENT_PENDING',
+                    'TEST_IN_PROGRESS',
+                    'EVALUATION_PENDING',
+                    'ROADMAP_GENERATED',
+                    'STUDY_PLAN_IN_PROGRESS',
+                    'ACTIVE',
+                    'COMPLETED',
+                    'PAUSED',
+                    'CANCELLED',
+                    'COMPLETED_UNVERIFIED',
+                    'AWAITING_VERIFICATION',
+                    'COMPLETED_VERIFIED'
+                )
+            )
+        """);
+        log.info("Recreated journeys_status_check to include V3 Phase 1 statuses.");
+    }
+
+    private boolean verifyJourneysStatusConstraint() {
+        if (!hasTable("journeys")) return true;
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) AS constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'journeys'
+              AND c.conname = 'journeys_status_check'
+        """);
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) return false;
+        String def = results.get(0).get("constraint_def").toString();
+        return def.contains("COMPLETED_UNVERIFIED")
+                && def.contains("AWAITING_VERIFICATION")
+                && def.contains("COMPLETED_VERIFIED");
+    }
+
+    // ─── V3 Phase 1 — normalize legacy mentor skill_name values ──────────────
+
+    private void patchNormalizeMentorSkillNames() {
+        if (!hasTable("mentor_skill_verification_requests")) {
+            log.debug("Table mentor_skill_verification_requests does not exist yet, skipping.");
+            return;
+        }
+        // Apply same normalization used in MentorVerificationServiceImpl.normalizeSkillName():
+        // strip non-alphanumeric → single underscores → trim leading/trailing underscores → UPPER.
+        // This ensures "BACKEND", "BACK_END", "back end", "back-end" all converge to canonical form.
+        executeSql("""
+            UPDATE mentor_skill_verification_requests
+            SET skill_name = UPPER(
+                REGEXP_REPLACE(
+                    REGEXP_REPLACE(
+                        TRIM(skill_name),
+                        '[^a-zA-Z0-9]+', '_', 'g'
+                    ),
+                    '^_+|_+$', '', 'g'
+                )
+            )
+            WHERE skill_name IS NOT NULL
+              AND skill_name <> UPPER(
+                REGEXP_REPLACE(
+                    REGEXP_REPLACE(
+                        TRIM(skill_name),
+                        '[^a-zA-Z0-9]+', '_', 'g'
+                    ),
+                    '^_+|_+$', '', 'g'
+                )
+              )
+        """);
+        log.info("Normalized legacy skill_name values in mentor_skill_verification_requests.");
+    }
+
+    private boolean verifyNormalizeMentorSkillNames() {
+        if (!hasTable("mentor_skill_verification_requests")) return true;
+        // Patch is idempotent: verify no rows remain where skill_name differs from canonical form.
+        Integer unnormalized = jdbcTemplate.queryForObject("""
+            SELECT COUNT(*) FROM mentor_skill_verification_requests
+            WHERE skill_name IS NOT NULL
+              AND skill_name <> UPPER(
+                REGEXP_REPLACE(
+                    REGEXP_REPLACE(TRIM(skill_name), '[^a-zA-Z0-9]+', '_', 'g'),
+                    '^_+|_+$', '', 'g'
+                )
+              )
+        """, Integer.class);
+        return unnormalized != null && unnormalized == 0;
     }
 }

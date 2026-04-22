@@ -92,6 +92,23 @@ public class Booking {
     @Column(name = "completion_deadline")
     private LocalDateTime completionDeadline;
 
+    // ─── V3 Phase 1: optional node/journey context ─────────────────────────────
+    // Null for legacy bookings; populated when booking is created from a roadmap node flow.
+    @Column(name = "journey_id")
+    private Long journeyId;
+
+    @Column(name = "roadmap_session_id")
+    private Long roadmapSessionId;
+
+    @Column(name = "node_id", length = 100)
+    private String nodeId;
+
+    @Column(name = "node_skill_id")
+    private Long nodeSkillId;
+
+    @Column(name = "booking_type", length = 30)
+    private String bookingType;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdAt = LocalDateTime.now();

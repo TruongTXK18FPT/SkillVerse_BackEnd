@@ -50,4 +50,44 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
               and (b.mentor.id = :userId or b.learner.id = :userId)
             """)
     Optional<Booking> findAccessibleBooking(@Param("bookingId") Long bookingId, @Param("userId") Long userId);
+
+    // ─── V3 Phase 1: node mentoring authorization ──────────────────────────────
+    // A mentor is authorized to review/verify a given (journey, node) only if they
+    // have at least one booking in one of the active statuses passed in.
+    @Query("""
+            select case when count(b) > 0 then true else false end from Booking b
+            where b.mentor.id = :mentorId
+              and b.journeyId = :journeyId
+              and b.nodeId = :nodeId
+              and b.status in :statuses
+            """)
+    boolean existsActiveNodeBookingForMentor(
+            @Param("mentorId") Long mentorId,
+            @Param("journeyId") Long journeyId,
+            @Param("nodeId") String nodeId,
+            @Param("statuses") Collection<BookingStatus> statuses);
+
+    // Journey-level variant: used by FinalVerificationGateService to authorise a
+    // mentor submitting a journey completion report / assessing the final output.
+    @Query("""
+            select case when count(b) > 0 then true else false end from Booking b
+            where b.mentor.id = :mentorId
+              and b.journeyId = :journeyId
+              and b.status in :statuses
+            """)
+    boolean existsActiveJourneyBookingForMentor(
+            @Param("mentorId") Long mentorId,
+            @Param("journeyId") Long journeyId,
+            @Param("statuses") Collection<BookingStatus> statuses);
+
+    // Learner-side check: does this journey have ANY active mentor booking?
+    // Used to guard output assessment submission — only allowed when learner has booked a mentor.
+    @Query("""
+            select case when count(b) > 0 then true else false end from Booking b
+            where b.journeyId = :journeyId
+              and b.status in :statuses
+            """)
+    boolean existsActiveJourneyBookingForAnyMentor(
+            @Param("journeyId") Long journeyId,
+            @Param("statuses") Collection<BookingStatus> statuses);
 }

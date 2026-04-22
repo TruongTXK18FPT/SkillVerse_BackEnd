@@ -64,4 +64,19 @@ public interface MentorProfileService {
      * Get total students count across all mentor's courses
      */
     long getTotalStudentsCount(Long mentorId);
+
+    /**
+     * Find mentors by verified skill name (APPROVED status only)
+     */
+    List<MentorProfileResponse> findMentorsByVerifiedSkill(String skillName);
+
+    /**
+     * Get verified skills for a specific mentor
+     */
+    List<String> getVerifiedSkillsByMentorId(Long mentorId);
+
+    /**
+     * Check if mentor has a specific verified skill
+     */
+    boolean hasVerifiedSkill(Long mentorId, String skillName);
 }

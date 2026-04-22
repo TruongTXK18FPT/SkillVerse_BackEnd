@@ -17,6 +17,7 @@ import com.exe.skillverse_backend.portfolio_service.repository.ExternalCertifica
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -50,7 +51,7 @@ public class MentorVerificationServiceImpl implements MentorVerificationService 
     @Override
     @Transactional
     public MentorVerificationResponse submitVerification(User mentor, CreateMentorVerificationRequest request) {
-        String normalizedSkill = normalizeSkillName(request.getSkillName());
+        String normalizedSkill = SkillNameUtils.normalizeRequired(request.getSkillName());
 
         // [Nghiệp vụ] Không cho gửi request nếu skill đã PENDING hoặc APPROVED
         requestRepository.findByMentorAndSkillAndStatusIn(
@@ -227,17 +228,6 @@ public class MentorVerificationServiceImpl implements MentorVerificationService 
     }
 
     // ─── Helpers ───────────────────────────────────────────────────────────────
-
-    private String normalizeSkillName(String skillName) {
-        if (skillName == null || skillName.isBlank()) {
-            throw new BadRequestException("Skill name is required.");
-        }
-        return skillName.trim()
-                .replaceAll("[^a-zA-Z0-9]+", "_")
-                .replaceAll("^_+|_+$", "")
-                .replaceAll("_+", "_")
-                .toUpperCase();
-    }
 
     private MentorVerificationResponse mapToResponse(MentorSkillVerificationRequest request) {
         User mentor = request.getMentor();

@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.mentor_booking_service.service.impl;
 
+import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingDisputeRepository;
@@ -27,6 +28,7 @@ public class BookingAutoCancelSchedulerImpl {
     private final WalletServiceImpl walletService;
     private final NotificationServiceImpl notificationService;
     private final WalletTransactionRepository transactionRepository;
+    private final JourneyRepository journeyRepository;
 
     /**
      * Part 3+5: Auto-cancel bookings PENDING for >24h from creation (mentor never responded).
@@ -42,6 +44,7 @@ public class BookingAutoCancelSchedulerImpl {
             booking.setStatus(BookingStatus.CANCELLED);
             booking.setMeetingLink(null);
             bookingRepository.save(booking);
+            resetFinalVerificationIfNoActiveBooking(booking);
 
             // Part 3: Idempotency check before refund
             boolean alreadyCancelled = transactionRepository.existsByReferenceIdAndReferenceTypeAndStatus(
@@ -82,6 +85,7 @@ public class BookingAutoCancelSchedulerImpl {
             booking.setStatus(BookingStatus.CANCELLED);
             booking.setMeetingLink(null);
             bookingRepository.save(booking);
+            resetFinalVerificationIfNoActiveBooking(booking);
 
             // Idempotency check
             boolean alreadyRefunded = transactionRepository.existsByReferenceIdAndReferenceTypeAndStatus(
@@ -153,6 +157,23 @@ public class BookingAutoCancelSchedulerImpl {
                     NotificationType.BOOKING_COMPLETED,
                     booking.getId().toString(),
                     booking.getMentor().getId());
+        }
+    }
+
+    private void resetFinalVerificationIfNoActiveBooking(Booking booking) {
+        if (booking.getJourneyId() == null || !"JOURNEY_MENTORING".equals(booking.getBookingType())) {
+            return;
+        }
+        List<BookingStatus> activeStatuses = List.of(
+                BookingStatus.PENDING, BookingStatus.CONFIRMED,
+                BookingStatus.ONGOING, BookingStatus.PENDING_COMPLETION);
+        boolean hasActiveBooking = bookingRepository.existsActiveJourneyBookingForAnyMentor(
+                booking.getJourneyId(), activeStatuses);
+        if (!hasActiveBooking) {
+            journeyRepository.findById(booking.getJourneyId()).ifPresent(journey -> {
+                journey.setFinalVerificationRequired(false);
+                journeyRepository.save(journey);
+            });
         }
     }
 }

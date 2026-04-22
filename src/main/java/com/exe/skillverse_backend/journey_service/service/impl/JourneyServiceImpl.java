@@ -22,6 +22,7 @@ import com.exe.skillverse_backend.journey_service.entity.JourneyProgress;
 import com.exe.skillverse_backend.journey_service.entity.TestResult;
 import com.exe.skillverse_backend.journey_service.repository.AssessmentTestRepository;
 import com.exe.skillverse_backend.journey_service.repository.JourneyProgressRepository;
+import com.exe.skillverse_backend.journey_service.node_mentoring.service.FinalVerificationGateService;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.journey_service.repository.TestResultRepository;
 import com.exe.skillverse_backend.journey_service.service.JourneyService;
@@ -41,6 +42,7 @@ import com.exe.skillverse_backend.question_bank_service.service.QuestionBankServ
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankQuestionService;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
@@ -105,6 +107,7 @@ public class JourneyServiceImpl implements JourneyService {
     private final AssessmentTestRepository assessmentTestRepository;
     private final TestResultRepository testResultRepository;
     private final JourneyProgressRepository journeyProgressRepository;
+    private final FinalVerificationGateService finalVerificationGateService;
     private final EntityManager entityManager;
 
     @Qualifier("generateTestChatModel")
@@ -182,7 +185,7 @@ public class JourneyServiceImpl implements JourneyService {
         // V3: Extract single skillName from request if available
         String skillName = null;
         if (request.getSkills() != null && !request.getSkills().isEmpty()) {
-            skillName = request.getSkills().get(0);
+            skillName = SkillNameUtils.normalize(request.getSkills().get(0));
         }
 
         // Create journey entity
@@ -375,7 +378,14 @@ public class JourneyServiceImpl implements JourneyService {
         Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
                 .orElseThrow(() -> new RuntimeException("Journey not found"));
 
-        journey.setStatus(Journey.JourneyStatus.COMPLETED);
+        // V3 Phase 1: hard-gate on final verification when enabled on the journey.
+        // Throws ApiException(CONFLICT) with blocking reasons if not passed.
+        finalVerificationGateService.requireGatePassed(journey);
+
+        Journey.JourneyStatus finalStatus = Boolean.TRUE.equals(journey.getFinalVerificationRequired())
+                ? Journey.JourneyStatus.COMPLETED_VERIFIED
+                : Journey.JourneyStatus.COMPLETED_UNVERIFIED;
+        journey.setStatus(finalStatus);
         journey.setProgressPercentage(100);
         journey.setCompletedAt(Instant.now());
         journey.setLastActivityAt(Instant.now());
@@ -392,6 +402,31 @@ public class JourneyServiceImpl implements JourneyService {
                 .build();
         journeyProgressRepository.save(progress);
 
+        return mapToJourneySummary(journey);
+    }
+
+    @Override
+    @Transactional
+    public JourneySummaryResponse requestVerification(User user, Long journeyId) {
+        Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
+                .orElseThrow(() -> new RuntimeException("Journey not found"));
+
+        if (!Boolean.TRUE.equals(journey.getFinalVerificationRequired())) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Journey does not require final verification");
+        }
+
+        Journey.JourneyStatus current = journey.getStatus();
+        boolean allowedTransition = current == Journey.JourneyStatus.ACTIVE
+                || current == Journey.JourneyStatus.COMPLETED_UNVERIFIED;
+        if (!allowedTransition) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Cannot request verification from status: " + current);
+        }
+
+        journey.setStatus(Journey.JourneyStatus.AWAITING_VERIFICATION);
+        journey.setLastActivityAt(Instant.now());
+        journey = journeyRepository.save(journey);
         return mapToJourneySummary(journey);
     }
 
@@ -2772,6 +2807,8 @@ public class JourneyServiceImpl implements JourneyService {
                 .totalNodesCompleted(calculateNodesCompleted(journey))
                 .milestones(milestones)
                 .latestTestResult(testResultSummary)
+                .skillName(journey.getSkillName())
+                .finalVerificationRequired(journey.getFinalVerificationRequired())
                 .build();
     }
 
@@ -4429,4 +4466,5 @@ public class JourneyServiceImpl implements JourneyService {
 
         return roadmapResponse.getSessionId();
     }
+
 }

@@ -24,6 +24,7 @@ import com.exe.skillverse_backend.question_bank_service.service.QuestionBankSubm
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -396,11 +397,7 @@ public class QuestionBankSubmissionServiceImpl implements QuestionBankSubmission
     }
 
     private String normalizeSkillName(String skillName) {
-        return requireValue(skillName, "Skill name is required")
-                .replaceAll("[^a-zA-Z0-9]+", "_")
-                .replaceAll("^_+|_+$", "")
-                .replaceAll("_+", "_")
-                .toUpperCase(Locale.ROOT);
+        return SkillNameUtils.normalizeRequired(skillName);
     }
 
     private String normalizeCorrectAnswer(String correctAnswer) {

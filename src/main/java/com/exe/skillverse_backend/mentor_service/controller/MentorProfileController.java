@@ -286,6 +286,24 @@ public class MentorProfileController {
         return ResponseEntity.ok(new TotalStudentsResponse(totalStudents));
     }
 
+    @GetMapping("/by-skill/{skillName}")
+    @Operation(summary = "Get mentors by verified skill (skill must be verified by admin)")
+    public ResponseEntity<List<MentorProfileResponse>> getMentorsBySkill(
+            @Parameter(description = "Skill name (e.g., 'React', 'Java Core')") @PathVariable String skillName) {
+        log.info("Getting mentors by verified skill: {}", skillName);
+        List<MentorProfileResponse> mentors = mentorProfileService.findMentorsByVerifiedSkill(skillName);
+        return ResponseEntity.ok(mentors);
+    }
+
+    @GetMapping("/{mentorId}/verified-skills")
+    @Operation(summary = "Get verified skills for a specific mentor")
+    public ResponseEntity<List<String>> getVerifiedSkills(
+            @Parameter(description = "Mentor user ID") @PathVariable Long mentorId) {
+        log.info("Getting verified skills for mentor ID: {}", mentorId);
+        List<String> skills = mentorProfileService.getVerifiedSkillsByMentorId(mentorId);
+        return ResponseEntity.ok(skills);
+    }
+
     // Response DTO for avatar upload
     public static class AvatarUploadResponse {
         private String avatarUrl;

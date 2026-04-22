@@ -71,6 +71,12 @@ public interface JourneyService {
      */
     JourneySummaryResponse completeJourney(User user, Long journeyId);
 
+    /**
+     * Mark journey as AWAITING_VERIFICATION — learner signals readiness for mentor final check.
+     * Only valid when finalVerificationRequired=true and journey is IN_PROGRESS or COMPLETED_UNVERIFIED.
+     */
+    JourneySummaryResponse requestVerification(User user, Long journeyId);
+
     // Test generation and evaluation
 
     /**

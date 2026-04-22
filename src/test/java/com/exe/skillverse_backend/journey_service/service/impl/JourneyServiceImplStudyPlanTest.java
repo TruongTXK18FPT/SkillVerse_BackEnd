@@ -18,6 +18,7 @@ import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
+import com.exe.skillverse_backend.journey_service.node_mentoring.service.FinalVerificationGateService;
 import com.exe.skillverse_backend.journey_service.repository.AssessmentTestRepository;
 import com.exe.skillverse_backend.journey_service.repository.JourneyProgressRepository;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
@@ -67,6 +68,8 @@ class JourneyServiceImplStudyPlanTest {
     @Mock
     private JourneyProgressRepository journeyProgressRepository;
     @Mock
+    private FinalVerificationGateService finalVerificationGateService;
+    @Mock
     private EntityManager entityManager;
     @Mock
     private ChatModel generateTestChatModel;
@@ -96,6 +99,7 @@ class JourneyServiceImplStudyPlanTest {
                 assessmentTestRepository,
                 testResultRepository,
                 journeyProgressRepository,
+                finalVerificationGateService,
                 entityManager,
                 generateTestChatModel,
                 aiRoadmapService,

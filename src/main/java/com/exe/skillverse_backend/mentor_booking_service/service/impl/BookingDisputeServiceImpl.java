@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.mentor_booking_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingDispute;
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingDisputeEvidence;
@@ -37,6 +38,7 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
     private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final WalletService walletService;
+    private final JourneyRepository journeyRepository;
 
     @Override
     @Transactional
@@ -47,6 +49,13 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
         // Only learner can open dispute
         if (!booking.getLearner().getId().equals(userId)) {
             throw new IllegalArgumentException("Chỉ người học được phép mở dispute");
+        }
+
+        // V3 Phase 1: JOURNEY_MENTORING bookings have no fixed session window —
+        // the dispute/refund flow is not applicable. Learner should contact admin directly.
+        if ("JOURNEY_MENTORING".equals(booking.getBookingType())) {
+            throw new IllegalStateException(
+                    "Booking hỗ trợ hành trình không thể mở dispute theo quy trình thông thường. Vui lòng liên hệ admin.");
         }
 
         // Can only dispute when mentor has completed or when session time has passed
@@ -333,6 +342,23 @@ public class BookingDisputeServiceImpl implements BookingDisputeService {
         }
 
         return evidence;
+    }
+
+    private void resetFinalVerificationIfNoActiveBooking(Booking booking) {
+        if (booking.getJourneyId() == null || !"JOURNEY_MENTORING".equals(booking.getBookingType())) {
+            return;
+        }
+        List<BookingStatus> activeStatuses = List.of(
+                BookingStatus.PENDING, BookingStatus.CONFIRMED,
+                BookingStatus.ONGOING, BookingStatus.PENDING_COMPLETION);
+        boolean hasActiveBooking = bookingRepository.existsActiveJourneyBookingForAnyMentor(
+                booking.getJourneyId(), activeStatuses);
+        if (!hasActiveBooking) {
+            journeyRepository.findById(booking.getJourneyId()).ifPresent(journey -> {
+                journey.setFinalVerificationRequired(false);
+                journeyRepository.save(journey);
+            });
+        }
     }
 
     @Override

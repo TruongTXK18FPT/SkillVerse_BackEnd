@@ -9,12 +9,12 @@ import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.mapper.SkillMapper;
 import com.exe.skillverse_backend.shared.repository.SkillRepository;
 import com.exe.skillverse_backend.shared.service.SkillService;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,7 +39,7 @@ public class SkillServiceImpl implements SkillService {
 
         // Normalize: UPPERCASE + replace spaces with underscores.
         // "java core" → "JAVA_CORE", "java-core" → "JAVA-CORE"
-        String normalizedName = normalizeName(dto.getName());
+        String normalizedName = SkillNameUtils.normalize(dto.getName());
 
         // Enforce unique theo name+category (nếu muốn)
         skillRepository.findByNameIgnoreCaseAndCategoryIgnoreCase(
@@ -67,7 +67,7 @@ public class SkillServiceImpl implements SkillService {
     @Transactional
     public SkillDto update(Long id, SkillDto dto) {
         Skill e = getOrThrow(id);
-        String normalizedName = normalizeName(dto.getName());
+        String normalizedName = SkillNameUtils.normalize(dto.getName());
         String normalizedCategory = safe(dto.getCategory());
 
         // nếu đổi name/category thì kiểm tra trùng
@@ -200,7 +200,7 @@ public class SkillServiceImpl implements SkillService {
     }
 
     private boolean hasChangedNameOrCategory(Skill e, String normalizedName, String normalizedCategory) {
-        return !Objects.equals(normalizeName(e.getName()), normalizedName)
+        return !Objects.equals(SkillNameUtils.normalize(e.getName()), normalizedName)
             || !Objects.equals(normalize(e.getCategory()), normalize(normalizedCategory));
     }
 
@@ -224,22 +224,12 @@ public class SkillServiceImpl implements SkillService {
         return s == null ? null : s.trim();
     }
 
-    /**
-     * Normalize skill name to canonical form: strip non-alphanumeric chars,
-     * collapse to single underscores, then UPPERCASE.
-     * "java core" / "java-core" / "java_core" / "JAVA  CORE" → "JAVA_CORE"
-     */
     private String normalizeName(String raw) {
-        if (raw == null) return null;
-        return raw.trim()
-                .replaceAll("[^a-zA-Z0-9]+", "_")   // any separator → underscore
-                .replaceAll("_+", "_")                // collapse consecutive underscores
-                .replaceAll("^_|_$", "")              // trim leading/trailing underscores
-                .toUpperCase(Locale.ROOT);
+        return SkillNameUtils.normalize(raw);
     }
 
     private String normalize(String s) { 
-        return s == null ? null : s.trim().toLowerCase(Locale.ROOT); 
+        return s == null ? null : s.trim().toLowerCase(); 
     }
 
     private PageResponse<SkillDto> toPage(Page<Skill> page) {

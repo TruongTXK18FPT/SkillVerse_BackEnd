@@ -39,6 +39,12 @@ public class JourneySummaryResponse {
     private List<MilestoneResponse> milestones;
     private TestResultSummaryResponse latestTestResult;
 
+    // V3 Phase 1 — single verified skill tied to this journey
+    private String skillName;
+
+    // V3 Phase 1 — final verification gate flag
+    private Boolean finalVerificationRequired;
+
     // Latest test info for assessment flow
     private Long assessmentTestId;
     private String assessmentTestTitle;

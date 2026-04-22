@@ -326,6 +326,19 @@ public class JourneyController {
     }
 
     /**
+     * Request mentor final verification — transitions IN_PROGRESS/COMPLETED_UNVERIFIED → AWAITING_VERIFICATION.
+     * POST /api/v1/journey/{journeyId}/request-verification
+     */
+    @PostMapping("/{journeyId}/request-verification")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<JourneySummaryResponse> requestVerification(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long journeyId) {
+        User user = getUserFromAuth(userDetails);
+        return ResponseEntity.ok(journeyService.requestVerification(user, journeyId));
+    }
+
+    /**
      * Update journey status.
      * PUT /api/v1/journey/{journeyId}/status
      */

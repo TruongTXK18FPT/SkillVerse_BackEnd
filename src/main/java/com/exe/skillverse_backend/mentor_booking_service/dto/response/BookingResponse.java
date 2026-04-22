@@ -41,4 +41,9 @@ public class BookingResponse {
 
     // Chat availability
     private Boolean chatAllowed;
+
+    // V3 Phase 1: optional node/journey context — null for legacy bookings
+    private Long journeyId;
+    private String nodeId;
+    private String bookingType;
 }
