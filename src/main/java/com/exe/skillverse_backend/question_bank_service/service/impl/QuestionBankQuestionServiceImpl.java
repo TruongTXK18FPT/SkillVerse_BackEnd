@@ -20,6 +20,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -52,6 +53,9 @@ public class QuestionBankQuestionServiceImpl implements QuestionBankQuestionServ
                 .source("MANUAL")
                 .isActive(true)
                 .usedCount(0)
+                .isVerified(true)
+                .verifiedAt(LocalDateTime.now())
+                .verificationSource("ADMIN_MANUAL")
                 .build();
 
         question = questionBankQuestionRepository.save(question);
@@ -90,6 +94,13 @@ public class QuestionBankQuestionServiceImpl implements QuestionBankQuestionServ
         if (request.getSkillArea() != null) question.setSkillArea(request.getSkillArea());
         if (request.getCategory() != null) question.setCategory(request.getCategory());
         if (request.getIsActive() != null) question.setIsActive(request.getIsActive());
+        question.setIsVerified(true);
+        if (question.getVerifiedAt() == null) {
+            question.setVerifiedAt(LocalDateTime.now());
+        }
+        if (question.getVerificationSource() == null) {
+            question.setVerificationSource("ADMIN_MANUAL");
+        }
 
         question = questionBankQuestionRepository.save(question);
         log.info("Updated question id={} in bank {}", questionId, bankId);
@@ -122,6 +133,9 @@ public class QuestionBankQuestionServiceImpl implements QuestionBankQuestionServ
                         .source(source != null ? source : "MANUAL")
                         .isActive(true)
                         .usedCount(0)
+                        .isVerified(true)
+                        .verifiedAt(LocalDateTime.now())
+                        .verificationSource(resolveVerificationSource(source))
                         .build())
                 .collect(Collectors.toList());
 
@@ -189,6 +203,15 @@ public class QuestionBankQuestionServiceImpl implements QuestionBankQuestionServ
                 .replaceAll("\\s+", " ")
                 .replaceAll("[.,;:'\"!?()\\[\\]{}]", "")
                 .trim();
+    }
+
+    private String resolveVerificationSource(String source) {
+        String normalized = source != null ? source.trim().toUpperCase() : "MANUAL";
+        return switch (normalized) {
+            case "IMPORT" -> "ADMIN_IMPORT";
+            case "AI_GENERATED" -> "AI_DRAFT_APPROVED";
+            default -> "ADMIN_MANUAL";
+        };
     }
 
     // ==================== Private Helpers ====================

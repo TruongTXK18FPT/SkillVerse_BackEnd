@@ -45,4 +45,5 @@ public class UpdateJobRequest {
     private String benefits;
     private String genderRequirement;
     private Boolean isNegotiable;
+    private String primarySkill;
 }

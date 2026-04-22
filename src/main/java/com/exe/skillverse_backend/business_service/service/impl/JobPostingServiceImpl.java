@@ -99,6 +99,7 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .title(request.getTitle())
                 .description(request.getDescription())
                 .requiredSkills(skillsJson)
+                .primarySkill(request.getPrimarySkill())
                 .minBudget(request.getMinBudget())
                 .maxBudget(request.getMaxBudget())
                 .deadline(request.getDeadline())
@@ -206,6 +207,9 @@ public class JobPostingServiceImpl implements JobPostingService {
                     .distinct()
                     .collect(Collectors.toList());
             job.setRequiredSkills(convertSkillsToJson(normalizedSkills));
+        }
+        if (request.getPrimarySkill() != null) {
+            job.setPrimarySkill(request.getPrimarySkill());
         }
         if (request.getMinBudget() != null) {
             job.setMinBudget(request.getMinBudget());
@@ -472,6 +476,7 @@ public class JobPostingServiceImpl implements JobPostingService {
                 .title(job.getTitle())
                 .description(job.getDescription())
                 .requiredSkills(convertJsonToSkills(job.getRequiredSkills()))
+                .primarySkill(job.getPrimarySkill())
                 .minBudget(job.getMinBudget())
                 .maxBudget(job.getMaxBudget())
                 .deadline(job.getDeadline())

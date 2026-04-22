@@ -66,13 +66,13 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
     private final RecruitmentChatService recruitmentChatService;
     private final SearchAnalyticsService searchAnalyticsService;
     private final ObjectMapper objectMapper;
+    private final com.exe.skillverse_backend.journey_service.repository.JourneyRepository journeyRepository;
 
-    // Default scoring weights
+    // Deterministic scoring weights
     private static final BigDecimal SKILL_WEIGHT = new BigDecimal("0.40");
-    private static final BigDecimal EXPERIENCE_WEIGHT = new BigDecimal("0.25");
-    private static final BigDecimal BUDGET_WEIGHT = new BigDecimal("0.20");
-    private static final BigDecimal PREMIUM_WEIGHT = new BigDecimal("0.10");
-    private static final BigDecimal ACTIVITY_WEIGHT = new BigDecimal("0.05");
+    private static final BigDecimal PROJECT_WEIGHT = new BigDecimal("0.20");
+    private static final BigDecimal CERT_WEIGHT = new BigDecimal("0.20");
+    private static final BigDecimal MISSION_WEIGHT = new BigDecimal("0.20");
 
     // Score thresholds
     private static final double EXCELLENT_THRESHOLD = 0.8;
@@ -132,11 +132,6 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
                         request
                 ))
                 .collect(Collectors.toList());
-
-        // Apply AI matching if enabled and available
-        if (Boolean.TRUE.equals(request.getEnableAIMatching()) && aiSearchService.isEnabled()) {
-            scoredCandidates = applyAIMatching(scoredCandidates, request.getJobId());
-        }
 
         sortCandidates(scoredCandidates, profileIndex, request);
         searchAnalyticsService.recordSearchSession(recruiterId, request.getQuery(), request.getSkills(),
@@ -339,25 +334,29 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         // Start with base candidate info
         CandidateSummaryDTO dto = mapProfileToDTO(profile);
 
-        // Calculate component scores — pass both job types
-        double skillScore = calculateSkillScore(profile, job, shortTermJob, request);
-        double experienceScore = calculateExperienceScore(profile, job, shortTermJob, request);
-        double budgetScore = calculateBudgetScore(profile, job, shortTermJob, request);
-        double premiumScore = calculatePremiumScore(profile);
-        double activityScore = calculateActivityScore(profile);
+        // Calculate component scores
+        double skillScore = calculateSkillScore(profile, job, shortTermJob, request, dto);
+        double projectScore = calculateProjectScore(profile, dto);
+        double certScore = calculateCertificateScore(profile, dto);
+        double missionScore = calculateMissionScore(profile, dto);
 
         // Calculate total weighted score
         double totalScore = (skillScore * SKILL_WEIGHT.doubleValue())
-                + (experienceScore * EXPERIENCE_WEIGHT.doubleValue())
-                + (budgetScore * BUDGET_WEIGHT.doubleValue())
-                + (premiumScore * PREMIUM_WEIGHT.doubleValue())
-                + (activityScore * ACTIVITY_WEIGHT.doubleValue());
+                + (projectScore * PROJECT_WEIGHT.doubleValue())
+                + (certScore * CERT_WEIGHT.doubleValue())
+                + (missionScore * MISSION_WEIGHT.doubleValue());
 
         dto.setMatchScore(Math.round(totalScore * 100.0) / 100.0);
         dto.setMatchQuality(determineMatchQuality(totalScore));
 
         // Set skill match percentage
         dto.setSkillMatchPercent((int) Math.round(skillScore * 100));
+
+        // Set ranking breakdown
+        dto.setSkillMatchScore(Math.round(skillScore * SKILL_WEIGHT.doubleValue() * 100.0) / 100.0);
+        dto.setProjectMatchScore(Math.round(projectScore * PROJECT_WEIGHT.doubleValue() * 100.0) / 100.0);
+        dto.setCertMatchScore(Math.round(certScore * CERT_WEIGHT.doubleValue() * 100.0) / 100.0);
+        dto.setMissionMatchScore(Math.round(missionScore * MISSION_WEIGHT.doubleValue() * 100.0) / 100.0);
 
         return dto;
     }
@@ -630,192 +629,91 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         return value != null && value.toLowerCase().contains(query.toLowerCase());
     }
 
-    private double calculateSkillScore(PortfolioExtendedProfile profile, JobPosting job, ShortTermJob shortTermJob, CandidateSearchRequest request) {
+    private double calculateSkillScore(PortfolioExtendedProfile profile, JobPosting job, ShortTermJob shortTermJob, CandidateSearchRequest request, CandidateSummaryDTO dto) {
         double baseScore = 0.5; // Default if no specific skills to match
 
-        // Try short-term job first, then long-term job
+        String primarySkill = null;
         String requiredSkillsRaw = null;
-        if (shortTermJob != null && shortTermJob.getRequiredSkills() != null) {
+
+        if (shortTermJob != null) {
+            primarySkill = shortTermJob.getPrimarySkill();
             requiredSkillsRaw = shortTermJob.getRequiredSkills();
-        } else if (job != null && job.getRequiredSkills() != null) {
+        } else if (job != null) {
+            primarySkill = job.getPrimarySkill();
             requiredSkillsRaw = job.getRequiredSkills();
+        }
+
+        List<String> candidateSkills = Collections.emptyList();
+        if (profile.getTopSkills() != null && !profile.getTopSkills().isBlank()) {
+            try {
+                candidateSkills = objectMapper.readValue(profile.getTopSkills(), List.class);
+                candidateSkills = candidateSkills.stream()
+                        .filter(Objects::nonNull)
+                        .map(String::toLowerCase)
+                        .collect(Collectors.toList());
+            } catch (Exception e) {
+                log.warn("Error parsing candidate skills", e);
+            }
+        }
+
+        boolean primaryMatch = false;
+        dto.setPrimarySkillMatch(false);
+        if (primarySkill != null && !primarySkill.isBlank()) {
+            String pSkill = primarySkill.toLowerCase().trim();
+            primaryMatch = candidateSkills.stream().anyMatch(s -> s.contains(pSkill));
+            dto.setPrimarySkillMatch(primaryMatch);
+            
+            if (primaryMatch) {
+                return 1.0; // 100% score for skills if primary skill matches
+            }
         }
 
         if (requiredSkillsRaw != null && !requiredSkillsRaw.isBlank()) {
             try {
                 List<String> requiredSkills = objectMapper.readValue(requiredSkillsRaw, List.class);
-                List<String> candidateSkills = profile.getTopSkills() != null
-                        ? objectMapper.readValue(profile.getTopSkills(), List.class)
-                        : Collections.emptyList();
-
                 if (!requiredSkills.isEmpty() && !candidateSkills.isEmpty()) {
-                    // Normalize to lowercase
-                    requiredSkills = requiredSkills.stream().map(String::toLowerCase).collect(Collectors.toList());
-                    candidateSkills = candidateSkills.stream().map(String::toLowerCase).collect(Collectors.toList());
+                    List<String> finalRequiredSkills = requiredSkills.stream()
+                            .filter(Objects::nonNull)
+                            .map(String::toLowerCase)
+                            .collect(Collectors.toList());
 
                     long matchCount = candidateSkills.stream()
-                            .filter(requiredSkills::contains)
+                            .filter(s -> finalRequiredSkills.stream().anyMatch(s::contains))
                             .count();
 
-                    baseScore = Math.min(1.0, (double) matchCount / requiredSkills.size());
+                    baseScore = Math.min(1.0, (double) matchCount / finalRequiredSkills.size());
+                } else if (requiredSkills.isEmpty()) {
+                    baseScore = 1.0;
+                } else {
+                    baseScore = 0.0;
                 }
             } catch (JsonProcessingException e) {
                 log.warn("Error parsing skills for scoring: {}", e.getMessage());
             }
         }
 
-        // Apply query filter if present
-        if (request.getSkills() != null && !request.getSkills().isEmpty()) {
-            List<String> querySkills = Arrays.asList(request.getSkills().split(","));
-            querySkills = querySkills.stream().map(String::toLowerCase).map(String::trim).collect(Collectors.toList());
-
-            if (profile.getTopSkills() != null) {
-                try {
-                    List<String> candidateSkills = objectMapper.readValue(profile.getTopSkills(), List.class);
-                    candidateSkills = candidateSkills.stream().map(String::toLowerCase).collect(Collectors.toList());
-
-                    long queryMatchCount = candidateSkills.stream()
-                            .filter(querySkills::contains)
-                            .count();
-
-                    // Blend with job skill score
-                    baseScore = (baseScore + Math.min(1.0, (double) queryMatchCount / querySkills.size())) / 2;
-                } catch (JsonProcessingException e) {
-                    log.warn("Error parsing candidate skills: {}", e.getMessage());
-                }
-            }
-        }
-
         return baseScore;
     }
 
-    private double calculateExperienceScore(PortfolioExtendedProfile profile, JobPosting job, ShortTermJob shortTermJob, CandidateSearchRequest request) {
-        double score = 0.5; // Default
-
-        Integer candidateExp = profile.getYearsOfExperience();
-        if (candidateExp == null) {
-            return score;
-        }
-
-        // Check against short-term job requirements (preferred) or long-term job
-        if (shortTermJob != null) {
-            // Short-term jobs use urgency to infer experience expectations
-            if (shortTermJob.getUrgency() != null) {
-                switch (shortTermJob.getUrgency()) {
-                    case ASAP:
-                        score = 0.9; // Needs experienced person immediately
-                        break;
-                    case VERY_URGENT:
-                        score = 0.8;
-                        break;
-                    case URGENT:
-                        score = 0.7;
-                        break;
-                    default:
-                        // NORMAL: flexible, favor moderately experienced
-                        score = getExperienceMatchScore(candidateExp, 1);
-                        break;
-                }
-            }
-        } else if (job != null && job.getExperienceLevel() != null) {
-            int requiredYears = parseExperienceLevel(job.getExperienceLevel());
-            score = getExperienceMatchScore(candidateExp, requiredYears);
-        }
-
-        // Apply filter
-        if (request.getMinExperience() != null && candidateExp < request.getMinExperience()) {
-            return 0.0;
-        }
-        if (request.getMaxExperience() != null && candidateExp > request.getMaxExperience()) {
-            return 0.0;
-        }
-
-        return score;
+    private double calculateProjectScore(PortfolioExtendedProfile profile, CandidateSummaryDTO dto) {
+        int projects = profile.getTotalProjects() != null ? profile.getTotalProjects() : 0;
+        // Cap at 5 projects for 100% score
+        return Math.min(1.0, projects / 5.0);
     }
 
-    private double calculateBudgetScore(PortfolioExtendedProfile profile, JobPosting job, ShortTermJob shortTermJob, CandidateSearchRequest request) {
-        double score = 0.5; // Default
-
-        if (profile.getHourlyRate() == null) {
-            return score;
-        }
-
-        if (shortTermJob != null && shortTermJob.getBudget() != null) {
-            // Short-term jobs have a fixed budget — estimate hours from estimatedDuration
-            double candidateRate = profile.getHourlyRate();
-            double fixedBudget = shortTermJob.getBudget().doubleValue();
-
-            // Rough estimation: if no estimated duration, assume 40 hours
-            double estimatedHours = 40.0;
-            if (shortTermJob.getEstimatedDuration() != null) {
-                estimatedHours = parseEstimatedHours(shortTermJob.getEstimatedDuration());
-            }
-
-            double impliedHourlyRate = fixedBudget / estimatedHours;
-
-            if (candidateRate <= impliedHourlyRate) {
-                score = 1.0; // Candidate is within or under budget
-            } else if (candidateRate <= impliedHourlyRate * 1.2) {
-                score = 0.7; // Slightly over
-            } else if (candidateRate <= impliedHourlyRate * 1.5) {
-                score = 0.4;
-            } else {
-                score = 0.2;
-            }
-        } else if (job != null && job.getMinBudget() != null && job.getMaxBudget() != null) {
-            double candidateRate = profile.getHourlyRate();
-            double minBudget = job.getMinBudget().doubleValue() / 160; // Convert monthly to hourly
-            double maxBudget = job.getMaxBudget().doubleValue() / 160;
-
-            if (candidateRate >= minBudget && candidateRate <= maxBudget) {
-                score = 1.0;
-            } else if (candidateRate < minBudget) {
-                score = 1.0; // Under budget is good
-            } else if (candidateRate <= maxBudget * 1.2) {
-                score = 0.7; // Slightly over
-            } else {
-                score = 0.3;
-            }
-        }
-
-        // Apply rate filter
-        if (request.getMinHourlyRate() != null && profile.getHourlyRate() < request.getMinHourlyRate()) {
-            return 0.0;
-        }
-        if (request.getMaxHourlyRate() != null && profile.getHourlyRate() > request.getMaxHourlyRate()) {
-            return 0.0;
-        }
-
-        return score;
+    private double calculateCertificateScore(PortfolioExtendedProfile profile, CandidateSummaryDTO dto) {
+        int certs = profile.getTotalCertificates() != null ? profile.getTotalCertificates() : 0;
+        // Cap at 3 certificates for 100% score
+        return Math.min(1.0, certs / 3.0);
     }
 
-    private double calculatePremiumScore(PortfolioExtendedProfile profile) {
-        // Check if candidate has premium features
-        try {
-            var result = usageLimitService.canUseFeature(profile.getUserId(), FeatureType.PRIORITY_SUPPORT);
-            if (Boolean.TRUE.equals(result.getAllowed())) {
-                return 1.0; // Premium candidate gets bonus
-            }
-        } catch (Exception e) {
-            log.debug("Error checking premium status: {}", e.getMessage());
-        }
-        return 0.0;
-    }
-
-    private double calculateActivityScore(PortfolioExtendedProfile profile) {
-        // Based on profile update time
-        LocalDateTime updatedAt = profile.getUpdatedAt();
-        if (updatedAt == null) {
-            return 0.5;
-        }
-
-        long daysSinceUpdate = java.time.Duration.between(updatedAt, LocalDateTime.now()).toDays();
-
-        if (daysSinceUpdate < 7) return 1.0;
-        if (daysSinceUpdate < 30) return 0.8;
-        if (daysSinceUpdate < 90) return 0.6;
-        if (daysSinceUpdate < 180) return 0.4;
-        return 0.2;
+    private double calculateMissionScore(PortfolioExtendedProfile profile, CandidateSummaryDTO dto) {
+        long completedMissions = journeyRepository.countByUserIdAndStatus(
+                profile.getUser().getId(), 
+                com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED
+        );
+        // Cap at 5 missions for 100% score
+        return Math.min(1.0, completedMissions / 5.0);
     }
 
     private double parseEstimatedHours(String estimatedDuration) {

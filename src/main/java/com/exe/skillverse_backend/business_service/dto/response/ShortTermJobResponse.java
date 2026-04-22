@@ -21,6 +21,7 @@ public class ShortTermJobResponse {
     private String title;
     private String description;
     private List<String> requiredSkills;
+    private String primarySkill;
 
     // Pricing
     private BigDecimal budget;

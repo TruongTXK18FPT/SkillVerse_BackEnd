@@ -639,12 +639,19 @@ public class JourneyServiceImpl implements JourneyService {
     private Optional<QuestionBankResponse> resolveQuestionBankForJourney(
             Journey journey, String domain, String industry, String jobRole) {
         if (isSkillJourney(journey)) {
-            Optional<QuestionBankResponse> scopedBank = questionBankService.findActiveBank(domain, industry, jobRole);
+            Optional<QuestionBankResponse> scopedBank = questionBankService.findActiveBank(
+                    domain,
+                    industry,
+                    jobRole,
+                    journey != null ? journey.getSkillName() : null);
             if (scopedBank.isPresent()) {
                 return scopedBank;
             }
             if ((industry == null || industry.isBlank()) && jobRole != null && !jobRole.isBlank()) {
-                return questionBankService.findActiveBank(domain, jobRole);
+                return questionBankService.findActiveBankByJobRole(
+                        domain,
+                        jobRole,
+                        journey != null ? journey.getSkillName() : null);
             }
             return Optional.empty();
         }
@@ -797,6 +804,7 @@ public class JourneyServiceImpl implements JourneyService {
                 assessmentData.getGoal(),
                 assessmentData.getLevel(),
                 assessmentData.getSkills(),
+            assessmentData.getExistingSkills(),
                 assessmentData.getFocusAreas(),
                 assessmentData.getLanguage(),
                 assessmentData.getDuration(),
@@ -1203,6 +1211,7 @@ public class JourneyServiceImpl implements JourneyService {
                 .domain(domain)
                 .industry(resolvedIndustry)
                 .jobRole(resolvedJobRole)
+                .skillName(journey != null ? journey.getSkillName() : null)
                 .title("Auto bank: " + domain + " / " + (!resolvedJobRole.isBlank() ? resolvedJobRole : "general"))
                 .description("Auto-generated question bank from AI test submissions")
                 .build();
@@ -1296,6 +1305,7 @@ public class JourneyServiceImpl implements JourneyService {
 
         String aiSummary = null;
         String aiDetailedFeedback = null;
+        String aiScoreRationale = null;
         List<Map<String, Object>> aiSkillGaps = Collections.emptyList();
         List<Map<String, Object>> aiStrengths = Collections.emptyList();
         List<String> aiHighlightKeywords = Collections.emptyList();
@@ -1340,6 +1350,7 @@ public class JourneyServiceImpl implements JourneyService {
             Map<String, Object> evaluation = objectMapper.readValue(jsonStr, Map.class);
             aiSummary = toText(evaluation.get("evaluationSummary"));
             aiDetailedFeedback = toText(evaluation.get("detailedFeedback"));
+            aiScoreRationale = extractScoreRationaleMarkdown(evaluation.get("scoreRationale"));
             aiSkillGaps = extractInsightList(evaluation.get("skillGaps"), true);
             aiStrengths = extractInsightList(evaluation.get("strengths"), false);
             aiHighlightKeywords = extractStringList(evaluation.get("highlightKeywords"));
@@ -1363,6 +1374,13 @@ public class JourneyServiceImpl implements JourneyService {
                 aiRecommendations
         );
         String finalDetailedFeedback = combineDetailedFeedback(deterministicDetailedFeedback, aiDetailedFeedback);
+        finalDetailedFeedback = appendScoreRationaleSection(
+            finalDetailedFeedback,
+            aiScoreRationale,
+            snapshot,
+            scorePercentage,
+            evaluatedLevel
+        );
         List<String> finalHighlightKeywords = buildHighlightKeywords(
                 aiHighlightKeywords,
                 finalSkillGaps,
@@ -1422,6 +1440,7 @@ public class JourneyServiceImpl implements JourneyService {
                             .domain(domain)
                             .industry(industry)
                             .jobRole(jobRole)
+                            .skillName(journey.getSkillName())
                             .title("Auto bank: " + domain + " / " + (jobRole != null ? jobRole : "general"))
                             .description("Auto-generated question bank from AI test submissions")
                             .build();
@@ -3152,6 +3171,97 @@ public class JourneyServiceImpl implements JourneyService {
         return new ArrayList<>(values);
     }
 
+    private String extractScoreRationaleMarkdown(Object rawValue) {
+        if (!(rawValue instanceof Map<?, ?> rawMap) || rawMap.isEmpty()) {
+            return null;
+        }
+
+        Map<String, Object> rationale = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+            if (entry.getKey() == null) {
+                continue;
+            }
+            rationale.put(entry.getKey().toString(), entry.getValue());
+        }
+
+        String formula = firstNonBlankText(rationale, "formula", "scoringFormula");
+        String scoreBand = firstNonBlankText(rationale, "scoreBand", "band");
+        String levelBand = firstNonBlankText(rationale, "levelBand", "level");
+        String whyThisScore = firstNonBlankText(rationale, "whyThisScore", "explanation");
+        String confidenceReason = firstNonBlankText(rationale, "confidenceReason");
+        String nextFocus = firstNonBlankText(rationale, "nextFocus", "nextStep");
+
+        if ((formula == null || formula.isBlank())
+                && (scoreBand == null || scoreBand.isBlank())
+                && (levelBand == null || levelBand.isBlank())
+                && (whyThisScore == null || whyThisScore.isBlank())
+                && (confidenceReason == null || confidenceReason.isBlank())
+                && (nextFocus == null || nextFocus.isBlank())) {
+            return null;
+        }
+
+        StringBuilder builder = new StringBuilder("### Giải thích thêm từ AI về mức điểm\n");
+        if (formula != null && !formula.isBlank()) {
+            builder.append("- Công thức AI diễn giải: ").append(formula.trim()).append("\n");
+        }
+        if (scoreBand != null && !scoreBand.isBlank()) {
+            builder.append("- Band AI nhận diện: **").append(scoreBand.trim()).append("**\n");
+        }
+        if (levelBand != null && !levelBand.isBlank()) {
+            builder.append("- Level AI nhận diện: **").append(levelBand.trim()).append("**\n");
+        }
+        if (whyThisScore != null && !whyThisScore.isBlank()) {
+            builder.append("- Vì sao ra mức điểm này: ").append(whyThisScore.trim()).append("\n");
+        }
+        if (confidenceReason != null && !confidenceReason.isBlank()) {
+            builder.append("- Cơ sở độ tin cậy: ").append(confidenceReason.trim()).append("\n");
+        }
+        if (nextFocus != null && !nextFocus.isBlank()) {
+            builder.append("- Trọng tâm nên làm tiếp: ").append(nextFocus.trim()).append("\n");
+        }
+
+        return builder.toString().trim();
+    }
+
+    private String appendScoreRationaleSection(String feedback,
+                                               String aiScoreRationale,
+                                               EvaluationSnapshot snapshot,
+                                               int scorePercentage,
+                                               Journey.SkillLevel evaluatedLevel) {
+        String baseFeedback = feedback == null ? "" : feedback.trim();
+        if (baseFeedback.contains("## Cơ sở chấm điểm minh bạch")) {
+            return baseFeedback;
+        }
+
+        int totalQuestions = Math.max(snapshot.totalQuestions, 1);
+        StringBuilder section = new StringBuilder();
+        section.append("## Cơ sở chấm điểm minh bạch\n");
+        section.append(String.format("- Công thức chuẩn: (**%d / %d**) x 100 = **%d%%**.\n",
+                snapshot.correctAnswers,
+                totalQuestions,
+                scorePercentage));
+        section.append(String.format("- Band điểm hiện tại: **%s** (%s).\n",
+                toScoreBandLabel(snapshot.scoreBand),
+                toScoreBandRange(snapshot.scoreBand)));
+        section.append(String.format("- Mức năng lực hiện tại: **%s**.\n",
+                toSkillLevelLabel(evaluatedLevel)));
+        section.append("- Quy chuẩn band điểm: ZERO_BASE 0-20, FOUNDATION 21-45, CORE 46-70, ADVANCED 71-85, EXPERT 86-100.\n");
+        section.append("- Quy chuẩn mức năng lực: BEGINNER 0-40, INTERMEDIATE 41-70, ADVANCED 71-85, EXPERT 86-100.\n");
+
+        if (snapshot.reassessmentRecommended) {
+            section.append("- Độ phủ câu trả lời chưa đủ chắc chắn, hệ thống khuyến nghị làm lại sau vòng học đầu tiên.\n");
+        }
+
+        if (aiScoreRationale != null && !aiScoreRationale.isBlank()) {
+            section.append("\n").append(aiScoreRationale.trim());
+        }
+
+        if (baseFeedback.isBlank()) {
+            return section.toString().trim();
+        }
+        return baseFeedback + "\n\n" + section.toString().trim();
+    }
+
     private String buildDeterministicDetailedFeedback(String domain,
                                                       int scorePercentage,
                                                       Journey.SkillLevel evaluatedLevel,
@@ -3357,6 +3467,36 @@ public class JourneyServiceImpl implements JourneyService {
             case "ADVANCED" -> "Lộ trình nâng cao";
             case "FAST_TRACK" -> "Lộ trình tăng tốc";
             default -> "Lộ trình tiêu chuẩn";
+        };
+    }
+
+    private String toScoreBandLabel(String scoreBand) {
+        if (scoreBand == null || scoreBand.isBlank()) {
+            return "Cốt lõi";
+        }
+
+        return switch (scoreBand) {
+            case "ZERO_BASE" -> "Nền tảng 0";
+            case "FOUNDATION" -> "Nền tảng";
+            case "CORE" -> "Cốt lõi";
+            case "ADVANCED" -> "Nâng cao";
+            case "EXPERT" -> "Chuyên sâu";
+            default -> scoreBand;
+        };
+    }
+
+    private String toScoreBandRange(String scoreBand) {
+        if (scoreBand == null || scoreBand.isBlank()) {
+            return "46-70";
+        }
+
+        return switch (scoreBand) {
+            case "ZERO_BASE" -> "0-20";
+            case "FOUNDATION" -> "21-45";
+            case "CORE" -> "46-70";
+            case "ADVANCED" -> "71-85";
+            case "EXPERT" -> "86-100";
+            default -> "46-70";
         };
     }
 

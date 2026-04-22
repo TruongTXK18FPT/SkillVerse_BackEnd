@@ -41,8 +41,9 @@ public class QuestionBankController {
             @RequestParam(required = false) String domain,
             @RequestParam(required = false) String industry,
             @RequestParam(required = false) String jobRole,
+            @RequestParam(required = false) String skillName,
             @PageableDefault(size = 20) Pageable pageable) {
-        return ResponseEntity.ok(questionBankService.listBanks(domain, industry, jobRole, pageable));
+        return ResponseEntity.ok(questionBankService.listBanks(domain, industry, jobRole, skillName, pageable));
     }
 
     @GetMapping("/{id}")

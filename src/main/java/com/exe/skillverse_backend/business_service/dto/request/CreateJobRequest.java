@@ -30,6 +30,8 @@ public class CreateJobRequest {
     @Size(min = 1, message = "At least one skill is required")
     private List<String> requiredSkills;
 
+    private String primarySkill;
+
     @NotNull(message = "Minimum budget is required")
     @DecimalMin(value = "0.0", inclusive = true, message = "Minimum budget must be at least 0")
     private BigDecimal minBudget;

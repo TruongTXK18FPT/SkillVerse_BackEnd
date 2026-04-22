@@ -17,6 +17,7 @@ public class QuestionBankSummaryResponse {
     private String domain;
     private String industry;
     private String jobRole;
+    private String skillName;
     private String title;
     private Integer activeQuestionCount;
     private Boolean isActive;

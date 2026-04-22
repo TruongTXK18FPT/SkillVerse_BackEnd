@@ -59,7 +59,7 @@ class QuestionBankServiceImplTest {
                 .jobRole("Backend Developer")
                 .title("Backend Screening")
                 .build();
-        when(questionBankRepository.existsByDomainAndIndustryAndJobRoleAndIsActiveTrue("IT", "Software", "Backend Developer"))
+        when(questionBankRepository.existsActiveByScope("IT", "Software", "Backend Developer", null))
                 .thenReturn(true);
 
         assertThrows(ApiException.class, () -> service.createBank(request));
@@ -84,7 +84,7 @@ class QuestionBankServiceImplTest {
                 .isActive(true)
                 .build();
 
-        when(questionBankRepository.existsByDomainAndIndustryAndJobRoleAndIsActiveTrue("IT", "Software", "Backend Developer"))
+        when(questionBankRepository.existsActiveByScope("IT", "Software", "Backend Developer", null))
                 .thenReturn(false);
         when(questionBankQuestionRepository.countByDifficulty(1L)).thenReturn(List.of());
         when(questionBankRepository.save(any(QuestionBank.class))).thenReturn(bank);
@@ -112,8 +112,8 @@ class QuestionBankServiceImplTest {
                 .build();
 
         when(questionBankRepository.findById(5L)).thenReturn(Optional.of(existing));
-        when(questionBankRepository.existsByDomainAndIndustryAndJobRoleAndIsActiveTrueAndIdNot(
-                "IT", "Software", "QA Engineer", 5L))
+        when(questionBankRepository.existsActiveByScopeAndIdNot(
+                "IT", "Software", "QA Engineer", null, 5L))
                 .thenReturn(true);
 
         assertThrows(ApiException.class, () -> service.updateBank(5L, request));

@@ -53,6 +53,9 @@ public class ShortTermJob {
     @Column(name = "required_skills", columnDefinition = "TEXT", nullable = false)
     private String requiredSkills; // JSON array stored as TEXT
 
+    @Column(name = "primary_skill")
+    private String primarySkill; // The most important skill chosen by recruiter
+
     // ==================== PRICING ====================
     
     @Column(nullable = false, precision = 15, scale = 2)

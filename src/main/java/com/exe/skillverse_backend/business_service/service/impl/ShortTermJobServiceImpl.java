@@ -162,6 +162,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
                 .title(request.getTitle())
                 .description(request.getDescription())
                 .requiredSkills(toJson(request.getRequiredSkills()))
+                .primarySkill(request.getPrimarySkill())
                 .budget(request.getBudget())
                 .isNegotiable(false)
                 .paymentMethod(PaymentMethod.FIXED)
@@ -211,6 +212,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
         if (request.getTitle() != null) job.setTitle(request.getTitle());
         if (request.getDescription() != null) job.setDescription(request.getDescription());
         if (request.getRequiredSkills() != null) job.setRequiredSkills(toJson(request.getRequiredSkills()));
+        if (request.getPrimarySkill() != null) job.setPrimarySkill(request.getPrimarySkill());
         if (request.getBudget() != null) job.setBudget(request.getBudget());
         if (request.getDeadline() != null) {
             validateDeadline(request.getDeadline());
@@ -1261,6 +1263,7 @@ public class ShortTermJobServiceImpl implements ShortTermJobService {
                 .title(job.getTitle())
                 .description(job.getDescription())
                 .requiredSkills(skills)
+                .primarySkill(job.getPrimarySkill())
                 .budget(job.getBudget())
                 .isNegotiable(job.getIsNegotiable())
                 .paymentMethod(job.getPaymentMethod())

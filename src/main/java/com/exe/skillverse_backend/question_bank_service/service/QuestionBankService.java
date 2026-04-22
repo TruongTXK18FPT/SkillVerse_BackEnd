@@ -17,7 +17,7 @@ public interface QuestionBankService {
 
     QuestionBankResponse createBank(CreateQuestionBankRequest request);
 
-    Page<QuestionBankSummaryResponse> listBanks(String domain, String industry, String jobRole, Pageable pageable);
+    Page<QuestionBankSummaryResponse> listBanks(String domain, String industry, String jobRole, String skillName, Pageable pageable);
 
     QuestionBankResponse getBankById(Long id);
 
@@ -25,7 +25,15 @@ public interface QuestionBankService {
 
     void deleteBank(Long id);
 
+    Optional<QuestionBankResponse> findActiveBank(String domain, String industry, String jobRole, String skillName);
+
     Optional<QuestionBankResponse> findActiveBank(String domain, String industry, String jobRole);
+
+    /**
+     * Find active question bank by domain + job role (no industry filter), with optional skill scope.
+     * Used by JourneyService for bank-first test generation.
+     */
+    Optional<QuestionBankResponse> findActiveBankByJobRole(String domain, String jobRole, String skillName);
 
     /**
      * Find active question bank by domain + job role (no industry filter).

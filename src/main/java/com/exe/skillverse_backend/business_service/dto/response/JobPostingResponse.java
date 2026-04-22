@@ -20,6 +20,7 @@ public class JobPostingResponse {
     private String title;
     private String description;
     private List<String> requiredSkills;
+    private String primarySkill;
     private BigDecimal minBudget;
     private BigDecimal maxBudget;
     private LocalDate deadline;

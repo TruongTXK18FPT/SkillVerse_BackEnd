@@ -29,6 +29,9 @@ public class UpdateShortTermJobRequest {
 
     private List<String> requiredSkills;
 
+    @Size(max = 100, message = "Primary skill must not exceed 100 characters")
+    private String primarySkill;
+
     @DecimalMin(value = "0.01", message = "Budget must be greater than 0")
     private BigDecimal budget;
 

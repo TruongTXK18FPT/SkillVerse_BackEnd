@@ -69,10 +69,16 @@ public class StartJourneyRequest {
     private String industry;
 
     /**
-     * Skills the user already knows (for tailoring the test)
-     * Empty list means "I don't know anything yet"
+        * Target skills user wants to develop in this journey.
+        * In V3 flow this is typically a focused list (often one primary skill).
      */
     private List<String> skills;
+
+        /**
+        * Skills user already has.
+        * This list is used to calibrate prompt context so AI can avoid re-testing obvious basics.
+        */
+        private List<String> existingSkills;
 
     /**
      * Areas the user wants to focus on in the assessment

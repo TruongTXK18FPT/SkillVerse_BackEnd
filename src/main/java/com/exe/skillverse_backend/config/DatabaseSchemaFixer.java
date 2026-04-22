@@ -357,10 +357,29 @@ public class DatabaseSchemaFixer {
                     this::patchQuestionBanksSkillName,
                     this::verifyQuestionBanksSkillName);
 
+            applyPatch("v3-create-question-bank-submissions",
+                    "Create question_bank_submissions and question_bank_submission_questions tables for mentor contribution review flow",
+                    this::patchQuestionBankSubmissionTables,
+                    this::verifyQuestionBankSubmissionTables);
+
+            applyPatch("v3-add-job-postings-primary-skill",
+                    "Add primary_skill column to job_postings and short_term_jobs",
+                    this::patchJobPostingsPrimarySkill,
+                    this::verifyJobPostingsPrimarySkill);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
         }
+    }
+
+    private void patchJobPostingsPrimarySkill() {
+        jdbcTemplate.execute("ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS primary_skill VARCHAR(100)");
+        jdbcTemplate.execute("ALTER TABLE short_term_jobs ADD COLUMN IF NOT EXISTS primary_skill VARCHAR(100)");
+    }
+
+    private boolean verifyJobPostingsPrimarySkill() {
+        return hasColumn("job_postings", "primary_skill") && hasColumn("short_term_jobs", "primary_skill");
     }
 
     // ─── quizzes.description oid ────────────────────────────────────────────────
@@ -2284,5 +2303,71 @@ public class DatabaseSchemaFixer {
     private boolean verifyQuestionBanksSkillName() {
         if (!hasTable("question_banks")) return true;
         return hasColumn("question_banks", "skill_name");
+    }
+
+    private void patchQuestionBankSubmissionTables() {
+        if (!hasTable("question_bank_submissions")) {
+            executeSql("""
+                CREATE TABLE question_bank_submissions (
+                    id BIGSERIAL PRIMARY KEY,
+                    mentor_id BIGINT NOT NULL,
+                    domain VARCHAR(50) NOT NULL,
+                    industry VARCHAR(150) NOT NULL,
+                    job_role VARCHAR(150) NOT NULL,
+                    skill_name VARCHAR(100) NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    difficulty_distribution TEXT,
+                    status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+                    source VARCHAR(30) NOT NULL DEFAULT 'MANUAL',
+                    question_count INT NOT NULL DEFAULT 0,
+                    saved_question_count INT,
+                    duplicate_question_count INT,
+                    review_note TEXT,
+                    reviewed_by BIGINT,
+                    reviewed_at TIMESTAMPTZ,
+                    resolved_question_bank_id BIGINT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT fk_qbs_mentor FOREIGN KEY (mentor_id) REFERENCES users(id),
+                    CONSTRAINT fk_qbs_reviewed_by FOREIGN KEY (reviewed_by) REFERENCES users(id),
+                    CONSTRAINT fk_qbs_resolved_bank FOREIGN KEY (resolved_question_bank_id) REFERENCES question_banks(id),
+                    CONSTRAINT chk_qbs_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+                    CONSTRAINT chk_qbs_source CHECK (source IN ('MANUAL', 'JSON_IMPORT'))
+                )
+            """);
+            executeSql("CREATE INDEX IF NOT EXISTS idx_qbs_mentor_status ON question_bank_submissions(mentor_id, status)");
+            executeSql("CREATE INDEX IF NOT EXISTS idx_qbs_status_created_at ON question_bank_submissions(status, created_at)");
+        }
+
+        if (!hasTable("question_bank_submission_questions")) {
+            executeSql("""
+                CREATE TABLE question_bank_submission_questions (
+                    id BIGSERIAL PRIMARY KEY,
+                    submission_id BIGINT NOT NULL,
+                    display_order INT NOT NULL,
+                    question_text TEXT NOT NULL,
+                    options TEXT NOT NULL,
+                    correct_answer VARCHAR(1) NOT NULL,
+                    explanation TEXT,
+                    difficulty VARCHAR(20) NOT NULL,
+                    skill_area VARCHAR(150),
+                    category VARCHAR(100),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT fk_qbsq_submission FOREIGN KEY (submission_id)
+                        REFERENCES question_bank_submissions(id) ON DELETE CASCADE
+                )
+            """);
+            executeSql("CREATE INDEX IF NOT EXISTS idx_qbsq_submission_order ON question_bank_submission_questions(submission_id, display_order)");
+        }
+    }
+
+    private boolean verifyQuestionBankSubmissionTables() {
+        return hasTable("question_bank_submissions")
+                && hasColumn("question_bank_submissions", "mentor_id")
+                && hasColumn("question_bank_submissions", "skill_name")
+                && hasTable("question_bank_submission_questions")
+                && hasColumn("question_bank_submission_questions", "submission_id")
+                && hasColumn("question_bank_submission_questions", "question_text");
     }
 }

@@ -17,6 +17,7 @@ public class CreateQuestionBankRequest {
 
     private String industry;
     private String jobRole;
+    private String skillName;
 
     @NotBlank(message = "Title is required")
     private String title;

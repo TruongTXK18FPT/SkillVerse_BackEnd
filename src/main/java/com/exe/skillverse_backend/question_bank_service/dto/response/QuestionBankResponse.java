@@ -18,6 +18,7 @@ public class QuestionBankResponse {
     private String domain;
     private String industry;
     private String jobRole;
+    private String skillName;
     private String title;
     private String description;
     private String difficultyDistribution;

@@ -19,35 +19,93 @@ public interface QuestionBankRepository extends JpaRepository<QuestionBank, Long
     @Query("SELECT q FROM QuestionBank q WHERE q.isActive = true " +
            "AND (:domain IS NULL OR q.domain = :domain) " +
            "AND (:industry IS NULL OR q.industry = :industry) " +
-           "AND (:jobRole IS NULL OR q.jobRole = :jobRole)")
+           "AND (:jobRole IS NULL OR q.jobRole = :jobRole) " +
+           "AND (:skillName IS NULL OR q.skillName = :skillName)")
     Page<QuestionBank> findByFilters(@Param("domain") String domain,
                                      @Param("industry") String industry,
                                      @Param("jobRole") String jobRole,
+                                     @Param("skillName") String skillName,
                                      Pageable pageable);
 
-    Optional<QuestionBank> findTopByDomainAndIndustryAndJobRoleAndIsActiveTrueOrderByUpdatedAtDescIdDesc(
-            String domain,
-            String industry,
-            String jobRole
-    );
+    @Query("""
+            SELECT q FROM QuestionBank q
+            WHERE q.isActive = true
+              AND q.domain = :domain
+              AND ((:industry IS NULL AND q.industry IS NULL) OR q.industry = :industry)
+              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
+              AND ((:skillName IS NULL AND q.skillName IS NULL) OR q.skillName = :skillName)
+            ORDER BY q.updatedAt DESC, q.id DESC
+            """)
+    List<QuestionBank> findByExactScope(@Param("domain") String domain,
+                                        @Param("industry") String industry,
+                                        @Param("jobRole") String jobRole,
+                                        @Param("skillName") String skillName,
+                                        Pageable pageable);
 
-    /**
-     * Find active question bank by domain + job role (no industry filter).
-     * Used by JourneyService for bank-first test generation.
-     */
-    Optional<QuestionBank> findTopByDomainAndJobRoleAndIsActiveTrueOrderByUpdatedAtDescIdDesc(
-            String domain,
-            String jobRole
-    );
+    @Query("""
+            SELECT q FROM QuestionBank q
+            WHERE q.isActive = true
+              AND q.domain = :domain
+              AND ((:industry IS NULL AND q.industry IS NULL) OR q.industry = :industry)
+              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
+            ORDER BY CASE WHEN q.skillName IS NULL THEN 0 ELSE 1 END, q.updatedAt DESC, q.id DESC
+            """)
+    List<QuestionBank> findPreferredByScope(@Param("domain") String domain,
+                                            @Param("industry") String industry,
+                                            @Param("jobRole") String jobRole,
+                                            Pageable pageable);
+
+    @Query("""
+            SELECT q FROM QuestionBank q
+            WHERE q.isActive = true
+              AND q.domain = :domain
+              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
+              AND ((:skillName IS NULL AND q.skillName IS NULL) OR q.skillName = :skillName)
+            ORDER BY q.updatedAt DESC, q.id DESC
+            """)
+    List<QuestionBank> findByExactDomainAndRole(@Param("domain") String domain,
+                                                @Param("jobRole") String jobRole,
+                                                @Param("skillName") String skillName,
+                                                Pageable pageable);
+
+    @Query("""
+            SELECT q FROM QuestionBank q
+            WHERE q.isActive = true
+              AND q.domain = :domain
+              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
+            ORDER BY CASE WHEN q.skillName IS NULL THEN 0 ELSE 1 END, q.updatedAt DESC, q.id DESC
+            """)
+    List<QuestionBank> findPreferredByDomainAndRole(@Param("domain") String domain,
+                                                    @Param("jobRole") String jobRole,
+                                                    Pageable pageable);
 
     List<QuestionBank> findByDomainAndIsActiveTrue(String domain);
 
-    boolean existsByDomainAndIndustryAndJobRoleAndIsActiveTrue(String domain, String industry, String jobRole);
+    @Query("""
+            SELECT CASE WHEN COUNT(q) > 0 THEN TRUE ELSE FALSE END FROM QuestionBank q
+            WHERE q.isActive = true
+              AND q.domain = :domain
+              AND ((:industry IS NULL AND q.industry IS NULL) OR q.industry = :industry)
+              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
+              AND ((:skillName IS NULL AND q.skillName IS NULL) OR q.skillName = :skillName)
+            """)
+    boolean existsActiveByScope(@Param("domain") String domain,
+                                @Param("industry") String industry,
+                                @Param("jobRole") String jobRole,
+                                @Param("skillName") String skillName);
 
-    boolean existsByDomainAndIndustryAndJobRoleAndIsActiveTrueAndIdNot(
-            String domain,
-            String industry,
-            String jobRole,
-            Long id
-    );
+    @Query("""
+            SELECT CASE WHEN COUNT(q) > 0 THEN TRUE ELSE FALSE END FROM QuestionBank q
+            WHERE q.isActive = true
+              AND q.domain = :domain
+              AND ((:industry IS NULL AND q.industry IS NULL) OR q.industry = :industry)
+              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
+              AND ((:skillName IS NULL AND q.skillName IS NULL) OR q.skillName = :skillName)
+              AND q.id <> :excludeId
+            """)
+    boolean existsActiveByScopeAndIdNot(@Param("domain") String domain,
+                                        @Param("industry") String industry,
+                                        @Param("jobRole") String jobRole,
+                                        @Param("skillName") String skillName,
+                                        @Param("excludeId") Long excludeId);
 }

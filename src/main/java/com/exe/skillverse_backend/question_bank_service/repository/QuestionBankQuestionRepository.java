@@ -16,6 +16,9 @@ public interface QuestionBankQuestionRepository extends JpaRepository<QuestionBa
 
     Page<QuestionBankQuestion> findByQuestionBankIdAndIsActiveTrue(Long bankId, Pageable pageable);
 
+    @Query("SELECT q.questionText FROM QuestionBankQuestion q WHERE q.questionBank.id = :bankId AND q.isActive = true")
+    List<String> findActiveQuestionTextsByBankId(@Param("bankId") Long bankId);
+
     @Query("SELECT q FROM QuestionBankQuestion q WHERE q.questionBank.id = :bankId " +
            "AND q.isActive = true " +
            "AND (:difficulty IS NULL OR q.difficulty = :difficulty) " +

@@ -489,7 +489,8 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
         sb.append("- Linh vuc: ").append(userInfo.domain() != null ? userInfo.domain() : domain).append("\n");
         sb.append("- Muc tieu: ").append(userInfo.goal() != null ? userInfo.goal() : "Chua xac dinh").append("\n");
         sb.append("- Cap do hien tai: ").append(userInfo.level() != null ? userInfo.level() : "Chua xac dinh").append("\n");
-        sb.append("- Ky nang da biet: ").append(userInfo.skills() != null && !userInfo.skills().isEmpty() ? String.join(", ", userInfo.skills()) : "Chua co ky nang dang ke").append("\n");
+        sb.append("- Ky nang muc tieu can hoc: ").append(userInfo.targetSkills() != null && !userInfo.targetSkills().isEmpty() ? String.join(", ", userInfo.targetSkills()) : "Chua chon cu the").append("\n");
+        sb.append("- Ky nang da co: ").append(userInfo.existingSkills() != null && !userInfo.existingSkills().isEmpty() ? String.join(", ", userInfo.existingSkills()) : "Chua co ky nang dang ke").append("\n");
         sb.append("- Linh vuc muon tap trung: ").append(userInfo.focusAreas() != null && !userInfo.focusAreas().isEmpty() ? String.join(", ", userInfo.focusAreas()) : "Chua xac dinh").append("\n");
         sb.append("- Ngon ngu bai test: ").append(userInfo.language() != null ? userInfo.language() : "Tieng Viet").append("\n");
         sb.append("- Thoi luong bai test: ").append(userInfo.duration() != null ? userInfo.duration() : "Tieu chuan (10-15 phut)").append("\n");
@@ -524,8 +525,30 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
             "- Cac dap an sai phai co tinh 'gay nhieu' cao (co the dung mot phan)\n\n" +
             "### Thoi gian:\n" +
             "- timeLimitMinutes phai bang DUNG " + requestedTimeLimitMinutes + "\n" +
-            "- Tong bai test phai phu hop voi " + requestedQuestionCount + " cau hoi trong " + requestedTimeLimitMinutes + " phut\n";
+                "- Tong bai test phai phu hop voi " + requestedQuestionCount + " cau hoi trong " + requestedTimeLimitMinutes + " phut\n" +
+                buildPersonalizedSkillGuidance(userInfo);
     }
+
+            private String buildPersonalizedSkillGuidance(UserAssessmentInfo userInfo) {
+            StringBuilder guidance = new StringBuilder();
+
+            if (userInfo.targetSkills() != null && !userInfo.targetSkills().isEmpty()) {
+                guidance.append("\n### Ca nhan hoa theo ky nang muc tieu:\n");
+                guidance.append("- Uu tien danh gia cac chu de lien quan truc tiep den: ")
+                    .append(String.join(", ", userInfo.targetSkills()))
+                    .append("\n");
+                guidance.append("- Cac ky nang ngoai muc tieu chi nen dung o muc nen tang de tranh loang de\n");
+            }
+
+            if (userInfo.existingSkills() != null && !userInfo.existingSkills().isEmpty()) {
+                guidance.append("- Co the giam tan suat cau hoi rat co ban tren cac ky nang da co: ")
+                    .append(String.join(", ", userInfo.existingSkills()))
+                    .append("\n");
+                guidance.append("- Tang ti le cau hoi ung dung/thuc te de xac dinh khoang cach ky nang hien tai\n");
+            }
+
+            return guidance.toString();
+            }
 
     private String buildDifficultyDistribution(String level) {
         if (level == null) {
@@ -666,6 +689,12 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
             prompt.append("Q").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
         }
 
+        prompt.append("\n## QUY CHUAN CHAM DIEM BAT BUOC:\n");
+        prompt.append("- Diem so = (so cau dung / tong so cau) * 100, lam tron den so nguyen gan nhat.\n");
+        prompt.append("- Score band phai theo bang co dinh: 0-20 ZERO_BASE, 21-45 FOUNDATION, 46-70 CORE, 71-85 ADVANCED, 86-100 EXPERT.\n");
+        prompt.append("- Cap do danh gia phai theo bang co dinh: 0-40 BEGINNER, 41-70 INTERMEDIATE, 71-85 ADVANCED, 86-100 EXPERT.\n");
+        prompt.append("- Khong duoc danh gia cam tinh. Moi nhan xet phai gan voi bang chung tu cau hoi (Qx).\n");
+
         prompt.append("\n## YÊU CẦU ĐÁNH GIÁ:\n");
         prompt.append("1. Chấm điểm dựa trên tỷ lệ đúng.\n");
         prompt.append("2. Trả cấp độ: BEGINNER / INTERMEDIATE / ADVANCED / EXPERT.\n");
@@ -675,6 +704,7 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
         prompt.append("6. Trong phản hồi chi tiết, hãy dùng **bold** cho các keyword quan trọng và nhắc tới mã câu hỏi như Q3, Q8 khi cần.\n");
         prompt.append("7. Đề xuất hành động ưu tiên theo hướng thực tế, dễ bắt đầu.\n");
         prompt.append("8. Giọng văn phải chuẩn tiếng Việt, hấp dẫn, mang tính khích lệ và định hướng.\n\n");
+        prompt.append("9. Bắt buộc trả thêm scoreRationale để người học hiểu rõ vì sao có mức điểm hiện tại.\n\n");
 
         prompt.append("## CẤU TRÚC MARKDOWN CHO detailedFeedback:\n");
         prompt.append("- Có các phần theo thứ tự: `## Bức tranh hiện tại`, `## Điểm mạnh nổi bật`, `## Kỹ năng cần ưu tiên`, `## Hành động đề xuất`, `## Lời nhắn từ Meowl`.\n");
@@ -696,6 +726,14 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
         prompt.append("    \"skillScore\": diem_ky_nang,\n");
         prompt.append("    \"problemSolvingScore\": diem_xu_ly_tinh_huong,\n");
         prompt.append("    \"analysisScore\": diem_tu_duy_phan_tich\n");
+        prompt.append("  },\n");
+        prompt.append("  \"scoreRationale\": {\n");
+        prompt.append("    \"formula\": \"Diem = (cau_dung / tong_cau) * 100\",\n");
+        prompt.append("    \"scoreBand\": \"ZERO_BASE/FOUNDATION/CORE/ADVANCED/EXPERT\",\n");
+        prompt.append("    \"levelBand\": \"BEGINNER/INTERMEDIATE/ADVANCED/EXPERT\",\n");
+        prompt.append("    \"whyThisScore\": \"giai thich ngan gon 2-4 cau, dan chung Qx\",\n");
+        prompt.append("    \"confidenceReason\": \"vi sao do tin cay cao/thap\",\n");
+        prompt.append("    \"nextFocus\": \"uu tien hanh dong tiep theo\"\n");
         prompt.append("  },\n");
         prompt.append("  \"evaluationSummary\": \"markdown ngắn 2-4 bullet hoặc 1 đoạn ngắn, có thể dùng **bold**\",\n");
         prompt.append("  \"detailedFeedback\": \"markdown đầy đủ theo cấu trúc yêu cầu ở trên\",\n");

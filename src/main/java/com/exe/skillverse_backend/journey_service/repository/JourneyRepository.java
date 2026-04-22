@@ -53,6 +53,11 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
     List<Journey> findByUserAndStatus(User user, Journey.JourneyStatus status);
 
     /**
+     * Count journeys by user id and status
+     */
+    long countByUserIdAndStatus(Long userId, Journey.JourneyStatus status);
+
+    /**
      * Find journeys that need attention (no activity for X days)
      */
     @Query("SELECT j FROM Journey j WHERE j.user = :user AND j.status IN ('ACTIVE', 'STUDY_PLAN_IN_PROGRESS') AND j.lastActivityAt < :since")
