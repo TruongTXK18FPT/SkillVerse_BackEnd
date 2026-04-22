@@ -20,6 +20,7 @@ import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.exe.skillverse_backend.ai_service.service.AiCourseCatalogService;
+import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
 import com.exe.skillverse_backend.ai_service.service.impl.MultiLevelCourseMatcher;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,6 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.mockito.Mockito;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -94,6 +96,9 @@ class AiRoadmapServiceImplTest {
     @Mock
     private MultiLevelCourseMatcher multiLevelCourseMatcher;
 
+    @Mock
+    private LocalAiGateway localAiGateway;
+
     private AiRoadmapServiceImpl service;
 
     @BeforeEach
@@ -114,7 +119,33 @@ class AiRoadmapServiceImplTest {
                 roadmapCompletionSyncService,
                 taskBoardService,
                 aiCourseCatalogService,
-                multiLevelCourseMatcher);
+                multiLevelCourseMatcher,
+                null);
+    }
+
+    @Test
+    @DisplayName("generateRoadmap with null localAiGateway does not call local AI")
+    void generateRoadmap_WithNullLocalGateway_SkipsLocalPath() {
+        service = new AiRoadmapServiceImpl(
+                roadmapSessionRepository,
+                progressRepository,
+                new ObjectMapper(),
+                inputValidationService,
+                usageLimitService,
+                expertPromptService,
+                taxonomyService,
+                premiumService,
+                mistralChatModel,
+                courseRepository,
+                journeyRepository,
+                taskRepository,
+                roadmapCompletionSyncService,
+                taskBoardService,
+                aiCourseCatalogService,
+                multiLevelCourseMatcher,
+                null);
+
+        Mockito.verifyNoInteractions(localAiGateway);
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
 import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
@@ -31,12 +32,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 
@@ -72,7 +75,10 @@ class AssignmentAiGradingServiceImplTest {
     private ChatModel chatModel;
 
         @Mock
-        private CourseLearningProgressService courseLearningProgressService;
+    private CourseLearningProgressService courseLearningProgressService;
+
+    @Mock
+    private LocalAiGateway localAiGateway;
 
     private AssignmentAiGradingServiceImpl service;
 
@@ -93,7 +99,8 @@ class AssignmentAiGradingServiceImplTest {
                 fileExtractor,
                 notificationService,
                 chatModel,
-                courseLearningProgressService
+                courseLearningProgressService,
+                null
         );
 
         User mentor = User.builder().id(7L).firstName("Mentor").lastName("One").build();
@@ -319,5 +326,52 @@ class AssignmentAiGradingServiceImplTest {
                 () -> service.requestMentorReview(100L, 99L, null)
         );
         verify(submissionRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("callAi falls back to cloud when local returns invalid JSON (schema fail)")
+    void generateAiGrade_localInvalidJson_fallsBackToCloud() {
+        AssignmentAiGradingServiceImpl serviceWithLocal = new AssignmentAiGradingServiceImpl(
+                assignmentRepository, submissionRepository, criteriaRepository, criteriaScoreRepository,
+                mediaRepository, gradingPromptService, fileExtractor, notificationService,
+                null, courseLearningProgressService, localAiGateway);
+
+        when(localAiGateway.isAvailable()).thenReturn(true);
+        when(localAiGateway.call(anyString(), anyString())).thenReturn("not-valid-json");
+        when(localAiGateway.fetchRagContext(anyString(), any(), anyInt())).thenReturn("");
+        when(submissionRepository.findById(100L)).thenReturn(Optional.of(submission));
+        when(gradingPromptService.buildGradingPrompt(any(), anyString(), anyString(), any()))
+                .thenReturn("grade this");
+
+        // Local returns bad JSON -> parseGradingResponse throws -> caught -> cloud path taken
+        // cloud chatModel is null -> ISE wrapped in RuntimeException by callAiWithRetry
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> serviceWithLocal.generateAiGrade(100L, 7L));
+        Throwable root = ex.getCause() != null ? ex.getCause() : ex;
+        assertTrue(root.getMessage().contains("ASSIGNMENT_AI_API_KEY"));
+        verify(localAiGateway, atLeastOnce()).call(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("RAG fetchRagContext exception does not prevent grading from reaching AI call")
+    void generateAiGrade_ragException_requestContinues() {
+        AssignmentAiGradingServiceImpl serviceWithLocal = new AssignmentAiGradingServiceImpl(
+                assignmentRepository, submissionRepository, criteriaRepository, criteriaScoreRepository,
+                mediaRepository, gradingPromptService, fileExtractor, notificationService,
+                null, courseLearningProgressService, localAiGateway);
+
+        when(localAiGateway.isAvailable()).thenReturn(true);
+        when(localAiGateway.fetchRagContext(anyString(), any(), anyInt()))
+                .thenThrow(new RuntimeException("RAG network error"));
+        when(submissionRepository.findById(100L)).thenReturn(Optional.of(submission));
+        when(gradingPromptService.buildGradingPrompt(any(), anyString(), anyString(), any()))
+                .thenReturn("grade this");
+
+        // RAG throws -> warning logged -> continues -> local call attempted -> falls back to null cloud -> ISE
+        when(localAiGateway.call(anyString(), anyString())).thenReturn("bad json");
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> serviceWithLocal.generateAiGrade(100L, 7L));
+        Throwable root = ex.getCause() != null ? ex.getCause() : ex;
+        assertTrue(root.getMessage().contains("ASSIGNMENT_AI_API_KEY"));
     }
 }

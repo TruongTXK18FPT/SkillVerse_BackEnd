@@ -12,6 +12,8 @@ import com.exe.skillverse_backend.course_service.repository.AssignmentCriteriaRe
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
 import com.exe.skillverse_backend.course_service.repository.SubmissionCriteriaScoreRepository;
+import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
+import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.entity.Media;
@@ -47,9 +49,10 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
     private final AssignmentGradingPromptService gradingPromptService;
     private final FileTextExtractorService fileExtractor;
     private final NotificationService notificationService;
-    private final com.exe.skillverse_backend.course_service.service.CourseLearningProgressService courseLearningProgressService;
+    private final CourseLearningProgressService courseLearningProgressService;
     private final ChatModel chatModel;
     private final ObjectMapper objectMapper;
+    private final LocalAiGateway localAiGateway;
 
     public AssignmentAiGradingServiceImpl(
             AssignmentRepository assignmentRepository,
@@ -61,7 +64,8 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
             FileTextExtractorService fileExtractor,
             NotificationService notificationService,
             @Autowired(required = false) @Qualifier("assignmentAiChatModel") ChatModel chatModel,
-            @Autowired(required = false) com.exe.skillverse_backend.course_service.service.CourseLearningProgressService courseLearningProgressService) {
+            @Autowired(required = false) CourseLearningProgressService courseLearningProgressService,
+            @Autowired(required = false) LocalAiGateway localAiGateway) {
         this.assignmentRepository = assignmentRepository;
         this.submissionRepository = submissionRepository;
         this.criteriaRepository = criteriaRepository;
@@ -72,6 +76,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         this.notificationService = notificationService;
         this.chatModel = chatModel;
         this.courseLearningProgressService = courseLearningProgressService;
+        this.localAiGateway = localAiGateway;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -119,6 +124,27 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
             throw new IllegalArgumentException("No content to grade. Submission is empty.");
         }
 
+        // Enrich grading prompt with RAG context if available
+        String ragPrefix = "";
+        if (localAiGateway != null && localAiGateway.isAvailable()) {
+            try {
+                String ragQuery = assignment.getTitle() != null ? assignment.getTitle() : "assignment grading";
+                Long courseId = assignment.getModule().getCourse().getId();
+                Long moduleId = assignment.getModule().getId();
+                String ragContext = localAiGateway.fetchRagContext(
+                        ragQuery,
+                        Map.of("course_id", courseId.toString(), "module_id", moduleId.toString()),
+                        3);
+                if (!ragContext.isBlank()) {
+                    ragPrefix = "## Lý thuyết tham chiếu từ bài giảng\n" + ragContext
+                            + "\n\nHãy chấm bài DỰA TRÊN lý thuyết tham chiếu ở trên."
+                            + " Nếu bài làm sai so với tài liệu, hãy trừ điểm và giải thích rõ.\n\n";
+                }
+            } catch (Exception ragEx) {
+                log.warn("RAG fetch failed for assignment grading, continuing without context: {}", ragEx.getMessage());
+            }
+        }
+
         // Build prompt
         String gradingStyle = assignment.getGradingStyle() != null
                 ? assignment.getGradingStyle() : "STANDARD";
@@ -128,6 +154,9 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                 gradingStyle,
                 assignment.getAiGradingPrompt()
         );
+        if (!ragPrefix.isBlank()) {
+            userPrompt = ragPrefix + userPrompt;
+        }
 
         // Call AI with 1 retry
         AiGradingResultDTO result = callAiWithRetry(userPrompt);
@@ -313,16 +342,30 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
     }
 
     private AiGradingResultDTO callAi(String userPrompt) {
+        // Try local first — transport fail OR schema fail both fall through to cloud
+        if (localAiGateway != null && localAiGateway.isAvailable()) {
+            try {
+                String localResponse = localAiGateway.call("", userPrompt);
+                return parseGradingResponse(localResponse);
+            } catch (Exception localEx) {
+                log.warn("Local AI grading failed (transport or schema), falling back to cloud: {}",
+                        localEx.getMessage());
+            }
+        }
+
         if (chatModel == null) {
             throw new IllegalStateException(
                 "AI grading is not available — ASSIGNMENT_AI_API_KEY is not configured. "
                 + "Please configure assignment_ai.api-key in your environment.");
         }
-        String response = ChatClient.create(chatModel).prompt()
+        String cloudResponse = ChatClient.create(chatModel).prompt()
                 .user(userPrompt)
                 .call()
                 .content();
+        return parseGradingResponse(cloudResponse);
+    }
 
+    private AiGradingResultDTO parseGradingResponse(String response) {
         String json = extractJson(response);
         AiGradingResultDTO dto;
         try {
@@ -330,11 +373,9 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to parse AI grading response: " + e.getMessage(), e);
         }
-
         if (dto.getCriteriaScores() == null || dto.getCriteriaScores().isEmpty()) {
             throw new RuntimeException("AI returned empty criteria scores");
         }
-
         return dto;
     }
 

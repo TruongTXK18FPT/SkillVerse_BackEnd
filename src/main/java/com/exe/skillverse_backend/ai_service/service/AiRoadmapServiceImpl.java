@@ -57,6 +57,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -117,6 +118,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
     private final TaskBoardService taskBoardService;
     private final AiCourseCatalogService aiCourseCatalogService;
     private final MultiLevelCourseMatcher multiLevelCourseMatcher;
+    private final LocalAiGateway localAiGateway;
 
     public AiRoadmapServiceImpl(
             RoadmapSessionRepository roadmapSessionRepository,
@@ -134,7 +136,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             RoadmapCompletionSyncService roadmapCompletionSyncService,
             TaskBoardService taskBoardService,
             AiCourseCatalogService aiCourseCatalogService,
-            MultiLevelCourseMatcher multiLevelCourseMatcher) {
+            MultiLevelCourseMatcher multiLevelCourseMatcher,
+            @Autowired(required = false) LocalAiGateway localAiGateway) {
         this.roadmapSessionRepository = roadmapSessionRepository;
         this.progressRepository = progressRepository;
         this.objectMapper = objectMapper;
@@ -151,6 +154,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         this.taskBoardService = taskBoardService;
         this.aiCourseCatalogService = aiCourseCatalogService;
         this.multiLevelCourseMatcher = multiLevelCourseMatcher;
+        this.localAiGateway = localAiGateway;
     }
 
     /**
@@ -271,10 +275,27 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             inputValidationService.validateTextOrThrow(request.getExperience());
             inputValidationService.validateTextOrThrow(request.getStyle());
 
-            // Step 3: AI Generation — 3-tier cascade: Mistral → Gemini → Mistral compact
-            String roadmapJson;
+            // Step 3: AI Generation — 4-tier cascade: Local → Mistral → Gemini → Mistral compact
+            String roadmapJson = null;
 
-            // Step 3A: Mistral primary (2 attempts, 30s fixed backoff)
+            // Step 3A-pre: Local AI first (fast path)
+            if (localAiGateway != null && localAiGateway.isAvailable()) {
+                try {
+                    log.info("🧭 [trace={}] Trying Local AI first", traceId);
+                    String localPrompt = buildPrompt(request)
+                            + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Chỉ trả về JSON hợp lệ như yêu cầu.";
+                    roadmapJson = localAiGateway.call("", localPrompt);
+                    log.info("🧭 [trace={}] Local AI returned response", traceId);
+                    telemetry.markModelPath("local");
+                } catch (LocalAiGateway.LocalAiQueueFullException qfe) {
+                    log.warn("🧭 [trace={}] Local AI queue full, falling back to Mistral: {}", traceId, qfe.getMessage());
+                } catch (Exception localEx) {
+                    log.warn("🧭 [trace={}] Local AI failed, falling back to Mistral: {}", traceId, localEx.getMessage());
+                }
+            }
+
+            // Step 3A: Mistral primary (2 attempts, 30s fixed backoff) — only if local didn't succeed
+            if (roadmapJson == null) {
             try {
                 log.info("🧭 [trace={}] Primary model path: Mistral", traceId);
                 telemetry.markModelPath("mistral");
@@ -312,6 +333,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     roadmapJson = callMistralRoadmapFallback(request, telemetry);
                 }
             }
+            } // end if (roadmapJson == null) — cloud fallback chain
 
             // Step 4: Parse and validate JSON (Schema V2)
             // Retry up to 2 times if parse fails due to JSON truncation (unclosed brackets)
@@ -325,12 +347,13 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                             && (parseEx.getMessage().contains("Unexpected end-of-input")
                                 || parseEx.getMessage().contains("Unexpected character")
                                 || parseEx.getMessage().contains("not complete"));
-                    if (isTruncation && parseRetry < 2) {
-                        log.warn("⚠️ [trace={}] Parse attempt {}/3 failed (truncated). Retrying AI...",
-                                traceId, parseRetry + 2);
-                        telemetry.markFallback("parse-truncated-retry-" + (parseRetry + 1), "truncation", 0);
-                        // Re-call the same model that produced the original response
-                        String currentPath = telemetry.getModelPath();
+                    String currentPath = telemetry.getModelPath();
+                    boolean isLocalPath = "local".equals(currentPath);
+                    if ((isTruncation || isLocalPath) && parseRetry < 2) {
+                        String reason = isLocalPath ? "local-schema-fail" : "truncation";
+                        log.warn("⚠️ [trace={}] Parse attempt {}/3 failed ({}). Falling back to cloud...",
+                                traceId, parseRetry + 2, reason);
+                        telemetry.markFallback("parse-fail-retry-" + (parseRetry + 1), reason, 0);
                         if ("mistral".equals(currentPath)) {
                             roadmapJson = callMistralWithRetry(request, telemetry, traceId);
                         } else if ("gemini".equals(currentPath)) {
@@ -1435,6 +1458,22 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             finalPrompt = finalPrompt
                     + "\nMODE: Deep Research Pro Preview 12/2025 — Yêu cầu tư duy nghiên cứu sâu, kiểm chứng nguồn, ưu tiên số liệu thực tế 2026, trình bày có cấu trúc và trả về JSON theo yêu cầu.";
         }
+
+        // Enrich prompt with RAG context if available
+        if (localAiGateway != null && localAiGateway.isAvailable()) {
+            String ragQuery = (request.getSkillName() != null ? request.getSkillName() + " " : "")
+                    + (request.getGoal() != null ? request.getGoal() : "");
+            if (!ragQuery.isBlank()) {
+                String ragContext = localAiGateway.fetchRagContext(ragQuery, Map.of("doc_type", "skill"), 5);
+                if (!ragContext.isBlank()) {
+                    finalPrompt = "## Tài liệu Skill tham khảo từ SkillVerse\n" + ragContext
+                            + "\n\nHãy tạo Roadmap DỰA TRÊN tài liệu trên. Ưu tiên gợi ý các khóa học"
+                            + " có sẵn trong hệ thống SkillVerse thay vì nguồn bên ngoài.\n\n"
+                            + finalPrompt;
+                }
+            }
+        }
+
         return finalPrompt;
     }
 

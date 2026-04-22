@@ -344,6 +344,7 @@ jobs:
             -p 8080:8080 \
             --link test-redis:redis \
             -e SPRING_PROFILES_ACTIVE=docker \
+            -e LOCAL_AI_ENABLED=false \
             -e SPRING_DATASOURCE_URL=jdbc:postgresql://221.132.33.141:5432/skillverse_db \
             -e SPRING_DATASOURCE_USERNAME=skillverse_user \
             -e SPRING_DATASOURCE_PASSWORD="${DB_PASSWORD}" \
@@ -502,6 +503,13 @@ jobs:
           echo "ASSIGNMENT_AI_API_KEY='${{ secrets.ASSIGNMENT_AI_API_KEY }}'" >> .env
           echo "FIREBASE_PROJECT_ID='${{ secrets.FIREBASE_PROJECT_ID }}'" >> .env
           echo "FIREBASE_CREDENTIALS_JSON_BASE64='${{ secrets.FIREBASE_CREDENTIALS_JSON_BASE64 }}'" >> .env
+          echo "LOCAL_AI_ENABLED='false'" >> .env
+          echo "LOCAL_AI_BASE_URL='${{ vars.LOCAL_AI_BASE_URL }}'" >> .env
+          echo "LOCAL_AI_MODEL='qwen3.5:27b'" >> .env
+          echo "LOCAL_AI_CONNECT_TIMEOUT_MS='1500'" >> .env
+          echo "LOCAL_AI_HTTP_TIMEOUT_MS='25000'" >> .env
+          echo "LOCAL_AI_QUEUE_WAIT_MS='4000'" >> .env
+          echo "LOCAL_AI_QUEUE_MAX_PENDING='2'" >> .env
 
           # Debug: Verify critical secrets are set (without exposing values)
           echo "🔍 Verifying critical environment variables..."
@@ -621,6 +629,13 @@ jobs:
               -e FIREBASE_PROJECT_ID="$FIREBASE_PROJECT_ID" \
               -e FIREBASE_CREDENTIALS_JSON_BASE64="$FIREBASE_CREDENTIALS_JSON_BASE64" \
               -e ASSIGNMENT_AI_API_KEY="$ASSIGNMENT_AI_API_KEY" \
+              -e LOCAL_AI_ENABLED="$LOCAL_AI_ENABLED" \
+              -e LOCAL_AI_BASE_URL="$LOCAL_AI_BASE_URL" \
+              -e LOCAL_AI_MODEL="$LOCAL_AI_MODEL" \
+              -e LOCAL_AI_CONNECT_TIMEOUT_MS="$LOCAL_AI_CONNECT_TIMEOUT_MS" \
+              -e LOCAL_AI_HTTP_TIMEOUT_MS="$LOCAL_AI_HTTP_TIMEOUT_MS" \
+              -e LOCAL_AI_QUEUE_WAIT_MS="$LOCAL_AI_QUEUE_WAIT_MS" \
+              -e LOCAL_AI_QUEUE_MAX_PENDING="$LOCAL_AI_QUEUE_MAX_PENDING" \
               skillverse-backend:v1
             
             echo "⏳ Waiting for backend to start..."

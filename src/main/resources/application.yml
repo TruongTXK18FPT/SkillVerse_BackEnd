@@ -269,6 +269,16 @@ skillverse:
       cache-enabled: ${AI_SEARCH_CACHE_ENABLED:true}
       cache-ttl-minutes: ${AI_SEARCH_CACHE_TTL_MINUTES:60}
 
+    # Local AI VPS Configuration (first-tier before cloud APIs)
+    local:
+      enabled: ${LOCAL_AI_ENABLED:false}
+      base-url: ${LOCAL_AI_BASE_URL:}
+      model: ${LOCAL_AI_MODEL:qwen3.5:27b}
+      connect-timeout-ms: ${LOCAL_AI_CONNECT_TIMEOUT_MS:1500}
+      http-timeout-ms: ${LOCAL_AI_HTTP_TIMEOUT_MS:30000}
+      queue-wait-ms: ${LOCAL_AI_QUEUE_WAIT_MS:8000}
+      queue-max-pending: ${LOCAL_AI_QUEUE_MAX_PENDING:2}
+
 springdoc:
   api-docs:
     enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}

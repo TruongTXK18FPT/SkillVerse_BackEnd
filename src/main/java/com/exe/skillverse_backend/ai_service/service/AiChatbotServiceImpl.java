@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -50,6 +51,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   private final UsageLimitService usageLimitService;
   private final ExpertPromptServiceImpl expertPromptService;
   private final PremiumService premiumService;
+  private final LocalAiGateway localAiGateway;
   
   @Value("${spring.ai.openai.api-key}")
   private String geminiApiKey;
@@ -71,7 +73,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       InputValidationServiceImpl inputValidationService,
       UsageLimitService usageLimitService,
       ExpertPromptServiceImpl expertPromptService,
-      PremiumService premiumService) {
+      PremiumService premiumService,
+      @Autowired(required = false) LocalAiGateway localAiGateway) {
     this.mistralChatModel = mistralChatModel;
     this.chatSessionRepository = chatSessionRepository;
     this.chatMessageRepository = chatMessageRepository;
@@ -80,6 +83,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     this.usageLimitService = usageLimitService;
     this.expertPromptService = expertPromptService;
     this.premiumService = premiumService;
+    this.localAiGateway = localAiGateway;
   }
 
   // MEOWL AI CAREER ADVISOR - OPTIMIZED VERSION 2026
@@ -494,6 +498,19 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           }
         }
       }
+      // Normal mode: try Local AI first, fallback to Mistral
+      if (localAiGateway != null && localAiGateway.isAvailable()) {
+        try {
+          String ragContext = localAiGateway.fetchRagContext(userMessage, null, 5);
+          String localSystemPrompt = resolveSystemPromptForLocal(request, previousMessages, agentSuffix, ragContext);
+          log.info("Using Local AI for normal chat mode");
+          return localAiGateway.call(localSystemPrompt, buildConversationHistoryText(userMessage, previousMessages));
+        } catch (LocalAiGateway.LocalAiQueueFullException qfe) {
+          log.warn("Local AI queue full, falling back to Mistral: {}", qfe.getMessage());
+        } catch (Exception localEx) {
+          log.warn("Local AI failed, falling back to Mistral: {}", localEx.getMessage());
+        }
+      }
       return callMistralForChat(userMessage, previousMessages, request, agentSuffix);
     } catch (Exception e) {
       log.error("Mistral AI failed: {}", e.getMessage());
@@ -561,6 +578,14 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           "\nCRITICAL: Hãy trả lời bằng đúng ngôn ngữ người dùng đang dùng (ưu tiên Tiếng Việt). Nếu phát hiện yêu cầu vô lý (ví dụ mục tiêu IELTS 10.0), hãy giải thích và đưa gợi ý hợp lệ bằng Tiếng Việt.";
       if (agentSuffix != null && !agentSuffix.isEmpty()) {
         finalSystemPrompt = finalSystemPrompt + agentSuffix;
+      }
+
+      // Enrich prompt with RAG context if available
+      if (localAiGateway != null && localAiGateway.isAvailable()) {
+        String ragContext = localAiGateway.fetchRagContext(userMessage, null, 5);
+        if (!ragContext.isBlank()) {
+          finalSystemPrompt = finalSystemPrompt + "\n\n## TÀI LIỆU SKILLVERSE THAM KHẢO:\n" + ragContext;
+        }
       }
 
       // Use Spring AI ChatClient for Mistral
@@ -1446,5 +1471,41 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   @Transactional(readOnly = true)
   public Long getTotalMessageCount() {
     return chatMessageRepository.countTotalMessages();
+  }
+
+  private String resolveSystemPromptForLocal(ChatRequest request, List<ChatMessage> previousMessages,
+      String agentSuffix, String ragContext) {
+    String systemPrompt;
+    if (request.getChatMode() == ChatMode.EXPERT_MODE) {
+      systemPrompt = expertPromptService.getSystemPrompt(
+          request.getDomain(), request.getIndustry(), request.getJobRole());
+      if (systemPrompt == null) {
+        systemPrompt = SYSTEM_PROMPT;
+      }
+    } else {
+      boolean isFirstTurn = previousMessages == null || previousMessages.isEmpty();
+      systemPrompt = isFirstTurn ? SYSTEM_PROMPT_SIMPLE : SYSTEM_PROMPT;
+    }
+    String result = systemPrompt
+        + "\nCRITICAL: Hãy trả lời bằng đúng ngôn ngữ người dùng đang dùng (ưu tiên Tiếng Việt).";
+    if (agentSuffix != null && !agentSuffix.isEmpty()) {
+      result = result + agentSuffix;
+    }
+    if (ragContext != null && !ragContext.isBlank()) {
+      result = result + "\n\n## TÀI LIỆU SKILLVERSE THAM KHẢO:\n" + ragContext;
+    }
+    return result;
+  }
+
+  private String buildConversationHistoryText(String userMessage, List<ChatMessage> previousMessages) {
+    StringBuilder sb = new StringBuilder("Conversation history:\n");
+    if (previousMessages != null) {
+      for (ChatMessage prev : previousMessages) {
+        sb.append("User: ").append(prev.getUserMessage()).append("\n");
+        sb.append("Assistant: ").append(prev.getAiResponse()).append("\n");
+      }
+    }
+    sb.append("User: ").append(userMessage);
+    return sb.toString();
   }
 }

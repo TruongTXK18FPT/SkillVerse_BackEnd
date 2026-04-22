@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.premium_service.entity.FeatureType;
 import com.exe.skillverse_backend.premium_service.service.PremiumService;
 import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
+import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import java.time.LocalDateTime;
@@ -24,6 +25,7 @@ import org.springframework.ai.chat.model.ChatModel;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import org.mockito.Mockito;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -54,6 +56,9 @@ class AiChatbotServiceImplTest {
     @Mock
     private PremiumService premiumService;
 
+    @Mock
+    private LocalAiGateway localAiGateway;
+
     private AiChatbotServiceImpl service;
 
     @BeforeEach
@@ -66,7 +71,25 @@ class AiChatbotServiceImplTest {
                 inputValidationService,
                 usageLimitService,
                 expertPromptService,
-                premiumService);
+                premiumService,
+                null);
+    }
+
+    @Test
+    @DisplayName("chat should not call localAiGateway when it is null (local disabled path)")
+    void chat_WithNullLocalGateway_UsesCloudPath() {
+        service = new AiChatbotServiceImpl(
+                mistralChatModel,
+                chatSessionRepository,
+                chatMessageRepository,
+                taxonomyEntryRepository,
+                inputValidationService,
+                usageLimitService,
+                expertPromptService,
+                premiumService,
+                null);
+
+        Mockito.verifyNoInteractions(localAiGateway);
     }
 
     @Test
