@@ -68,11 +68,11 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
     private final ObjectMapper objectMapper;
     private final com.exe.skillverse_backend.journey_service.repository.JourneyRepository journeyRepository;
 
-    // Deterministic scoring weights
-    private static final BigDecimal SKILL_WEIGHT = new BigDecimal("0.40");
-    private static final BigDecimal PROJECT_WEIGHT = new BigDecimal("0.20");
-    private static final BigDecimal CERT_WEIGHT = new BigDecimal("0.20");
-    private static final BigDecimal MISSION_WEIGHT = new BigDecimal("0.20");
+    // Deterministic scoring weights (Standardized for filtering)
+    private static final BigDecimal SKILL_WEIGHT = new BigDecimal("0.50"); // 50% - Core requirement
+    private static final BigDecimal PROJECT_WEIGHT = new BigDecimal("0.25"); // 25% - Practical experience
+    private static final BigDecimal MISSION_WEIGHT = new BigDecimal("0.15"); // 15% - System verified experience
+    private static final BigDecimal CERT_WEIGHT = new BigDecimal("0.10"); // 10% - Theoretical knowledge
 
     // Score thresholds
     private static final double EXCELLENT_THRESHOLD = 0.8;
@@ -152,15 +152,22 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
     public Object getCandidateMatchExplanation(Long recruiterId, Long jobId, Long candidateId) {
         // Check permission
         if (!hasCandidateAccess(recruiterId)) {
-            throw new ForbiddenException("Bạn cần gói Premium Recruiter để sử dụng tính năng AI matching.");
+            throw new ForbiddenException("Bạn cần gói Premium Recruiter để sử dụng tính năng đánh giá ứng viên.");
         }
 
-        // Check AI is available
-        if (!aiSearchService.isEnabled()) {
-            throw new BadRequestException("AI matching hiện không khả dụng. Vui lòng thử lại sau.");
+        // Get job
+        JobPosting job = jobPostingRepository.findById(jobId)
+                .orElseThrow(() -> new BadRequestException("Không tìm thấy tin tuyển dụng."));
+
+        if (!job.getRecruiterProfile().getUser().getId().equals(recruiterId)) {
+            throw new ForbiddenException("Bạn không có quyền truy cập công việc này.");
         }
 
-        return aiSearchService.generateMatchExplanation(jobId, candidateId);
+        PortfolioExtendedProfile profile = portfolioRepository.findById(candidateId)
+                .orElseThrow(() -> new BadRequestException("Không tìm thấy ứng viên."));
+
+        CandidateSearchRequest request = CandidateSearchRequest.builder().jobId(jobId).build();
+        return calculateHybridScore(profile, job, null, request);
     }
 
     @Override
@@ -168,12 +175,7 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
     public Object getShortTermJobMatchExplanation(Long recruiterId, Long shortTermJobId, Long candidateId) {
         // Check permission
         if (!hasCandidateAccess(recruiterId)) {
-            throw new ForbiddenException("Bạn cần gói Premium Recruiter để sử dụng tính năng AI matching.");
-        }
-
-        // Check AI is available
-        if (!aiSearchService.isEnabled()) {
-            throw new BadRequestException("AI matching hiện không khả dụng. Vui lòng thử lại sau.");
+            throw new ForbiddenException("Bạn cần gói Premium Recruiter để sử dụng tính năng đánh giá ứng viên.");
         }
 
         // Verify short-term job ownership
@@ -185,7 +187,121 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
             throw new ForbiddenException("Bạn không có quyền truy cập công việc này.");
         }
 
-        return aiSearchService.generateShortTermJobMatchExplanation(shortTermJobId, candidateId);
+        PortfolioExtendedProfile profile = portfolioRepository.findById(candidateId)
+                .orElseThrow(() -> new BadRequestException("Không tìm thấy ứng viên."));
+
+        CandidateSearchRequest request = CandidateSearchRequest.builder().shortTermJobId(shortTermJobId).build();
+        return calculateHybridScore(profile, null, shortTermJob, request);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Object getAiEnhancedAnalysis(Long recruiterId, Long jobId, Long shortTermJobId, Long candidateId) {
+        // Check permission
+        if (!hasCandidateAccess(recruiterId)) {
+            throw new ForbiddenException("Bạn cần gói Premium Recruiter để sử dụng AI phân tích.");
+        }
+
+        // Resolve job
+        JobPosting job = null;
+        ShortTermJob shortTermJob = null;
+        if (jobId != null) {
+            job = jobPostingRepository.findById(jobId)
+                    .orElseThrow(() -> new BadRequestException("Không tìm thấy tin tuyển dụng."));
+            if (!job.getRecruiterProfile().getUser().getId().equals(recruiterId)) {
+                throw new ForbiddenException("Bạn không có quyền truy cập công việc này.");
+            }
+        } else if (shortTermJobId != null) {
+            shortTermJob = shortTermJobRepository.findById(shortTermJobId)
+                    .orElseThrow(() -> new BadRequestException("Không tìm thấy công việc ngắn hạn."));
+            if (!shortTermJob.getRecruiterProfile().getUser().getId().equals(recruiterId)) {
+                throw new ForbiddenException("Bạn không có quyền truy cập công việc này.");
+            }
+        } else {
+            throw new BadRequestException("Cần truyền jobId hoặc shortTermJobId.");
+        }
+
+        PortfolioExtendedProfile profile = portfolioRepository.findById(candidateId)
+                .orElseThrow(() -> new BadRequestException("Không tìm thấy ứng viên."));
+
+        // 1. Calculate deterministic scores
+        CandidateSearchRequest searchRequest = CandidateSearchRequest.builder()
+                .jobId(jobId).shortTermJobId(shortTermJobId).build();
+        CandidateSummaryDTO deterministicResult = calculateHybridScore(profile, job, shortTermJob, searchRequest);
+
+        // 2. Run AI analysis (optional, may fail gracefully)
+        AICandidateMatchResponse aiResult = null;
+        String aiError = null;
+        try {
+            if (aiSearchService.isEnabled() && aiSearchService.canMakeRequest()) {
+                if (shortTermJobId != null) {
+                    aiResult = aiSearchService.generateShortTermJobMatchExplanation(shortTermJobId, candidateId);
+                } else {
+                    aiResult = aiSearchService.generateMatchExplanation(jobId, candidateId);
+                }
+            } else {
+                aiError = "AI service hiện không khả dụng hoặc đã hết quota.";
+            }
+        } catch (Exception e) {
+            log.warn("AI analysis failed for candidate {} job {}: {}", candidateId, jobId != null ? jobId : shortTermJobId, e.getMessage());
+            aiError = "Không thể hoàn tất AI phân tích: " + e.getMessage();
+        }
+
+        // 3. Build recommendation
+        String recommendation;
+        String verdict;
+        double matchScore = deterministicResult.getMatchScore() != null ? deterministicResult.getMatchScore() : 0;
+        boolean primaryMatch = Boolean.TRUE.equals(deterministicResult.getPrimarySkillMatch());
+
+        if (matchScore >= 0.8) {
+            verdict = "STRONG_ACCEPT";
+            recommendation = "✅ Đề xuất mạnh — Ứng viên đáp ứng xuất sắc yêu cầu. Nên ưu tiên liên hệ ngay.";
+        } else if (matchScore >= 0.6) {
+            verdict = "ACCEPT";
+            recommendation = "✅ Đề xuất — Ứng viên phù hợp tốt, có tiềm năng. Nên tiến hành phỏng vấn.";
+        } else if (matchScore >= 0.4) {
+            if (primaryMatch) {
+                verdict = "CONSIDER";
+                recommendation = "⚠️ Cân nhắc — Điểm tổng trung bình nhưng có kỹ năng quan trọng nhất. Nên phỏng vấn để đánh giá thêm.";
+            } else {
+                verdict = "WEAK";
+                recommendation = "⚠️ Phù hợp yếu — Thiếu nhiều yếu tố, cần cân nhắc kỹ trước khi liên hệ.";
+            }
+        } else {
+            if (primaryMatch) {
+                verdict = "RISKY";
+                recommendation = "⚠️ Rủi ro — Điểm rất thấp nhưng có kỹ năng chính. Chỉ nên cân nhắc nếu không có ứng viên khác.";
+            } else {
+                verdict = "REJECT";
+                recommendation = "❌ Không phù hợp — Thiếu kỹ năng quan trọng và kinh nghiệm. Không nên liên hệ.";
+            }
+        }
+
+        // 4. Combine into response
+        Map<String, Object> combined = new LinkedHashMap<>();
+        combined.put("deterministicScores", deterministicResult);
+        combined.put("verdict", verdict);
+        combined.put("recommendation", recommendation);
+        combined.put("matchScore", matchScore);
+        combined.put("primarySkillMatch", primaryMatch);
+
+        if (aiResult != null) {
+            Map<String, Object> aiSection = new LinkedHashMap<>();
+            aiSection.put("fitSummary", aiResult.getFitSummary());
+            aiSection.put("reasoning", aiResult.getReasoning());
+            aiSection.put("confidenceScore", aiResult.getConfidenceScore());
+            aiSection.put("matchQuality", aiResult.getMatchQuality());
+            aiSection.put("skillSignals", aiResult.getSkillSignals());
+            aiSection.put("modelUsed", aiResult.getModelUsed());
+            aiSection.put("processingTimeMs", aiResult.getProcessingTimeMs());
+            aiSection.put("isFallback", aiResult.getIsFallback());
+            combined.put("aiAnalysis", aiSection);
+        }
+        if (aiError != null) {
+            combined.put("aiError", aiError);
+        }
+
+        return combined;
     }
 
     @Override
@@ -357,6 +473,9 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         dto.setProjectMatchScore(Math.round(projectScore * PROJECT_WEIGHT.doubleValue() * 100.0) / 100.0);
         dto.setCertMatchScore(Math.round(certScore * CERT_WEIGHT.doubleValue() * 100.0) / 100.0);
         dto.setMissionMatchScore(Math.round(missionScore * MISSION_WEIGHT.doubleValue() * 100.0) / 100.0);
+
+        // Populate detailed breakdown context
+        populateDetailedBreakdown(dto, profile, job, shortTermJob, skillScore, projectScore, certScore, missionScore);
 
         return dto;
     }
@@ -630,8 +749,6 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
     }
 
     private double calculateSkillScore(PortfolioExtendedProfile profile, JobPosting job, ShortTermJob shortTermJob, CandidateSearchRequest request, CandidateSummaryDTO dto) {
-        double baseScore = 0.5; // Default if no specific skills to match
-
         String primarySkill = null;
         String requiredSkillsRaw = null;
 
@@ -662,12 +779,16 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
             String pSkill = primarySkill.toLowerCase().trim();
             primaryMatch = candidateSkills.stream().anyMatch(s -> s.contains(pSkill));
             dto.setPrimarySkillMatch(primaryMatch);
-            
-            if (primaryMatch) {
-                return 1.0; // 100% score for skills if primary skill matches
-            }
         }
 
+        double score = 0.0;
+        
+        // Primary skill gives 40% of the total skill score
+        if (primaryMatch) {
+            score += 0.4;
+        }
+
+        // Other skills give up to 60% of the total skill score
         if (requiredSkillsRaw != null && !requiredSkillsRaw.isBlank()) {
             try {
                 List<String> requiredSkills = objectMapper.readValue(requiredSkillsRaw, List.class);
@@ -681,39 +802,192 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
                             .filter(s -> finalRequiredSkills.stream().anyMatch(s::contains))
                             .count();
 
-                    baseScore = Math.min(1.0, (double) matchCount / finalRequiredSkills.size());
+                    score += 0.6 * Math.min(1.0, (double) matchCount / finalRequiredSkills.size());
                 } else if (requiredSkills.isEmpty()) {
-                    baseScore = 1.0;
-                } else {
-                    baseScore = 0.0;
+                    score += 0.6; // No other skills required, free points
                 }
             } catch (JsonProcessingException e) {
                 log.warn("Error parsing skills for scoring: {}", e.getMessage());
             }
+        } else {
+            score += 0.6; // No other skills required, free points
         }
 
-        return baseScore;
+        // If no skills are specified at all for the job, default to 1.0 (free points)
+        if ((primarySkill == null || primarySkill.isBlank()) && (requiredSkillsRaw == null || requiredSkillsRaw.isBlank())) {
+            return 1.0;
+        }
+
+        return score;
     }
 
     private double calculateProjectScore(PortfolioExtendedProfile profile, CandidateSummaryDTO dto) {
         int projects = profile.getTotalProjects() != null ? profile.getTotalProjects() : 0;
-        // Cap at 5 projects for 100% score
-        return Math.min(1.0, projects / 5.0);
+        // Cap at 3 projects for 100% score (3 projects = 25% overall weight)
+        return Math.min(1.0, projects / 3.0);
     }
 
     private double calculateCertificateScore(PortfolioExtendedProfile profile, CandidateSummaryDTO dto) {
         int certs = profile.getTotalCertificates() != null ? profile.getTotalCertificates() : 0;
-        // Cap at 3 certificates for 100% score
-        return Math.min(1.0, certs / 3.0);
+        // Cap at 2 certificates for 100% score (2 certs = 10% overall weight)
+        return Math.min(1.0, certs / 2.0);
     }
 
     private double calculateMissionScore(PortfolioExtendedProfile profile, CandidateSummaryDTO dto) {
-        long completedMissions = journeyRepository.countByUserIdAndStatus(
-                profile.getUser().getId(), 
-                com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED
-        );
-        // Cap at 5 missions for 100% score
-        return Math.min(1.0, completedMissions / 5.0);
+        long completedMissions = 0;
+        try {
+            completedMissions = journeyRepository.countByUserIdAndStatus(
+                    profile.getUser().getId(), 
+                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED
+            );
+        } catch (Exception e) {
+            log.warn("Error counting missions", e);
+        }
+        // Cap at 3 missions for 100% score (3 missions = 15% overall weight)
+        return Math.min(1.0, completedMissions / 3.0);
+    }
+
+    /**
+     * Populate detailed breakdown context for rich UI explanations.
+     * Computes matchedSkills, unmatchedSkills, counts, and auto-generates fitExplanation.
+     */
+    private void populateDetailedBreakdown(
+            CandidateSummaryDTO dto,
+            PortfolioExtendedProfile profile,
+            JobPosting job,
+            ShortTermJob shortTermJob,
+            double skillScore,
+            double projectScore,
+            double certScore,
+            double missionScore
+    ) {
+        // Parse candidate skills
+        List<String> candidateSkills = Collections.emptyList();
+        if (profile.getTopSkills() != null && !profile.getTopSkills().isBlank()) {
+            try {
+                candidateSkills = objectMapper.readValue(profile.getTopSkills(), List.class);
+                candidateSkills = candidateSkills.stream()
+                        .filter(Objects::nonNull)
+                        .map(String::valueOf)
+                        .collect(Collectors.toList());
+            } catch (Exception e) {
+                log.warn("Error parsing candidate skills for breakdown", e);
+            }
+        }
+        dto.setTotalCandidateSkills(candidateSkills.size());
+
+        // Parse required skills from job
+        List<String> requiredSkills = Collections.emptyList();
+        String requiredSkillsRaw = null;
+        String primarySkill = null;
+        if (shortTermJob != null) {
+            requiredSkillsRaw = shortTermJob.getRequiredSkills();
+            primarySkill = shortTermJob.getPrimarySkill();
+        } else if (job != null) {
+            requiredSkillsRaw = job.getRequiredSkills();
+            primarySkill = job.getPrimarySkill();
+        }
+
+        if (requiredSkillsRaw != null && !requiredSkillsRaw.isBlank()) {
+            try {
+                requiredSkills = objectMapper.readValue(requiredSkillsRaw, List.class);
+                requiredSkills = requiredSkills.stream()
+                        .filter(Objects::nonNull)
+                        .map(String::valueOf)
+                        .collect(Collectors.toList());
+            } catch (Exception e) {
+                log.warn("Error parsing required skills for breakdown", e);
+            }
+        }
+        dto.setTotalRequiredSkills(requiredSkills.size());
+
+        // Compute matched / unmatched skills
+        List<String> candidateSkillsLower = candidateSkills.stream()
+                .map(String::toLowerCase)
+                .collect(Collectors.toList());
+
+        List<String> matched = new java.util.ArrayList<>();
+        List<String> unmatched = new java.util.ArrayList<>();
+        for (String reqSkill : requiredSkills) {
+            String reqLower = reqSkill.toLowerCase().trim();
+            boolean found = candidateSkillsLower.stream().anyMatch(cs -> cs.contains(reqLower));
+            if (found) {
+                matched.add(reqSkill);
+            } else {
+                unmatched.add(reqSkill);
+            }
+        }
+        dto.setMatchedSkills(matched);
+        dto.setUnmatchedSkills(unmatched);
+
+        // Counts
+        int projects = profile.getTotalProjects() != null ? profile.getTotalProjects() : 0;
+        int certs = profile.getTotalCertificates() != null ? profile.getTotalCertificates() : 0;
+        long missions = 0;
+        try {
+            missions = journeyRepository.countByUserIdAndStatus(
+                    profile.getUser().getId(),
+                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED
+            );
+        } catch (Exception e) {
+            log.warn("Error counting missions for breakdown", e);
+        }
+        dto.setCompletedMissionsCount((int) missions);
+        dto.setTotalCertificatesCount(certs);
+
+        // Build fitExplanation
+        StringBuilder explanation = new StringBuilder();
+
+        // Skill explanation
+        if (!requiredSkills.isEmpty()) {
+            explanation.append("Kỹ năng: Khớp ")
+                    .append(matched.size()).append("/").append(requiredSkills.size())
+                    .append(" kỹ năng yêu cầu");
+            if (!matched.isEmpty()) {
+                explanation.append(" (").append(String.join(", ", matched.subList(0, Math.min(matched.size(), 4)))).append(")");
+            }
+            explanation.append(".");
+            if (!unmatched.isEmpty()) {
+                explanation.append(" Thiếu: ").append(String.join(", ", unmatched.subList(0, Math.min(unmatched.size(), 3)))).append(".");
+            }
+            if (Boolean.TRUE.equals(dto.getPrimarySkillMatch()) && primarySkill != null) {
+                explanation.append(" ⭐ Có kỹ năng quan trọng nhất: ").append(primarySkill).append(".");
+            }
+        } else {
+            explanation.append("Kỹ năng: Không có yêu cầu kỹ năng cụ thể cho vị trí này.");
+        }
+
+        // Project explanation
+        explanation.append(" | Dự án: ").append(projects).append(" dự án trong portfolio");
+        if (projects == 0) {
+            explanation.append(" — chưa có dự án nào, cần bổ sung.");
+        } else if (projects < 3) {
+            explanation.append(" — khá ít, nên bổ sung thêm dự án liên quan.");
+        } else {
+            explanation.append(" — portfolio phong phú.");
+        }
+
+        // Certificate explanation
+        explanation.append(" | Chứng chỉ: ").append(certs).append(" chứng chỉ");
+        if (certs == 0) {
+            explanation.append(" — chưa có chứng chỉ, khuyến khích bổ sung.");
+        } else if (certs < 2) {
+            explanation.append(" — có nhưng còn ít.");
+        } else {
+            explanation.append(" — đầy đủ chứng chỉ chuyên môn.");
+        }
+
+        // Mission explanation
+        explanation.append(" | Missions: ").append(missions).append(" nhiệm vụ hoàn thành");
+        if (missions == 0) {
+            explanation.append(" — chưa hoàn thành nhiệm vụ nào trên hệ thống.");
+        } else if (missions < 3) {
+            explanation.append(" — đã có kinh nghiệm thực chiến cơ bản.");
+        } else {
+            explanation.append(" — kinh nghiệm thực chiến phong phú.");
+        }
+
+        dto.setFitExplanation(explanation.toString());
     }
 
     private double parseEstimatedHours(String estimatedDuration) {

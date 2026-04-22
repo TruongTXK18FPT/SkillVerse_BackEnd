@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.portfolio_service.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.util.List;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -23,4 +24,6 @@ public class PortfolioEducationDTO {
     private String endDate;
     private String status;
     private String description;
+    private String gpa;
+    private List<String> relevantCourses;
 }

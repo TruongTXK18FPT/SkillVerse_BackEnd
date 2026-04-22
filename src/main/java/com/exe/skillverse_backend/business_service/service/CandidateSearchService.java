@@ -98,4 +98,15 @@ public interface CandidateSearchService {
      * @return AI match response with explanation
      */
     Object getShortTermJobMatchExplanation(Long recruiterId, Long shortTermJobId, Long candidateId);
+
+    /**
+     * AI-enhanced analysis (optional) — combines deterministic ranking with AI reasoning
+     *
+     * @param recruiterId The recruiter requesting the analysis
+     * @param jobId Optional fulltime job ID
+     * @param shortTermJobId Optional short-term job ID
+     * @param candidateId The candidate user ID
+     * @return Combined analysis with deterministic scores + AI insight
+     */
+    Object getAiEnhancedAnalysis(Long recruiterId, Long jobId, Long shortTermJobId, Long candidateId);
 }

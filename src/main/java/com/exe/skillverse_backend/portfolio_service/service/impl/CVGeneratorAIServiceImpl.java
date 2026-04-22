@@ -1,10 +1,13 @@
 package com.exe.skillverse_backend.portfolio_service.service.impl;
 
+import com.exe.skillverse_backend.portfolio_service.dto.AIEnhanceRequest;
+import com.exe.skillverse_backend.portfolio_service.dto.AIEnhanceResponse;
 import com.exe.skillverse_backend.portfolio_service.service.CVGeneratorAIService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -485,5 +488,173 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
             log.error("Error generating CV JSON", e);
             throw new RuntimeException("Failed to generate CV JSON: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Enhance a specific CV section using AI.
+     * Generates improved content based on user's instruction while preserving
+     * factual information.
+     */
+    @Override
+    public AIEnhanceResponse enhanceSection(AIEnhanceRequest request) {
+        try {
+            String prompt = buildEnhancePrompt(request);
+            log.info("Enhancing CV section: {} with instruction: {}",
+                    request.getSection(), request.getInstruction());
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(mistralApiKey);
+
+            String systemPrompt = buildEnhanceSystemPrompt(request.getSection());
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("model", model);
+            requestBody.put("messages", List.of(
+                    Map.of("role", "system", "content", systemPrompt),
+                    Map.of("role", "user", "content", prompt)));
+            requestBody.put("temperature", 0.5);
+            requestBody.put("max_tokens", 1500);
+
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    mistralApiUrl,
+                    HttpMethod.POST,
+                    entity,
+                    String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode jsonResponse = objectMapper.readTree(response.getBody());
+                String content = jsonResponse.at("/choices/0/message/content").asText();
+
+                // Parse the response which may contain multiple alternatives
+                List<String> alternatives = parseAlternatives(content);
+                String primary = alternatives.isEmpty() ? content : alternatives.get(0);
+
+                log.info("Successfully enhanced section: {}", request.getSection());
+
+                return AIEnhanceResponse.builder()
+                        .enhancedContent(primary)
+                        .alternatives(alternatives.size() > 1
+                                ? alternatives.subList(1, alternatives.size())
+                                : new ArrayList<>())
+                        .section(request.getSection())
+                        .itemId(request.getItemId())
+                        .success(true)
+                        .build();
+            }
+
+            throw new RuntimeException("AI service returned non-OK status: " + response.getStatusCode());
+
+        } catch (HttpClientErrorException e) {
+            log.error("AI service error for section enhancement: {}", e.getMessage());
+            return AIEnhanceResponse.builder()
+                    .section(request.getSection())
+                    .itemId(request.getItemId())
+                    .success(false)
+                    .errorMessage("AI service error: " + e.getMessage())
+                    .build();
+        } catch (Exception e) {
+            log.error("Error enhancing CV section", e);
+            return AIEnhanceResponse.builder()
+                    .section(request.getSection())
+                    .itemId(request.getItemId())
+                    .success(false)
+                    .errorMessage("Failed to enhance: " + e.getMessage())
+                    .build();
+        }
+    }
+
+    private String buildEnhanceSystemPrompt(String section) {
+        return switch (section.toLowerCase()) {
+            case "summary" -> """
+                    You are an expert CV writer specializing in professional summaries.
+                    Rewrite the provided summary to be more compelling and professional.
+                    Keep it concise (2-4 sentences, max 150 words).
+                    Highlight key strengths without inventing facts.
+                    Return ONLY the enhanced summary text, no markdown, no explanations.
+                    """;
+            case "experience" -> """
+                    You are an expert CV writer specializing in work experience descriptions.
+                    Rewrite the job description into 3-5 impactful bullet points.
+                    Use action verbs, quantify achievements where possible.
+                    Keep technical accuracy - don't invent technologies or metrics.
+                    Return ONLY the bullet points, one per line, starting with "- ".
+                    """;
+            case "project" -> """
+                    You are an expert CV writer specializing in project descriptions.
+                    Rewrite the project description to be concise yet impactful.
+                    Focus on: what was built, your role, technologies used, and key outcomes.
+                    Maximum 2-3 sentences or bullet points.
+                    Return ONLY the enhanced description, no markdown, no explanations.
+                    """;
+            case "education" -> """
+                    You are an expert CV writer specializing in education sections.
+                    Enhance the education description if needed, keeping it factual.
+                    Focus on relevant coursework, achievements, or honors if applicable.
+                    Return ONLY the enhanced text, no markdown, no explanations.
+                    """;
+            case "skill" -> """
+                    You are an expert CV writer specializing in skills sections.
+                    Organize and enhance the skills presentation for maximum impact.
+                    Group related skills, use professional terminology.
+                    Return ONLY the skills list, no markdown, no explanations.
+                    """;
+            default -> """
+                    You are an expert CV writer.
+                    Enhance the provided content to be more professional and impactful.
+                    Keep all factual information accurate - do not invent facts.
+                    Return ONLY the enhanced text, no markdown, no explanations.
+                    """;
+        };
+    }
+
+    private String buildEnhancePrompt(AIEnhanceRequest request) {
+        StringBuilder prompt = new StringBuilder();
+
+        prompt.append("Section: ").append(request.getSection()).append("\n\n");
+
+        if (request.getContextData() != null && !request.getContextData().isEmpty()) {
+            prompt.append("Context:\n");
+            request.getContextData().forEach((key, value) -> {
+                if (value != null && !value.isBlank()) {
+                    prompt.append("- ").append(key).append(": ").append(value).append("\n");
+                }
+            });
+            prompt.append("\n");
+        }
+
+        prompt.append("Current content:\n");
+        prompt.append(request.getCurrentContent() != null ? request.getCurrentContent() : "").append("\n\n");
+
+        if (request.getInstruction() != null && !request.getInstruction().isBlank()) {
+            prompt.append("User's request: ").append(request.getInstruction()).append("\n\n");
+        }
+
+        prompt.append("Please provide 2-3 alternative versions separated by \"---\" on its own line.");
+
+        return prompt.toString();
+    }
+
+    private List<String> parseAlternatives(String content) {
+        List<String> alternatives = new ArrayList<>();
+
+        // Split by "---" separator
+        String[] parts = content.split("\\n?---\\n?");
+        for (String part : parts) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                // Remove markdown fences if present
+                trimmed = trimmed.replaceAll("^```\\w*\\s*", "").replaceAll("\\s*```$", "");
+                alternatives.add(trimmed);
+            }
+        }
+
+        // If no separators found, treat entire content as single alternative
+        if (alternatives.isEmpty() && !content.trim().isEmpty()) {
+            alternatives.add(content.trim());
+        }
+
+        return alternatives;
     }
 }

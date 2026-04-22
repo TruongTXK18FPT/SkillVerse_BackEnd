@@ -1,5 +1,7 @@
 package com.exe.skillverse_backend.portfolio_service.controller;
 
+import com.exe.skillverse_backend.portfolio_service.dto.AIEnhanceRequest;
+import com.exe.skillverse_backend.portfolio_service.dto.AIEnhanceResponse;
 import com.exe.skillverse_backend.portfolio_service.dto.CVGenerationRequest;
 import com.exe.skillverse_backend.portfolio_service.dto.CompletedMissionDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
@@ -525,6 +527,58 @@ public class PortfolioController {
                     "data", cv));
         } catch (Exception e) {
             return handlePortfolioException(e, "Error generating CV", "Failed to generate CV: ");
+        }
+    }
+
+    // ==================== CV EXPORT (NO AI) ====================
+
+    @PostMapping("/cv/export")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Export CV from Portfolio (No AI)", description = "Export CV directly from portfolio data without AI processing. Allows manual editing.")
+    public ResponseEntity<?> exportCV(
+            @RequestBody CVGenerationRequest request,
+            Authentication authentication) {
+        try {
+            Long userId = Long.parseLong(authentication.getName());
+            log.info("Exporting CV from portfolio for user: {} with template: {}", userId, request.getTemplateName());
+
+            GeneratedCVDTO cv = portfolioService.exportCV(userId, request);
+
+            return ResponseEntity.status(HttpStatus.CREATED).body(Map.of(
+                    "success", true,
+                    "message", "CV exported from portfolio successfully. You can now edit it manually or use AI to enhance specific sections.",
+                    "data", cv));
+        } catch (Exception e) {
+            return handlePortfolioException(e, "Error exporting CV", "Failed to export CV: ");
+        }
+    }
+
+    // ==================== CV SECTION ENHANCEMENT (AI) ====================
+
+    @PostMapping("/cv/enhance")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Enhance CV Section with AI", description = "Use AI to enhance a specific CV section. Requires CV content to be provided.")
+    public ResponseEntity<?> enhanceCVSection(
+            @RequestBody AIEnhanceRequest request,
+            Authentication authentication) {
+        try {
+            Long userId = Long.parseLong(authentication.getName());
+            log.info("User {} requesting AI enhancement for section: {}", userId, request.getSection());
+
+            AIEnhanceResponse response = portfolioService.enhanceCVSection(userId, request);
+
+            if (response.isSuccess()) {
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "message", "Section enhanced successfully",
+                        "data", response));
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                        "success", false,
+                        "message", response.getErrorMessage()));
+            }
+        } catch (Exception e) {
+            return handlePortfolioException(e, "Error enhancing CV section", "Failed to enhance section: ");
         }
     }
 

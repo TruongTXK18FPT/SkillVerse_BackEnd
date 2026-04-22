@@ -292,7 +292,7 @@ class JourneyServiceImplTest {
                 .build();
 
         when(journeyRepository.findByIdAndUser(21L, user)).thenReturn(Optional.of(journey));
-        when(questionBankService.findActiveBank("SERVICE", "CUSTOMER_SERVICE", "CUSTOMER_SERVICE"))
+        when(questionBankService.findActiveBank("SERVICE", "CUSTOMER_SERVICE", "CUSTOMER_SERVICE", null))
                 .thenReturn(Optional.of(bank));
         when(questionBankService.countBySkillAreaAndDifficulty(200L)).thenReturn(List.of(
                 new Object[]{"Communication Skills", "BEGINNER", 8L},
@@ -309,7 +309,7 @@ class JourneyServiceImplTest {
 
         assertEquals(101L, response.getTestId());
         assertEquals(15, response.getQuestionCount());
-        verify(questionBankService).findActiveBank("SERVICE", "CUSTOMER_SERVICE", "CUSTOMER_SERVICE");
+        verify(questionBankService).findActiveBank("SERVICE", "CUSTOMER_SERVICE", "CUSTOMER_SERVICE", null);
         verify(questionBankService, never()).findActiveBank("SERVICE", "CUSTOMER_SERVICE");
     }
 

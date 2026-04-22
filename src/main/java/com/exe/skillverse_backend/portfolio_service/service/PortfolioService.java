@@ -2,6 +2,8 @@ package com.exe.skillverse_backend.portfolio_service.service;
 
 import java.util.List;
 import org.springframework.web.multipart.MultipartFile;
+import com.exe.skillverse_backend.portfolio_service.dto.AIEnhanceRequest;
+import com.exe.skillverse_backend.portfolio_service.dto.AIEnhanceResponse;
 import com.exe.skillverse_backend.portfolio_service.dto.CVGenerationRequest;
 import com.exe.skillverse_backend.portfolio_service.dto.CompletedMissionDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
@@ -68,8 +70,14 @@ public interface PortfolioService {
 
         List<CompletedMissionDTO> getPublicCompletedMissions(Long userId);
 
-        // CV Generation
+        // CV Generation (AI)
         GeneratedCVDTO generateCV(Long userId, CVGenerationRequest request);
+
+        // CV Export (No AI - direct portfolio to CV mapping)
+        GeneratedCVDTO exportCV(Long userId, CVGenerationRequest request);
+
+        // CV Section Enhancement (AI for specific sections)
+        AIEnhanceResponse enhanceCVSection(Long userId, AIEnhanceRequest request);
 
         GeneratedCVDTO updateCV(Long cvId, Long userId, String cvContent, String cvJson);
 

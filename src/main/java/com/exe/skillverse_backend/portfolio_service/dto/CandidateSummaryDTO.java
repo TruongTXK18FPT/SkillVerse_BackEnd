@@ -36,6 +36,15 @@ public class CandidateSummaryDTO {
     private Double certMatchScore;
     private Double missionMatchScore;
 
+    // Detailed breakdown context (for rich UI explanations)
+    private List<String> matchedSkills;       // Skills the candidate has that match job requirements
+    private List<String> unmatchedSkills;     // Required skills the candidate is missing
+    private Integer totalRequiredSkills;       // Total number of required skills from the job
+    private Integer totalCandidateSkills;      // Total number of skills the candidate has
+    private Integer completedMissionsCount;    // Number of completed missions/journeys
+    private Integer totalCertificatesCount;    // Number of certificates
+    private String fitExplanation;             // Auto-generated explanation text
+
     // Shortlist fields
     private Long shortlistId;
     private String shortlistStatus;

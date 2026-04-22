@@ -142,6 +142,30 @@ public class CandidateSearchController {
     }
 
     /**
+     * AI-enhanced analysis (optional) — combines deterministic scores + AI reasoning
+     * GET /api/v1/recruiter/candidates/{candidateId}/ai-analysis
+     */
+    @GetMapping("/{candidateId}/ai-analysis")
+    @PreAuthorize("hasRole('RECRUITER')")
+    public ResponseEntity<?> getAiAnalysis(
+            Authentication authentication,
+            @PathVariable Long candidateId,
+            @RequestParam(required = false) Long jobId,
+            @RequestParam(required = false) Long shortTermJobId) {
+
+        Long recruiterId = extractUserId(authentication);
+        log.info("Recruiter {} requesting AI analysis for candidate {} (job={}, stj={})", recruiterId, candidateId, jobId, shortTermJobId);
+
+        Object result = candidateSearchService.getAiEnhancedAnalysis(recruiterId, jobId, shortTermJobId, candidateId);
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "AI phân tích chi tiết ứng viên",
+                "data", result
+        ));
+    }
+
+    /**
      * Get matching candidates for a specific job
      * GET /api/v1/recruiter/candidates/job/{jobId}
      */
