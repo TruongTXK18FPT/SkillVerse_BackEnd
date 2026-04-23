@@ -72,6 +72,12 @@ public class DatabaseSchemaFixer {
                     this::patchStudentLearningReportSnapshotColumns,
                     this::verifyStudentLearningReportSnapshotColumns);
 
+            // ─── Ensure summary_snapshot column exists individually ─────────────────
+            applyPatch("ensure-summary-snapshot-column",
+                    "Ensure summary_snapshot column exists in student_learning_reports (individual check)",
+                    this::patchEnsureSummarySnapshotColumn,
+                    this::verifyEnsureSummarySnapshotColumn);
+
             applyPatch("add-course-enrollment-learning-columns",
                     "Add missing learning-tracking columns to course_enrollment for Hibernate schema validation",
                     this::patchCourseEnrollmentLearningColumns,
@@ -503,6 +509,22 @@ public class DatabaseSchemaFixer {
                 && hasColumn("student_learning_reports", "total_study_hours_snapshot")
                 && hasColumn("student_learning_reports", "streak_days_snapshot")
                 && hasColumn("student_learning_reports", "tasks_completed_snapshot")
+                && hasColumn("student_learning_reports", "summary_snapshot");
+    }
+
+    // ─── Ensure summary_snapshot column exists individually ────────────────────
+
+    private void patchEnsureSummarySnapshotColumn() {
+        if (!hasTable("student_learning_reports")) {
+            log.debug("Table student_learning_reports does not exist yet, skipping patch.");
+            return;
+        }
+
+        executeSql("ALTER TABLE student_learning_reports ADD COLUMN IF NOT EXISTS summary_snapshot JSONB");
+    }
+
+    private boolean verifyEnsureSummarySnapshotColumn() {
+        return hasTable("student_learning_reports")
                 && hasColumn("student_learning_reports", "summary_snapshot");
     }
 
