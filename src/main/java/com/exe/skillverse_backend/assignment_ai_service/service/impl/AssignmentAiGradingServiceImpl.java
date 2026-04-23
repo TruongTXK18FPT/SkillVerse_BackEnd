@@ -7,6 +7,8 @@ import com.exe.skillverse_backend.assignment_ai_service.service.FileTextExtracto
 import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.AssignmentCriteria;
 import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
+import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.SubmissionCriteriaScore;
 import com.exe.skillverse_backend.course_service.repository.AssignmentCriteriaRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
@@ -83,10 +85,20 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
     @Override
     @Transactional
     public AiGradingResultDTO generateAiGrade(Long submissionId, Long mentorId) {
-        AssignmentSubmission submission = submissionRepository.findById(submissionId)
+        AssignmentSubmission submission = submissionRepository.findByIdWithFullChain(submissionId)
                 .orElseThrow(() -> new NotFoundException("SUBMISSION_NOT_FOUND"));
 
         Assignment assignment = submission.getAssignment();
+        Module module = assignment.getModule();
+        Course course = module.getCourse();
+
+        if (mentorId != null) {
+            Long authorId = course.getAuthor() != null ? course.getAuthor().getId() : null;
+            if (authorId == null || !mentorId.equals(authorId)) {
+                throw new org.springframework.security.access.AccessDeniedException(
+                        "You can only AI-grade submissions for your own course");
+            }
+        }
 
         if (!Boolean.TRUE.equals(assignment.getAiGradingEnabled())) {
             throw new IllegalStateException("AI grading is not enabled for this assignment");
@@ -126,15 +138,10 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
 
         // Enrich grading prompt with RAG context if available
         String ragPrefix = "";
-        if (localAiGateway != null && localAiGateway.isAvailable()) {
+        if (localAiGateway != null) {
             try {
                 String ragQuery = assignment.getTitle() != null ? assignment.getTitle() : "assignment grading";
-                Long courseId = assignment.getModule().getCourse().getId();
-                Long moduleId = assignment.getModule().getId();
-                String ragContext = localAiGateway.fetchRagContext(
-                        ragQuery,
-                        Map.of("course_id", courseId.toString(), "module_id", moduleId.toString()),
-                        3);
+                String ragContext = fetchGradingRagContext(ragQuery, assignment, module, course);
                 if (!ragContext.isBlank()) {
                     ragPrefix = "## Lý thuyết tham chiếu từ bài giảng\n" + ragContext
                             + "\n\nHãy chấm bài DỰA TRÊN lý thuyết tham chiếu ở trên."
@@ -228,7 +235,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
 
             // Recalculate course progress so the student's learning progress is updated
             if (courseLearningProgressService != null) {
-                Long courseId = assignment.getModule().getCourse().getId();
+                Long courseId = course.getId();
                 Long studentId = submission.getUser().getId();
                 courseLearningProgressService.recalculateCourseProgress(courseId, studentId);
                 log.info("Course progress recalculated for student {} in course {} after AI auto-pass",
@@ -324,6 +331,47 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         dto.setOverallConfidence(submission.getAiConfidence());
         dto.setCriteriaScores(Collections.emptyList());
         return dto;
+    }
+
+    private String fetchGradingRagContext(String ragQuery, Assignment assignment, Module module, Course course) {
+        String courseId = course.getId().toString();
+        String moduleId = module.getId().toString();
+        String assignmentId = assignment.getId().toString();
+
+        String ragContext = localAiGateway.fetchRagContext(
+                ragQuery,
+                Map.of(
+                        "doc_type", "assignment",
+                        "course_id", courseId,
+                        "module_id", moduleId,
+                        "domain", "grading_assignment_" + assignmentId
+                ),
+                3);
+
+        if (!ragContext.isBlank()) {
+            return ragContext;
+        }
+
+        ragContext = localAiGateway.fetchRagContext(
+                ragQuery,
+                Map.of(
+                        "doc_type", "assignment",
+                        "course_id", courseId,
+                        "module_id", moduleId
+                ),
+                3);
+
+        if (!ragContext.isBlank()) {
+            return ragContext;
+        }
+
+        return localAiGateway.fetchRagContext(
+                ragQuery,
+                Map.of(
+                        "doc_type", "lesson",
+                        "course_id", courseId
+                ),
+                3);
     }
 
     private AiGradingResultDTO callAiWithRetry(String userPrompt) {

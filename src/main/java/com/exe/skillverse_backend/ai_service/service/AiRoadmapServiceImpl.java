@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.ai_service.service;
 
+import com.exe.skillverse_backend.ai_knowledge_service.util.AiKnowledgeSlugUtils;
 import com.exe.skillverse_backend.ai_service.dto.gemini.GeminiDTO;
 import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
 import com.exe.skillverse_backend.ai_service.dto.request.UpdateProgressRequest;
@@ -1453,28 +1454,114 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 buildConstraintsBlock(request));
 
         String finalPrompt = systemPrompt + userContext;
+        String promptPrefill = buildRoadmapPromptPrefill(request);
+        if (!promptPrefill.isBlank()) {
+            finalPrompt = promptPrefill + "\n\n" + finalPrompt;
+        }
         if (request.getAiAgentMode() != null
                 && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode())) {
             finalPrompt = finalPrompt
                     + "\nMODE: Deep Research Pro Preview 12/2025 — Yêu cầu tư duy nghiên cứu sâu, kiểm chứng nguồn, ưu tiên số liệu thực tế 2026, trình bày có cấu trúc và trả về JSON theo yêu cầu.";
         }
 
-        // Enrich prompt with RAG context if available
-        if (localAiGateway != null && localAiGateway.isAvailable()) {
-            String ragQuery = (request.getSkillName() != null ? request.getSkillName() + " " : "")
-                    + (request.getGoal() != null ? request.getGoal() : "");
-            if (!ragQuery.isBlank()) {
-                String ragContext = localAiGateway.fetchRagContext(ragQuery, Map.of("doc_type", "skill"), 5);
-                if (!ragContext.isBlank()) {
-                    finalPrompt = "## Tài liệu Skill tham khảo từ SkillVerse\n" + ragContext
-                            + "\n\nHãy tạo Roadmap DỰA TRÊN tài liệu trên. Ưu tiên gợi ý các khóa học"
-                            + " có sẵn trong hệ thống SkillVerse thay vì nguồn bên ngoài.\n\n"
-                            + finalPrompt;
-                }
-            }
+        return finalPrompt;
+    }
+
+    private String buildRoadmapPromptPrefill(GenerateRoadmapRequest request) {
+        List<String> sections = new ArrayList<>();
+
+        String ragSection = buildRoadmapRagSection(request);
+        if (!ragSection.isBlank()) {
+            sections.add(ragSection);
         }
 
-        return finalPrompt;
+        String courseShortlistSection = buildRoadmapCourseShortlistSection(request);
+        if (!courseShortlistSection.isBlank()) {
+            sections.add(courseShortlistSection);
+        }
+
+        sections.add("""
+                ## QUY TẮC TRÍCH DẪN NGUỒN
+                - Khi dùng tài liệu tham khảo để gợi ý học liệu, ưu tiên đặt trích dẫn trong `suggested_resources`.
+                - KHÔNG chèn trích dẫn nguồn vào `description` trừ khi thật sự bất khả kháng.
+                - Nếu một node dựa trên tài liệu SkillVerse, hãy thể hiện nguồn ngắn gọn trong `suggested_resources`, ví dụ: \"SkillVerse Knowledge: <tên tài liệu/chủ đề>\".
+                - Ưu tiên gợi ý khóa học có sẵn trong hệ thống SkillVerse trước nguồn bên ngoài.
+                """);
+
+        return String.join("\n\n", sections).trim();
+    }
+
+    private String buildRoadmapRagSection(GenerateRoadmapRequest request) {
+        if (localAiGateway == null) {
+            return "";
+        }
+
+        String ragQuery = ((request.getSkillName() != null ? request.getSkillName() + " " : "")
+                + (request.getGoal() != null ? request.getGoal() : "")).trim();
+        if (ragQuery.isBlank()) {
+            return "";
+        }
+
+        Map<String, String> filters = new LinkedHashMap<>();
+        filters.put("doc_type", "skill");
+
+        String skillSlug = resolveRoadmapSkillSlug(request);
+        if (skillSlug != null) {
+            filters.put("domain", AiKnowledgeSlugUtils.toRoadmapDomain(skillSlug));
+        }
+
+        String ragContext = localAiGateway.fetchRagContext(ragQuery, filters, 5);
+
+        if (ragContext.isBlank()) {
+            return "";
+        }
+
+        return "## Tài liệu Skill tham khảo từ SkillVerse\n"
+                + ragContext
+                + "\n\nHãy tạo roadmap bám sát tài liệu trên nếu phù hợp với mục tiêu người học.";
+    }
+
+    private String buildRoadmapCourseShortlistSection(GenerateRoadmapRequest request) {
+        String topic = ((request.getSkillName() != null ? request.getSkillName() + " " : "")
+                + (request.getTarget() != null ? request.getTarget() + " " : "")
+                + (request.getGoal() != null ? request.getGoal() : "")).trim();
+        if (topic.isBlank()) {
+            return "";
+        }
+
+        int limit = request.getRoadmapMode() == GenerateRoadmapRequest.RoadmapMode.SKILL_BASED ? 5 : 15;
+        List<CourseCatalogEntry> candidates = aiCourseCatalogService.preSelectCourses(topic, limit);
+        if (candidates == null || candidates.isEmpty()) {
+            return "";
+        }
+
+        String shortlist = candidates.stream()
+                .limit(limit)
+                .map(course -> String.format("- Course ID %d: %s | category=%s | level=%s | modules=%d",
+                        course.getId(),
+                        nullSafe(course.getTitle()),
+                        nullSafe(course.getCategory()),
+                        nullSafe(course.getLevel()),
+                        course.getModuleCount()))
+                .collect(Collectors.joining("\n"));
+
+        return "## Khóa học SkillVerse được pre-select\n"
+                + shortlist
+                + "\n\nChỉ dùng danh sách này như shortlist ưu tiên khi tạo `suggested_resources` hoặc gợi ý học trong roadmap."
+                + " Giữ nguyên schema output hiện tại.";
+    }
+
+    private String resolveRoadmapSkillSlug(GenerateRoadmapRequest request) {
+        if (request.getSkillName() == null || request.getSkillName().isBlank()) {
+            return null;
+        }
+
+        String skillSlug = AiKnowledgeSlugUtils.toRoadmapSkillSlug(request.getSkillName());
+        if (skillSlug == null || skillSlug.isBlank()) {
+            return null;
+        }
+
+        return skillSlug.matches("[a-z0-9]+(?:-[a-z0-9]+)*") ? skillSlug : null;
     }
 
         private String callMistralRoadmapFallback(GenerateRoadmapRequest request) {

@@ -38,6 +38,9 @@ public class CloudinaryServiceImpl implements CloudinaryService {
             "application/pdf",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "text/plain",
+            "text/markdown",
+            "text/x-markdown",
             "image/jpeg",
             "image/png",
             "image/webp"
@@ -82,6 +85,27 @@ public class CloudinaryServiceImpl implements CloudinaryService {
         log.info("Image uploaded successfully. Public ID: {}, URL: {}",
                 result.get("public_id"), result.get("secure_url"));
 
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> renameFile(String fromPublicId, String toPublicId, String resourceType) throws IOException {
+        log.info("Renaming file from public ID: {} to: {} (resource type: {})", fromPublicId, toPublicId, resourceType);
+
+        if (fromPublicId == null || fromPublicId.trim().isEmpty()) {
+            throw new IllegalArgumentException("Source public ID cannot be null or empty");
+        }
+        if (toPublicId == null || toPublicId.trim().isEmpty()) {
+            throw new IllegalArgumentException("Target public ID cannot be null or empty");
+        }
+
+        Map<String, Object> params = ObjectUtils.asMap(
+                "resource_type", resourceType,
+                "overwrite", true
+        );
+
+        Map<String, Object> result = cloudinary.uploader().rename(fromPublicId, toPublicId, params);
+        log.info("Rename successful. New public ID: {}, URL: {}", result.get("public_id"), result.get("secure_url"));
         return result;
     }
 

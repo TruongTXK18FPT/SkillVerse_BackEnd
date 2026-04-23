@@ -2,9 +2,10 @@ package com.exe.skillverse_backend.assignment_ai_service.service.impl;
 
 import com.exe.skillverse_backend.assignment_ai_service.service.FileTextExtractorService;
 import com.exe.skillverse_backend.shared.entity.Media;
-import com.exe.skillverse_backend.shared.service.MediaService;
 import java.io.InputStream;
 import java.net.URL;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -24,8 +25,6 @@ public class FileTextExtractorServiceImpl implements FileTextExtractorService {
     private static final long MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB (AI service limit)
     private static final int MAX_CHARS = 50_000;
 
-    private final MediaService mediaService;
-
     @Override
     public String extractText(Media media, String contentType) {
         if (media.getFileSize() != null && media.getFileSize() > MAX_FILE_SIZE) {
@@ -43,10 +42,12 @@ public class FileTextExtractorServiceImpl implements FileTextExtractorService {
                 && (contentType.contains("wordprocessingml")
                     || contentType.contains("msword"))) {
             text = extractFromDocx(url);
+        } else if (isTextContentType(contentType)) {
+            text = extractFromText(url);
         } else {
             throw new IllegalArgumentException(
-                "Unsupported content type for AI grading: " + contentType
-                + ". Only PDF and DOCX are supported.");
+                "Unsupported content type for AI document extraction: " + contentType
+                + ". Only PDF, DOCX, TXT, and MD are supported.");
         }
 
         if (text.length() > MAX_CHARS) {
@@ -78,5 +79,63 @@ public class FileTextExtractorServiceImpl implements FileTextExtractorService {
             log.error("Failed to extract text from DOCX: {}", url, e);
             throw new RuntimeException("Failed to read DOCX content", e);
         }
+    }
+
+    private String extractFromText(String url) {
+        try (InputStream is = new URL(url).openStream()) {
+            byte[] bytes = is.readAllBytes();
+            Charset charset = detectCharset(bytes);
+            String text = new String(skipBom(bytes, charset), charset);
+            return text.replace("\u0000", "");
+        } catch (java.io.IOException e) {
+            log.error("Failed to extract text from text file: {}", url, e);
+            throw new RuntimeException("Failed to read text content", e);
+        }
+    }
+
+    private boolean isTextContentType(String contentType) {
+        if (contentType == null) {
+            return false;
+        }
+
+        String lower = contentType.toLowerCase();
+        return lower.startsWith("text/plain")
+                || lower.startsWith("text/markdown")
+                || lower.startsWith("text/x-markdown");
+    }
+
+    private Charset detectCharset(byte[] bytes) {
+        if (bytes.length >= 3
+                && (bytes[0] & 0xFF) == 0xEF
+                && (bytes[1] & 0xFF) == 0xBB
+                && (bytes[2] & 0xFF) == 0xBF) {
+            return StandardCharsets.UTF_8;
+        }
+        if (bytes.length >= 2
+                && (bytes[0] & 0xFF) == 0xFF
+                && (bytes[1] & 0xFF) == 0xFE) {
+            return StandardCharsets.UTF_16LE;
+        }
+        if (bytes.length >= 2
+                && (bytes[0] & 0xFF) == 0xFE
+                && (bytes[1] & 0xFF) == 0xFF) {
+            return StandardCharsets.UTF_16BE;
+        }
+        return StandardCharsets.UTF_8;
+    }
+
+    private byte[] skipBom(byte[] bytes, Charset charset) {
+        if (charset.equals(StandardCharsets.UTF_8)
+                && bytes.length >= 3
+                && (bytes[0] & 0xFF) == 0xEF
+                && (bytes[1] & 0xFF) == 0xBB
+                && (bytes[2] & 0xFF) == 0xBF) {
+            return java.util.Arrays.copyOfRange(bytes, 3, bytes.length);
+        }
+        if ((charset.equals(StandardCharsets.UTF_16LE) || charset.equals(StandardCharsets.UTF_16BE))
+                && bytes.length >= 2) {
+            return java.util.Arrays.copyOfRange(bytes, 2, bytes.length);
+        }
+        return bytes;
     }
 }

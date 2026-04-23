@@ -140,7 +140,7 @@ class AssignmentAiGradingServiceImplTest {
     @DisplayName("generateAiGrade throws IllegalStateException when AI grading is disabled")
     void generateAiGrade_aiDisabled_throwsIllegalState() {
         assignment.setAiGradingEnabled(false);
-        when(submissionRepository.findById(100L)).thenReturn(Optional.of(submission));
+                when(submissionRepository.findByIdWithFullChain(100L)).thenReturn(Optional.of(submission));
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> service.generateAiGrade(100L, 7L));
@@ -153,7 +153,7 @@ class AssignmentAiGradingServiceImplTest {
     @DisplayName("generateAiGrade throws IllegalArgumentException when attempt cap is reached")
     void generateAiGrade_exceedsAttemptCap_throwsArgumentException() {
         submission.setAiGradeAttemptCount(3);
-        when(submissionRepository.findById(100L)).thenReturn(Optional.of(submission));
+                when(submissionRepository.findByIdWithFullChain(100L)).thenReturn(Optional.of(submission));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.generateAiGrade(100L, 7L));
@@ -167,7 +167,7 @@ class AssignmentAiGradingServiceImplTest {
     void generateAiGrade_emptySubmission_throwsArgumentException() {
         submission.setSubmissionText(null);
         submission.setFileMedia(null);
-        when(submissionRepository.findById(100L)).thenReturn(Optional.of(submission));
+                when(submissionRepository.findByIdWithFullChain(100L)).thenReturn(Optional.of(submission));
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> service.generateAiGrade(100L, 7L));
@@ -179,7 +179,7 @@ class AssignmentAiGradingServiceImplTest {
     @Test
     @DisplayName("generateAiGrade throws NotFoundException when submission does not exist")
     void generateAiGrade_submissionNotFound_throwsNotFoundException() {
-        when(submissionRepository.findById(999L)).thenReturn(Optional.empty());
+                when(submissionRepository.findByIdWithFullChain(999L)).thenReturn(Optional.empty());
 
         assertThrows(
                 com.exe.skillverse_backend.shared.exception.NotFoundException.class,
@@ -339,7 +339,7 @@ class AssignmentAiGradingServiceImplTest {
         when(localAiGateway.isAvailable()).thenReturn(true);
         when(localAiGateway.call(anyString(), anyString())).thenReturn("not-valid-json");
         when(localAiGateway.fetchRagContext(anyString(), any(), anyInt())).thenReturn("");
-        when(submissionRepository.findById(100L)).thenReturn(Optional.of(submission));
+        when(submissionRepository.findByIdWithFullChain(100L)).thenReturn(Optional.of(submission));
         when(gradingPromptService.buildGradingPrompt(any(), anyString(), anyString(), any()))
                 .thenReturn("grade this");
 
@@ -363,7 +363,7 @@ class AssignmentAiGradingServiceImplTest {
         when(localAiGateway.isAvailable()).thenReturn(true);
         when(localAiGateway.fetchRagContext(anyString(), any(), anyInt()))
                 .thenThrow(new RuntimeException("RAG network error"));
-        when(submissionRepository.findById(100L)).thenReturn(Optional.of(submission));
+        when(submissionRepository.findByIdWithFullChain(100L)).thenReturn(Optional.of(submission));
         when(gradingPromptService.buildGradingPrompt(any(), anyString(), anyString(), any()))
                 .thenReturn("grade this");
 

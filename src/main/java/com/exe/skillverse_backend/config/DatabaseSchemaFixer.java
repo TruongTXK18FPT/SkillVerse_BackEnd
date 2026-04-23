@@ -446,6 +446,15 @@ public class DatabaseSchemaFixer {
                     this::patchRoadmapFollowUpMeetingsTable,
                     this::verifyRoadmapFollowUpMeetingsTable);
 
+            // ═══════════════════════════════════════════════════════════════════
+            // AI Knowledge Documents — Phase 1
+            // ═══════════════════════════════════════════════════════════════════
+
+            applyPatch("ai-knowledge-create-documents-table",
+                    "Create ai_knowledge_documents table for AI knowledge document management",
+                    this::patchAiKnowledgeDocumentsTable,
+                    this::verifyAiKnowledgeDocumentsTable);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -1889,6 +1898,13 @@ public class DatabaseSchemaFixer {
         }
     }
 
+    protected boolean hasIndex(String tableName, String indexName) {
+        if (!hasTable(tableName)) {
+            return false;
+        }
+        return hasIndex(indexName);
+    }
+
     // ─── course.price/currency: sync from active_revision ───────────────────
 
     private void patchCoursePriceCurrencyFromRevision() {
@@ -2946,5 +2962,204 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyRoadmapFollowUpMeetingsTable() {
         return hasTable("roadmap_follow_up_meetings");
+    }
+
+    // ─── AI Knowledge Documents table ─────────────────────────────────────────
+
+    private void patchAiKnowledgeDocumentsTable() {
+        if (!hasTable("ai_knowledge_documents")) {
+            executeSql("""
+                CREATE TABLE ai_knowledge_documents (
+                    id BIGSERIAL PRIMARY KEY,
+                    media_id BIGINT NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    description TEXT,
+                    use_case VARCHAR(50) NOT NULL,
+                    approval_status VARCHAR(20) NOT NULL,
+                    ingestion_status VARCHAR(20) NOT NULL,
+                    uploaded_by_user_id BIGINT NOT NULL,
+                    approved_by_user_id BIGINT,
+                    mentor_id BIGINT,
+                    skill_name VARCHAR(255),
+                    skill_slug VARCHAR(255),
+                    industry VARCHAR(100),
+                    level VARCHAR(100),
+                    course_id BIGINT,
+                    module_id BIGINT,
+                    assignment_id BIGINT,
+                    doc_type VARCHAR(20) NOT NULL,
+                    rag_doc_id VARCHAR(100) UNIQUE,
+                    mime_type VARCHAR(255) NOT NULL,
+                    file_size_bytes BIGINT NOT NULL,
+                    original_file_name VARCHAR(500) NOT NULL,
+                    storage_folder VARCHAR(1000) NOT NULL,
+                    storage_url VARCHAR(2000) NOT NULL,
+                    extracted_text TEXT,
+                    extract_error TEXT,
+                    review_note TEXT,
+                    approved_at TIMESTAMP,
+                    indexed_at TIMESTAMP,
+                    archived_at TIMESTAMP,
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """);
+            log.info("Created ai_knowledge_documents table.");
+        } else {
+            // Additive self-heal: add missing columns without NOT NULL constraints first.
+            // This keeps the patch safe even if a partial table already exists with rows.
+            if (!hasColumn("ai_knowledge_documents", "media_id")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN media_id BIGINT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "title")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN title VARCHAR(255)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "description")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN description TEXT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "use_case")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN use_case VARCHAR(50)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "approval_status")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN approval_status VARCHAR(20)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "ingestion_status")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN ingestion_status VARCHAR(20)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "uploaded_by_user_id")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN uploaded_by_user_id BIGINT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "approved_by_user_id")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN approved_by_user_id BIGINT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "mentor_id")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN mentor_id BIGINT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "skill_name")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN skill_name VARCHAR(255)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "skill_slug")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN skill_slug VARCHAR(255)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "industry")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN industry VARCHAR(100)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "level")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN level VARCHAR(100)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "course_id")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN course_id BIGINT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "module_id")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN module_id BIGINT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "assignment_id")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN assignment_id BIGINT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "doc_type")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN doc_type VARCHAR(20)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "rag_doc_id")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN rag_doc_id VARCHAR(100) UNIQUE");
+            }
+            if (!hasColumn("ai_knowledge_documents", "mime_type")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN mime_type VARCHAR(255)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "file_size_bytes")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN file_size_bytes BIGINT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "original_file_name")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN original_file_name VARCHAR(500)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "storage_folder")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN storage_folder VARCHAR(1000)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "storage_url")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN storage_url VARCHAR(2000)");
+            }
+            if (!hasColumn("ai_knowledge_documents", "extracted_text")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN extracted_text TEXT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "extract_error")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN extract_error TEXT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "review_note")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN review_note TEXT");
+            }
+            if (!hasColumn("ai_knowledge_documents", "approved_at")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN approved_at TIMESTAMP");
+            }
+            if (!hasColumn("ai_knowledge_documents", "indexed_at")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN indexed_at TIMESTAMP");
+            }
+            if (!hasColumn("ai_knowledge_documents", "archived_at")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN archived_at TIMESTAMP");
+            }
+            if (!hasColumn("ai_knowledge_documents", "created_at")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN created_at TIMESTAMP DEFAULT NOW()");
+            }
+            if (!hasColumn("ai_knowledge_documents", "updated_at")) {
+                executeSql("ALTER TABLE ai_knowledge_documents ADD COLUMN updated_at TIMESTAMP DEFAULT NOW()");
+            }
+            log.debug("Table ai_knowledge_documents already exists, added missing columns if any.");
+        }
+
+        // Create indexes for common query patterns (idempotent with IF NOT EXISTS)
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_knowledge_uploaded_by ON ai_knowledge_documents(uploaded_by_user_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_knowledge_mentor ON ai_knowledge_documents(mentor_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_knowledge_use_case ON ai_knowledge_documents(use_case)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_knowledge_approval_status ON ai_knowledge_documents(approval_status)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_knowledge_ingestion_status ON ai_knowledge_documents(ingestion_status)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_knowledge_skill_slug ON ai_knowledge_documents(skill_slug)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_knowledge_course_module_assignment ON ai_knowledge_documents(course_id, module_id, assignment_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_knowledge_archived_at ON ai_knowledge_documents(archived_at)");
+
+        log.info("ai_knowledge_documents table and indexes are up to date.");
+    }
+
+    private boolean verifyAiKnowledgeDocumentsTable() {
+        if (!hasTable("ai_knowledge_documents")) {
+            return false;
+        }
+        return hasColumn("ai_knowledge_documents", "id")
+                && hasColumn("ai_knowledge_documents", "media_id")
+                && hasColumn("ai_knowledge_documents", "title")
+                && hasColumn("ai_knowledge_documents", "description")
+                && hasColumn("ai_knowledge_documents", "use_case")
+                && hasColumn("ai_knowledge_documents", "approval_status")
+                && hasColumn("ai_knowledge_documents", "ingestion_status")
+                && hasColumn("ai_knowledge_documents", "uploaded_by_user_id")
+                && hasColumn("ai_knowledge_documents", "approved_by_user_id")
+                && hasColumn("ai_knowledge_documents", "mentor_id")
+                && hasColumn("ai_knowledge_documents", "skill_name")
+                && hasColumn("ai_knowledge_documents", "skill_slug")
+                && hasColumn("ai_knowledge_documents", "industry")
+                && hasColumn("ai_knowledge_documents", "level")
+                && hasColumn("ai_knowledge_documents", "course_id")
+                && hasColumn("ai_knowledge_documents", "module_id")
+                && hasColumn("ai_knowledge_documents", "assignment_id")
+                && hasColumn("ai_knowledge_documents", "doc_type")
+                && hasColumn("ai_knowledge_documents", "rag_doc_id")
+                && hasColumn("ai_knowledge_documents", "mime_type")
+                && hasColumn("ai_knowledge_documents", "file_size_bytes")
+                && hasColumn("ai_knowledge_documents", "original_file_name")
+                && hasColumn("ai_knowledge_documents", "storage_folder")
+                && hasColumn("ai_knowledge_documents", "storage_url")
+                && hasColumn("ai_knowledge_documents", "extracted_text")
+                && hasColumn("ai_knowledge_documents", "extract_error")
+                && hasColumn("ai_knowledge_documents", "review_note")
+                && hasColumn("ai_knowledge_documents", "approved_at")
+                && hasColumn("ai_knowledge_documents", "indexed_at")
+                && hasColumn("ai_knowledge_documents", "archived_at")
+                && hasColumn("ai_knowledge_documents", "created_at")
+                && hasColumn("ai_knowledge_documents", "updated_at")
+                && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_uploaded_by")
+                && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_mentor")
+                && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_use_case")
+                && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_approval_status")
+                && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_ingestion_status")
+                && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_skill_slug")
+                && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_course_module_assignment")
+                && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_archived_at");
     }
 }

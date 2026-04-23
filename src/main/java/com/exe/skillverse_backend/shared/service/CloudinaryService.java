@@ -84,6 +84,17 @@ public interface CloudinaryService {
     Map<String, Object> deleteFile(String publicId, String resourceType) throws IOException;
 
     /**
+     * Rename/move a file in Cloudinary by changing public ID.
+     *
+     * @param fromPublicId existing public ID
+     * @param toPublicId target public ID (can include a different folder path)
+     * @param resourceType resource type (image, video, raw)
+     * @return Map containing rename result with URL/public_id
+     * @throws IOException if rename fails
+     */
+    Map<String, Object> renameFile(String fromPublicId, String toPublicId, String resourceType) throws IOException;
+
+    /**
      * Generate a signed URL for private files
      * 
      * @param publicId     The public ID of the file
