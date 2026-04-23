@@ -63,4 +63,28 @@ public interface FinalVerificationGateService {
      * Allows learner to complete as COMPLETED_UNVERIFIED.
      */
     void adminResetGate(Long journeyId);
+
+    // ─── V3 Phase 2: ROADMAP_MENTORING final meeting flow ─────────────────────
+
+    /**
+     * Generate a Jitsi meeting link for the final verification of a journey.
+     * Only allowed when ALL nodes are complete and booking is MENTORING_ACTIVE.
+     */
+    String createFinalMeetingLink(Long callerId, Long journeyId);
+
+    /**
+     * Mentor submits evidence report + verdict (PASS/FAIL) after the Jitsi meeting.
+     * On PASS: creates UserVerifiedSkill, completes journey and booking, releases escrow.
+     * On FAIL: resets weak nodes, sets 7-day cooldown, increments attempt count.
+     * On 3rd FAIL: auto-cancels booking and refunds.
+     */
+    com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.VerificationEvidenceReportResponse
+    submitEvidenceReportAndVerdict(Long mentorId, Long journeyId,
+                                   com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitEvidenceReportRequest request);
+
+    /**
+     * Get the full verification history (all attempts) for a journey.
+     */
+    java.util.List<com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.VerificationEvidenceReportResponse>
+    getVerificationHistory(Long callerId, Long journeyId);
 }

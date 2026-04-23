@@ -406,6 +406,40 @@ public class DatabaseSchemaFixer {
                     this::patchNormalizeMentorSkillNames,
                     this::verifyNormalizeMentorSkillNames);
 
+            // ═══════════════════════════════════════════════════════════════════
+            // V3 PHASE 2 — ROADMAP_MENTORING booking support
+            // ═══════════════════════════════════════════════════════════════════
+
+            applyPatch("v3p2-mentor-bookings-roadmap-mentoring-columns",
+                    "Add ROADMAP_MENTORING tracking columns to mentor_bookings: roadmap_mentoring_started_at, verification_attempts, next_verify_allowed_at; widen status to VARCHAR(30)",
+                    this::patchMentorBookingsRoadmapMentoringColumns,
+                    this::verifyMentorBookingsRoadmapMentoringColumns);
+
+            applyPatch("v3p2-mentor-bookings-status-check-constraint",
+                    "Recreate mentor_bookings_status_check to include MENTORING_ACTIVE status",
+                    this::patchMentorBookingsStatusCheckConstraint,
+                    this::verifyMentorBookingsStatusCheckConstraint);
+
+            applyPatch("v3p2-user-verified-skills-table",
+                    "Create user_verified_skills table for storing mentor-verified skills in portfolio",
+                    this::patchUserVerifiedSkillsTable,
+                    this::verifyUserVerifiedSkillsTable);
+
+            applyPatch("v3p2-verification-evidence-reports-table",
+                    "Create verification_evidence_reports table for storing post-meeting evidence reports",
+                    this::patchVerificationEvidenceReportsTable,
+                    this::verifyVerificationEvidenceReportsTable);
+
+            applyPatch("v3p2-portfolio-extended-profiles-roadmap-mentoring-price",
+                    "Add roadmap_mentoring_price column to portfolio_extended_profiles table",
+                    this::patchPortfolioExtendedProfilesRoadmapMentoringPrice,
+                    this::verifyPortfolioExtendedProfilesRoadmapMentoringPrice);
+
+            applyPatch("v3p2-create-roadmap-follow-up-meetings",
+                    "Create roadmap_follow_up_meetings table for mentor workspace follow-up scheduling",
+                    this::patchRoadmapFollowUpMeetingsTable,
+                    this::verifyRoadmapFollowUpMeetingsTable);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -456,7 +490,8 @@ public class DatabaseSchemaFixer {
                 ADD COLUMN IF NOT EXISTS recommended_focus TEXT,
                 ADD COLUMN IF NOT EXISTS total_study_hours_snapshot INTEGER,
                 ADD COLUMN IF NOT EXISTS streak_days_snapshot INTEGER,
-                ADD COLUMN IF NOT EXISTS tasks_completed_snapshot INTEGER
+                ADD COLUMN IF NOT EXISTS tasks_completed_snapshot INTEGER,
+                ADD COLUMN IF NOT EXISTS summary_snapshot JSONB
         """);
     }
 
@@ -467,7 +502,8 @@ public class DatabaseSchemaFixer {
                 && hasColumn("student_learning_reports", "recommended_focus")
                 && hasColumn("student_learning_reports", "total_study_hours_snapshot")
                 && hasColumn("student_learning_reports", "streak_days_snapshot")
-                && hasColumn("student_learning_reports", "tasks_completed_snapshot");
+                && hasColumn("student_learning_reports", "tasks_completed_snapshot")
+                && hasColumn("student_learning_reports", "summary_snapshot");
     }
 
     // ─── course_enrollment learning tracking columns ─────────────────────────
@@ -2720,5 +2756,173 @@ public class DatabaseSchemaFixer {
               )
         """, Integer.class);
         return unnormalized != null && unnormalized == 0;
+    }
+
+    // ─── V3 Phase 2 — ROADMAP_MENTORING booking columns ─────────────────────
+
+    private void patchMentorBookingsRoadmapMentoringColumns() {
+        if (!hasTable("mentor_bookings")) {
+            log.debug("Table mentor_bookings does not exist yet, skipping.");
+            return;
+        }
+        // Widen status column to accommodate MENTORING_ACTIVE (16 chars)
+        executeSql("ALTER TABLE mentor_bookings ALTER COLUMN status TYPE VARCHAR(30)");
+        // Add tracking columns
+        executeSql("""
+            ALTER TABLE mentor_bookings
+                ADD COLUMN IF NOT EXISTS roadmap_mentoring_started_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS verification_attempts INTEGER DEFAULT 0,
+                ADD COLUMN IF NOT EXISTS next_verify_allowed_at TIMESTAMP
+        """);
+        log.info("Added ROADMAP_MENTORING tracking columns to mentor_bookings.");
+    }
+
+    private boolean verifyMentorBookingsRoadmapMentoringColumns() {
+        if (!hasTable("mentor_bookings")) return true;
+        return hasColumn("mentor_bookings", "roadmap_mentoring_started_at")
+                && hasColumn("mentor_bookings", "verification_attempts")
+                && hasColumn("mentor_bookings", "next_verify_allowed_at");
+    }
+
+    // ─── V3 Phase 2 — mentor_bookings_status_check constraint ────────────────
+
+    private void patchMentorBookingsStatusCheckConstraint() {
+        if (!hasTable("mentor_bookings")) {
+            log.debug("Table mentor_bookings does not exist yet, skipping.");
+            return;
+        }
+        executeSql("ALTER TABLE mentor_bookings DROP CONSTRAINT IF EXISTS mentor_bookings_status_check");
+        executeSql("""
+            ALTER TABLE mentor_bookings ADD CONSTRAINT mentor_bookings_status_check CHECK (
+                status IN (
+                    'PENDING',
+                    'CONFIRMED',
+                    'REJECTED',
+                    'ONGOING',
+                    'MENTORING_ACTIVE',
+                    'PENDING_COMPLETION',
+                    'COMPLETED',
+                    'CANCELLED',
+                    'DISPUTED',
+                    'REFUNDED'
+                )
+            )
+        """);
+        log.info("Recreated mentor_bookings_status_check to include MENTORING_ACTIVE status.");
+    }
+
+    private boolean verifyMentorBookingsStatusCheckConstraint() {
+        if (!hasTable("mentor_bookings")) return true;
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) as constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'mentor_bookings'
+              AND c.conname = 'mentor_bookings_status_check'
+        """);
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) return false;
+        String def = results.get(0).get("constraint_def").toString();
+        return def.contains("MENTORING_ACTIVE");
+    }
+
+    // ─── V3 Phase 2 — user_verified_skills table ─────────────────────────────
+
+    private void patchUserVerifiedSkillsTable() {
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS user_verified_skills (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                skill_name VARCHAR(100) NOT NULL,
+                verified_by_mentor_id BIGINT NOT NULL,
+                journey_id BIGINT,
+                booking_id BIGINT,
+                skill_level VARCHAR(20),
+                verification_note TEXT,
+                verified_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                UNIQUE (user_id, skill_name)
+            )
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_uvs_user_id ON user_verified_skills(user_id)");
+        log.info("Created user_verified_skills table.");
+    }
+
+    private boolean verifyUserVerifiedSkillsTable() {
+        return hasTable("user_verified_skills");
+    }
+
+    // ─── V3 Phase 2 — verification_evidence_reports table ────────────────────
+
+    private void patchVerificationEvidenceReportsTable() {
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS verification_evidence_reports (
+                id BIGSERIAL PRIMARY KEY,
+                journey_id BIGINT NOT NULL,
+                booking_id BIGINT NOT NULL,
+                mentor_id BIGINT NOT NULL,
+                meeting_jitsi_link VARCHAR(500),
+                meeting_duration_minutes INTEGER,
+                summary_report TEXT NOT NULL,
+                assignments_given TEXT,
+                weak_node_ids TEXT,
+                fail_reason TEXT,
+                gate_decision VARCHAR(10) NOT NULL,
+                attempt_number INTEGER NOT NULL,
+                submitted_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ver_journey_id ON verification_evidence_reports(journey_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ver_booking_id ON verification_evidence_reports(booking_id)");
+        log.info("Created verification_evidence_reports table.");
+    }
+
+    private boolean verifyVerificationEvidenceReportsTable() {
+        return hasTable("verification_evidence_reports");
+    }
+
+    private void patchPortfolioExtendedProfilesRoadmapMentoringPrice() {
+        if (!hasTable("portfolio_extended_profiles")) return;
+        if (!hasColumn("portfolio_extended_profiles", "roadmap_mentoring_price")) {
+            executeSql("ALTER TABLE portfolio_extended_profiles ADD COLUMN roadmap_mentoring_price DOUBLE PRECISION");
+            log.info("Added roadmap_mentoring_price column to portfolio_extended_profiles table.");
+        }
+    }
+
+    private boolean verifyPortfolioExtendedProfilesRoadmapMentoringPrice() {
+        if (!hasTable("portfolio_extended_profiles")) return true;
+        return hasColumn("portfolio_extended_profiles", "roadmap_mentoring_price");
+    }
+
+    // ─── roadmap_follow_up_meetings table ──────────────────────────────────────
+
+    private void patchRoadmapFollowUpMeetingsTable() {
+        if (hasTable("roadmap_follow_up_meetings")) return;
+        executeSql("""
+            CREATE TABLE roadmap_follow_up_meetings (
+                id BIGSERIAL PRIMARY KEY,
+                booking_id BIGINT NOT NULL,
+                journey_id BIGINT NOT NULL,
+                mentor_id BIGINT NOT NULL,
+                learner_id BIGINT NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                agenda TEXT,
+                scheduled_at TIMESTAMP NOT NULL,
+                duration_minutes INTEGER NOT NULL DEFAULT 30,
+                meeting_link VARCHAR(1000),
+                status VARCHAR(30) NOT NULL DEFAULT 'SCHEDULED',
+                notes TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """);
+        executeSql("CREATE INDEX IF NOT EXISTS idx_rfum_booking ON roadmap_follow_up_meetings(booking_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_rfum_journey ON roadmap_follow_up_meetings(journey_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_rfum_mentor_sched ON roadmap_follow_up_meetings(mentor_id, scheduled_at)");
+        log.info("Created roadmap_follow_up_meetings table.");
+    }
+
+    private boolean verifyRoadmapFollowUpMeetingsTable() {
+        return hasTable("roadmap_follow_up_meetings");
     }
 }

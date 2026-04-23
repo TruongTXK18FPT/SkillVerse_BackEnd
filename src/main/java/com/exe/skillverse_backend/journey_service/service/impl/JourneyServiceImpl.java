@@ -40,6 +40,7 @@ import com.exe.skillverse_backend.question_bank_service.dto.response.QuestionBan
 import com.exe.skillverse_backend.question_bank_service.entity.QuestionBank;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankQuestionService;
+import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.shared.util.SkillNameUtils;
@@ -119,6 +120,7 @@ public class JourneyServiceImpl implements JourneyService {
     private final QuestionBankService questionBankService;
     private final QuestionBankQuestionService questionBankQuestionService;
     private final StudySessionRepository studySessionRepository;
+    private final BookingRepository bookingRepository;
     private final ObjectMapper objectMapper;
 
     private static final class QuestionEvaluation {
@@ -177,6 +179,12 @@ public class JourneyServiceImpl implements JourneyService {
     public JourneySummaryResponse startJourney(User user, StartJourneyRequest request) {
         log.info("Starting new journey for user: {} with domain: {}", user.getEmail(), request.getDomain());
 
+        // V3 Phase 3: Enforce single-journey per user — must complete or delete old journey first.
+        if (journeyRepository.hasNonTerminalJourney(user)) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Bạn đang có một hành trình chưa hoàn thành. Hãy hoàn thành hoặc xóa hành trình cũ trước khi tạo mới.");
+        }
+
         // Validate V3 allowed domains
         if (!Journey.ALLOWED_DOMAINS.contains(request.getDomain())) {
             throw new ApiException(ErrorCode.BAD_REQUEST, "Domain không hợp lệ. Hệ thống hiện chỉ hỗ trợ " + String.join(", ", Journey.ALLOWED_DOMAINS));
@@ -231,6 +239,16 @@ public class JourneyServiceImpl implements JourneyService {
         Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
                 .orElseThrow(() -> new RuntimeException("Journey not found"));
 
+        // V3 Phase 3: Block deletion when journey has active mentor bookings.
+        // Learner must complete the learning path and release funds before deleting.
+        if (bookingRepository.hasActiveBookingsForJourney(journey.getId())) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Không thể xóa hành trình đã được book mentor. Bạn cần hoàn thành lộ trình học và giải phóng tiền cho mentor trước.");
+        }
+
+        // Cascade: delete linked roadmap session when deleting journey
+        Long roadmapSessionId = journey.getRoadmapSessionId();
+
         entityManager.createNativeQuery(
                         "DELETE FROM test_results WHERE journey_id = ?1 " +
                                 "OR assessment_test_id IN (SELECT id FROM assessment_tests WHERE journey_id = ?1)")
@@ -242,10 +260,44 @@ public class JourneyServiceImpl implements JourneyService {
         entityManager.createNativeQuery("DELETE FROM journey_progress WHERE journey_id = ?1")
                 .setParameter(1, journey.getId())
                 .executeUpdate();
+
+        // Delete node mentoring artifacts linked to the roadmap session
+        if (roadmapSessionId != null) {
+            entityManager.createNativeQuery("DELETE FROM roadmap_node_reviews WHERE submission_id IN (SELECT id FROM roadmap_node_submissions WHERE roadmap_session_id = ?1)")
+                    .setParameter(1, roadmapSessionId)
+                    .executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM roadmap_node_submissions WHERE roadmap_session_id = ?1")
+                    .setParameter(1, roadmapSessionId)
+                    .executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM roadmap_node_assignments WHERE roadmap_session_id = ?1")
+                    .setParameter(1, roadmapSessionId)
+                    .executeUpdate();
+        }
+
         entityManager.createNativeQuery("DELETE FROM journeys WHERE id = ?1 AND user_id = ?2")
                 .setParameter(1, journey.getId())
                 .setParameter(2, user.getId())
                 .executeUpdate();
+
+        // Cascade: delete roadmap session and all related data
+        if (roadmapSessionId != null) {
+            // Archive study tasks linked to this roadmap
+            taskBoardService.archiveTasksByRoadmapSession(user.getId(), roadmapSessionId);
+
+            // Delete user_roadmap_progress (FK to roadmap_sessions — must delete before parent)
+            entityManager.createNativeQuery("DELETE FROM user_roadmap_progress WHERE roadmap_session_id = ?1")
+                    .setParameter(1, roadmapSessionId)
+                    .executeUpdate();
+
+            // Delete the roadmap session itself
+            entityManager.createNativeQuery("DELETE FROM roadmap_sessions WHERE id = ?1 AND user_id = ?2")
+                    .setParameter(1, roadmapSessionId)
+                    .setParameter(2, user.getId())
+                    .executeUpdate();
+
+            log.info("Cascade deleted roadmap session {} for journey {} user {}",
+                    roadmapSessionId, journeyId, user.getId());
+        }
 
         log.info("Deleted journey {} for user {}", journeyId, user.getId());
     }
@@ -864,12 +916,32 @@ public class JourneyServiceImpl implements JourneyService {
 
         log.info("Calling AI to generate specialized test for domain: {}", domain);
 
-        String aiResponse;
-        try {
-            aiResponse = getChatClient().prompt().user(prompt).call().content();
-        } catch (Exception e) {
-            log.error("AI test generation failed: {}", e.getMessage());
-            throw new RuntimeException("Failed to generate test: AI service error", e);
+        String aiResponse = null;
+        int maxAttempts = 2;
+        Exception lastException = null;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                aiResponse = getChatClient().prompt().user(prompt).call().content();
+                lastException = null;
+                break;
+            } catch (Exception e) {
+                lastException = e;
+                boolean isTimeout = e instanceof java.net.SocketTimeoutException
+                        || (e.getCause() instanceof java.net.SocketTimeoutException)
+                        || (e.getMessage() != null && e.getMessage().contains("Read timed out"));
+                if (isTimeout && attempt < maxAttempts) {
+                    log.warn("AI test generation timed out on attempt {}/{}. Retrying...", attempt, maxAttempts);
+                    try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                } else {
+                    log.error("AI test generation failed on attempt {}/{}: {}", attempt, maxAttempts, e.getMessage());
+                    throw new RuntimeException(
+                            "Dịch vụ AI hiện đang bận hoặc mất kết nối. Vui lòng thử lại sau vài phút.", e);
+                }
+            }
+        }
+        if (lastException != null || aiResponse == null) {
+            throw new RuntimeException(
+                    "Dịch vụ AI hiện đang bận hoặc mất kết nối. Vui lòng thử lại sau vài phút.", lastException);
         }
 
         Map<String, Object> testData;
@@ -1338,86 +1410,22 @@ public class JourneyServiceImpl implements JourneyService {
                 snapshot.reassessmentRecommended
         );
 
-        String aiSummary = null;
-        String aiDetailedFeedback = null;
-        String aiScoreRationale = null;
-        List<Map<String, Object>> aiSkillGaps = Collections.emptyList();
-        List<Map<String, Object>> aiStrengths = Collections.emptyList();
-        List<String> aiHighlightKeywords = Collections.emptyList();
-        List<String> aiRecommendations = Collections.emptyList();
-        try {
-            List<QuestionInfo> questionInfos = questions.stream()
-                    .map(q -> new QuestionInfo(
-                            ((Number) q.get("questionId")).longValue(),
-                            (String) q.get("question"),
-                            (List<String>) q.get("options"),
-                            (String) q.get("correctAnswer"),
-                            (String) q.get("explanation"),
-                            (String) q.get("difficulty"),
-                            (String) q.get("skillArea")
-                    ))
-                    .collect(Collectors.toList());
-
-            TestSubmissionInfo submissionInfo = new TestSubmissionInfo(
-                    test.getTitle(),
-                    test.getTargetField(),
-                    domain,
-                    domain,
-                    goal,
-                    questionInfos,
-                    request.getAnswers()
-            );
-
-            String prompt = assessmentPromptService.getEvaluationPrompt(
-                    domain,
-                    domain,
-                    goal,
-                    submissionInfo
-            );
-
-            String aiResponse = getChatClient()
-                    .prompt()
-                    .user(prompt)
-                    .call()
-                    .content();
-
-            String jsonStr = extractJsonFromResponse(aiResponse);
-            Map<String, Object> evaluation = objectMapper.readValue(jsonStr, Map.class);
-            aiSummary = toText(evaluation.get("evaluationSummary"));
-            aiDetailedFeedback = toText(evaluation.get("detailedFeedback"));
-            aiScoreRationale = extractScoreRationaleMarkdown(evaluation.get("scoreRationale"));
-            aiSkillGaps = extractInsightList(evaluation.get("skillGaps"), true);
-            aiStrengths = extractInsightList(evaluation.get("strengths"), false);
-            aiHighlightKeywords = extractStringList(evaluation.get("highlightKeywords"));
-            aiRecommendations = extractStringList(evaluation.get("recommendations"));
-        } catch (Exception e) {
-            log.warn("AI evaluation enrichment failed for journey {}. Fallback to deterministic summary.", journeyId, e);
-        }
-
-        List<Map<String, Object>> finalSkillGaps = mergeSkillGapInsights(derivedSkillGaps, aiSkillGaps);
-        List<Map<String, Object>> finalStrengths = mergeStrengthInsights(derivedStrengths, aiStrengths);
-        String finalSummary = aiSummary != null && !aiSummary.isBlank()
-                ? aiSummary.trim()
-                : deterministicSummary;
-        String deterministicDetailedFeedback = buildDeterministicDetailedFeedback(
+        // [Nghiệp vụ] Dùng deterministic scoring thuần túy — không gọi AI để tránh chậm trễ.
+        // Level và scoreBand được xác định trực tiếp từ % điểm đúng/sai, không phụ thuộc LLM.
+        List<Map<String, Object>> finalSkillGaps = derivedSkillGaps;
+        List<Map<String, Object>> finalStrengths = derivedStrengths;
+        String finalSummary = deterministicSummary;
+        String finalDetailedFeedback = buildDeterministicDetailedFeedback(
                 domain,
                 scorePercentage,
                 evaluatedLevel,
                 snapshot,
                 finalSkillGaps,
                 finalStrengths,
-                aiRecommendations
-        );
-        String finalDetailedFeedback = combineDetailedFeedback(deterministicDetailedFeedback, aiDetailedFeedback);
-        finalDetailedFeedback = appendScoreRationaleSection(
-            finalDetailedFeedback,
-            aiScoreRationale,
-            snapshot,
-            scorePercentage,
-            evaluatedLevel
+                Collections.emptyList()
         );
         List<String> finalHighlightKeywords = buildHighlightKeywords(
-                aiHighlightKeywords,
+                Collections.emptyList(),
                 finalSkillGaps,
                 finalStrengths,
                 domain,
@@ -2809,6 +2817,7 @@ public class JourneyServiceImpl implements JourneyService {
                 .latestTestResult(testResultSummary)
                 .skillName(journey.getSkillName())
                 .finalVerificationRequired(journey.getFinalVerificationRequired())
+                .hasActiveMentorBooking(bookingRepository.hasActiveBookingsForJourney(journey.getId()))
                 .build();
     }
 

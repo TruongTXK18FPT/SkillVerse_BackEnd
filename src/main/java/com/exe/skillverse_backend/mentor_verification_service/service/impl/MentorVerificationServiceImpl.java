@@ -227,6 +227,15 @@ public class MentorVerificationServiceImpl implements MentorVerificationService 
         return requestRepository.countByStatus(VerificationStatus.PENDING);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<MentorVerificationResponse> getApprovedVerificationsByMentorId(Long mentorId) {
+        return requestRepository.findApprovedByMentorId(mentorId)
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+    }
+
     // ─── Helpers ───────────────────────────────────────────────────────────────
 
     private MentorVerificationResponse mapToResponse(MentorSkillVerificationRequest request) {

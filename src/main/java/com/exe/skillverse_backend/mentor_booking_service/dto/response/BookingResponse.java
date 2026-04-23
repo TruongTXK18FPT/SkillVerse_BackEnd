@@ -44,6 +44,13 @@ public class BookingResponse {
 
     // V3 Phase 1: optional node/journey context — null for legacy bookings
     private Long journeyId;
+    private Long roadmapSessionId;
     private String nodeId;
+    private Long nodeSkillId;
     private String bookingType;
+
+    // V3 Phase 2: ROADMAP_MENTORING tracking — null for non-roadmap bookings
+    private LocalDateTime roadmapMentoringStartedAt;
+    private Integer verificationAttempts;
+    private LocalDateTime nextVerifyAllowedAt;
 }

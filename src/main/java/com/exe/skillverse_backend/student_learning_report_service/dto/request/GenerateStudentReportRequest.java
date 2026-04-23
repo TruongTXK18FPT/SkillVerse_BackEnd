@@ -1,7 +1,6 @@
 package com.exe.skillverse_backend.student_learning_report_service.dto.request;
 
 import com.exe.skillverse_backend.student_learning_report_service.entity.StudentLearningReport;
-import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -56,4 +55,7 @@ public class GenerateStudentReportRequest {
      * Có thể là những điều học viên muốn AI tập trung phân tích.
      */
     private String personalNotes;
+
+    @Builder.Default
+    private String range = "30d";
 }

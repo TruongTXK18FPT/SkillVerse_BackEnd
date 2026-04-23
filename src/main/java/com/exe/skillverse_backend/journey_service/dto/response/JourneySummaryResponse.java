@@ -54,6 +54,9 @@ public class JourneySummaryResponse {
     private Integer maxAssessmentAttempts;
     private Integer remainingAssessmentRetakes;
 
+    // V3 Phase 3 — single-journey enforcement: whether journey has active mentor booking
+    private Boolean hasActiveMentorBooking;
+
     @Data
     @Builder
     @NoArgsConstructor

@@ -5,6 +5,7 @@ public enum BookingStatus {
     CONFIRMED,
     REJECTED,
     ONGOING,
+    MENTORING_ACTIVE,    // long-running roadmap mentoring — no fixed end time
     PENDING_COMPLETION,  // one party clicked, waiting for the other to confirm
     COMPLETED,
     CANCELLED,

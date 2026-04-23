@@ -469,6 +469,85 @@ public class PortfolioController {
         }
     }
 
+    // ==================== VERIFIED SKILLS (ROADMAP_MENTORING) ====================
+
+    @GetMapping("/verified-skills")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get verified skills", description = "Retrieve all mentor-verified skills for the authenticated user")
+    public ResponseEntity<?> getVerifiedSkills(Authentication authentication) {
+        try {
+            Long userId = Long.parseLong(authentication.getName());
+            var skills = portfolioService.getVerifiedSkills(userId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", skills));
+        } catch (Exception e) {
+            log.error("Error retrieving verified skills", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/public/{userId}/verified-skills")
+    @Operation(summary = "Get public verified skills", description = "Retrieve mentor-verified skills of a public portfolio")
+    public ResponseEntity<?> getPublicVerifiedSkills(@PathVariable Long userId) {
+        try {
+            var skills = portfolioService.getPublicVerifiedSkills(userId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", skills));
+        } catch (NotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error retrieving public verified skills", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/verified-skill-details")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Get verified skill details", description = "Retrieve detailed verification records and evidences for the authenticated portfolio")
+    public ResponseEntity<?> getVerifiedSkillDetails(Authentication authentication) {
+        try {
+            Long userId = Long.parseLong(authentication.getName());
+            var details = portfolioService.getVerifiedSkillDetails(userId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", details));
+        } catch (Exception e) {
+            log.error("Error retrieving verified skill details", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/public/{userId}/verified-skill-details")
+    @Operation(summary = "Get public verified skill details", description = "Retrieve detailed verification records and evidences for a public portfolio")
+    public ResponseEntity<?> getPublicVerifiedSkillDetails(@PathVariable Long userId) {
+        try {
+            var details = portfolioService.getPublicVerifiedSkillDetails(userId);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", details));
+        } catch (NotFoundException e) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        } catch (Exception e) {
+            log.error("Error retrieving public verified skill details", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        }
+    }
+
+
     // ==================== MENTOR REVIEWS ====================
 
     @GetMapping("/reviews")

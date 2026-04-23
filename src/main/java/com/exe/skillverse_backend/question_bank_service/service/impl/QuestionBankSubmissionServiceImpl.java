@@ -389,11 +389,25 @@ public class QuestionBankSubmissionServiceImpl implements QuestionBankSubmission
     }
 
     private String normalizeDomain(String domain) {
-        String normalized = requireValue(domain, "Domain is required").toUpperCase(Locale.ROOT);
-        if (!Set.of("IT", "BUSINESS", "DESIGN").contains(normalized)) {
-            throw new BadRequestException("Chỉ hỗ trợ 3 lĩnh vực chính: IT, Business, Design.");
+        String raw = requireValue(domain, "Domain is required");
+        String upper = raw.toUpperCase(Locale.ROOT);
+
+        if (upper.equals("IT") || upper.contains("INFORMATION TECHNOLOGY")
+                || upper.contains("CÔNG NGHỆ THÔNG TIN")) {
+            return "IT";
         }
-        return normalized;
+        if (upper.equals("BUSINESS") || upper.contains("BUSINESS")
+                || upper.contains("KINH DOANH") || upper.contains("MARKETING")
+                || upper.contains("QUẢN TRỊ")) {
+            return "BUSINESS";
+        }
+        if (upper.equals("DESIGN") || upper.contains("DESIGN")
+                || upper.contains("THIẾT KẾ") || upper.contains("SÁNG TẠO")
+                || upper.contains("NỘI DUNG")) {
+            return "DESIGN";
+        }
+
+        throw new BadRequestException("Chỉ hỗ trợ 3 lĩnh vực chính: IT, Business, Design.");
     }
 
     private String normalizeSkillName(String skillName) {

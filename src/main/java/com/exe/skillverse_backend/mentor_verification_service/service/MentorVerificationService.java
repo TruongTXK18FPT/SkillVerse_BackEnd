@@ -34,4 +34,7 @@ public interface MentorVerificationService {
 
     /** Đếm request pending (cho admin badge) */
     long countPending();
+
+    /** Public: lấy danh sách skill đã APPROVED kèm evidence cho 1 mentor (dùng trang public) */
+    List<MentorVerificationResponse> getApprovedVerificationsByMentorId(Long mentorId);
 }

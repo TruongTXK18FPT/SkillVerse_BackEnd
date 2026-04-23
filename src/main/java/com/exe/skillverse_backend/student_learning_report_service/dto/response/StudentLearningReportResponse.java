@@ -1,63 +1,208 @@
 package com.exe.skillverse_backend.student_learning_report_service.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * DTO Response cho báo cáo học tập cá nhân của học viên.
- * Cung cấp thông tin chi tiết về kỹ năng, tiến độ và đề xuất cá nhân.
- */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class StudentLearningReportResponse {
-    
+
     private Long id;
+    private Long reportId;
     private String reportName;
     private LocalDateTime generatedAt;
     private Long studentId;
     private String studentName;
+    private String reportType;
+    private String range;
+    private Boolean snapshot;
+
+    private Overview overview;
+    private StudyStats studyStats;
+    private RoadmapStats roadmapStats;
+    private TaskStats taskStats;
+    private CourseStats courseStats;
+    private ShortTermJobStats jobStats;
+    private List<RoadmapBreakdownItem> roadmapBreakdown;
+    private List<CourseBreakdownItem> courseBreakdown;
+    private List<JobBreakdownItem> jobBreakdown;
+    private List<TimelinePoint> timeline;
+    private Map<String, List<TimelinePoint>> timelineByRange;
+
+    // Compatibility aliases for existing callers during transition.
     private String reportContent;
     private ReportSections sections;
     private StudentMetrics metrics;
-    private String reportType;
-
-    // --- Derived/Computed fields ---
-    /** Tiến độ tổng thể (0-100), computed từ metrics.averageProgress */
     private Integer overallProgress;
-    /** Xu hướng học tập: improving / stable / declining, computed từ so sánh với report trước */
     private String learningTrend;
-    /** Đề xuất tập trung, extracted từ AI report content (recommendations/skillGaps) */
     private String recommendedFocus;
 
-    /**
-     * Các phần báo cáo được parse từ AI response.
-     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class Overview {
+        private Integer overallProgress;
+        private String learningTrend;
+        private List<String> recommendations;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class StudyStats {
+        private Integer studyMinutesToday;
+        private Integer studyMinutesWeek;
+        private Integer studyMinutesMonth;
+        private Integer totalStudyHours;
+        private Integer currentStreak;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RoadmapStats {
+        private Integer totalRoadmaps;
+        private Integer completedRoadmaps;
+        private Integer inProgressRoadmaps;
+        private Integer totalMissions;
+        private Integer completedMissions;
+        private Integer pendingMissions;
+        private Integer roadmapProgress;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TaskStats {
+        private Integer totalTasks;
+        private Integer completedTasks;
+        private Integer pendingTasks;
+        private Integer overdueTasks;
+        private Integer taskProgress;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CourseStats {
+        private Integer activeCourses;
+        private Integer completedCourses;
+        private Integer averageActiveCourseProgress;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RoadmapBreakdownItem {
+        private Long roadmapId;
+        private String title;
+        private String goal;
+        private String status;
+        private Integer totalMissions;
+        private Integer completedMissions;
+        private Integer pendingMissions;
+        private Integer progressPercent;
+        private String nextMissionTitle;
+        private LocalDateTime lastCompletedAt;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CourseBreakdownItem {
+        private Long courseId;
+        private String courseTitle;
+        private String status;
+        private Integer progressPercent;
+        private LocalDateTime completedAt;
+        private LocalDateTime enrolledAt;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ShortTermJobStats {
+        private Integer totalJobsApplied;
+        private Integer completedJobs;
+        private Integer inProgressJobs;
+        private Integer pendingApplications;
+        private Integer rejectedApplications;
+        private BigDecimal totalEarnings;
+        private Double averageRating;
+        private Integer totalMilestonesDelivered;
+        private Integer onTimeDeliveryRate;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class JobBreakdownItem {
+        private Long jobId;
+        private String jobTitle;
+        private String recruiterName;
+        private String status;
+        private BigDecimal budget;
+        private BigDecimal earnedAmount;
+        private Integer milestonesTotal;
+        private Integer milestonesCompleted;
+        private LocalDateTime appliedAt;
+        private LocalDateTime completedAt;
+        private Double rating;
+        private String primarySkill;
+        private List<String> skillsDemonstrated;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TimelinePoint {
+        private String bucketLabel;
+        private LocalDate bucketStart;
+        private Integer studyMinutes;
+        private Integer missionsCompleted;
+        private Integer tasksCompleted;
+        private Integer jobsCompleted;
+        private BigDecimal earnings;
+    }
+
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ReportSections {
-        private String currentSkills;           // Kỹ năng hiện có
-        private String learningGoals;           // Mục tiêu học tập
-        private String progressSummary;         // Tổng kết tiến độ
-        private String strengths;               // Điểm mạnh
-        private String areasToImprove;          // Lĩnh vực cần cải thiện
-        private String recommendations;         // Khuyến nghị cá nhân
-        private String skillGaps;               // Khoảng trống kỹ năng
-        private String nextSteps;               // Các bước tiếp theo
-        private String motivation;              // Động lực & khích lệ
+        private String currentSkills;
+        private String learningGoals;
+        private String progressSummary;
+        private String strengths;
+        private String areasToImprove;
+        private String recommendations;
+        private String skillGaps;
+        private String nextSteps;
+        private String motivation;
     }
 
-    /**
-     * Các chỉ số đo lường của học viên.
-     */
     @Data
     @Builder
     @NoArgsConstructor
@@ -70,37 +215,31 @@ public class StudentLearningReportResponse {
         private Integer totalStudyMinutesToday;
         private Integer totalStudyMinutesWeek;
         private Integer totalStudyMinutesMonth;
-        private Integer totalStudyHours;  // Tổng giờ học (chuyển đổi từ minutes)
+        private Integer totalStudyHours;
         private Integer streakDays;
-        private Integer currentStreak;    // Alias cho streakDays (frontend expectation)
+        private Integer currentStreak;
         private Integer totalChatSessions;
         private Integer totalTasks;
         private Integer completedTasks;
-        private Integer totalTasksCompleted;  // Alias cho completedTasks (frontend expectation)
+        private Integer totalTasksCompleted;
+        private Integer totalTasksPending;
         private Integer totalEnrolledCourses;
         private Integer completedCourses;
-        private Integer totalTasksPending;       // = totalTasks - completedTasks
         private List<SkillInfo> topSkills;
         private List<RoadmapProgress> roadmapDetails;
     }
 
-    /**
-     * Thông tin kỹ năng của học viên.
-     */
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     public static class SkillInfo {
         private String skillName;
-        private String level;           // Beginner, Intermediate, Advanced, Expert
+        private String level;
         private Integer progressPercent;
-        private String source;          // Từ roadmap nào
+        private String source;
     }
 
-    /**
-     * Chi tiết tiến độ từng roadmap.
-     */
     @Data
     @Builder
     @NoArgsConstructor
@@ -112,7 +251,7 @@ public class StudentLearningReportResponse {
         private Integer totalQuests;
         private Integer completedQuests;
         private Integer progressPercent;
-        private Double totalEstimatedHours;   // từ RoadmapSession.totalEstimatedHours
+        private Double totalEstimatedHours;
         private Instant createdAt;
         private LocalDateTime lastActivityAt;
     }

@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepos
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingReviewRepository;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.mentor_booking_service.service.impl.BookingServiceImpl;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.payment_service.service.InvoiceService;
@@ -82,6 +83,9 @@ class BookingServiceImplTest {
     @Mock
     private JourneyRepository journeyRepository;
 
+    @Mock
+    private PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+
     private BookingServiceImpl service;
 
     @BeforeEach
@@ -99,7 +103,8 @@ class BookingServiceImplTest {
                 new ObjectMapper(),
                 emailService,
                 invoiceService,
-                journeyRepository);
+                journeyRepository,
+                portfolioExtendedProfileRepository);
         ReflectionTestUtils.setField(service, "jitsiBaseUrl", "https://meet.jit.si");
         lenient().when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }

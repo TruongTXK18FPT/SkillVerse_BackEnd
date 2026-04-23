@@ -124,6 +124,9 @@ public class SecurityConfig {
                                 // Mentors: allow public GET for mentor list and profiles
                                 .requestMatchers(HttpMethod.GET, "/api/mentors", "/api/mentors/**").permitAll()
 
+                                // Mentor skill verification: public evidence page
+                                .requestMatchers(HttpMethod.GET, "/api/v1/public/mentors/**").permitAll()
+
                                 // Portfolio: allow public portfolio viewing endpoints
                                 .requestMatchers(HttpMethod.GET, "/api/portfolio/public", "/api/portfolio/public/**",
                                                 "/api/portfolio/profile/slug/**")

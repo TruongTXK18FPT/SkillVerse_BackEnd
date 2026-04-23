@@ -1,20 +1,26 @@
 package com.exe.skillverse_backend.student_learning_report_service.service.impl;
 
-import com.exe.skillverse_backend.ai_service.dto.ChatSessionSummary;
-import com.exe.skillverse_backend.ai_service.dto.response.RoadmapSessionSummary;
+import java.math.BigDecimal;
+
 import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
 import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
-import com.exe.skillverse_backend.ai_service.service.AiChatbotService;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.business_service.entity.JobDeliverable;
+import com.exe.skillverse_backend.business_service.entity.JobReview;
+import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
+import com.exe.skillverse_backend.business_service.entity.ShortTermJobApplication;
+import com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus;
+import com.exe.skillverse_backend.business_service.repository.ShortTermJobApplicationRepository;
+import com.exe.skillverse_backend.business_service.repository.JobReviewRepository;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
+import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
-import com.exe.skillverse_backend.journey_service.entity.Journey;
-import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.student_learning_report_service.dto.request.GenerateStudentReportRequest;
+import com.exe.skillverse_backend.student_learning_report_service.dto.response.LearningReportTimelineResponse;
 import com.exe.skillverse_backend.student_learning_report_service.dto.response.StudentLearningReportResponse;
 import com.exe.skillverse_backend.student_learning_report_service.entity.StudentLearningReport;
 import com.exe.skillverse_backend.student_learning_report_service.repository.StudentLearningReportRepository;
@@ -23,39 +29,45 @@ import com.exe.skillverse_backend.study_service.entity.StudySession;
 import com.exe.skillverse_backend.study_service.entity.Task;
 import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.DayOfWeek;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Set;
 import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * Implementation của StudentLearningReportService.
- * Sử dụng Mistral AI để phân tích dữ liệu học tập và tạo báo cáo cá nhân.
- */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class StudentLearningReportServiceImpl implements StudentLearningReportService {
 
-    private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+    private static final ZoneId REPORT_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+    private static final String DEFAULT_RANGE = "30d";
+    private static final Set<String> SUPPORTED_RANGES = Set.of("7d", "30d", "90d");
     private static final DateTimeFormatter REPORT_NAME_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
-    
-    // Rate limit: 1 báo cáo comprehensive mỗi 6 giờ
-    private static final int REPORT_COOLDOWN_HOURS = 6;
+    private static final DateTimeFormatter DATE_LABEL_FORMATTER = DateTimeFormatter.ofPattern("dd/MM");
 
     private final StudentLearningReportRepository reportRepository;
     private final UserRepository userRepository;
@@ -63,136 +75,106 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     private final StudySessionRepository studySessionRepository;
     private final TaskRepository taskRepository;
     private final CourseEnrollmentRepository courseEnrollmentRepository;
-    private final JourneyRepository journeyRepository;
-    private final AiChatbotService aiChatbotService;
-    private final ChatModel learningReportChatModel;
+    private final ShortTermJobApplicationRepository jobApplicationRepository;
+    private final JobReviewRepository jobReviewRepository;
+    private final ObjectMapper objectMapper;
 
-    @Value("${skillverse.ai.learning-report.enabled:true}")
-    private boolean aiEnabled;
+    @Override
+    @Transactional(readOnly = true)
+    public StudentLearningReportResponse getSummary(Long studentId, String range) {
+        User student = getStudent(studentId);
+        String normalizedRange = normalizeRange(range);
+        return buildLiveResponse(student, normalizedRange, false);
+    }
 
-    public StudentLearningReportServiceImpl(
-            StudentLearningReportRepository reportRepository,
-            UserRepository userRepository,
-            RoadmapSessionRepository roadmapSessionRepository,
-            StudySessionRepository studySessionRepository,
-            TaskRepository taskRepository,
-            CourseEnrollmentRepository courseEnrollmentRepository,
-            JourneyRepository journeyRepository,
-            AiChatbotService aiChatbotService,
-            @Lazy @Qualifier("learningReportChatModel") ChatModel learningReportChatModel) {
-        this.reportRepository = reportRepository;
-        this.userRepository = userRepository;
-        this.roadmapSessionRepository = roadmapSessionRepository;
-        this.studySessionRepository = studySessionRepository;
-        this.taskRepository = taskRepository;
-        this.courseEnrollmentRepository = courseEnrollmentRepository;
-        this.journeyRepository = journeyRepository;
-        this.aiChatbotService = aiChatbotService;
-        this.learningReportChatModel = learningReportChatModel;
+    @Override
+    @Transactional(readOnly = true)
+    public LearningReportTimelineResponse getTimeline(Long studentId, String range, Long snapshotId) {
+        String normalizedRange = normalizeRange(range);
+
+        if (snapshotId != null) {
+            StudentLearningReport report = getOwnedReport(studentId, snapshotId);
+            StudentLearningReportResponse snapshot = toSnapshotResponse(report, normalizedRange);
+            return LearningReportTimelineResponse.builder()
+                    .range(normalizedRange)
+                    .snapshotId(report.getId())
+                    .generatedAt(report.getGeneratedAt())
+                    .timeline(defaultList(snapshot.getTimeline()))
+                    .build();
+        }
+
+        User student = getStudent(studentId);
+        StudentLearningReportResponse live = buildLiveResponse(student, normalizedRange, false);
+        return LearningReportTimelineResponse.builder()
+                .range(normalizedRange)
+                .generatedAt(live.getGeneratedAt())
+                .timeline(defaultList(live.getTimeline()))
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public StudentLearningReportResponse createSnapshot(Long studentId, String range) {
+        User student = getStudent(studentId);
+        String normalizedRange = normalizeRange(range);
+
+        StudentLearningReportResponse response = buildLiveResponse(student, normalizedRange, true);
+        response.setReportType(StudentLearningReport.ReportType.COMPREHENSIVE.name());
+
+        StudentLearningReport entity = StudentLearningReport.builder()
+                .student(student)
+                .studentName(response.getStudentName())
+                .generatedAt(response.getGeneratedAt())
+                .isAiGenerated(false)
+                .reportType(StudentLearningReport.ReportType.COMPREHENSIVE)
+                .averageProgressSnapshot(getOverallProgress(response))
+                .learningTrend(getLearningTrend(response))
+                .recommendedFocus(getRecommendedFocus(response))
+                .totalStudyHoursSnapshot(response.getStudyStats() != null ? response.getStudyStats().getTotalStudyHours() : 0)
+                .streakDaysSnapshot(response.getStudyStats() != null ? response.getStudyStats().getCurrentStreak() : 0)
+                .tasksCompletedSnapshot(response.getTaskStats() != null ? response.getTaskStats().getCompletedTasks() : 0)
+                .build();
+
+        entity = reportRepository.save(entity);
+        response.setId(entity.getId());
+        response.setReportId(entity.getId());
+        response.setSnapshot(true);
+        response.setReportName(buildReportName(response.getGeneratedAt()));
+
+        entity.setSummarySnapshot(writeSummarySnapshot(response));
+        reportRepository.save(entity);
+
+        return response;
     }
 
     @Override
     @Transactional
     public StudentLearningReportResponse generateLearningReport(Long studentId, GenerateStudentReportRequest request) {
-        log.info("Generating learning report for student: {}, type: {}", studentId, request.getReportType());
-
-        // Verify student exists
-        User student = userRepository.findById(studentId)
-                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Student not found"));
-
-        // Check rate limit for comprehensive reports
-        if (request.getReportType() == StudentLearningReport.ReportType.COMPREHENSIVE) {
-            if (!canGenerateNewReport(studentId)) {
-                throw new ApiException(ErrorCode.BAD_REQUEST, 
-                    "Bạn chỉ có thể tạo báo cáo toàn diện mỗi " + REPORT_COOLDOWN_HOURS + " giờ một lần");
-            }
-        }
-
-        String studentName = resolveStudentName(student);
-
-        // Gather student data
-        StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
-        List<RoadmapSessionSummary> roadmaps = getRoadmapSummaries(studentId);
-        List<ChatSessionSummary> chatSessions = getChatSessionSummaries(studentId);
-        List<JourneyMilestoneData> journeyMilestones = getJourneyMilestones(studentId);
-
-        // Build context for AI
-        String dataContext = buildDataContext(studentName, metrics, roadmaps, chatSessions, request, journeyMilestones);
-
-        // Get AI prompt based on report type
-        String systemPrompt = getSystemPrompt(request.getReportType());
-        String userPrompt = "Dựa trên dữ liệu sau, hãy tạo báo cáo học tập chi tiết:\n\n" + dataContext;
-
-        if (request.getPersonalNotes() != null && !request.getPersonalNotes().trim().isEmpty()) {
-            userPrompt += "\n\nGhi chú từ học viên: " + request.getPersonalNotes();
-        }
-
-        String reportContent;
-        StudentLearningReportResponse.ReportSections sections;
-        boolean isAiGenerated = aiEnabled;
-
-        try {
-            if (aiEnabled) {
-                ChatClient chatClient = ChatClient.create(learningReportChatModel);
-                reportContent = chatClient.prompt()
-                        .system(systemPrompt)
-                        .user(userPrompt)
-                        .call()
-                        .content();
-                sections = parseSections(reportContent);
-            } else {
-                StudentLearningReportResponse fallback = generateFallbackReport(
-                        studentId, studentName, metrics, roadmaps, request.getReportType(), journeyMilestones);
-                reportContent = fallback.getReportContent();
-                sections = fallback.getSections();
-                isAiGenerated = false;
-            }
-        } catch (Exception e) {
-            log.error("Failed to generate learning report with AI for student {}", studentId, e);
-            StudentLearningReportResponse fallback = generateFallbackReport(
-                    studentId, studentName, metrics, roadmaps, request.getReportType(), journeyMilestones);
-            reportContent = fallback.getReportContent();
-            sections = fallback.getSections();
-            isAiGenerated = false;
-        }
-
-        return persistGeneratedReport(
-                student,
-                studentId,
-                studentName,
-                reportContent,
-                sections,
-                isAiGenerated,
-                request.getReportType(),
-                metrics);
+        String requestedRange = request != null ? request.getRange() : DEFAULT_RANGE;
+        return createSnapshot(studentId, requestedRange);
     }
 
     @Override
     @Transactional
     public StudentLearningReportResponse generateQuickReport(Long studentId) {
-        return generateLearningReport(studentId, GenerateStudentReportRequest.builder()
-                .reportType(StudentLearningReport.ReportType.COMPREHENSIVE)
-                .includeRoadmapDetails(true)
-                .includeChatHistory(true)
-                .build());
+        return createSnapshot(studentId, DEFAULT_RANGE);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<StudentLearningReportResponse> getReportHistory(Long studentId) {
-        StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
         return reportRepository.findByStudentIdOrderByGeneratedAtDescIdDesc(studentId).stream()
-                .map(report -> buildResponse(report, metrics))
+                .map(report -> toSnapshotResponse(report, DEFAULT_RANGE))
                 .collect(Collectors.toList());
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<StudentLearningReportResponse> getReportHistory(Long studentId, int page, int size) {
-        StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
         return reportRepository.findByStudentIdOrderByGeneratedAtDescIdDesc(studentId, PageRequest.of(page, size))
-                .getContent().stream()
-                .map(report -> buildResponse(report, metrics))
+                .getContent()
+                .stream()
+                .map(report -> toSnapshotResponse(report, DEFAULT_RANGE))
                 .collect(Collectors.toList());
     }
 
@@ -200,64 +182,30 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     @Transactional(readOnly = true)
     public StudentLearningReportResponse getLatestReport(Long studentId) {
         return reportRepository.findFirstByStudentIdOrderByGeneratedAtDescIdDesc(studentId)
-                .map(report -> {
-                    StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
-                    return buildResponse(report, metrics);
-                })
+                .map(report -> toSnapshotResponse(report, DEFAULT_RANGE))
                 .orElse(null);
     }
 
     @Override
     @Transactional(readOnly = true)
     public StudentLearningReportResponse getReportById(Long studentId, Long reportId) {
-        StudentLearningReport report = reportRepository.findById(reportId)
-                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Report not found"));
-
-        if (!report.getStudent().getId().equals(studentId)) {
-            throw new ApiException(ErrorCode.FORBIDDEN, "Không có quyền xem báo cáo này");
-        }
-
-        StudentLearningReportResponse.StudentMetrics metrics = collectStudentMetrics(studentId);
-        return buildResponse(report, metrics);
+        return toSnapshotResponse(getOwnedReport(studentId, reportId), DEFAULT_RANGE);
     }
 
     @Override
     @Transactional(readOnly = true)
     public StudentLearningReportResponse.StudentMetrics getCurrentMetrics(Long studentId) {
-        // Verify student exists
-        if (!userRepository.existsById(studentId)) {
-            throw new ApiException(ErrorCode.NOT_FOUND, "Student not found");
-        }
-        return collectStudentMetrics(studentId);
+        return getSummary(studentId, DEFAULT_RANGE).getMetrics();
     }
 
     @Override
     public boolean canGenerateNewReport(Long studentId) {
-        return getCooldownRemainingMinutes(studentId) <= 0;
+        return true;
     }
 
-    /**
-     * Returns the remaining cooldown minutes until a new comprehensive report can be generated.
-     * Returns 0 if cooldown has expired (can generate).
-     */
+    @Override
     public int getCooldownRemainingMinutes(Long studentId) {
-        // Use native projection query to avoid loading LOB (TEXT) columns
-        LocalDateTime generatedAt;
-        try {
-            generatedAt = reportRepository.findLatestComprehensiveGeneratedAt(studentId);
-        } catch (Exception e) {
-            log.warn("Could not fetch latest comprehensive report timestamp for student {}: {}",
-                    studentId, e.getMessage());
-            return 0; // Fail-open: allow generation if we can't check
-        }
-
-        if (generatedAt == null) {
-            return 0; // No previous report — can generate
-        }
-
-        LocalDateTime cooldownEnd = generatedAt.plusHours(REPORT_COOLDOWN_HOURS);
-        long minutesLeft = ChronoUnit.MINUTES.between(LocalDateTime.now(VN_ZONE), cooldownEnd);
-        return (int) Math.max(0, minutesLeft);
+        return 0;
     }
 
     @Override
@@ -265,970 +213,1209 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         return reportRepository.countByStudentId(studentId);
     }
 
-    // ============ PRIVATE HELPER METHODS ============
-
-    private StudentLearningReportResponse persistGeneratedReport(User student,
-                                                                 Long studentId,
-                                                                 String studentName,
-                                                                 String reportContent,
-                                                                 StudentLearningReportResponse.ReportSections sections,
-                                                                 boolean isAiGenerated,
-                                                                 StudentLearningReport.ReportType reportType,
-                                                                 StudentLearningReportResponse.StudentMetrics metrics) {
-        LocalDateTime generatedAt = LocalDateTime.now(VN_ZONE);
-
-        StudentLearningReportResponse tempResponse = StudentLearningReportResponse.builder()
-                .generatedAt(generatedAt)
-                .reportName(buildReportName(generatedAt))
-                .studentId(studentId)
-                .studentName(studentName)
-                .reportContent(reportContent)
-                .sections(sections)
-                .metrics(metrics)
-                .reportType(reportType.name())
-                .build();
-        computeDerivedFields(tempResponse, metrics, studentId);
-
-        try {
-            StudentLearningReport savedReport = saveReport(
-                    student,
-                    studentName,
-                    reportContent,
-                    sections,
-                    isAiGenerated,
-                    reportType,
-                    metrics,
-                    tempResponse.getLearningTrend(),
-                    tempResponse.getRecommendedFocus(),
-                    generatedAt);
-
-            StudentLearningReportResponse response = buildResponse(savedReport, metrics);
-            response.setOverallProgress(tempResponse.getOverallProgress());
-            response.setLearningTrend(tempResponse.getLearningTrend());
-            response.setRecommendedFocus(tempResponse.getRecommendedFocus());
-            response.setMetrics(metrics);
-            return response;
-        } catch (Exception e) {
-            log.error("Failed to persist learning report for student {}", studentId, e);
-            return tempResponse;
-        }
+    private User getStudent(Long studentId) {
+        return userRepository.findById(studentId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Student not found"));
     }
 
-    private StudentLearningReportResponse.StudentMetrics collectStudentMetrics(Long studentId) {
-        LocalDateTime now = LocalDateTime.now(VN_ZONE);
-        LocalDateTime startOfDay = now.truncatedTo(ChronoUnit.DAYS);
-        LocalDateTime startOfWeek = now.minusDays(now.getDayOfWeek().getValue() - 1).truncatedTo(ChronoUnit.DAYS);
-        LocalDateTime startOfMonth = now.withDayOfMonth(1).truncatedTo(ChronoUnit.DAYS);
+    private StudentLearningReport getOwnedReport(Long studentId, Long reportId) {
+        StudentLearningReport report = reportRepository.findById(reportId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Report not found"));
 
-        // Roadmap metrics
-        List<RoadmapSession> roadmaps = roadmapSessionRepository.findByUserIdOrderByCreatedAtDesc(studentId);
+        Long ownerId = report.getStudent() != null ? report.getStudent().getId() : null;
+        if (!Objects.equals(ownerId, studentId)) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "Không có quyền xem báo cáo này");
+        }
+        return report;
+    }
+
+    private StudentLearningReportResponse buildLiveResponse(User student, String range, boolean snapshot) {
+        LocalDateTime generatedAt = LocalDateTime.now(REPORT_ZONE);
+        Long studentId = student.getId();
+        String studentName = resolveStudentName(student);
+
+        List<RoadmapSession> roadmaps = defaultList(roadmapSessionRepository.findByUserIdAndStatusNotDeleted(studentId));
+        List<StudySession> studySessions = safeList(() -> studySessionRepository.findByUserId(studentId));
+        List<Task> tasks = safeList(() -> taskRepository.findByUserId(studentId)).stream()
+                .filter(task -> task.getArchived() == null || !task.getArchived())
+                .collect(Collectors.toList());
+        List<CourseEnrollment> enrollments = safeList(() -> courseEnrollmentRepository.findByUserId(studentId, Pageable.unpaged()).getContent());
+        List<ShortTermJobApplication> jobApplications = safeList(() -> jobApplicationRepository.findByUserIdOrderByAppliedAtDesc(studentId));
+
+        RoadmapComputation roadmapComputation = computeRoadmapData(roadmaps);
+        StudyComputation studyComputation = computeStudyData(studySessions, generatedAt);
+        TaskComputation taskComputation = computeTaskData(tasks, generatedAt);
+        CourseComputation courseComputation = computeCourseData(enrollments);
+        JobComputation jobComputation = computeJobData(jobApplications);
+
+        Integer overallProgress = computeOverallProgressV2(
+                roadmapComputation.stats.getRoadmapProgress(),
+                roadmapComputation.stats.getTotalMissions(),
+                taskComputation.stats.getTaskProgress(),
+                taskComputation.stats.getTotalTasks(),
+                courseComputation.stats.getAverageActiveCourseProgress(),
+                courseComputation.stats.getActiveCourses(),
+                jobComputation.stats.getCompletedJobs(),
+                jobComputation.stats.getTotalJobsApplied());
+
+        String trend = computeLearningTrendV2(studentId, overallProgress, jobComputation.stats);
+        List<String> recommendations = buildEnhancedRecommendations(
+                studyComputation.stats,
+                roadmapComputation.stats,
+                roadmapComputation.breakdown,
+                taskComputation.stats,
+                courseComputation.stats,
+                courseComputation.breakdown,
+                jobComputation.stats,
+                jobComputation.breakdown);
+
+        Map<String, List<StudentLearningReportResponse.TimelinePoint>> timelineByRange =
+                buildEnhancedTimelineByRange(studySessions, roadmapComputation.completedMissionInstants,
+                        taskComputation.completedTaskInstants, jobComputation.completedJobInstants, generatedAt.toLocalDate());
+
+        StudentLearningReportResponse response = StudentLearningReportResponse.builder()
+                .reportName(buildReportName(generatedAt))
+                .generatedAt(generatedAt)
+                .studentId(studentId)
+                .studentName(studentName)
+                .reportType(StudentLearningReport.ReportType.COMPREHENSIVE.name())
+                .range(range)
+                .snapshot(snapshot)
+                .overview(StudentLearningReportResponse.Overview.builder()
+                        .overallProgress(overallProgress)
+                        .learningTrend(trend)
+                        .recommendations(recommendations)
+                        .build())
+                .studyStats(studyComputation.stats)
+                .roadmapStats(roadmapComputation.stats)
+                .taskStats(taskComputation.stats)
+                .courseStats(courseComputation.stats)
+                .jobStats(jobComputation.stats)
+                .roadmapBreakdown(roadmapComputation.breakdown)
+                .courseBreakdown(courseComputation.breakdown)
+                .jobBreakdown(jobComputation.breakdown)
+                .timelineByRange(timelineByRange)
+                .timeline(defaultList(timelineByRange.get(range)))
+                .build();
+
+        return finalizeResponse(response);
+    }
+
+    private RoadmapComputation computeRoadmapData(List<RoadmapSession> roadmaps) {
+        List<StudentLearningReportResponse.RoadmapBreakdownItem> breakdown = new ArrayList<>();
+        List<Instant> completedMissionInstants = new ArrayList<>();
+
         int totalRoadmaps = roadmaps.size();
         int completedRoadmaps = 0;
-        int inProgressRoadmaps = 0;
-        int totalProgress = 0;
+        int totalMissions = 0;
+        int completedMissions = 0;
 
-        List<StudentLearningReportResponse.RoadmapProgress> roadmapDetails = new ArrayList<>();
+        for (RoadmapSession roadmap : roadmaps) {
+            Map<String, UserRoadmapProgress> progressByQuestId = defaultList(roadmap.getProgressList()).stream()
+                    .filter(progress -> progress.getQuestId() != null)
+                    .collect(Collectors.toMap(
+                            UserRoadmapProgress::getQuestId,
+                            progress -> progress,
+                            this::preferMoreAdvancedProgress,
+                            LinkedHashMap::new));
 
-        for (RoadmapSession r : roadmaps) {
-            int total = r.getTotalNodes() != null ? r.getTotalNodes() : 0;
-            long completed = r.getProgressList() != null ?
-                    r.getProgressList().stream()
-                            .filter(p -> p.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
-                            .count() : 0;
-            int progress = total > 0 ? (int) ((completed * 100) / total) : 0;
+            Set<String> completedQuestIds = progressByQuestId.values().stream()
+                    .filter(progress -> progress.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
+                    .map(UserRoadmapProgress::getQuestId)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
 
-            if (progress >= 100) {
+            List<RoadmapNodeSummary> nodes = parseRoadmapNodes(roadmap.getRoadmapJson());
+            int totalForRoadmap = Math.max(
+                    Math.max(nullSafeInt(roadmap.getTotalNodes()), nodes.size()),
+                    progressByQuestId.size());
+            int completedForRoadmap = Math.min(completedQuestIds.size(), totalForRoadmap);
+            int pendingForRoadmap = Math.max(0, totalForRoadmap - completedForRoadmap);
+            int progressPercent = percent(completedForRoadmap, totalForRoadmap);
+
+            totalMissions += totalForRoadmap;
+            completedMissions += completedForRoadmap;
+
+            if (totalForRoadmap > 0 && completedForRoadmap >= totalForRoadmap) {
                 completedRoadmaps++;
-            } else if (progress > 0) {
-                inProgressRoadmaps++;
             }
-            totalProgress += progress;
 
-            roadmapDetails.add(StudentLearningReportResponse.RoadmapProgress.builder()
-                    .roadmapId(r.getId())
-                    .title(r.getTitle())
-                    .goal(r.getValidatedGoal() != null ? r.getValidatedGoal() : r.getOriginalGoal())
-                    .totalQuests(total)
-                    .completedQuests((int) completed)
-                    .progressPercent(progress)
-                    .totalEstimatedHours(r.getTotalEstimatedHours())
-                    .createdAt(r.getCreatedAt())
-                    .lastActivityAt(computeLastActivityAt(r))
+            String nextMissionTitle = nodes.stream()
+                    .filter(node -> !completedQuestIds.contains(node.id))
+                    .map(node -> node.title)
+                    .filter(title -> title != null && !title.isBlank())
+                    .findFirst()
+                    .orElse(null);
+
+            LocalDateTime lastCompletedAt = progressByQuestId.values().stream()
+                    .map(UserRoadmapProgress::getCompletedAt)
+                    .filter(Objects::nonNull)
+                    .peek(completedMissionInstants::add)
+                    .map(this::toLocalDateTime)
+                    .max(Comparator.naturalOrder())
+                    .orElse(null);
+
+            breakdown.add(StudentLearningReportResponse.RoadmapBreakdownItem.builder()
+                    .roadmapId(roadmap.getId())
+                    .title(defaultIfBlank(roadmap.getTitle(), "Roadmap"))
+                    .goal(defaultIfBlank(roadmap.getValidatedGoal(), roadmap.getOriginalGoal()))
+                    .status(resolveRoadmapStatus(progressPercent, totalForRoadmap, completedForRoadmap))
+                    .totalMissions(totalForRoadmap)
+                    .completedMissions(completedForRoadmap)
+                    .pendingMissions(pendingForRoadmap)
+                    .progressPercent(progressPercent)
+                    .nextMissionTitle(nextMissionTitle)
+                    .lastCompletedAt(lastCompletedAt)
                     .build());
         }
 
-        int averageProgress = totalRoadmaps > 0 ? totalProgress / totalRoadmaps : 0;
+        breakdown.sort(Comparator
+                .comparing(StudentLearningReportResponse.RoadmapBreakdownItem::getProgressPercent)
+                .thenComparing(StudentLearningReportResponse.RoadmapBreakdownItem::getTitle, Comparator.nullsLast(String::compareToIgnoreCase)));
 
-        // Study time metrics
-        List<StudySession> studySessions = List.of();
-        try {
-            studySessions = studySessionRepository.findByUserId(studentId);
-        } catch (Exception e) {
-            log.warn("Could not fetch study sessions for student {}", studentId);
-        }
+        int inProgressRoadmaps = Math.max(0, totalRoadmaps - completedRoadmaps);
 
-        // Calculate duration from startTime and endTime (convert to VN timezone for comparison)
-        int studyTimeToday = studySessions.stream()
-                .filter(s -> s.getStartTime() != null && convertToVnTimezone(s.getStartTime()).isAfter(startOfDay))
-                .mapToInt(s -> calculateDurationMinutes(s))
-                .sum();
-
-        int studyTimeWeek = studySessions.stream()
-                .filter(s -> s.getStartTime() != null && convertToVnTimezone(s.getStartTime()).isAfter(startOfWeek))
-                .mapToInt(s -> calculateDurationMinutes(s))
-                .sum();
-
-        int studyTimeMonth = studySessions.stream()
-                .filter(s -> s.getStartTime() != null && convertToVnTimezone(s.getStartTime()).isAfter(startOfMonth))
-                .mapToInt(s -> calculateDurationMinutes(s))
-                .sum();
-
-        // Streak calculation (simplified)
-        int streakDays = calculateStreak(studySessions);
-
-        // Task metrics
-        List<Task> tasks = List.of();
-        try {
-            tasks = taskRepository.findByUserId(studentId);
-        } catch (Exception e) {
-            log.warn("Could not fetch tasks for student {}", studentId);
-        }
-        int totalTasks = tasks.size();
-        int completedTasks = (int) tasks.stream()
-                .filter(t -> "DONE".equalsIgnoreCase(t.getStatus()) || (t.getUserProgress() != null && t.getUserProgress() >= 100))
-                .count();
-
-        // Chat sessions count
-        int chatSessionsCount = 0;
-        try {
-            chatSessionsCount = aiChatbotService.getUserSessions(studentId).size();
-        } catch (Exception e) {
-            log.warn("Could not fetch chat sessions for student {}", studentId);
-        }
-
-        // Extract top skills from roadmaps
-        List<StudentLearningReportResponse.SkillInfo> topSkills = extractSkillsFromRoadmaps(roadmaps);
-
-        // Course enrollment metrics
-        List<CourseEnrollment> enrollments = List.of();
-        try {
-            enrollments = courseEnrollmentRepository.findActiveEnrollmentsByUserId(studentId);
-        } catch (Exception e) {
-            log.warn("Could not fetch course enrollments for student {}", studentId);
-        }
-        int totalEnrolledCourses = enrollments.size();
-        int completedCourses = (int) enrollments.stream()
-                .filter(e -> e.getProgressPercent() != null && e.getProgressPercent() >= 100)
-                .count();
-
-        // Calculate total study hours (sum of all study time in month)
-        int totalStudyMinutes = studyTimeMonth;
-        int totalStudyHours = totalStudyMinutes / 60;
-
-        return StudentLearningReportResponse.StudentMetrics.builder()
+        StudentLearningReportResponse.RoadmapStats stats = StudentLearningReportResponse.RoadmapStats.builder()
                 .totalRoadmaps(totalRoadmaps)
                 .completedRoadmaps(completedRoadmaps)
                 .inProgressRoadmaps(inProgressRoadmaps)
-                .averageProgress(averageProgress)
-                .totalStudyMinutesToday(studyTimeToday)
-                .totalStudyMinutesWeek(studyTimeWeek)
-                .totalStudyMinutesMonth(studyTimeMonth)
-                .totalStudyHours(totalStudyHours)
-                .streakDays(streakDays)
-                .currentStreak(streakDays)  // Frontend expectation
-                .totalChatSessions(chatSessionsCount)
+                .totalMissions(totalMissions)
+                .completedMissions(completedMissions)
+                .pendingMissions(Math.max(0, totalMissions - completedMissions))
+                .roadmapProgress(percent(completedMissions, totalMissions))
+                .build();
+
+        return new RoadmapComputation(stats, breakdown, completedMissionInstants);
+    }
+
+    private StudyComputation computeStudyData(List<StudySession> studySessions, LocalDateTime now) {
+        LocalDate today = now.toLocalDate();
+        LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+        LocalDate monthStart = today.withDayOfMonth(1);
+
+        int studyMinutesToday = sumSessionMinutesWithinRange(studySessions, today.atStartOfDay(), today.plusDays(1).atStartOfDay());
+        int studyMinutesWeek = sumSessionMinutesWithinRange(studySessions, weekStart.atStartOfDay(), today.plusDays(1).atStartOfDay());
+        int studyMinutesMonth = sumSessionMinutesWithinRange(studySessions, monthStart.atStartOfDay(), today.plusDays(1).atStartOfDay());
+        int totalStudyMinutes = sumSessionMinutesWithinRange(studySessions, LocalDate.of(2000, 1, 1).atStartOfDay(), now.plusSeconds(1));
+
+        StudentLearningReportResponse.StudyStats stats = StudentLearningReportResponse.StudyStats.builder()
+                .studyMinutesToday(studyMinutesToday)
+                .studyMinutesWeek(studyMinutesWeek)
+                .studyMinutesMonth(studyMinutesMonth)
+                .totalStudyHours(Math.round(totalStudyMinutes / 60.0f))
+                .currentStreak(calculateCurrentStreak(studySessions, today))
+                .build();
+
+        return new StudyComputation(stats);
+    }
+
+    private TaskComputation computeTaskData(List<Task> tasks, LocalDateTime now) {
+        int totalTasks = tasks.size();
+        int completedTasks = (int) tasks.stream().filter(this::isTaskCompleted).count();
+        int pendingTasks = Math.max(0, totalTasks - completedTasks);
+        int overdueTasks = (int) tasks.stream()
+                .filter(task -> !isTaskCompleted(task))
+                .filter(task -> task.getDeadline() != null && task.getDeadline().isBefore(now))
+                .count();
+
+        // Collect completed task timestamps (use endDate as completion time)
+        List<Instant> completedTaskInstants = tasks.stream()
+                .filter(this::isTaskCompleted)
+                .map(Task::getEndDate)
+                .filter(Objects::nonNull)
+                .map(endDate -> endDate.atZone(REPORT_ZONE).toInstant())
+                .collect(Collectors.toList());
+
+        StudentLearningReportResponse.TaskStats stats = StudentLearningReportResponse.TaskStats.builder()
                 .totalTasks(totalTasks)
                 .completedTasks(completedTasks)
-                .totalTasksCompleted(completedTasks)  // Frontend expectation
-                .totalTasksPending(totalTasks - completedTasks)
-                .totalEnrolledCourses(totalEnrolledCourses)
-                .completedCourses(completedCourses)
-                .topSkills(topSkills)
-                .roadmapDetails(roadmapDetails)
+                .pendingTasks(pendingTasks)
+                .overdueTasks(overdueTasks)
+                .taskProgress(percent(completedTasks, totalTasks))
                 .build();
+
+        return new TaskComputation(stats, completedTaskInstants);
     }
 
-    private List<RoadmapSessionSummary> getRoadmapSummaries(Long studentId) {
-        List<RoadmapSession> sessions = roadmapSessionRepository.findByUserIdOrderByCreatedAtDesc(studentId);
+    private CourseComputation computeCourseData(List<CourseEnrollment> enrollments) {
+        List<CourseEnrollment> activeCourses = enrollments.stream()
+                .filter(enrollment -> enrollment.getStatus() == EnrollmentStatus.ENROLLED)
+                .collect(Collectors.toList());
+        List<CourseEnrollment> completedCourses = enrollments.stream()
+                .filter(enrollment -> enrollment.getStatus() == EnrollmentStatus.COMPLETED)
+                .collect(Collectors.toList());
 
-        return sessions.stream().map(s -> {
-            int totalQuests = s.getTotalNodes() != null ? s.getTotalNodes() : 0;
-            long completedQuests = s.getProgressList() != null ?
-                    s.getProgressList().stream()
-                            .filter(p -> p.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
-                            .count() : 0;
-            int progressPercentage = totalQuests > 0 ? (int) ((completedQuests * 100) / totalQuests) : 0;
+        int averageActiveCourseProgress = activeCourses.isEmpty()
+                ? 0
+                : (int) Math.round(activeCourses.stream()
+                        .map(CourseEnrollment::getProgressPercent)
+                        .filter(Objects::nonNull)
+                        .mapToInt(Integer::intValue)
+                        .average()
+                        .orElse(0));
 
-            return RoadmapSessionSummary.builder()
-                    .sessionId(s.getId())
-                    .title(s.getTitle())
-                    .roadmapMode(s.getRoadmapMode())
-                    .originalGoal(s.getOriginalGoal())
-                    .validatedGoal(s.getValidatedGoal())
-                    .duration(s.getDuration())
-                    .experienceLevel(s.getExperienceLevel())
-                    .learningStyle(s.getLearningStyle())
-                    .totalQuests(totalQuests)
-                    .completedQuests((int) completedQuests)
-                    .progressPercentage(progressPercentage)
-                    .createdAt(s.getCreatedAt())
-                    .build();
-        }).collect(Collectors.toList());
+        List<StudentLearningReportResponse.CourseBreakdownItem> breakdown = enrollments.stream()
+                .map(enrollment -> StudentLearningReportResponse.CourseBreakdownItem.builder()
+                        .courseId(enrollment.getCourse() != null ? enrollment.getCourse().getId() : null)
+                        .courseTitle(enrollment.getCourse() != null ? enrollment.getCourse().getTitle() : "Course")
+                        .status(enrollment.getStatus() != null ? enrollment.getStatus().name().toLowerCase() : "unknown")
+                        .progressPercent(nullSafeInt(enrollment.getProgressPercent()))
+                        .completedAt(toLocalDateTime(enrollment.getCompletedAt()))
+                        .enrolledAt(toLocalDateTime(enrollment.getEnrollDate()))
+                        .build())
+                .sorted(Comparator
+                        .comparing((StudentLearningReportResponse.CourseBreakdownItem item) -> "enrolled".equals(item.getStatus()) ? 0 : 1)
+                        .thenComparing(StudentLearningReportResponse.CourseBreakdownItem::getProgressPercent)
+                        .thenComparing(StudentLearningReportResponse.CourseBreakdownItem::getCourseTitle, Comparator.nullsLast(String::compareToIgnoreCase)))
+                .collect(Collectors.toList());
+
+        StudentLearningReportResponse.CourseStats stats = StudentLearningReportResponse.CourseStats.builder()
+                .activeCourses(activeCourses.size())
+                .completedCourses(completedCourses.size())
+                .averageActiveCourseProgress(averageActiveCourseProgress)
+                .build();
+
+        return new CourseComputation(stats, breakdown);
     }
 
-    private List<ChatSessionSummary> getChatSessionSummaries(Long studentId) {
+    private Integer computeOverallProgress(
+            Integer roadmapProgress,
+            Integer totalMissions,
+            Integer taskProgress,
+            Integer totalTasks,
+            Integer courseProgress,
+            Integer activeCourses) {
+        List<Integer> components = new ArrayList<>();
+        if (nullSafeInt(totalMissions) > 0) {
+            components.add(nullSafeInt(roadmapProgress));
+        }
+        if (nullSafeInt(totalTasks) > 0) {
+            components.add(nullSafeInt(taskProgress));
+        }
+        if (nullSafeInt(activeCourses) > 0) {
+            components.add(nullSafeInt(courseProgress));
+        }
+        if (components.isEmpty()) {
+            return 0;
+        }
+        return (int) Math.round(components.stream().mapToInt(Integer::intValue).average().orElse(0));
+    }
+
+    private String computeLearningTrend(Long studentId, Integer currentOverallProgress) {
+        Optional<StudentLearningReport> latestSnapshot = reportRepository.findFirstByStudentIdOrderByGeneratedAtDescIdDesc(studentId);
+        if (latestSnapshot.isEmpty()) {
+            return "stable";
+        }
+
+        Integer previousOverall = extractSnapshotOverallProgress(latestSnapshot.get());
+        if (previousOverall == null) {
+            return "stable";
+        }
+
+        int diff = nullSafeInt(currentOverallProgress) - previousOverall;
+        if (diff > 5) {
+            return "improving";
+        }
+        if (diff < -5) {
+            return "declining";
+        }
+        return "stable";
+    }
+
+    private List<String> buildRecommendations(
+            StudentLearningReportResponse.StudyStats studyStats,
+            StudentLearningReportResponse.RoadmapStats roadmapStats,
+            List<StudentLearningReportResponse.RoadmapBreakdownItem> roadmapBreakdown,
+            StudentLearningReportResponse.TaskStats taskStats,
+            StudentLearningReportResponse.CourseStats courseStats,
+            List<StudentLearningReportResponse.CourseBreakdownItem> courseBreakdown) {
+        List<String> recommendations = new ArrayList<>();
+
+        if (nullSafeInt(studyStats.getCurrentStreak()) == 0 || nullSafeInt(studyStats.getStudyMinutesWeek()) < 120) {
+            recommendations.add("Khôi phục nhịp học đều: nhắm 20-30 phút mỗi ngày để vượt 120 phút/tuần.");
+        }
+
+        if (nullSafeInt(roadmapStats.getRoadmapProgress()) < 50) {
+            roadmapBreakdown.stream()
+                    .filter(item -> nullSafeInt(item.getPendingMissions()) > 0)
+                    .min(Comparator.comparing(StudentLearningReportResponse.RoadmapBreakdownItem::getProgressPercent))
+                    .ifPresent(item -> recommendations.add("Ưu tiên roadmap \"" + item.getTitle()
+                            + "\"" + buildMissionSuffix(item.getNextMissionTitle()) + "."));
+        }
+
+        if (nullSafeInt(taskStats.getOverdueTasks()) > 0 || nullSafeInt(taskStats.getPendingTasks()) >= 5) {
+            recommendations.add("Dọn task tồn: " + nullSafeInt(taskStats.getOverdueTasks())
+                    + " quá hạn, " + nullSafeInt(taskStats.getPendingTasks()) + " đang chờ.");
+        }
+
+        if (nullSafeInt(courseStats.getAverageActiveCourseProgress()) < 40) {
+            courseBreakdown.stream()
+                    .filter(item -> "enrolled".equals(item.getStatus()))
+                    .min(Comparator.comparing(StudentLearningReportResponse.CourseBreakdownItem::getProgressPercent))
+                    .ifPresent(item -> recommendations.add("Đẩy khóa \"" + item.getCourseTitle()
+                            + "\" từ " + nullSafeInt(item.getProgressPercent()) + "% lên mốc tiếp theo."));
+        }
+
+        if (recommendations.isEmpty()) {
+            recommendations.add("Nhịp học đang ổn, giữ streak và hoàn thành mission kế tiếp.");
+        }
+
+        return recommendations.stream().limit(3).collect(Collectors.toList());
+    }
+
+    private Map<String, List<StudentLearningReportResponse.TimelinePoint>> buildTimelineByRange(
+            List<StudySession> studySessions,
+            List<Instant> completedMissionInstants,
+            LocalDate anchorDate) {
+        Map<String, List<StudentLearningReportResponse.TimelinePoint>> timelineByRange = new LinkedHashMap<>();
+        timelineByRange.put("7d", buildTimeline("7d", studySessions, completedMissionInstants, anchorDate));
+        timelineByRange.put("30d", buildTimeline("30d", studySessions, completedMissionInstants, anchorDate));
+        timelineByRange.put("90d", buildTimeline("90d", studySessions, completedMissionInstants, anchorDate));
+        return timelineByRange;
+    }
+
+    private List<StudentLearningReportResponse.TimelinePoint> buildTimeline(
+            String range,
+            List<StudySession> studySessions,
+            List<Instant> completedMissionInstants,
+            LocalDate anchorDate) {
+        List<Bucket> buckets = buildBuckets(range, anchorDate);
+        List<StudentLearningReportResponse.TimelinePoint> points = new ArrayList<>();
+
+        for (Bucket bucket : buckets) {
+            int studyMinutes = sumSessionMinutesWithinRange(
+                    studySessions,
+                    bucket.start.atStartOfDay(),
+                    bucket.endExclusive.atStartOfDay());
+
+            int missionsCompleted = (int) completedMissionInstants.stream()
+                    .map(this::toLocalDateTime)
+                    .filter(Objects::nonNull)
+                    .filter(completedAt -> !completedAt.isBefore(bucket.start.atStartOfDay())
+                            && completedAt.isBefore(bucket.endExclusive.atStartOfDay()))
+                    .count();
+
+            points.add(StudentLearningReportResponse.TimelinePoint.builder()
+                    .bucketLabel(bucket.label)
+                    .bucketStart(bucket.start)
+                    .studyMinutes(studyMinutes)
+                    .missionsCompleted(missionsCompleted)
+                    .build());
+        }
+
+        return points;
+    }
+
+    private List<Bucket> buildBuckets(String range, LocalDate anchorDate) {
+        List<Bucket> buckets = new ArrayList<>();
+        if ("90d".equals(range)) {
+            LocalDate currentWeekStart = anchorDate.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            LocalDate firstWeekStart = currentWeekStart.minusWeeks(12);
+            for (int i = 0; i < 13; i++) {
+                LocalDate start = firstWeekStart.plusWeeks(i);
+                LocalDate endExclusive = start.plusWeeks(1);
+                String label = DATE_LABEL_FORMATTER.format(start) + " - "
+                        + DATE_LABEL_FORMATTER.format(endExclusive.minusDays(1));
+                buckets.add(new Bucket(start, endExclusive, label));
+            }
+            return buckets;
+        }
+
+        int days = "7d".equals(range) ? 7 : 30;
+        LocalDate firstDate = anchorDate.minusDays(days - 1L);
+        for (int i = 0; i < days; i++) {
+            LocalDate start = firstDate.plusDays(i);
+            buckets.add(new Bucket(start, start.plusDays(1), DATE_LABEL_FORMATTER.format(start)));
+        }
+        return buckets;
+    }
+
+    private int sumSessionMinutesWithinRange(List<StudySession> studySessions, LocalDateTime rangeStart, LocalDateTime rangeEnd) {
+        return studySessions.stream()
+                .mapToInt(session -> overlapMinutes(session.getStartTime(), session.getEndTime(), rangeStart, rangeEnd))
+                .sum();
+    }
+
+    private int overlapMinutes(LocalDateTime sessionStart, LocalDateTime sessionEnd, LocalDateTime rangeStart, LocalDateTime rangeEnd) {
+        if (sessionStart == null || sessionEnd == null || !sessionEnd.isAfter(sessionStart)) {
+            return 0;
+        }
+
+        LocalDateTime effectiveStart = sessionStart.isAfter(rangeStart) ? sessionStart : rangeStart;
+        LocalDateTime effectiveEnd = sessionEnd.isBefore(rangeEnd) ? sessionEnd : rangeEnd;
+        if (!effectiveEnd.isAfter(effectiveStart)) {
+            return 0;
+        }
+
+        return (int) ChronoUnit.MINUTES.between(effectiveStart, effectiveEnd);
+    }
+
+    private int calculateCurrentStreak(List<StudySession> studySessions, LocalDate today) {
+        Set<LocalDate> studyDates = studySessions.stream()
+                .filter(session -> overlapMinutes(
+                        session.getStartTime(),
+                        session.getEndTime(),
+                        session.getStartTime() != null ? session.getStartTime() : LocalDateTime.MIN,
+                        session.getEndTime() != null ? session.getEndTime() : LocalDateTime.MIN) > 0)
+                .map(StudySession::getStartTime)
+                .filter(Objects::nonNull)
+                .map(LocalDateTime::toLocalDate)
+                .collect(Collectors.toSet());
+
+        if (!studyDates.contains(today)) {
+            return 0;
+        }
+
+        int streak = 0;
+        LocalDate cursor = today;
+        while (studyDates.contains(cursor)) {
+            streak++;
+            cursor = cursor.minusDays(1);
+        }
+        return streak;
+    }
+
+    private List<RoadmapNodeSummary> parseRoadmapNodes(String roadmapJson) {
+        if (roadmapJson == null || roadmapJson.isBlank()) {
+            return List.of();
+        }
+
         try {
-            return aiChatbotService.getUserSessions(studentId);
-        } catch (Exception e) {
-            log.warn("Could not fetch chat sessions for student {}", studentId);
+            JsonNode root = objectMapper.readTree(roadmapJson);
+            JsonNode roadmapArray = root.isArray() ? root : root.path("roadmap");
+            if (!roadmapArray.isArray()) {
+                return List.of();
+            }
+
+            List<RoadmapNodeSummary> nodes = new ArrayList<>();
+            for (JsonNode node : roadmapArray) {
+                String id = node.path("id").asText(null);
+                String title = node.path("title").asText(null);
+                if (id != null && !id.isBlank()) {
+                    nodes.add(new RoadmapNodeSummary(id, defaultIfBlank(title, id)));
+                }
+            }
+            return nodes;
+        } catch (Exception ex) {
+            log.warn("Failed to parse roadmap json: {}", ex.getMessage());
             return List.of();
         }
     }
 
-    private String buildDataContext(String studentName, StudentLearningReportResponse.StudentMetrics metrics,
-                                    List<RoadmapSessionSummary> roadmaps, List<ChatSessionSummary> chatSessions,
-                                    GenerateStudentReportRequest request,
-                                    List<JourneyMilestoneData> journeyMilestones) {
-        StringBuilder ctx = new StringBuilder();
-        ctx.append("## Dữ liệu học tập của: ").append(studentName).append("\n\n");
+    private StudentLearningReportResponse toSnapshotResponse(StudentLearningReport report, String requestedRange) {
+        StudentLearningReportResponse response = readSummarySnapshot(report)
+                .orElseGet(() -> buildLegacySnapshotFallback(report));
 
-        // Metrics overview
-        ctx.append("### Tổng quan:\n");
-        ctx.append("- Thời gian học hôm nay: ").append(metrics.getTotalStudyMinutesToday()).append(" phút\n");
-        ctx.append("- Thời gian học tuần này: ").append(metrics.getTotalStudyMinutesWeek()).append(" phút\n");
-        ctx.append("- Thời gian học tháng này: ").append(metrics.getTotalStudyMinutesMonth()).append(" phút\n");
-        ctx.append("- Streak: ").append(metrics.getStreakDays()).append(" ngày liên tục\n");
-        ctx.append("- Tổng số roadmap: ").append(metrics.getTotalRoadmaps()).append("\n");
-        ctx.append("- Roadmap hoàn thành: ").append(metrics.getCompletedRoadmaps()).append("\n");
-        ctx.append("- Roadmap đang học: ").append(metrics.getInProgressRoadmaps()).append("\n");
-        ctx.append("- Tiến độ trung bình: ").append(metrics.getAverageProgress()).append("%\n");
-        ctx.append("- Số phiên chat AI: ").append(metrics.getTotalChatSessions()).append("\n");
-        ctx.append("- Tasks: ").append(metrics.getCompletedTasks()).append("/").append(metrics.getTotalTasks()).append(" hoàn thành\n");
-        ctx.append("- Khóa học đã đăng ký: ").append(metrics.getTotalEnrolledCourses()).append("\n");
-        ctx.append("- Khóa học hoàn thành: ").append(metrics.getCompletedCourses()).append("\n");
+        response.setId(report.getId());
+        response.setReportId(report.getId());
+        response.setGeneratedAt(report.getGeneratedAt());
+        response.setReportName(buildReportName(report.getGeneratedAt()));
+        response.setStudentId(report.getStudent() != null ? report.getStudent().getId() : null);
+        response.setStudentName(defaultIfBlank(response.getStudentName(), report.getStudentName()));
+        response.setReportType(StudentLearningReport.ReportType.COMPREHENSIVE.name());
+        response.setSnapshot(true);
+        response.setRange(requestedRange);
 
-        // Roadmap details
-        if (request.getIncludeRoadmapDetails() && !roadmaps.isEmpty()) {
-            ctx.append("\n### Roadmaps (").append(roadmaps.size()).append(" lộ trình):\n");
-            for (RoadmapSessionSummary r : roadmaps) {
-                String goal = r.getValidatedGoal() != null ? r.getValidatedGoal() :
-                        (r.getOriginalGoal() != null ? r.getOriginalGoal() : r.getTitle());
-                ctx.append("- **").append(goal != null ? goal : "Chưa có mục tiêu").append("**")
-                        .append(" | Tiến độ: ").append(r.getProgressPercentage() != null ? r.getProgressPercentage() : 0).append("%")
-                        .append(" | Level: ").append(r.getExperienceLevel() != null ? r.getExperienceLevel() : "N/A")
-                        .append(" | Tạo ngày: ").append(r.getCreatedAt()).append("\n");
-            }
+        Map<String, List<StudentLearningReportResponse.TimelinePoint>> timelineByRange =
+                response.getTimelineByRange() != null ? response.getTimelineByRange() : Map.of();
+        if (timelineByRange.containsKey(requestedRange)) {
+            response.setTimeline(defaultList(timelineByRange.get(requestedRange)));
+        } else if (response.getTimeline() == null) {
+            response.setTimeline(List.of());
         }
 
-        // Chat session summary
-        if (request.getIncludeChatHistory() && !chatSessions.isEmpty()) {
-            ctx.append("\n### Phiên Chat AI (").append(chatSessions.size()).append(" phiên gần đây):\n");
-            int count = 0;
-            for (ChatSessionSummary s : chatSessions) {
-                if (count++ >= 10) break; // Limit to 10 most recent
-                ctx.append("- Chủ đề: ").append(s.getTitle() != null ? s.getTitle() : "Không có tiêu đề")
-                        .append(" | ").append(s.getMessageCount()).append(" tin nhắn")
-                        .append(" | Ngày: ").append(s.getLastMessageAt()).append("\n");
-            }
-        }
-
-        // Skills from roadmaps
-        if (metrics.getTopSkills() != null && !metrics.getTopSkills().isEmpty()) {
-            ctx.append("\n### Kỹ năng đang phát triển:\n");
-            for (StudentLearningReportResponse.SkillInfo skill : metrics.getTopSkills()) {
-                ctx.append("- ").append(skill.getSkillName())
-                        .append(" (").append(skill.getLevel()).append(")")
-                        .append(" | Tiến độ: ").append(skill.getProgressPercent()).append("%\n");
-            }
-        }
-
-        // Focus skills if provided
-        if (request.getFocusSkills() != null && request.getFocusSkills().length > 0) {
-            ctx.append("\n### Kỹ năng muốn tập trung đánh giá:\n");
-            for (String skill : request.getFocusSkills()) {
-                ctx.append("- ").append(skill).append("\n");
-            }
-        }
-
-        // Journey milestones — include active journey progress for richer AI context
-        if (!journeyMilestones.isEmpty()) {
-            ctx.append("\n### Journey Milestones:\n");
-            for (JourneyMilestoneData m : journeyMilestones) {
-                ctx.append("- ").append(m.completed ? "✅" : "⬜")
-                   .append(" ").append(m.name).append("\n");
-            }
-        }
-
-        return ctx.toString();
+        return finalizeResponse(response);
     }
 
-    private String getSystemPrompt(StudentLearningReport.ReportType reportType) {
-        String basePrompt = """
-            Bạn là chuyên gia phân tích học tập của SkillVerse. Nhiệm vụ: Tạo báo cáo học tập CÁ NHÂN cho học viên
-            dựa trên dữ liệu thực tế. Báo cáo phải có giọng văn ĐỘNG VIÊN, TÍCH CỰC nhưng TRUNG THỰC.
-            
-            Sử dụng ngôi thứ hai "bạn" khi nói với học viên.
-            QUAN TRỌNG: Dựa vào dữ liệu thực tế được cung cấp. Nếu thiếu dữ liệu, hãy ghi nhận điều đó thay vì bịa ra.
-            
-            QUY TẮC ĐỊNH DẠNG BẮT BUỘC:
-            - Mỗi phần chính dùng heading cấp 2: ## N. TIÊU ĐỀ
-            - Bên trong mỗi phần, BẮT BUỘC chia thành ít nhất 2-3 mục con với heading cấp 3: ### Tên mục con
-            - KHÔNG được để dư ký tự ** hoặc __ ở cuối bất kỳ phần nào
-            - KHÔNG bọc tiêu đề heading ## trong dấu ** (sai: ## **1. TIÊU ĐỀ**, đúng: ## 1. TIÊU ĐỀ)
-            - Mỗi heading ### phải có nội dung bullet points bên dưới
-            """;
+    private Optional<StudentLearningReportResponse> readSummarySnapshot(StudentLearningReport report) {
+        if (report.getSummarySnapshot() == null || report.getSummarySnapshot().isBlank()) {
+            return Optional.empty();
+        }
 
-        return switch (reportType) {
-            case COMPREHENSIVE -> basePrompt + """
-                
-                Báo cáo TOÀN DIỆN PHẢI có CHÍNH XÁC 9 phần sau (mỗi phần có heading ## tương ứng):
-
-                ## 1. KỸ NĂNG HIỆN CÓ
-                Phân thành các mục con ### cho từng nhóm kỹ năng:
-                ### Kỹ năng đang học
-                ### Phân loại mức độ
-                ### Nguồn kỹ năng
-
-                ## 2. MỤC TIÊU HỌC TẬP
-                ### Danh sách mục tiêu
-                ### Đánh giá mức độ rõ ràng
-                ### Đề xuất điều chỉnh
-
-                ## 3. TIẾN ĐỘ HỌC TẬP
-                ### Tiến độ roadmap
-                ### Thời gian học tập
-                ### So sánh với mục tiêu
-
-                ## 4. ĐIỂM MẠNH CỦA BẠN
-                ### Kỹ năng nổi bật
-                ### Thói quen tích cực
-
-                ## 5. LĨNH VỰC CẦN CẢI THIỆN
-                ### Điểm chưa đạt
-                ### Thói quen cần điều chỉnh
-
-                ## 6. KHOẢNG TRỐNG KỸ NĂNG
-                ### Kỹ năng còn thiếu
-                ### Lộ trình bổ sung
-
-                ## 7. KHUYẾN NGHỊ CÁ NHÂN
-                ### Phương pháp học
-                ### Tài nguyên gợi ý
-
-                ## 8. CÁC BƯỚC TIẾP THEO
-                ### Action items
-                ### Timeline đề xuất
-
-                ## 9. ĐỘNG LỰC & KHÍCH LỆ
-                ### Ghi nhận thành tích
-                ### Lời động viên
-
-                Mỗi phần PHẢI có nội dung cụ thể. Sử dụng bullet points và emoji phù hợp.
-                KHÔNG để dư ký tự ** ở cuối phần. KHÔNG bọc heading trong **.
-                """;
-
-            case WEEKLY_SUMMARY -> basePrompt + """
-                
-                Báo cáo TÓM TẮT TUẦN ngắn gọn với 5 phần:
-                ## 1. TUẦN NÀY BẠN ĐÃ LÀM GÌ
-                ## 2. THÀNH TỰU NỔI BẬT
-                ## 3. ĐIỀU CẦN CẢI THIỆN
-                ## 4. MỤC TIÊU TUẦN TỚI
-                ## 5. LỜI ĐỘNG VIÊN
-                
-                Giữ mỗi phần ngắn gọn (3-5 bullet points).
-                """;
-
-            case MONTHLY_SUMMARY -> basePrompt + """
-                
-                Báo cáo TÓM TẮT THÁNG với 6 phần:
-                ## 1. TỔNG KẾT THÁNG
-                ## 2. TIẾN BỘ QUAN TRỌNG
-                ## 3. KỸ NĂNG ĐÃ PHÁT TRIỂN
-                ## 4. THÁCH THỨC ĐÃ VƯỢT QUA
-                ## 5. KẾ HOẠCH THÁNG TỚI
-                ## 6. THÔNG ĐIỆP THÁNG MỚI
-                """;
-
-            case SKILL_ASSESSMENT -> basePrompt + """
-                
-                Báo cáo ĐÁNH GIÁ KỸ NĂNG chuyên sâu:
-                ## 1. TỔNG QUAN KỸ NĂNG
-                ## 2. PHÂN TÍCH CHI TIẾT TỪNG KỸ NĂNG
-                ## 3. KỸ NĂNG MẠNH NHẤT
-                ## 4. KỸ NĂNG CẦN PHÁT TRIỂN
-                ## 5. LỘ TRÌNH NÂNG CAO
-                ## 6. TÀI NGUYÊN ĐỀ XUẤT
-                """;
-
-            case GOAL_TRACKING -> basePrompt + """
-                
-                Báo cáo THEO DÕI MỤC TIÊU:
-                ## 1. MỤC TIÊU ĐANG THEO ĐUỔI
-                ## 2. TIẾN ĐỘ TỪNG MỤC TIÊU
-                ## 3. MỤC TIÊU SẮP HOÀN THÀNH
-                ## 4. MỤC TIÊU CẦN ĐẨY NHANH
-                ## 5. ĐIỀU CHỈNH ĐỀ XUẤT
-                ## 6. MILESTONE TIẾP THEO
-                """;
-        };
-    }
-
-    private StudentLearningReportResponse.ReportSections parseSections(String content) {
-        return StudentLearningReportResponse.ReportSections.builder()
-                .currentSkills(extractSectionByHeading(content, 1, 2))
-                .learningGoals(extractSectionByHeading(content, 2, 3))
-                .progressSummary(extractSectionByHeading(content, 3, 4))
-                .strengths(extractSectionByHeading(content, 4, 5))
-                .areasToImprove(extractSectionByHeading(content, 5, 6))
-                .skillGaps(extractSectionByHeading(content, 6, 7))
-                .recommendations(extractSectionByHeading(content, 7, 8))
-                .nextSteps(extractSectionByHeading(content, 8, 9))
-                .motivation(extractSectionByHeading(content, 9, -1))
-                .build();
-    }
-
-    /**
-     * Regex pattern that matches a level-2 heading line produced by the AI model.
-     * Handles variations such as:
-     *   ## 1. KỸ NĂNG HIỆN CÓ
-     *   ## **1. KỸ NĂNG HIỆN CÓ**
-     *   **## 1. KỸ NĂNG HIỆN CÓ**
-     *   1. KỸ NĂNG HIỆN CÓ (without ##)
-     */
-    private static final Pattern SECTION_HEADING_PATTERN = Pattern.compile(
-            "(?:^|\\n)\\s*(?:\\*{2})?\\s*(?:##\\s*)?(?:\\*{2})?\\s*(\\d+)\\.\\s",
-            Pattern.CASE_INSENSITIVE
-    );
-
-    /**
-     * Extract a section of AI-generated content between heading N and heading nextN.
-     * Uses regex to robustly find "## N." heading patterns regardless of bold markers.
-     *
-     * @param content   Full AI report content
-     * @param sectionNum   Section number to extract (e.g. 1)
-     * @param nextSectionNum  Next section number (-1 means extract until end)
-     */
-    private String extractSectionByHeading(String content, int sectionNum, int nextSectionNum) {
         try {
-            if (content == null || content.isBlank()) return "Không có dữ liệu";
-
-            // Find the heading for sectionNum
-            Matcher matcher = SECTION_HEADING_PATTERN.matcher(content);
-            int startIdx = -1;
-            while (matcher.find()) {
-                int num = Integer.parseInt(matcher.group(1));
-                if (num == sectionNum) {
-                    // Move past the entire heading line
-                    int lineEnd = content.indexOf('\n', matcher.end());
-                    startIdx = (lineEnd == -1) ? matcher.end() : lineEnd + 1;
-                    break;
-                }
-            }
-            if (startIdx == -1) return "Không có dữ liệu";
-
-            // Find the heading for nextSectionNum
-            int endIdx = content.length();
-            if (nextSectionNum > 0) {
-                matcher = SECTION_HEADING_PATTERN.matcher(content);
-                while (matcher.find()) {
-                    if (matcher.start() <= startIdx) continue;
-                    int num = Integer.parseInt(matcher.group(1));
-                    if (num == nextSectionNum) {
-                        endIdx = matcher.start();
-                        break;
-                    }
-                }
-            }
-
-            String section = content.substring(startIdx, endIdx).trim();
-            section = stripTrailingEmphasisMarkers(section);
-            return section.isEmpty() ? "Không có dữ liệu" : section;
-        } catch (Exception e) {
-            log.warn("Failed to extract section {} from report content", sectionNum, e);
-            return "Không có dữ liệu";
+            return Optional.of(objectMapper.readValue(report.getSummarySnapshot(), StudentLearningReportResponse.class));
+        } catch (Exception ex) {
+            log.warn("Failed to parse summary_snapshot for report {}: {}", report.getId(), ex.getMessage());
+            return Optional.empty();
         }
     }
 
-    /**
-     * Remove trailing orphan emphasis markers (**, __, ***, etc.) that the AI model
-     * sometimes appends at the end of a section.
-     */
-    private String stripTrailingEmphasisMarkers(String text) {
-        if (text == null) return "";
-        // Strip trailing lines that only contain emphasis markers
-        text = text.replaceAll("(?m)^\\s*[*_]{2,}\\s*$", "").trim();
-        // Strip trailing emphasis markers at very end of content
-        text = text.replaceAll("\\s*[*_]{2,}\\s*$", "").trim();
-        return text;
-    }
+    private StudentLearningReportResponse buildLegacySnapshotFallback(StudentLearningReport report) {
+        List<String> recommendations = report.getRecommendedFocus() == null || report.getRecommendedFocus().isBlank()
+                ? List.of("Snapshot cũ chưa có breakdown chi tiết.")
+                : List.of(report.getRecommendedFocus());
 
-    private StudentLearningReport saveReport(User student, String studentName, String reportContent,
-                                              StudentLearningReportResponse.ReportSections sections,
-                                              boolean isAiGenerated, StudentLearningReport.ReportType reportType,
-                                              StudentLearningReportResponse.StudentMetrics metrics,
-                                              String learningTrend, String recommendedFocus,
-                                              LocalDateTime generatedAt) {
-        StudentLearningReport report = StudentLearningReport.builder()
-                .student(student)
-                .studentName(studentName)
-                .reportContent(reportContent)
-                .currentSkillsSection(sections.getCurrentSkills())
-                .learningGoalsSection(sections.getLearningGoals())
-                .progressSection(sections.getProgressSummary())
-                .strengthsSection(sections.getStrengths())
-                .areasToImproveSection(sections.getAreasToImprove())
-                .recommendationsSection(sections.getRecommendations())
-                .skillGapsSection(sections.getSkillGaps())
-                .nextStepsSection(sections.getNextSteps())
-                .motivationSection(sections.getMotivation())
-                .isAiGenerated(isAiGenerated)
-                .reportType(reportType)
-                // Snapshot fields for quick display without re-aggregation
-                .averageProgressSnapshot(metrics != null ? metrics.getAverageProgress() : 0)
-                .learningTrend(learningTrend)
-                .recommendedFocus(recommendedFocus)
-                .totalStudyHoursSnapshot(metrics != null ? metrics.getTotalStudyHours() : 0)
-                .streakDaysSnapshot(metrics != null ? metrics.getCurrentStreak() : 0)
-                .tasksCompletedSnapshot(metrics != null ? metrics.getTotalTasksCompleted() : 0)
-                .generatedAt(generatedAt)
-                .build();
-
-        return reportRepository.save(report);
-    }
-
-    private StudentLearningReportResponse generateFallbackReport(Long studentId, String studentName,
-                                                                   StudentLearningReportResponse.StudentMetrics metrics,
-                                                                   List<RoadmapSessionSummary> roadmaps,
-                                                                   StudentLearningReport.ReportType reportType,
-                                                                   List<JourneyMilestoneData> journeyMilestones) {
-        StringBuilder content = new StringBuilder();
-        content.append("# 📊 BÁO CÁO HỌC TẬP CÁ NHÂN\n\n");
-        content.append("**Học viên:** ").append(studentName).append("\n\n");
-
-        // Section 1 - Skills
-        content.append("## 1. KỸ NĂNG HIỆN CÓ\n");
-        if (roadmaps.isEmpty()) {
-            content.append("- Bạn chưa bắt đầu roadmap nào. Hãy tạo roadmap đầu tiên để xác định kỹ năng cần học!\n");
-        } else {
-            content.append("Các kỹ năng đang phát triển:\n");
-            for (RoadmapSessionSummary r : roadmaps) {
-                String goal = r.getValidatedGoal() != null ? r.getValidatedGoal() :
-                        (r.getOriginalGoal() != null ? r.getOriginalGoal() : r.getTitle());
-                content.append("- **").append(goal != null ? goal : "Kỹ năng mới").append("**")
-                        .append(" (").append(r.getProgressPercentage()).append("% hoàn thành)\n");
-            }
-        }
-
-        // Section 2 - Goals
-        content.append("\n## 2. MỤC TIÊU HỌC TẬP\n");
-        if (roadmaps.isEmpty()) {
-            content.append("- Chưa có mục tiêu cụ thể. Hãy tạo roadmap để đặt mục tiêu học tập!\n");
-        } else {
-            for (RoadmapSessionSummary r : roadmaps) {
-                String goal = r.getValidatedGoal() != null ? r.getValidatedGoal() : r.getOriginalGoal();
-                if (goal != null) {
-                    content.append("- ").append(goal).append("\n");
-                }
-            }
-        }
-
-        // Section 3 - Progress
-        content.append("\n## 3. TIẾN ĐỘ HỌC TẬP\n");
-        content.append("- Thời gian học hôm nay: ").append(metrics.getTotalStudyMinutesToday()).append(" phút\n");
-        content.append("- Thời gian học tuần này: ").append(metrics.getTotalStudyMinutesWeek()).append(" phút\n");
-        content.append("- Tiến độ trung bình: ").append(metrics.getAverageProgress()).append("%\n");
-        content.append("- Streak: ").append(metrics.getStreakDays()).append(" ngày liên tục\n");
-
-        // Section 4 - Strengths
-        content.append("\n## 4. ĐIỂM MẠNH CỦA BẠN\n");
-        if (metrics.getStreakDays() > 3) {
-            content.append("- ✅ Duy trì streak tốt (").append(metrics.getStreakDays()).append(" ngày)\n");
-        }
-        if (!roadmaps.isEmpty()) {
-            content.append("- ✅ Chủ động tạo roadmap học tập\n");
-        }
-        if (metrics.getTotalChatSessions() > 0) {
-            content.append("- ✅ Tích cực sử dụng AI mentor\n");
-        }
-        if (metrics.getCompletedRoadmaps() > 0) {
-            content.append("- ✅ Đã hoàn thành ").append(metrics.getCompletedRoadmaps()).append(" roadmap\n");
-        }
-
-        // Section 5 - Areas to improve
-        content.append("\n## 5. LĨNH VỰC CẦN CẢI THIỆN\n");
-        if (metrics.getStreakDays() == 0) {
-            content.append("- ⚠️ Cần học đều đặn hơn để xây dựng streak\n");
-        }
-        if (metrics.getAverageProgress() < 30) {
-            content.append("- ⚠️ Tiến độ học tập cần được đẩy nhanh\n");
-        }
-        if (roadmaps.isEmpty()) {
-            content.append("- ⚠️ Cần tạo roadmap để có định hướng rõ ràng\n");
-        }
-
-        // Section 6 - Skill gaps
-        content.append("\n## 6. KHOẢNG TRỐNG KỸ NĂNG\n");
-        content.append("- Cần phân tích thêm dữ liệu để xác định khoảng trống\n");
-
-        // Section 7 - Recommendations
-        content.append("\n## 7. KHUYẾN NGHỊ CÁ NHÂN\n");
-        content.append("- 💡 Học đều đặn mỗi ngày, dù chỉ 15-30 phút\n");
-        content.append("- 💡 Sử dụng AI mentor khi gặp khó khăn\n");
-        content.append("- 💡 Hoàn thành từng quest nhỏ trong roadmap\n");
-
-        // Section 8 - Next steps
-        content.append("\n## 8. CÁC BƯỚC TIẾP THEO\n");
-        content.append("- 📌 Xem lại roadmap hiện tại và tiếp tục quest tiếp theo\n");
-        content.append("- 📌 Đặt mục tiêu học 30 phút mỗi ngày\n");
-        content.append("- 📌 Hoàn thành ít nhất 1 quest trong tuần\n");
-
-        // Section 9 - Motivation
-        content.append("\n## 9. ĐỘNG LỰC & KHÍCH LỆ\n");
-        content.append("- 🌟 Mỗi bước nhỏ đều đưa bạn đến gần mục tiêu hơn!\n");
-        content.append("- 🌟 \"The expert in anything was once a beginner.\" - Helen Hayes\n");
-        content.append("- 🌟 Hãy tiếp tục cố gắng, SkillVerse tin vào bạn! 💪\n");
-
-        String reportContent = content.toString();
-        StudentLearningReportResponse.ReportSections sections = parseSections(reportContent);
-
-        LocalDateTime generatedAt = LocalDateTime.now(VN_ZONE);
-
-        return StudentLearningReportResponse.builder()
-                .generatedAt(generatedAt)
-                .reportName(buildReportName(generatedAt))
-                .studentId(studentId)
-                .studentName(studentName)
-                .reportContent(reportContent)
-                .sections(sections)
-                .metrics(metrics)
-                .reportType(reportType.name())
-                .overallProgress(metrics != null ? metrics.getAverageProgress() : 0)
-                .learningTrend("stable")
-                .build();
-    }
-
-    private StudentLearningReportResponse convertToResponse(StudentLearningReport report) {
-        String resolvedName = resolveStudentName(report.getStudent());
-
-        return StudentLearningReportResponse.builder()
-                .id(report.getId())
-                .reportName(buildReportName(report.getGeneratedAt()))
-                .generatedAt(report.getGeneratedAt())
-                .studentId(report.getStudent().getId())
-                .studentName(resolvedName)
-                .reportContent(report.getReportContent())
-                .sections(StudentLearningReportResponse.ReportSections.builder()
-                        .currentSkills(report.getCurrentSkillsSection())
-                        .learningGoals(report.getLearningGoalsSection())
-                        .progressSummary(report.getProgressSection())
-                        .strengths(report.getStrengthsSection())
-                        .areasToImprove(report.getAreasToImproveSection())
-                        .recommendations(report.getRecommendationsSection())
-                        .skillGaps(report.getSkillGapsSection())
-                        .nextSteps(report.getNextStepsSection())
-                        .motivation(report.getMotivationSection())
+        StudentLearningReportResponse response = StudentLearningReportResponse.builder()
+                .overview(StudentLearningReportResponse.Overview.builder()
+                        .overallProgress(nullSafeInt(report.getAverageProgressSnapshot()))
+                        .learningTrend(defaultIfBlank(report.getLearningTrend(), "stable"))
+                        .recommendations(recommendations)
                         .build())
-                .reportType(report.getReportType().name())
-                // Populated from entity snapshot fields (stored at save time)
-                .overallProgress(report.getAverageProgressSnapshot())
-                .learningTrend(report.getLearningTrend())
-                .recommendedFocus(report.getRecommendedFocus())
+                .studyStats(StudentLearningReportResponse.StudyStats.builder()
+                        .studyMinutesToday(0)
+                        .studyMinutesWeek(0)
+                        .studyMinutesMonth(0)
+                        .totalStudyHours(nullSafeInt(report.getTotalStudyHoursSnapshot()))
+                        .currentStreak(nullSafeInt(report.getStreakDaysSnapshot()))
+                        .build())
+                .roadmapStats(StudentLearningReportResponse.RoadmapStats.builder()
+                        .totalRoadmaps(0)
+                        .completedRoadmaps(0)
+                        .inProgressRoadmaps(0)
+                        .totalMissions(0)
+                        .completedMissions(0)
+                        .pendingMissions(0)
+                        .roadmapProgress(0)
+                        .build())
+                .taskStats(StudentLearningReportResponse.TaskStats.builder()
+                        .totalTasks(nullSafeInt(report.getTasksCompletedSnapshot()))
+                        .completedTasks(nullSafeInt(report.getTasksCompletedSnapshot()))
+                        .pendingTasks(0)
+                        .overdueTasks(0)
+                        .taskProgress(100)
+                        .build())
+                .courseStats(StudentLearningReportResponse.CourseStats.builder()
+                        .activeCourses(0)
+                        .completedCourses(0)
+                        .averageActiveCourseProgress(0)
+                        .build())
+                .roadmapBreakdown(List.of())
+                .courseBreakdown(List.of())
+                .timeline(List.of())
+                .timelineByRange(Map.of())
+                .build();
+
+        return finalizeResponse(response);
+    }
+
+    private StudentLearningReportResponse finalizeResponse(StudentLearningReportResponse response) {
+        if (response.getReportId() == null) {
+            response.setReportId(response.getId());
+        }
+        if (response.getReportType() == null) {
+            response.setReportType(StudentLearningReport.ReportType.COMPREHENSIVE.name());
+        }
+        if (response.getRange() == null) {
+            response.setRange(DEFAULT_RANGE);
+        }
+        if (response.getReportName() == null && response.getGeneratedAt() != null) {
+            response.setReportName(buildReportName(response.getGeneratedAt()));
+        }
+        if (response.getTimeline() == null) {
+            response.setTimeline(List.of());
+        }
+        if (response.getRoadmapBreakdown() == null) {
+            response.setRoadmapBreakdown(List.of());
+        }
+        if (response.getCourseBreakdown() == null) {
+            response.setCourseBreakdown(List.of());
+        }
+        if (response.getTimelineByRange() == null) {
+            response.setTimelineByRange(Map.of());
+        }
+        if (response.getOverview() == null) {
+            response.setOverview(StudentLearningReportResponse.Overview.builder()
+                    .overallProgress(0)
+                    .learningTrend("stable")
+                    .recommendations(List.of("Chưa có dữ liệu để đưa ra khuyến nghị."))
+                    .build());
+        }
+
+        response.setOverallProgress(getOverallProgress(response));
+        response.setLearningTrend(getLearningTrend(response));
+        response.setRecommendedFocus(getRecommendedFocus(response));
+        response.setMetrics(buildCompatibilityMetrics(response));
+        response.setReportContent(null);
+        response.setSections(null);
+        return response;
+    }
+
+    private StudentLearningReportResponse.StudentMetrics buildCompatibilityMetrics(StudentLearningReportResponse response) {
+        List<StudentLearningReportResponse.RoadmapProgress> roadmapDetails = defaultList(response.getRoadmapBreakdown()).stream()
+                .map(item -> StudentLearningReportResponse.RoadmapProgress.builder()
+                        .roadmapId(item.getRoadmapId())
+                        .title(item.getTitle())
+                        .goal(item.getGoal())
+                        .totalQuests(item.getTotalMissions())
+                        .completedQuests(item.getCompletedMissions())
+                        .progressPercent(item.getProgressPercent())
+                        .lastActivityAt(item.getLastCompletedAt())
+                        .build())
+                .collect(Collectors.toList());
+
+        return StudentLearningReportResponse.StudentMetrics.builder()
+                .totalRoadmaps(response.getRoadmapStats() != null ? response.getRoadmapStats().getTotalRoadmaps() : 0)
+                .completedRoadmaps(response.getRoadmapStats() != null ? response.getRoadmapStats().getCompletedRoadmaps() : 0)
+                .inProgressRoadmaps(response.getRoadmapStats() != null ? response.getRoadmapStats().getInProgressRoadmaps() : 0)
+                .averageProgress(getOverallProgress(response))
+                .totalStudyMinutesToday(response.getStudyStats() != null ? response.getStudyStats().getStudyMinutesToday() : 0)
+                .totalStudyMinutesWeek(response.getStudyStats() != null ? response.getStudyStats().getStudyMinutesWeek() : 0)
+                .totalStudyMinutesMonth(response.getStudyStats() != null ? response.getStudyStats().getStudyMinutesMonth() : 0)
+                .totalStudyHours(response.getStudyStats() != null ? response.getStudyStats().getTotalStudyHours() : 0)
+                .streakDays(response.getStudyStats() != null ? response.getStudyStats().getCurrentStreak() : 0)
+                .currentStreak(response.getStudyStats() != null ? response.getStudyStats().getCurrentStreak() : 0)
+                .totalChatSessions(0)
+                .totalTasks(response.getTaskStats() != null ? response.getTaskStats().getTotalTasks() : 0)
+                .completedTasks(response.getTaskStats() != null ? response.getTaskStats().getCompletedTasks() : 0)
+                .totalTasksCompleted(response.getTaskStats() != null ? response.getTaskStats().getCompletedTasks() : 0)
+                .totalTasksPending(response.getTaskStats() != null ? response.getTaskStats().getPendingTasks() : 0)
+                .totalEnrolledCourses(response.getCourseStats() != null
+                        ? nullSafeInt(response.getCourseStats().getActiveCourses()) + nullSafeInt(response.getCourseStats().getCompletedCourses())
+                        : 0)
+                .completedCourses(response.getCourseStats() != null ? response.getCourseStats().getCompletedCourses() : 0)
+                .topSkills(List.of())
+                .roadmapDetails(roadmapDetails)
                 .build();
     }
 
-    private StudentLearningReportResponse buildResponse(StudentLearningReport report,
-                                                         StudentLearningReportResponse.StudentMetrics metrics) {
-        StudentLearningReportResponse response = convertToResponse(report);
-        response.setMetrics(metrics);
-        return response;
+    private Integer extractSnapshotOverallProgress(StudentLearningReport report) {
+        Optional<StudentLearningReportResponse> summarySnapshot = readSummarySnapshot(report);
+        if (summarySnapshot.isPresent() && summarySnapshot.get().getOverview() != null) {
+            return summarySnapshot.get().getOverview().getOverallProgress();
+        }
+        return report.getAverageProgressSnapshot();
     }
 
-    /**
-     * Build response with computed derived fields (overallProgress, learningTrend, recommendedFocus).
-     * Use this when you have the live metrics and want the full enriched response.
-     */
-    private StudentLearningReportResponse buildResponseWithDerivedFields(StudentLearningReport report,
-                                                                          StudentLearningReportResponse.StudentMetrics metrics,
-                                                                          Long studentId) {
-        StudentLearningReportResponse response = buildResponse(report, metrics);
-        computeDerivedFields(response, metrics, studentId);
-        return response;
+    private String writeSummarySnapshot(StudentLearningReportResponse response) {
+        try {
+            return objectMapper.writeValueAsString(response);
+        } catch (Exception ex) {
+            throw new ApiException(ErrorCode.INTERNAL_ERROR, "Failed to persist learning report snapshot");
+        }
     }
 
     private String resolveStudentName(User student) {
-        if (student == null) return "Học viên";
-
+        if (student == null) {
+            return "Học viên";
+        }
         if (student.getFullName() != null && !student.getFullName().trim().isEmpty()) {
             return student.getFullName().trim();
         }
-
-        String combined = ((student.getFirstName() != null ? student.getFirstName() : "") + " " +
-                (student.getLastName() != null ? student.getLastName() : "")).trim();
+        String combined = ((student.getFirstName() != null ? student.getFirstName() : "")
+                + " "
+                + (student.getLastName() != null ? student.getLastName() : "")).trim();
         if (!combined.isEmpty()) {
             return combined;
         }
-
         if (student.getEmail() != null && student.getEmail().contains("@")) {
             return student.getEmail().split("@")[0];
         }
-
         return "Học viên";
     }
 
-    /**
-     * Compute last activity timestamp from completed progress entries.
-     */
-    private LocalDateTime computeLastActivityAt(RoadmapSession r) {
-        if (r.getProgressList() == null || r.getProgressList().isEmpty()) return null;
-        return r.getProgressList().stream()
-                .filter(p -> p.getCompletedAt() != null)
-                .map(p -> LocalDateTime.ofInstant(p.getCompletedAt(), ZoneId.of("UTC")).plusHours(7))
-                .max(java.util.Comparator.naturalOrder())
-                .orElse(null);
-    }
-
-    // ============ DTO for Journey Milestones ============
-
-    private static class JourneyMilestoneData {
-        private final String name;
-        private final boolean completed;
-
-        JourneyMilestoneData(String name, boolean completed) {
-            this.name = name;
-            this.completed = completed;
+    private String normalizeRange(String range) {
+        String normalized = range == null ? DEFAULT_RANGE : range.trim().toLowerCase();
+        if (!SUPPORTED_RANGES.contains(normalized)) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Range phải là 7d, 30d hoặc 90d");
         }
-    }
-
-    /**
-     * Compute and set derived fields: overallProgress, learningTrend, recommendedFocus.
-     */
-    private void computeDerivedFields(StudentLearningReportResponse response,
-                                      StudentLearningReportResponse.StudentMetrics metrics,
-                                      Long studentId) {
-        // 1. overallProgress: lấy từ metrics.averageProgress
-        if (metrics != null && metrics.getAverageProgress() != null) {
-            response.setOverallProgress(metrics.getAverageProgress());
-        }
-
-        // 2. learningTrend: so sánh với report trước đó (dùng metrics.averageProgress)
-        Integer currentProgress = (metrics != null) ? metrics.getAverageProgress() : null;
-        String trend = computeLearningTrend(studentId, response.getId(), currentProgress);
-        response.setLearningTrend(trend);
-
-        // 3. recommendedFocus: extract từ AI content (recommendations hoặc skillGaps)
-        String focus = extractRecommendedFocus(response.getSections());
-        response.setRecommendedFocus(focus);
-    }
-
-    /**
-     * Tính learning trend bằng cách so sánh với báo cáo trước đó.
-     * improving: current > previous + 5
-     * declining: current < previous - 5
-     * stable: otherwise
-     */
-    private String computeLearningTrend(Long studentId, Long currentReportId, Integer currentProgress) {
-        if (currentProgress == null) return "stable";
-
-        try {
-            Optional<StudentLearningReport> previousOpt = currentReportId == null
-                    ? reportRepository.findFirstByStudentIdOrderByGeneratedAtDescIdDesc(studentId)
-                    : reportRepository.findFirstByStudentIdAndIdLessThanOrderByGeneratedAtDescIdDesc(studentId, currentReportId);
-
-            if (previousOpt.isEmpty()) {
-                return "stable"; // First report — no trend yet
-            }
-
-            StudentLearningReport previous = previousOpt.get();
-            Integer previousProgress = parseAverageProgressFromReportContent(previous.getReportContent());
-
-            if (previousProgress == null) {
-                return "stable"; // Cannot compare — default to stable
-            }
-
-            int diff = currentProgress - previousProgress;
-            if (diff > 5) {
-                return "improving";
-            } else if (diff < -5) {
-                return "declining";
-            } else {
-                return "stable";
-            }
-        } catch (Exception e) {
-            log.warn("Failed to compute learning trend for student {}, defaulting to stable", studentId, e);
-            return "stable";
-        }
-    }
-
-    /**
-     * Parse average progress from raw report content (fallback when metrics not available).
-     * Looks for patterns like "Tiến độ: 45%" in the content.
-     */
-    private Integer parseAverageProgressFromReportContent(String content) {
-        if (content == null) return null;
-        try {
-            // Try to find progress percentage in content
-            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
-                    "Tiến độ[^0-9]*([0-9]+)%?|progress[^0-9]*([0-9]+)%?",
-                    java.util.regex.Pattern.CASE_INSENSITIVE);
-            java.util.regex.Matcher matcher = pattern.matcher(content);
-            if (matcher.find()) {
-                String found = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
-                return found != null ? Integer.parseInt(found) : null;
-            }
-        } catch (Exception e) {
-            // Ignore parsing errors
-        }
-        return null;
+        return normalized;
     }
 
     private String buildReportName(LocalDateTime generatedAt) {
-        LocalDateTime safeGeneratedAt = generatedAt != null ? generatedAt : LocalDateTime.now(VN_ZONE);
+        LocalDateTime safeGeneratedAt = generatedAt != null ? generatedAt : LocalDateTime.now(REPORT_ZONE);
         return "Báo cáo " + safeGeneratedAt.format(REPORT_NAME_FORMATTER);
     }
 
-    /**
-     * Extract recommended focus from AI report sections.
-     * Takes the first actionable bullet from recommendations or skillGaps.
-     */
-    private String extractRecommendedFocus(StudentLearningReportResponse.ReportSections sections) {
-        if (sections == null) return null;
-
-        String[] sources = {
-                sections.getRecommendations(),
-                sections.getSkillGaps(),
-                sections.getNextSteps()
-        };
-
-        for (String source : sources) {
-            if (source == null || source.isBlank()) continue;
-
-            // Extract first non-empty, non-heading line
-            String[] lines = source.split("\n");
-            for (String line : lines) {
-                String trimmed = line.trim();
-                // Skip empty lines and heading markers
-                if (trimmed.isEmpty() || trimmed.startsWith("##") || trimmed.startsWith("#")) {
-                    continue;
-                }
-                // Remove bullet markers and emphasis
-                String cleaned = trimmed.replaceFirst("^[-*•]+\\s*", "")
-                        .replaceAll("\\*+", "")
-                        .trim();
-                if (!cleaned.isEmpty() && cleaned.length() > 10) {
-                    // Limit to ~100 chars
-                    return cleaned.length() > 100 ? cleaned.substring(0, 97) + "..." : cleaned;
-                }
-            }
-        }
-        return null;
+    private String getLearningTrend(StudentLearningReportResponse response) {
+        return response.getOverview() != null && response.getOverview().getLearningTrend() != null
+                ? response.getOverview().getLearningTrend()
+                : "stable";
     }
 
-    /**
-     * Fetch active journey milestones for a student.
-     */
-    private List<JourneyMilestoneData> getJourneyMilestones(Long studentId) {
-        List<JourneyMilestoneData> milestones = new ArrayList<>();
-        try {
-            Optional<User> userOpt = userRepository.findById(studentId);
-            if (userOpt.isEmpty()) return milestones;
-
-            List<Journey> activeJourneys = journeyRepository.findActiveJourneysByUser(userOpt.get());
-            if (activeJourneys.isEmpty()) return milestones;
-
-            Journey activeJourney = activeJourneys.get(0);
-
-            // If the journey has a title and progress, include it in data context
-            // Journey milestone data is built into buildDataContext below
-            return milestones; // milestones parsed from journey AI summary if available
-        } catch (Exception e) {
-            log.warn("Could not fetch journey milestones for student {}: {}", studentId, e.getMessage());
-            return milestones;
-        }
+    private Integer getOverallProgress(StudentLearningReportResponse response) {
+        return response.getOverview() != null ? nullSafeInt(response.getOverview().getOverallProgress()) : 0;
     }
 
-    private int calculateStreak(List<StudySession> sessions) {
-        if (sessions.isEmpty()) return 0;
-
-        LocalDateTime today = LocalDateTime.now(VN_ZONE).truncatedTo(ChronoUnit.DAYS);
-        int streak = 0;
-
-        for (int i = 0; i < 365; i++) {
-            LocalDateTime checkDate = today.minusDays(i);
-            LocalDateTime nextDate = checkDate.plusDays(1);
-
-            boolean hasStudy = sessions.stream()
-                    .anyMatch(s -> s.getStartTime() != null &&
-                            convertToVnTimezone(s.getStartTime()).isAfter(checkDate) &&
-                            convertToVnTimezone(s.getStartTime()).isBefore(nextDate));
-
-            if (hasStudy) {
-                streak++;
-            } else if (i > 0) {
-                break;
-            }
-        }
-
-        return streak;
+    private String getRecommendedFocus(StudentLearningReportResponse response) {
+        return response.getOverview() != null
+                && response.getOverview().getRecommendations() != null
+                && !response.getOverview().getRecommendations().isEmpty()
+                ? response.getOverview().getRecommendations().get(0)
+                : null;
     }
 
-    private List<StudentLearningReportResponse.SkillInfo> extractSkillsFromRoadmaps(List<RoadmapSession> roadmaps) {
-        List<StudentLearningReportResponse.SkillInfo> skills = new ArrayList<>();
-
-        for (RoadmapSession r : roadmaps) {
-            String goal = r.getValidatedGoal() != null ? r.getValidatedGoal() :
-                    (r.getOriginalGoal() != null ? r.getOriginalGoal() : r.getTitle());
-
-            if (goal != null) {
-                int total = r.getTotalNodes() != null ? r.getTotalNodes() : 0;
-                long completed = r.getProgressList() != null ?
-                        r.getProgressList().stream()
-                                .filter(p -> p.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
-                                .count() : 0;
-                int progress = total > 0 ? (int) ((completed * 100) / total) : 0;
-
-                String level;
-                if (progress >= 80) level = "Advanced";
-                else if (progress >= 50) level = "Intermediate";
-                else if (progress >= 20) level = "Beginner+";
-                else level = "Beginner";
-
-                skills.add(StudentLearningReportResponse.SkillInfo.builder()
-                        .skillName(goal)
-                        .level(level)
-                        .progressPercent(progress)
-                        .source(r.getTitle())
-                        .build());
-            }
+    private boolean isTaskCompleted(Task task) {
+        if (task == null) {
+            return false;
         }
-
-        return skills;
+        return "DONE".equalsIgnoreCase(task.getStatus()) || nullSafeInt(task.getUserProgress()) >= 100;
     }
 
-    /**
-     * Tính thời gian học (phút) từ startTime và endTime của StudySession.
-     */
-    private int calculateDurationMinutes(StudySession session) {
-        if (session.getStartTime() == null || session.getEndTime() == null) {
+    private UserRoadmapProgress preferMoreAdvancedProgress(UserRoadmapProgress left, UserRoadmapProgress right) {
+        int leftScore = progressRank(left != null ? left.getStatus() : null);
+        int rightScore = progressRank(right != null ? right.getStatus() : null);
+        if (rightScore > leftScore) {
+            return right;
+        }
+        if (leftScore > rightScore) {
+            return left;
+        }
+
+        Instant leftCompletedAt = left != null ? left.getCompletedAt() : null;
+        Instant rightCompletedAt = right != null ? right.getCompletedAt() : null;
+        if (rightCompletedAt != null && (leftCompletedAt == null || rightCompletedAt.isAfter(leftCompletedAt))) {
+            return right;
+        }
+        return left;
+    }
+
+    private int progressRank(UserRoadmapProgress.ProgressStatus status) {
+        if (status == null) {
             return 0;
         }
-        // Convert both times to VN timezone before calculating duration
-        LocalDateTime startVn = convertToVnTimezone(session.getStartTime());
-        LocalDateTime endVn = convertToVnTimezone(session.getEndTime());
-        long minutes = ChronoUnit.MINUTES.between(startVn, endVn);
-        return minutes > 0 ? (int) minutes : 0;
+        return switch (status) {
+            case COMPLETED -> 3;
+            case IN_PROGRESS -> 2;
+            case SKIPPED -> 1;
+            case NOT_STARTED -> 0;
+        };
     }
 
-    /**
-     * Convert LocalDateTime to Vietnam timezone (Asia/Ho_Chi_Minh).
-     * Assumes the stored time is in UTC and adds 7 hours.
-     */
-    private LocalDateTime convertToVnTimezone(LocalDateTime dateTime) {
-        if (dateTime == null) {
-            return null;
+    private String resolveRoadmapStatus(int progressPercent, int totalMissions, int completedMissions) {
+        if (totalMissions > 0 && completedMissions >= totalMissions) {
+            return "completed";
         }
-        // Assume stored time is UTC, add 7 hours for Vietnam timezone
-        return dateTime.plusHours(7);
+        if (progressPercent > 0) {
+            return "in_progress";
+        }
+        return "not_started";
+    }
+
+    private int percent(int numerator, int denominator) {
+        if (denominator <= 0) {
+            return 0;
+        }
+        return (int) Math.round((numerator * 100.0) / denominator);
+    }
+
+    private LocalDateTime toLocalDateTime(Instant instant) {
+        return instant == null ? null : LocalDateTime.ofInstant(instant, REPORT_ZONE);
+    }
+
+    private int nullSafeInt(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private String defaultIfBlank(String primary, String fallback) {
+        if (primary != null && !primary.isBlank()) {
+            return primary;
+        }
+        return fallback;
+    }
+
+    private String buildMissionSuffix(String nextMissionTitle) {
+        if (nextMissionTitle == null || nextMissionTitle.isBlank()) {
+            return " và hoàn thành mission kế tiếp";
+        }
+        return ": hoàn thành \"" + nextMissionTitle + "\"";
+    }
+
+    private <T> List<T> defaultList(Collection<T> values) {
+        return values == null ? List.of() : new ArrayList<>(values);
+    }
+
+    private <T> List<T> safeList(SupplierWithException<List<T>> supplier) {
+        try {
+            List<T> values = supplier.get();
+            return values == null ? List.of() : values;
+        } catch (Exception ex) {
+            log.warn("Failed to load learning report dependency: {}", ex.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    @FunctionalInterface
+    private interface SupplierWithException<T> {
+        T get() throws Exception;
+    }
+
+    private record Bucket(LocalDate start, LocalDate endExclusive, String label) {
+    }
+
+    private record RoadmapNodeSummary(String id, String title) {
+    }
+
+    private record RoadmapComputation(
+            StudentLearningReportResponse.RoadmapStats stats,
+            List<StudentLearningReportResponse.RoadmapBreakdownItem> breakdown,
+            List<Instant> completedMissionInstants) {
+    }
+
+    private record StudyComputation(StudentLearningReportResponse.StudyStats stats) {
+    }
+
+    private record TaskComputation(
+            StudentLearningReportResponse.TaskStats stats,
+            List<Instant> completedTaskInstants) {
+    }
+
+    private record CourseComputation(
+            StudentLearningReportResponse.CourseStats stats,
+            List<StudentLearningReportResponse.CourseBreakdownItem> breakdown) {
+    }
+
+    private record JobComputation(
+            StudentLearningReportResponse.ShortTermJobStats stats,
+            List<StudentLearningReportResponse.JobBreakdownItem> breakdown,
+            List<Instant> completedJobInstants,
+            List<JobEarningPoint> earningPoints) {
+    }
+
+    private record JobEarningPoint(LocalDateTime timestamp, BigDecimal amount) {
+    }
+
+    private JobComputation computeJobData(List<ShortTermJobApplication> applications) {
+        List<StudentLearningReportResponse.JobBreakdownItem> breakdown = new ArrayList<>();
+        List<Instant> completedJobInstants = new ArrayList<>();
+        List<JobEarningPoint> earningPoints = new ArrayList<>();
+
+        int totalApplied = applications.size();
+        int completedJobs = 0;
+        int inProgressJobs = 0;
+        int pendingApps = 0;
+        int rejectedApps = 0;
+        int totalMilestonesDelivered = 0;
+        int onTimeDeliveries = 0;
+        BigDecimal totalEarnings = BigDecimal.ZERO;
+        List<Double> ratings = new ArrayList<>();
+
+        for (ShortTermJobApplication app : applications) {
+            ShortTermJob job = app.getShortTermJob();
+            String status = app.getStatus().name();
+
+            // Count by status
+            if (app.getStatus() == ShortTermApplicationStatus.COMPLETED ||
+                app.getStatus() == ShortTermApplicationStatus.APPROVED) {
+                completedJobs++;
+                if (app.getCompletedAt() != null) {
+                    completedJobInstants.add(app.getCompletedAt().atZone(REPORT_ZONE).toInstant());
+                    earningPoints.add(new JobEarningPoint(app.getCompletedAt(), job != null ? job.getBudget() : BigDecimal.ZERO));
+                }
+                totalEarnings = totalEarnings.add(job != null ? job.getBudget() : BigDecimal.ZERO);
+            } else if (app.getStatus() == ShortTermApplicationStatus.WORKING ||
+                       app.getStatus() == ShortTermApplicationStatus.ACCEPTED) {
+                inProgressJobs++;
+            } else if (app.getStatus() == ShortTermApplicationStatus.PENDING) {
+                pendingApps++;
+            } else if (app.getStatus() == ShortTermApplicationStatus.REJECTED) {
+                rejectedApps++;
+            }
+
+            // Count deliverables/milestones
+            int milestonesDone = app.getDeliverables() != null ?
+                (int) app.getDeliverables().stream().filter(d -> d.getUploadedAt() != null).count() : 0;
+            int milestonesTotal = job != null && job.getMilestones() != null ? job.getMilestones().size() : 1;
+            totalMilestonesDelivered += milestonesDone;
+
+            // Check on-time delivery
+            if (app.getCompletedAt() != null && job != null && job.getDeadline() != null) {
+                if (!app.getCompletedAt().isAfter(job.getDeadline())) {
+                    onTimeDeliveries++;
+                }
+            }
+
+            // Build breakdown item
+            List<String> skills = new ArrayList<>();
+            if (job != null && job.getRequiredSkills() != null) {
+                try {
+                    skills = objectMapper.readValue(job.getRequiredSkills(),
+                        objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+                } catch (Exception e) {
+                    // Ignore parsing errors
+                }
+            }
+
+            Double rating = null;
+            String recruiterName = job != null && job.getRecruiterProfile() != null ?
+                job.getRecruiterProfile().getCompanyName() : "Unknown";
+
+            breakdown.add(StudentLearningReportResponse.JobBreakdownItem.builder()
+                .jobId(job != null ? job.getId() : null)
+                .jobTitle(job != null ? job.getTitle() : "Unknown Job")
+                .recruiterName(recruiterName)
+                .status(status.toLowerCase())
+                .budget(job != null ? job.getBudget() : BigDecimal.ZERO)
+                .earnedAmount(app.getStatus() == ShortTermApplicationStatus.COMPLETED ||
+                              app.getStatus() == ShortTermApplicationStatus.APPROVED ?
+                              (job != null ? job.getBudget() : BigDecimal.ZERO) : BigDecimal.ZERO)
+                .milestonesTotal(milestonesTotal)
+                .milestonesCompleted(milestonesDone)
+                .appliedAt(app.getAppliedAt())
+                .completedAt(app.getCompletedAt())
+                .rating(rating)
+                .primarySkill(job != null ? job.getPrimarySkill() : null)
+                .skillsDemonstrated(skills)
+                .build());
+        }
+
+        // Calculate average rating
+        Double averageRating = ratings.isEmpty() ? null :
+            ratings.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+
+        // Calculate on-time rate
+        int onTimeRate = completedJobs > 0 ? (onTimeDeliveries * 100) / completedJobs : 0;
+
+        StudentLearningReportResponse.ShortTermJobStats stats =
+            StudentLearningReportResponse.ShortTermJobStats.builder()
+                .totalJobsApplied(totalApplied)
+                .completedJobs(completedJobs)
+                .inProgressJobs(inProgressJobs)
+                .pendingApplications(pendingApps)
+                .rejectedApplications(rejectedApps)
+                .totalEarnings(totalEarnings)
+                .averageRating(averageRating)
+                .totalMilestonesDelivered(totalMilestonesDelivered)
+                .onTimeDeliveryRate(onTimeRate)
+                .build();
+
+        return new JobComputation(stats, breakdown, completedJobInstants, earningPoints);
+    }
+
+    private Integer computeOverallProgressV2(
+            Integer roadmapProgress,
+            Integer totalMissions,
+            Integer taskProgress,
+            Integer totalTasks,
+            Integer courseProgress,
+            Integer activeCourses,
+            Integer completedJobs,
+            Integer totalJobsApplied) {
+        List<Integer> components = new ArrayList<>();
+        int weight = 0;
+
+        if (nullSafeInt(totalMissions) > 0) {
+            components.add(nullSafeInt(roadmapProgress));
+            weight++;
+        }
+        if (nullSafeInt(totalTasks) > 0) {
+            components.add(nullSafeInt(taskProgress));
+            weight++;
+        }
+        if (nullSafeInt(activeCourses) > 0) {
+            components.add(nullSafeInt(courseProgress));
+            weight++;
+        }
+        if (nullSafeInt(totalJobsApplied) > 0) {
+            int jobSuccessRate = percent(nullSafeInt(completedJobs), nullSafeInt(totalJobsApplied));
+            components.add(jobSuccessRate);
+            weight++;
+        }
+
+        if (components.isEmpty()) {
+            return 0;
+        }
+
+        // Weighted average: learning activities have higher weight than job applications
+        return (int) Math.round(components.stream().mapToInt(Integer::intValue).average().orElse(0));
+    }
+
+    private String computeLearningTrendV2(Long studentId, Integer currentOverallProgress,
+                                            StudentLearningReportResponse.ShortTermJobStats jobStats) {
+        Optional<StudentLearningReport> latestSnapshot =
+            reportRepository.findFirstByStudentIdOrderByGeneratedAtDescIdDesc(studentId);
+        if (latestSnapshot.isEmpty()) {
+            // Check job activity as indicator for new users
+            if (nullSafeInt(jobStats.getCompletedJobs()) > 0) {
+                return "improving";
+            }
+            return "stable";
+        }
+
+        Integer previousOverall = extractSnapshotOverallProgress(latestSnapshot.get());
+        if (previousOverall == null) {
+            return "stable";
+        }
+
+        int diff = nullSafeInt(currentOverallProgress) - previousOverall;
+
+        // Enhanced trend calculation considering job performance
+        int jobBoost = 0;
+        if (nullSafeInt(jobStats.getCompletedJobs()) > 0) {
+            jobBoost = 3; // Small boost for having completed jobs
+        }
+        if (nullSafeInt(jobStats.getOnTimeDeliveryRate()) > 80) {
+            jobBoost += 2; // Additional boost for excellent delivery performance
+        }
+
+        int adjustedDiff = diff + jobBoost;
+
+        if (adjustedDiff > 5) {
+            return "improving";
+        }
+        if (adjustedDiff < -5) {
+            return "declining";
+        }
+        return "stable";
+    }
+
+    private List<String> buildEnhancedRecommendations(
+            StudentLearningReportResponse.StudyStats studyStats,
+            StudentLearningReportResponse.RoadmapStats roadmapStats,
+            List<StudentLearningReportResponse.RoadmapBreakdownItem> roadmapBreakdown,
+            StudentLearningReportResponse.TaskStats taskStats,
+            StudentLearningReportResponse.CourseStats courseStats,
+            List<StudentLearningReportResponse.CourseBreakdownItem> courseBreakdown,
+            StudentLearningReportResponse.ShortTermJobStats jobStats,
+            List<StudentLearningReportResponse.JobBreakdownItem> jobBreakdown) {
+        List<String> recommendations = new ArrayList<>();
+        List<String> detailedAssessments = new ArrayList<>();
+
+        // === STUDY HABITS ANALYSIS ===
+        int weeklyMinutes = nullSafeInt(studyStats.getStudyMinutesWeek());
+        int streak = nullSafeInt(studyStats.getCurrentStreak());
+
+        if (streak == 0 || weeklyMinutes < 120) {
+            recommendations.add("🎯 Khôi phục nhịp học đều đặn: nhắm 20-30 phút mỗi ngày để đạt 120 phút/tuần.");
+            detailedAssessments.add("Phân tích: Streak hiện tại là " + streak + " ngày, thời gian học tuần này " +
+                weeklyMinutes + " phút. Đề xuất: Thiết lập reminder học tập đều đặn.");
+        } else if (weeklyMinutes >= 300) {
+            detailedAssessments.add("✅ Phân tích: Thời gian học xuất sắc (" + weeklyMinutes + " phút/tuần). " +
+                "Duy trì nhịp độ này để đạt hiệu quả cao nhất.");
+        }
+
+        // === ROADMAP PROGRESS ANALYSIS ===
+        int roadmapProgress = nullSafeInt(roadmapStats.getRoadmapProgress());
+        if (roadmapProgress < 50) {
+            roadmapBreakdown.stream()
+                .filter(item -> nullSafeInt(item.getPendingMissions()) > 0)
+                .min(Comparator.comparing(StudentLearningReportResponse.RoadmapBreakdownItem::getProgressPercent))
+                .ifPresent(item -> {
+                    recommendations.add("🗺️ Ưu tiên roadmap \"" + item.getTitle() + "\"" +
+                        buildMissionSuffix(item.getNextMissionTitle()) + ".");
+                    detailedAssessments.add("Phân tích: Roadmap \"" + item.getTitle() + "\" đang ở " +
+                        item.getProgressPercent() + "%. Đề xuất: Tập trung hoàn thành mission kế tiếp \"" +
+                        (item.getNextMissionTitle() != null ? item.getNextMissionTitle() : "N/A") + "\".");
+                });
+        } else if (roadmapProgress >= 80) {
+            detailedAssessments.add("✅ Phân tích: Tiến độ roadmap xuất sắc (" + roadmapProgress + "%). " +
+                "Bạn đang duy trì momentum tốt.");
+        }
+
+        // === TASK MANAGEMENT ANALYSIS ===
+        int overdueTasks = nullSafeInt(taskStats.getOverdueTasks());
+        int pendingTasks = nullSafeInt(taskStats.getPendingTasks());
+
+        if (overdueTasks > 0 || pendingTasks >= 5) {
+            recommendations.add("📋 Dọn dẹp task tồn đọng: " + overdueTasks + " quá hạn, " + pendingTasks + " đang chờ.");
+            detailedAssessments.add("Phân tích: Có " + overdueTasks + " task quá hạn và " + pendingTasks +
+                " task đang chờ. Đề xuất: Sử dụng Eisenhower Matrix để ưu tiên task quan trọng.");
+        }
+
+        // === COURSE PROGRESS ANALYSIS ===
+        int avgCourseProgress = nullSafeInt(courseStats.getAverageActiveCourseProgress());
+        if (avgCourseProgress < 40) {
+            courseBreakdown.stream()
+                .filter(item -> "enrolled".equals(item.getStatus()))
+                .min(Comparator.comparing(StudentLearningReportResponse.CourseBreakdownItem::getProgressPercent))
+                .ifPresent(item -> {
+                    recommendations.add("📚 Đẩy nhanh khóa \"" + item.getCourseTitle() + "\" từ " +
+                        item.getProgressPercent() + "% lên mốc tiếp theo.");
+                    detailedAssessments.add("Phân tích: Khóa \"" + item.getCourseTitle() + "\" đang chậm tiến độ. " +
+                        "Đề xuất: Phân chia mục tiêu nhỏ, học 30 phút/ngày để cải thiện.");
+                });
+        }
+
+        // === JOB PERFORMANCE ANALYSIS ===
+        int completedJobs = nullSafeInt(jobStats.getCompletedJobs());
+        int totalApplied = nullSafeInt(jobStats.getTotalJobsApplied());
+        int onTimeRate = nullSafeInt(jobStats.getOnTimeDeliveryRate());
+
+        if (totalApplied == 0) {
+            recommendations.add("💼 Bắt đầu apply Short-term Job để tích lũy kinh nghiệm thực tế.");
+            detailedAssessments.add("Phân tích: Chưa có job application nào. Đề xuất: Bắt đầu với job nhỏ " +
+                "để xây dựng portfolio và rating.");
+        } else if (completedJobs == 0 && totalApplied > 0) {
+            recommendations.add("🚀 Tập trung hoàn thành job đang làm để xây dựng trust score.");
+            detailedAssessments.add("Phân tích: Đã apply " + totalApplied + " job nhưng chưa hoàn thành job nào. " +
+                "Đề xuất: Ưu tiên chất lượng delivery để nhận review tốt.");
+        } else if (onTimeRate < 70 && completedJobs > 0) {
+            recommendations.add("⏰ Cải thiện on-time delivery: Hiện tại " + onTimeRate + "%. Nhắm đến 90%+");
+            detailedAssessments.add("Phân tích: Tỷ lệ giao hàng đúng hạn thấp (" + onTimeRate + "%). " +
+                "Đề xuất: Sử dụng buffer time, đặt deadline nội bộ trước deadline thực.");
+        } else if (completedJobs >= 3 && onTimeRate >= 80) {
+            detailedAssessments.add("✅ Phân tích job: Hiệu suất xuất sắc! " + completedJobs +
+                " job hoàn thành, on-time rate " + onTimeRate + "%.");
+        }
+
+        // Add earnings analysis if applicable
+        if (jobStats.getTotalEarnings() != null && jobStats.getTotalEarnings().compareTo(BigDecimal.ZERO) > 0) {
+            detailedAssessments.add("💰 Tổng thu nhập từ job: " + jobStats.getTotalEarnings().toString() + " VND.");
+        }
+
+        if (recommendations.isEmpty()) {
+            recommendations.add("🌟 Nhịp học và làm việc đang ổn định. Tiếp tục duy trì và tìm cơ hội nâng cao!");
+        }
+
+        // Add all detailed assessments
+        recommendations.addAll(detailedAssessments);
+
+        return recommendations.stream().limit(6).collect(Collectors.toList());
+    }
+
+    private Map<String, List<StudentLearningReportResponse.TimelinePoint>> buildEnhancedTimelineByRange(
+            List<StudySession> studySessions,
+            List<Instant> completedMissionInstants,
+            List<Instant> completedTaskInstants,
+            List<Instant> completedJobInstants,
+            LocalDate anchorDate) {
+        Map<String, List<StudentLearningReportResponse.TimelinePoint>> timelineByRange = new LinkedHashMap<>();
+        timelineByRange.put("7d", buildEnhancedTimeline("7d", studySessions, completedMissionInstants,
+            completedTaskInstants, completedJobInstants, anchorDate));
+        timelineByRange.put("30d", buildEnhancedTimeline("30d", studySessions, completedMissionInstants,
+            completedTaskInstants, completedJobInstants, anchorDate));
+        timelineByRange.put("90d", buildEnhancedTimeline("90d", studySessions, completedMissionInstants,
+            completedTaskInstants, completedJobInstants, anchorDate));
+        return timelineByRange;
+    }
+
+    private List<StudentLearningReportResponse.TimelinePoint> buildEnhancedTimeline(
+            String range,
+            List<StudySession> studySessions,
+            List<Instant> completedMissionInstants,
+            List<Instant> completedTaskInstants,
+            List<Instant> completedJobInstants,
+            LocalDate anchorDate) {
+        List<Bucket> buckets = buildBuckets(range, anchorDate);
+        List<StudentLearningReportResponse.TimelinePoint> points = new ArrayList<>();
+
+        for (Bucket bucket : buckets) {
+            LocalDateTime bucketStart = bucket.start.atStartOfDay();
+            LocalDateTime bucketEnd = bucket.endExclusive.atStartOfDay();
+
+            // Study minutes
+            int studyMinutes = sumSessionMinutesWithinRange(studySessions, bucketStart, bucketEnd);
+
+            // Missions completed in this bucket
+            int missionsCompleted = (int) completedMissionInstants.stream()
+                .map(this::toLocalDateTime)
+                .filter(Objects::nonNull)
+                .filter(completedAt -> !completedAt.isBefore(bucketStart) && completedAt.isBefore(bucketEnd))
+                .count();
+
+            // Tasks completed in this bucket
+            int tasksCompleted = (int) completedTaskInstants.stream()
+                .map(this::toLocalDateTime)
+                .filter(Objects::nonNull)
+                .filter(completedAt -> !completedAt.isBefore(bucketStart) && completedAt.isBefore(bucketEnd))
+                .count();
+
+            // Jobs completed in this bucket
+            int jobsCompleted = (int) completedJobInstants.stream()
+                .map(this::toLocalDateTime)
+                .filter(Objects::nonNull)
+                .filter(completedAt -> !completedAt.isBefore(bucketStart) && completedAt.isBefore(bucketEnd))
+                .count();
+
+            points.add(StudentLearningReportResponse.TimelinePoint.builder()
+                .bucketLabel(bucket.label)
+                .bucketStart(bucket.start)
+                .studyMinutes(studyMinutes)
+                .missionsCompleted(missionsCompleted)
+                .tasksCompleted(tasksCompleted)
+                .jobsCompleted(jobsCompleted)
+                .earnings(BigDecimal.ZERO) // Earnings tracking would need more complex calculation
+                .build());
+        }
+
+        return points;
     }
 }
-

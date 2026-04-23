@@ -22,8 +22,11 @@ public class CreateBookingIntentRequest {
     @NotNull
     private ZonedDateTime startTime;
 
+    /**
+     * Duration in minutes. For ROADMAP_MENTORING this should be 0 (unlimited).
+     * For other types, minimum is 60 (validated in service layer).
+     */
     @NotNull
-    @Min(60)
     private Integer durationMinutes;
 
     @NotNull
@@ -38,6 +41,6 @@ public class CreateBookingIntentRequest {
     private Long journeyId;
     private String nodeId;
     private Long nodeSkillId;
-    private String bookingType; // "GENERAL" | "NODE_MENTORING" | "JOURNEY_MENTORING"
+    private String bookingType; // "GENERAL" | "NODE_MENTORING" | "JOURNEY_MENTORING" | "ROADMAP_MENTORING"
 }
 

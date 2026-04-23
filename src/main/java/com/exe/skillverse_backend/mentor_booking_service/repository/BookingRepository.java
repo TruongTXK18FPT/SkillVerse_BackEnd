@@ -90,4 +90,54 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     boolean existsActiveJourneyBookingForAnyMentor(
             @Param("journeyId") Long journeyId,
             @Param("statuses") Collection<BookingStatus> statuses);
+
+    // V3 Phase 2: find the active ROADMAP_MENTORING booking for a journey
+    @Query("""
+            select b from Booking b
+            where b.journeyId = :journeyId
+              and b.bookingType = 'ROADMAP_MENTORING'
+              and b.status = com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus.MENTORING_ACTIVE
+            order by b.createdAt desc
+            """)
+    Optional<Booking> findActiveRoadmapMentoringBooking(@Param("journeyId") Long journeyId);
+
+    @Query("""
+            select case when count(b) > 0 then true else false end from Booking b
+            where b.journeyId = :journeyId
+              and b.bookingType = 'ROADMAP_MENTORING'
+              and b.status in :statuses
+            """)
+    boolean existsRoadmapMentoringBookingForJourney(
+            @Param("journeyId") Long journeyId,
+            @Param("statuses") Collection<BookingStatus> statuses);
+
+    @Query("""
+            select b from Booking b
+            where b.mentor.id = :mentorId
+              and b.bookingType = 'ROADMAP_MENTORING'
+              and b.status in :statuses
+            order by b.updatedAt desc, b.createdAt desc
+            """)
+    List<Booking> findRoadmapMentoringBookingsForMentor(
+            @Param("mentorId") Long mentorId,
+            @Param("statuses") Collection<BookingStatus> statuses);
+
+    /**
+     * Check if a journey has ANY non-terminal booking.
+     * Non-terminal = PENDING, CONFIRMED, ONGOING, MENTORING_ACTIVE, PENDING_COMPLETION, DISPUTED.
+     * Used to prevent deletion of a journey that has active mentor engagements.
+     */
+    @Query("""
+            select case when count(b) > 0 then true else false end from Booking b
+            where b.journeyId = :journeyId
+              and b.status in (
+                  com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus.PENDING,
+                  com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus.CONFIRMED,
+                  com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus.ONGOING,
+                  com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus.MENTORING_ACTIVE,
+                  com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus.PENDING_COMPLETION,
+                  com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus.DISPUTED
+              )
+            """)
+    boolean hasActiveBookingsForJourney(@Param("journeyId") Long journeyId);
 }

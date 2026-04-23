@@ -59,6 +59,9 @@ public class MentorProfileResponse {
     @Schema(description = "Hourly Rate")
     private Double hourlyRate;
 
+    @Schema(description = "Roadmap mentoring package price")
+    private Double roadmapMentoringPrice;
+
     @Schema(description = "Is pre-chat/booking enabled")
     private Boolean preChatEnabled;
 

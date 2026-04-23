@@ -1,43 +1,66 @@
 package com.exe.skillverse_backend.journey_service.node_mentoring.service.impl;
 
+import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
+import com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.AssessJourneyOutputRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.ConfirmJourneyCompletionRequest;
+import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitEvidenceReportRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitJourneyOutputAssessmentRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.JourneyCompletionGateResponse;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.JourneyCompletionGateResponse.FinalGateStatus;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.JourneyCompletionReportResponse;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.JourneyOutputAssessmentResponse;
+import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.VerificationEvidenceReportResponse;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.JourneyCompletionReport;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.JourneyCompletionReport.GateDecision;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.JourneyOutputAssessment;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.JourneyOutputAssessment.AssessmentStatus;
+import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeSubmission;
+import com.exe.skillverse_backend.journey_service.node_mentoring.entity.VerificationEvidenceReport;
 import com.exe.skillverse_backend.journey_service.node_mentoring.repository.JourneyCompletionReportRepository;
 import com.exe.skillverse_backend.journey_service.node_mentoring.repository.JourneyOutputAssessmentRepository;
+import com.exe.skillverse_backend.journey_service.node_mentoring.repository.RoadmapNodeSubmissionRepository;
+import com.exe.skillverse_backend.journey_service.node_mentoring.repository.VerificationEvidenceReportRepository;
 import com.exe.skillverse_backend.journey_service.node_mentoring.service.FinalVerificationGateService;
 import com.exe.skillverse_backend.journey_service.node_mentoring.service.RoadmapNodeResolver;
+import com.exe.skillverse_backend.mentor_booking_service.entity.Booking;
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill;
+import com.exe.skillverse_backend.portfolio_service.repository.UserVerifiedSkillRepository;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
+import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class FinalVerificationGateServiceImpl implements FinalVerificationGateService {
 
+    private static final int MAX_VERIFICATION_ATTEMPTS = 3;
+    private static final int REVERIFY_COOLDOWN_DAYS = 7;
+
     private static final List<BookingStatus> ASSIGNED_MENTOR_STATUSES = List.of(
             BookingStatus.CONFIRMED,
             BookingStatus.ONGOING,
+            BookingStatus.MENTORING_ACTIVE,
             BookingStatus.PENDING_COMPLETION);
 
     // Completion report authorization is wider: a mentor who has COMPLETED a
@@ -45,6 +68,7 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
     private static final List<BookingStatus> REPORT_ELIGIBLE_STATUSES = List.of(
             BookingStatus.CONFIRMED,
             BookingStatus.ONGOING,
+            BookingStatus.MENTORING_ACTIVE,
             BookingStatus.PENDING_COMPLETION,
             BookingStatus.COMPLETED);
 
@@ -53,6 +77,18 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
     private final JourneyOutputAssessmentRepository outputAssessmentRepo;
     private final BookingRepository bookingRepository;
     private final JourneyRepository journeyRepository;
+
+    // V3 Phase 2 dependencies
+    private final VerificationEvidenceReportRepository evidenceReportRepo;
+    private final UserVerifiedSkillRepository userVerifiedSkillRepo;
+    private final RoadmapNodeSubmissionRepository submissionRepo;
+    private final WalletService walletService;
+    private final NotificationService notificationService;
+    private final UserRepository userRepository;
+    private final ObjectMapper objectMapper;
+
+    @Value("${jitsi.base-url:https://meet.jit.si}")
+    private String jitsiBaseUrl;
 
     // ─── Gate evaluation ──────────────────────────────────────────────────────
 
@@ -125,13 +161,11 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
         resolver.resolveJourneyWithRoadmap(journeyId);
         requireAssignedJourneyMentor(actingMentorId, journeyId);
 
-        // Guard: once a PASS exists the gate is already unlocked — block re-submission to avoid dirty data.
         if (completionReportRepo.existsByJourneyIdAndGateDecision(journeyId, GateDecision.PASS)) {
             throw new ApiException(ErrorCode.CONFLICT,
                     "A PASS completion report already exists for journey " + journeyId);
         }
 
-        // Upsert: replace the latest report rather than accumulating duplicates.
         JourneyCompletionReport report = completionReportRepo
                 .findFirstByJourneyIdOrderByConfirmedAtDesc(journeyId)
                 .orElseGet(() -> JourneyCompletionReport.builder()
@@ -168,7 +202,6 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
                         .learnerId(learnerId)
                         .build());
 
-        // If previous one was APPROVED, do not allow replacement (journey should progress to completion).
         if (a.getAssessmentStatus() == AssessmentStatus.APPROVED) {
             throw new ApiException(ErrorCode.CONFLICT,
                     "The journey output assessment has already been APPROVED");
@@ -223,6 +256,269 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
                 .orElse(null);
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V3 PHASE 2: ROADMAP_MENTORING Final Verification Meeting Flow
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    @Override
+    @Transactional
+    public String createFinalMeetingLink(Long callerId, Long journeyId) {
+        Journey journey = resolver.resolveJourney(journeyId);
+        requireOwnerOrAssignedMentor(callerId, journey);
+
+        Booking booking = bookingRepository.findActiveRoadmapMentoringBooking(journeyId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND,
+                        "Không tìm thấy booking ROADMAP_MENTORING đang hoạt động cho journey " + journeyId));
+
+        // Enforce 7-day cooldown after FAIL
+        if (booking.getNextVerifyAllowedAt() != null
+                && LocalDateTime.now().isBefore(booking.getNextVerifyAllowedAt())) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Chưa đến thời gian cho phép verify lại. Vui lòng chờ đến "
+                            + booking.getNextVerifyAllowedAt());
+        }
+
+        // Check max attempts
+        int attempts = booking.getVerificationAttempts() != null ? booking.getVerificationAttempts() : 0;
+        if (attempts >= MAX_VERIFICATION_ATTEMPTS) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Đã vượt quá số lần verify tối đa (" + MAX_VERIFICATION_ATTEMPTS + "). Booking đã bị hủy.");
+        }
+
+        // Generate Jitsi link
+        String roomName = "sv-verify-" + journeyId + "-" + booking.getId()
+                + "-" + UUID.randomUUID().toString().substring(0, 8);
+        String meetingLink = jitsiBaseUrl + "/" + roomName;
+
+        booking.setMeetingLink(meetingLink);
+        bookingRepository.save(booking);
+
+        log.info("Created final verification meeting link for journey={}, booking={}: {}",
+                journeyId, booking.getId(), meetingLink);
+        return meetingLink;
+    }
+
+    @Override
+    @Transactional
+    public VerificationEvidenceReportResponse submitEvidenceReportAndVerdict(
+            Long mentorId, Long journeyId, SubmitEvidenceReportRequest request) {
+
+        Journey journey = resolver.resolveJourney(journeyId);
+        requireAssignedJourneyMentor(mentorId, journeyId);
+
+        Booking booking = bookingRepository.findActiveRoadmapMentoringBooking(journeyId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND,
+                        "Không tìm thấy booking ROADMAP_MENTORING đang hoạt động cho journey " + journeyId));
+
+        // Validate FAIL-specific fields
+        if (request.getGateDecision() == GateDecision.FAIL) {
+            if (request.getWeakNodeIds() == null || request.getWeakNodeIds().isEmpty()) {
+                throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                        "weakNodeIds là bắt buộc khi verdict = FAIL");
+            }
+            if (request.getFailReason() == null || request.getFailReason().isBlank()) {
+                throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                        "failReason là bắt buộc khi verdict = FAIL");
+            }
+        }
+
+        int currentAttempt = (booking.getVerificationAttempts() != null ? booking.getVerificationAttempts() : 0) + 1;
+
+        VerificationEvidenceReport report = VerificationEvidenceReport.builder()
+                .journeyId(journeyId)
+                .bookingId(booking.getId())
+                .mentorId(mentorId)
+                .meetingJitsiLink(booking.getMeetingLink())
+                .meetingDurationMinutes(request.getMeetingDurationMinutes())
+                .summaryReport(request.getSummaryReport())
+                .assignmentsGiven(toJson(request.getAssignmentsGiven()))
+                .weakNodeIds(toJson(request.getWeakNodeIds()))
+                .failReason(request.getFailReason())
+                .gateDecision(request.getGateDecision())
+                .attemptNumber(currentAttempt)
+                .build();
+
+        VerificationEvidenceReport saved = evidenceReportRepo.save(report);
+
+        if (request.getGateDecision() == GateDecision.PASS) {
+            handleVerificationPass(journey, booking, mentorId, saved);
+        } else if (request.getGateDecision() == GateDecision.FAIL) {
+            handleVerificationFail(journey, booking, currentAttempt, request.getWeakNodeIds());
+        }
+
+        return VerificationEvidenceReportResponse.from(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<VerificationEvidenceReportResponse> getVerificationHistory(Long callerId, Long journeyId) {
+        Journey journey = resolver.resolveJourney(journeyId);
+        requireOwnerOrAssignedMentor(callerId, journey);
+
+        return evidenceReportRepo.findByJourneyIdOrderByAttemptNumberAsc(journeyId)
+                .stream()
+                .map(VerificationEvidenceReportResponse::from)
+                .toList();
+    }
+
+    // ─── PASS handler ─────────────────────────────────────────────────────────
+
+    private void handleVerificationPass(Journey journey, Booking booking, Long mentorId,
+                                         VerificationEvidenceReport report) {
+        String skillName = journey.getSkillName() != null
+                ? journey.getSkillName().toUpperCase().replaceAll("[^A-Z0-9]+", "_")
+                : "UNKNOWN_SKILL";
+
+        UserVerifiedSkill existing = userVerifiedSkillRepo
+                .findByUserIdAndSkillName(journey.getUser().getId(), skillName)
+                .orElse(null);
+
+        if (existing != null) {
+            existing.setVerifiedByMentorId(mentorId);
+            existing.setJourneyId(journey.getId());
+            existing.setBookingId(booking.getId());
+            existing.setSkillLevel(journey.getCurrentLevel() != null ? journey.getCurrentLevel().name() : null);
+            existing.setVerificationNote(report.getSummaryReport());
+            existing.setVerifiedAt(Instant.now());
+            userVerifiedSkillRepo.save(existing);
+        } else {
+            UserVerifiedSkill skill = UserVerifiedSkill.builder()
+                    .userId(journey.getUser().getId())
+                    .skillName(skillName)
+                    .verifiedByMentorId(mentorId)
+                    .journeyId(journey.getId())
+                    .bookingId(booking.getId())
+                    .skillLevel(journey.getCurrentLevel() != null ? journey.getCurrentLevel().name() : null)
+                    .verificationNote(report.getSummaryReport())
+                    .build();
+            userVerifiedSkillRepo.save(skill);
+        }
+
+        JourneyCompletionReport gateReport = JourneyCompletionReport.builder()
+                .journeyId(journey.getId())
+                .mentorId(mentorId)
+                .bookingId(booking.getId())
+                .gateDecision(GateDecision.PASS)
+                .completionNote(report.getSummaryReport())
+                .build();
+        completionReportRepo.save(gateReport);
+
+        journey.setStatus(JourneyStatus.COMPLETED_VERIFIED);
+        journey.setCompletedAt(Instant.now());
+        journeyRepository.save(journey);
+
+        booking.setStatus(BookingStatus.COMPLETED);
+        booking.setVerificationAttempts(
+                (booking.getVerificationAttempts() != null ? booking.getVerificationAttempts() : 0) + 1);
+        bookingRepository.save(booking);
+
+        // 5. Release frozen funds: unfreeze learner's escrow, then pay mentor
+        try {
+            walletService.unfreezeForBooking(booking.getLearner().getId(), booking.getPriceVnd(), booking.getId());
+            walletService.payMentorForBooking(booking.getMentor().getId(), booking.getPriceVnd(), booking.getId());
+        } catch (Exception e) {
+            log.error("Failed to process escrow release for booking {}: {}", booking.getId(), e.getMessage());
+        }
+
+        User mentor = userRepository.findById(mentorId).orElse(null);
+        String mentorName = mentor != null ? mentor.getFullName() : "Mentor";
+
+        notificationService.createNotification(
+                journey.getUser().getId(),
+                "🎉 Skill đã được xác thực!",
+                skillName + " đã được xác thực bởi " + mentorName + ". Xem trong Portfolio!",
+                NotificationType.BOOKING_COMPLETED,
+                journey.getId().toString(),
+                mentorId);
+
+        notificationService.createNotification(
+                mentorId,
+                "✅ Xác thực hoàn tất",
+                "Bạn đã xác thực skill " + skillName + " cho học viên.",
+                NotificationType.BOOKING_COMPLETED,
+                booking.getId().toString(),
+                journey.getUser().getId());
+
+        log.info("PASS: Journey {} verified by mentor {}. Skill '{}' added to user {} portfolio.",
+                journey.getId(), mentorId, skillName, journey.getUser().getId());
+    }
+
+    // ─── FAIL handler ─────────────────────────────────────────────────────────
+
+    private void handleVerificationFail(Journey journey, Booking booking,
+                                         int currentAttempt, List<String> weakNodeIds) {
+        booking.setVerificationAttempts(currentAttempt);
+
+        if (currentAttempt >= MAX_VERIFICATION_ATTEMPTS) {
+            booking.setStatus(BookingStatus.CANCELLED);
+            bookingRepository.save(booking);
+
+            try {
+                walletService.unfreezeForBooking(
+                        booking.getLearner().getId(), booking.getPriceVnd(), booking.getId());
+            } catch (Exception e) {
+                log.error("Failed to refund after 3 fails for booking {}: {}", booking.getId(), e.getMessage());
+            }
+
+            journey.setFinalVerificationRequired(false);
+            journey.setJourneyOutputVerificationRequired(false);
+            journey.setStatus(JourneyStatus.ACTIVE);
+            journeyRepository.save(journey);
+
+            notificationService.createNotification(
+                    journey.getUser().getId(),
+                    "⚠️ Booking đã bị hủy tự động",
+                    "Bạn đã fail " + MAX_VERIFICATION_ATTEMPTS + " lần. Booking hủy và hoàn tiền. Chọn mentor mới.",
+                    NotificationType.BOOKING_CANCELLED,
+                    booking.getId().toString(),
+                    booking.getMentor().getId());
+
+            notificationService.createNotification(
+                    booking.getMentor().getId(),
+                    "Booking kết thúc",
+                    "Học viên đã fail " + MAX_VERIFICATION_ATTEMPTS + " lần. Booking tự động hủy.",
+                    NotificationType.BOOKING_CANCELLED,
+                    booking.getId().toString(),
+                    journey.getUser().getId());
+
+            log.warn("AUTO-CANCEL: Booking {} cancelled after {} failed attempts for journey {}.",
+                    booking.getId(), MAX_VERIFICATION_ATTEMPTS, journey.getId());
+            return;
+        }
+
+        booking.setNextVerifyAllowedAt(LocalDateTime.now().plusDays(REVERIFY_COOLDOWN_DAYS));
+        bookingRepository.save(booking);
+
+        resetWeakNodes(journey.getId(), weakNodeIds);
+
+        journey.setStatus(JourneyStatus.ACTIVE);
+        journeyRepository.save(journey);
+
+        notificationService.createNotification(
+                journey.getUser().getId(),
+                "❌ Chưa đạt verify (lần " + currentAttempt + "/" + MAX_VERIFICATION_ATTEMPTS + ")",
+                "Một số node cần học lại. Verify lại sau " + REVERIFY_COOLDOWN_DAYS + " ngày.",
+                NotificationType.BOOKING_CONFIRMED,
+                journey.getId().toString(),
+                booking.getMentor().getId());
+
+        log.info("FAIL: Journey {} attempt {}/{}. {} weak nodes reset. Re-verify after {}.",
+                journey.getId(), currentAttempt, MAX_VERIFICATION_ATTEMPTS,
+                weakNodeIds.size(), booking.getNextVerifyAllowedAt());
+    }
+
+    private void resetWeakNodes(Long journeyId, List<String> weakNodeIds) {
+        if (weakNodeIds == null || weakNodeIds.isEmpty()) return;
+        for (String nodeId : weakNodeIds) {
+            submissionRepo.findByJourneyIdAndNodeId(journeyId, nodeId).ifPresent(submission -> {
+                submission.setSubmissionStatus(RoadmapNodeSubmission.SubmissionStatus.DRAFT);
+                submission.setVerificationStatus(RoadmapNodeSubmission.VerificationStatus.PENDING);
+                submissionRepo.save(submission);
+                log.debug("Reset node {} in journey {} to DRAFT/PENDING for re-learning.", nodeId, journeyId);
+            });
+        }
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private void requireAssignedJourneyMentor(Long mentorId, Long journeyId) {
@@ -251,6 +547,15 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
         if (!isAssignedMentor) {
             throw new ApiException(ErrorCode.FORBIDDEN,
                     "Access denied: not the journey owner or assigned mentor");
+        }
+    }
+
+    private String toJson(List<String> list) {
+        if (list == null || list.isEmpty()) return null;
+        try {
+            return objectMapper.writeValueAsString(list);
+        } catch (Exception e) {
+            return null;
         }
     }
 }

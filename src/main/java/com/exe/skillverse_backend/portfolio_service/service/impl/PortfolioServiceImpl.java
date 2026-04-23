@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.portfolio_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.portfolio_service.dto.AIEnhanceRequest;
 import com.exe.skillverse_backend.portfolio_service.dto.AIEnhanceResponse;
@@ -9,6 +10,8 @@ import com.exe.skillverse_backend.portfolio_service.dto.CompletedMissionDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.GeneratedCVDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.MentorReviewDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.PortfolioVerifiedSkillDetailDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.PortfolioVerifiedSkillEvidenceDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.PortfolioEducationDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.PortfolioProjectDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.PortfolioWorkExperienceDTO;
@@ -35,6 +38,15 @@ import com.exe.skillverse_backend.business_service.entity.JobDeliverable;
 import com.exe.skillverse_backend.business_service.entity.JobReview;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobApplicationRepository;
 import com.exe.skillverse_backend.business_service.repository.JobReviewRepository;
+import com.exe.skillverse_backend.journey_service.node_mentoring.entity.JourneyOutputAssessment;
+import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeSubmission;
+import com.exe.skillverse_backend.journey_service.node_mentoring.entity.VerificationEvidenceReport;
+import com.exe.skillverse_backend.journey_service.node_mentoring.repository.JourneyOutputAssessmentRepository;
+import com.exe.skillverse_backend.journey_service.node_mentoring.repository.RoadmapNodeSubmissionRepository;
+import com.exe.skillverse_backend.journey_service.node_mentoring.repository.VerificationEvidenceReportRepository;
+import com.exe.skillverse_backend.mentor_verification_service.entity.MentorSkillVerificationRequest;
+import com.exe.skillverse_backend.mentor_verification_service.entity.MentorVerificationEvidence;
+import com.exe.skillverse_backend.mentor_verification_service.repository.MentorSkillVerificationRequestRepository;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
@@ -46,6 +58,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -86,6 +99,11 @@ public class PortfolioServiceImpl implements PortfolioService {
     private final GamificationUserBadgeRepository badgeRepository;
     private final ShortTermJobApplicationRepository jobApplicationRepository;
     private final JobReviewRepository jobReviewRepository;
+    private final com.exe.skillverse_backend.portfolio_service.repository.UserVerifiedSkillRepository verifiedSkillRepository;
+    private final MentorSkillVerificationRequestRepository mentorVerificationRequestRepository;
+    private final VerificationEvidenceReportRepository verificationEvidenceReportRepository;
+    private final JourneyOutputAssessmentRepository journeyOutputAssessmentRepository;
+    private final RoadmapNodeSubmissionRepository roadmapNodeSubmissionRepository;
 
     // ==================== USER PROFILE (EXTENDED) ====================
 
@@ -252,6 +270,8 @@ public class PortfolioServiceImpl implements PortfolioService {
             extendedProfile.setAvailabilityStatus(dto.getAvailabilityStatus());
         if (dto.getHourlyRate() != null)
             extendedProfile.setHourlyRate(dto.getHourlyRate());
+        if (dto.getRoadmapMentoringPrice() != null)
+            extendedProfile.setRoadmapMentoringPrice(dto.getRoadmapMentoringPrice());
         if (dto.getPreferredCurrency() != null) {
             validatePreferredCurrency(dto.getPreferredCurrency());
             extendedProfile.setPreferredCurrency(dto.getPreferredCurrency().trim().toUpperCase());
@@ -1122,6 +1142,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                     .location(extendedProfile.getLocation())
                     .availabilityStatus(extendedProfile.getAvailabilityStatus())
                     .hourlyRate(extendedProfile.getHourlyRate())
+                    .roadmapMentoringPrice(extendedProfile.getRoadmapMentoringPrice())
                     .preferredCurrency(extendedProfile.getPreferredCurrency())
                     .topSkills(extendedProfile.getTopSkills())
                     .languagesSpoken(extendedProfile.getLanguagesSpoken())
@@ -1299,5 +1320,229 @@ public class PortfolioServiceImpl implements PortfolioService {
         if (!SUPPORTED_PREFERRED_CURRENCY.equals(normalized)) {
             throw new IllegalArgumentException("Preferred currency must be VND");
         }
+    }
+
+    // ==================== V3 PHASE 2: VERIFIED SKILLS ====================
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getVerifiedSkills(Long userId) {
+        getUserOrThrow(userId);
+        return enrichVerifiedSkills(
+                verifiedSkillRepository.findByUserIdOrderByVerifiedAtDesc(userId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getPublicVerifiedSkills(Long userId) {
+        getPublicExtendedProfileOrThrow(userId);
+        return enrichVerifiedSkills(
+                verifiedSkillRepository.findByUserIdOrderByVerifiedAtDesc(userId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PortfolioVerifiedSkillDetailDTO> getVerifiedSkillDetails(Long userId) {
+        User user = getUserOrThrow(userId);
+        return resolveVerifiedSkillDetails(user);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PortfolioVerifiedSkillDetailDTO> getPublicVerifiedSkillDetails(Long userId) {
+        getPublicExtendedProfileOrThrow(userId);
+        User user = getUserOrThrow(userId);
+        return resolveVerifiedSkillDetails(user);
+    }
+
+    private List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> enrichVerifiedSkills(
+            List<com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill> skills) {
+        return skills.stream().map(s -> {
+            var dto = com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO.from(s);
+            userRepository.findById(s.getVerifiedByMentorId()).ifPresent(mentor ->
+                    dto.setVerifiedByMentorName(mentor.getFullName()));
+            return dto;
+        }).toList();
+    }
+
+    private List<PortfolioVerifiedSkillDetailDTO> resolveVerifiedSkillDetails(User user) {
+        if (user.getPrimaryRole() == PrimaryRole.MENTOR) {
+            return mentorVerificationRequestRepository.findApprovedByMentorId(user.getId())
+                    .stream()
+                    .map(this::mapMentorVerifiedSkillDetail)
+                    .toList();
+        }
+
+        return verifiedSkillRepository.findByUserIdOrderByVerifiedAtDesc(user.getId())
+                .stream()
+                .map(this::mapRoadmapVerifiedSkillDetail)
+                .toList();
+    }
+
+    private PortfolioVerifiedSkillDetailDTO mapMentorVerifiedSkillDetail(MentorSkillVerificationRequest request) {
+        User reviewer = request.getReviewedBy();
+
+        return PortfolioVerifiedSkillDetailDTO.builder()
+                .id(request.getId())
+                .skillName(request.getSkillName())
+                .displaySkillName(formatDisplaySkillName(request.getSkillName()))
+                .verificationSource("ADMIN_MENTOR")
+                .verifiedAt((request.getReviewedAt() != null ? request.getReviewedAt() : request.getRequestedAt())
+                        .toInstant(ZoneOffset.ofHours(7)))
+                .reviewerId(reviewer != null ? reviewer.getId() : null)
+                .reviewerName(reviewer != null ? reviewer.getFullName() : "Hệ thống Admin")
+                .reviewerRole(reviewer != null && reviewer.getPrimaryRole() != null
+                        ? reviewer.getPrimaryRole().name()
+                        : "ADMIN")
+                .reviewNote(request.getReviewNote())
+                .verificationRequestId(request.getId())
+                .evidences(request.getEvidences() == null
+                        ? List.of()
+                        : request.getEvidences().stream()
+                                .map(this::mapMentorEvidence)
+                                .toList())
+                .build();
+    }
+
+    private PortfolioVerifiedSkillDetailDTO mapRoadmapVerifiedSkillDetail(
+            com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill skill) {
+        User reviewer = userRepository.findById(skill.getVerifiedByMentorId()).orElse(null);
+        VerificationEvidenceReport report = skill.getJourneyId() == null
+                ? null
+                : verificationEvidenceReportRepository.findFirstByJourneyIdOrderByAttemptNumberDesc(skill.getJourneyId())
+                        .orElse(null);
+        JourneyOutputAssessment outputAssessment = skill.getJourneyId() == null
+                ? null
+                : journeyOutputAssessmentRepository.findFirstByJourneyIdOrderBySubmittedAtDesc(skill.getJourneyId())
+                        .orElse(null);
+        List<RoadmapNodeSubmission> submissions = skill.getJourneyId() == null
+                ? List.of()
+                : roadmapNodeSubmissionRepository.findByJourneyId(skill.getJourneyId());
+
+        List<PortfolioVerifiedSkillEvidenceDTO> evidences = new ArrayList<>();
+
+        if (report != null) {
+            evidences.add(PortfolioVerifiedSkillEvidenceDTO.builder()
+                    .id(report.getId())
+                    .type("VERIFICATION_REPORT")
+                    .title("Báo cáo xác thực cuối kỳ")
+                    .description(report.getSummaryReport())
+                    .build());
+
+            if (report.getMeetingJitsiLink() != null && !report.getMeetingJitsiLink().isBlank()) {
+                evidences.add(PortfolioVerifiedSkillEvidenceDTO.builder()
+                        .id(report.getId())
+                        .type("MEETING_LINK")
+                        .title("Buổi xác thực với mentor")
+                        .url(report.getMeetingJitsiLink())
+                        .description("Phiên xác thực cuối kỳ qua roadmap mentoring")
+                        .build());
+            }
+        }
+
+        if (outputAssessment != null) {
+            appendOutputAssessmentEvidence(evidences, outputAssessment);
+        }
+
+        submissions.forEach(submission -> appendNodeSubmissionEvidence(evidences, submission));
+
+        return PortfolioVerifiedSkillDetailDTO.builder()
+                .id(skill.getId())
+                .skillName(skill.getSkillName())
+                .displaySkillName(formatDisplaySkillName(skill.getSkillName()))
+                .verificationSource("ROADMAP_MENTOR")
+                .verifiedAt(skill.getVerifiedAt())
+                .reviewerId(skill.getVerifiedByMentorId())
+                .reviewerName(reviewer != null ? reviewer.getFullName() : "Mentor")
+                .reviewerRole("MENTOR")
+                .reviewNote(report != null && report.getSummaryReport() != null && !report.getSummaryReport().isBlank()
+                        ? report.getSummaryReport()
+                        : skill.getVerificationNote())
+                .journeyId(skill.getJourneyId())
+                .bookingId(skill.getBookingId())
+                .evidences(evidences)
+                .build();
+    }
+
+    private PortfolioVerifiedSkillEvidenceDTO mapMentorEvidence(MentorVerificationEvidence evidence) {
+        ExternalCertificate certificate = evidence.getCertificate();
+        String evidenceUrl = evidence.getEvidenceUrl();
+        if ((evidenceUrl == null || evidenceUrl.isBlank()) && certificate != null) {
+            evidenceUrl = certificate.getCredentialUrl();
+        }
+
+        return PortfolioVerifiedSkillEvidenceDTO.builder()
+                .id(evidence.getId())
+                .type(evidence.getEvidenceType() != null ? evidence.getEvidenceType().name() : "EVIDENCE")
+                .title(certificate != null ? certificate.getTitle() : evidence.getEvidenceType().name())
+                .url(evidenceUrl)
+                .imageUrl(certificate != null ? certificate.getCertificateImageUrl() : null)
+                .issuer(certificate != null ? certificate.getIssuingOrganization() : null)
+                .description(evidence.getDescription())
+                .build();
+    }
+
+    private void appendOutputAssessmentEvidence(
+            List<PortfolioVerifiedSkillEvidenceDTO> evidences,
+            JourneyOutputAssessment outputAssessment) {
+        if (outputAssessment.getEvidenceUrl() != null && !outputAssessment.getEvidenceUrl().isBlank()) {
+            evidences.add(PortfolioVerifiedSkillEvidenceDTO.builder()
+                    .id(outputAssessment.getId())
+                    .type("OUTPUT_EVIDENCE")
+                    .title("Minh chứng đầu ra của roadmap")
+                    .url(outputAssessment.getEvidenceUrl())
+                    .description(outputAssessment.getSubmissionText())
+                    .build());
+        }
+
+        if (outputAssessment.getAttachmentUrl() != null && !outputAssessment.getAttachmentUrl().isBlank()) {
+            evidences.add(PortfolioVerifiedSkillEvidenceDTO.builder()
+                    .id(outputAssessment.getId())
+                    .type("OUTPUT_ATTACHMENT")
+                    .title("Tệp đính kèm đầu ra")
+                    .url(outputAssessment.getAttachmentUrl())
+                    .description(outputAssessment.getFeedback())
+                    .build());
+        }
+    }
+
+    private void appendNodeSubmissionEvidence(
+            List<PortfolioVerifiedSkillEvidenceDTO> evidences,
+            RoadmapNodeSubmission submission) {
+        if (submission.getEvidenceUrl() != null && !submission.getEvidenceUrl().isBlank()) {
+            evidences.add(PortfolioVerifiedSkillEvidenceDTO.builder()
+                    .id(submission.getId())
+                    .type("NODE_EVIDENCE")
+                    .title("Minh chứng node " + submission.getNodeId())
+                    .url(submission.getEvidenceUrl())
+                    .description(submission.getSubmissionText())
+                    .build());
+        }
+
+        if (submission.getAttachmentUrl() != null && !submission.getAttachmentUrl().isBlank()) {
+            evidences.add(PortfolioVerifiedSkillEvidenceDTO.builder()
+                    .id(submission.getId())
+                    .type("NODE_ATTACHMENT")
+                    .title("Tệp đính kèm node " + submission.getNodeId())
+                    .url(submission.getAttachmentUrl())
+                    .description(submission.getMentorFeedback())
+                    .build());
+        }
+    }
+
+    private String formatDisplaySkillName(String skillName) {
+        if (skillName == null || skillName.isBlank()) {
+            return "";
+        }
+
+        String[] parts = skillName.trim().toLowerCase().split("_+");
+        List<String> prettyParts = new ArrayList<>();
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            prettyParts.add(part.substring(0, 1).toUpperCase() + part.substring(1));
+        }
+        return String.join(" ", prettyParts);
     }
 }

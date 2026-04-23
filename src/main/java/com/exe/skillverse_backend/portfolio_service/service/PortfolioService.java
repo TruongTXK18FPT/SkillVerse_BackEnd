@@ -88,4 +88,13 @@ public interface PortfolioService {
         GeneratedCVDTO setActiveCV(Long userId, Long cvId);
 
         void deleteCV(Long cvId, Long userId);
+
+    // V3 Phase 2: Verified skills (from ROADMAP_MENTORING verification)
+    List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getVerifiedSkills(Long userId);
+
+    List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getPublicVerifiedSkills(Long userId);
+
+    List<com.exe.skillverse_backend.portfolio_service.dto.PortfolioVerifiedSkillDetailDTO> getVerifiedSkillDetails(Long userId);
+
+    List<com.exe.skillverse_backend.portfolio_service.dto.PortfolioVerifiedSkillDetailDTO> getPublicVerifiedSkillDetails(Long userId);
 }

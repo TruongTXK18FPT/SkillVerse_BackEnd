@@ -78,6 +78,15 @@ public class MentorVerificationController {
         return ResponseEntity.ok(verificationService.getMyVerifiedSkills(mentor));
     }
 
+    // ==================== Public Endpoints ====================
+
+    @GetMapping("/public/mentors/{mentorId}/verified-skills/details")
+    @Operation(summary = "Public: lấy danh sách skill đã APPROVED kèm evidence của mentor (dùng trang public)")
+    public ResponseEntity<List<MentorVerificationResponse>> getApprovedVerificationsByMentorId(
+            @PathVariable Long mentorId) {
+        return ResponseEntity.ok(verificationService.getApprovedVerificationsByMentorId(mentorId));
+    }
+
     // ==================== Admin Endpoints ====================
 
     @GetMapping("/admin/mentor-verifications/pending")

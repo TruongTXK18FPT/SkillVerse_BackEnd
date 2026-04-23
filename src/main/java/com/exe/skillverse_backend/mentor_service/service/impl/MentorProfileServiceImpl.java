@@ -667,6 +667,8 @@ public class MentorProfileServiceImpl implements MentorProfileService {
         // === Display data from Portfolio (authoritative) ===
         String slug = portfolioOpt.map(PortfolioExtendedProfile::getCustomUrlSlug).orElse(null);
         Double hourlyRate = portfolioOpt.map(PortfolioExtendedProfile::getHourlyRate).orElse(null);
+        Double roadmapMentoringPrice = portfolioOpt.map(PortfolioExtendedProfile::getRoadmapMentoringPrice)
+                .orElse(null);
         String avatar = portfolioOpt.flatMap(p -> Optional.ofNullable(p.getAvatarUrl()))
                 .orElse(profile.getAvatarUrl());
         String bio = portfolioOpt.flatMap(p -> Optional.ofNullable(p.getBio()))
@@ -723,6 +725,7 @@ public class MentorProfileServiceImpl implements MentorProfileService {
                 .ratingAverage(profile.getRatingAverage())
                 .ratingCount(profile.getRatingCount())
                 .hourlyRate(hourlyRate)
+                .roadmapMentoringPrice(roadmapMentoringPrice)
                 .preChatEnabled(profile.getPreChatEnabled())
                 .slug(slug)
                 .createdAt(profile.getCreatedAt())

@@ -49,6 +49,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
     private static final List<BookingStatus> ASSIGNED_MENTOR_STATUSES = List.of(
             BookingStatus.CONFIRMED,
             BookingStatus.ONGOING,
+            BookingStatus.MENTORING_ACTIVE,
             BookingStatus.PENDING_COMPLETION);
 
     private final RoadmapNodeResolver resolver;

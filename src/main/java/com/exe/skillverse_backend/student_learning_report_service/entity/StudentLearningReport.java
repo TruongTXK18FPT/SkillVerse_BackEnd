@@ -13,7 +13,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -21,6 +20,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * Entity lưu trữ báo cáo học tập cá nhân của học viên.
@@ -117,6 +118,10 @@ public class StudentLearningReport {
     /** Số tasks hoàn thành tại thời điểm tạo */
     @Column(name = "tasks_completed_snapshot")
     private Integer tasksCompletedSnapshot;
+
+    @Column(name = "summary_snapshot", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String summarySnapshot;
 
     /**
      * Loại báo cáo học tập cá nhân.

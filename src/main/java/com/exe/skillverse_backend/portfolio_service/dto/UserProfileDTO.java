@@ -62,6 +62,7 @@ public class UserProfileDTO {
     private String location;
     private String availabilityStatus;
     private Double hourlyRate;
+    private Double roadmapMentoringPrice;
     private String preferredCurrency;
     
     // Skills and languages (JSON arrays as strings)

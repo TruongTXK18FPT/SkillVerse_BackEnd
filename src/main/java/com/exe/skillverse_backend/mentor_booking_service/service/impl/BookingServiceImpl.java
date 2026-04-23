@@ -24,6 +24,7 @@ import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRevie
 import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -70,6 +71,7 @@ public class BookingServiceImpl implements BookingService {
     private final EmailService emailService;
     private final InvoiceService invoiceService;
     private final JourneyRepository journeyRepository;
+    private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
 
     @Value("${jitsi.base-url:https://meet.jit.si}")
     private String jitsiBaseUrl;
@@ -94,17 +96,22 @@ public class BookingServiceImpl implements BookingService {
         User learner = userRepository.findById(learnerId)
                 .orElseThrow(() -> new IllegalArgumentException("User không tồn tại"));
 
+        boolean isRoadmapMentoring = "ROADMAP_MENTORING".equals(request.getBookingType());
+
         LocalDateTime start = request.getStartTime()
                 .withZoneSameInstant(ZoneId.of("Asia/Ho_Chi_Minh"))
                 .toLocalDateTime();
-        LocalDateTime end = start.plusMinutes(request.getDurationMinutes());
+        // V3 Phase 2: ROADMAP_MENTORING has no fixed end — set far-future sentinel
+        LocalDateTime end = isRoadmapMentoring
+                ? LocalDateTime.of(2099, 12, 31, 23, 59)
+                : start.plusMinutes(request.getDurationMinutes());
 
         Booking booking = Booking.builder()
                 .mentor(mentor)
                 .learner(learner)
                 .startTime(start)
                 .endTime(end)
-                .durationMinutes(request.getDurationMinutes())
+                .durationMinutes(isRoadmapMentoring ? 0 : request.getDurationMinutes())
                 .status(BookingStatus.PENDING)
                 .priceVnd(request.getPriceVnd())
                 .journeyId(request.getJourneyId())
@@ -115,10 +122,14 @@ public class BookingServiceImpl implements BookingService {
 
         Booking saved = bookingRepository.save(booking);
 
-        // V3 Phase 1: auto-set finalVerificationRequired when booking is JOURNEY_MENTORING
-        if ("JOURNEY_MENTORING".equals(request.getBookingType()) && request.getJourneyId() != null) {
+        // V3 Phase 1+2: auto-set finalVerificationRequired when booking is JOURNEY_MENTORING or ROADMAP_MENTORING
+        if (("JOURNEY_MENTORING".equals(request.getBookingType())
+                || isRoadmapMentoring) && request.getJourneyId() != null) {
             journeyRepository.findById(request.getJourneyId()).ifPresent(journey -> {
                 journey.setFinalVerificationRequired(true);
+                if (isRoadmapMentoring) {
+                    journey.setJourneyOutputVerificationRequired(true);
+                }
                 journeyRepository.save(journey);
             });
         }
@@ -129,7 +140,9 @@ public class BookingServiceImpl implements BookingService {
         notificationService.createNotification(
                 mentor.getId(),
                 "Có booking mới",
-                "Bạn có một yêu cầu đặt lịch mới",
+                isRoadmapMentoring
+                        ? "Một học viên muốn bạn đồng hành refactor roadmap!"
+                        : "Bạn có một yêu cầu đặt lịch mới",
                 NotificationType.BOOKING_CREATED,
                 saved.getId().toString(),
                 learner.getId());
@@ -143,7 +156,10 @@ public class BookingServiceImpl implements BookingService {
         } catch (Exception e) {
         }
 
-        scheduleMeetingReminderEmails(saved);
+        // ROADMAP_MENTORING: no fixed session — skip meeting reminders
+        if (!isRoadmapMentoring) {
+            scheduleMeetingReminderEmails(saved);
+        }
 
         return saved;
     }
@@ -173,17 +189,33 @@ public class BookingServiceImpl implements BookingService {
     }
 
     private void validateBookingRequest(Long learnerId, CreateBookingIntentRequest request) {
+        boolean isRoadmapMentoring = "ROADMAP_MENTORING".equals(request.getBookingType());
+        List<BookingStatus> roadmapActiveStatuses = List.of(
+                BookingStatus.PENDING,
+                BookingStatus.CONFIRMED,
+                BookingStatus.ONGOING,
+                BookingStatus.MENTORING_ACTIVE,
+                BookingStatus.PENDING_COMPLETION,
+                BookingStatus.DISPUTED);
+
+        // V3 Phase 2: duration validation moved from annotation to service layer
+        if (!isRoadmapMentoring && (request.getDurationMinutes() == null || request.getDurationMinutes() < 60)) {
+            throw new IllegalArgumentException("Thời lượng buổi học tối thiểu 60 phút");
+        }
+        if (isRoadmapMentoring && request.getJourneyId() == null) {
+            throw new IllegalArgumentException("ROADMAP_MENTORING yêu cầu journeyId");
+        }
+
         // Convert ZonedDateTime (VN) to LocalDateTime for storage and business logic
         ZonedDateTime startZoned = request.getStartTime();
         LocalDateTime start = startZoned.withZoneSameInstant(ZoneId.of("Asia/Ho_Chi_Minh")).toLocalDateTime();
-        LocalDateTime end = start.plusMinutes(request.getDurationMinutes());
 
         // Part 10a: Check booking start time is in the future (VN timezone)
-        if (start.isBefore(LocalDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh")))) {
+        // ROADMAP_MENTORING has no fixed session slot — start time is just a submission timestamp,
+        // the actual engagement begins when the mentor approves, so skip this check.
+        if (!isRoadmapMentoring && start.isBefore(LocalDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh")))) {
             throw new IllegalArgumentException("Thời gian bắt đầu phải trong tương lai");
         }
-
-        // Removed 2-hour and 23:00 restrictions as requested
 
         User mentor = userRepository.findById(request.getMentorId())
                 .orElseThrow(() -> new IllegalArgumentException("Mentor không tồn tại"));
@@ -192,16 +224,47 @@ public class BookingServiceImpl implements BookingService {
 
         ensureLearnerIsNotMentor(learner, mentor);
 
-        List<BookingStatus> activeStatuses = List.of(
-                BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ONGOING);
+        if (isRoadmapMentoring) {
+            var journey = journeyRepository.findById(request.getJourneyId())
+                    .orElseThrow(() -> new IllegalArgumentException("Journey không tồn tại"));
 
-        if (bookingRepository.existsByMentorAndStatusInAndStartTimeLessThanEqualAndEndTimeGreaterThanEqual(
-                mentor, activeStatuses, end, start)) {
-            throw new IllegalStateException("Mentor có lịch trùng giờ");
+            if (journey.getUser() == null || !Objects.equals(journey.getUser().getId(), learnerId)) {
+                throw new IllegalArgumentException("Bạn chỉ có thể đặt đồng hành cho roadmap của chính mình");
+            }
+
+            BigDecimal configuredRoadmapPrice = portfolioExtendedProfileRepository.findByUserId(request.getMentorId())
+                    .map(profile -> profile.getRoadmapMentoringPrice() == null
+                            ? null
+                            : BigDecimal.valueOf(profile.getRoadmapMentoringPrice()))
+                    .orElse(null);
+
+            if (configuredRoadmapPrice == null || configuredRoadmapPrice.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new IllegalStateException("Mentor chưa bật dịch vụ đồng hành roadmap");
+            }
+
+            if (request.getPriceVnd() == null || request.getPriceVnd().compareTo(configuredRoadmapPrice) != 0) {
+                throw new IllegalArgumentException("Giá đồng hành roadmap không khớp với cấu hình hiện tại của mentor");
+            }
+
+            if (bookingRepository.existsRoadmapMentoringBookingForJourney(journey.getId(), roadmapActiveStatuses)) {
+                throw new IllegalStateException("Roadmap này đã có một booking đồng hành đang hoạt động");
+            }
         }
-        if (bookingRepository.existsByLearnerAndStatusInAndStartTimeLessThanEqualAndEndTimeGreaterThanEqual(
-                learner, activeStatuses, end, start)) {
-            throw new IllegalStateException("Bạn có lịch trùng giờ");
+
+        // ROADMAP_MENTORING has no fixed time slot — skip overlap check
+        if (!isRoadmapMentoring) {
+            LocalDateTime end = start.plusMinutes(request.getDurationMinutes());
+            List<BookingStatus> activeStatuses = List.of(
+                    BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.ONGOING);
+
+            if (bookingRepository.existsByMentorAndStatusInAndStartTimeLessThanEqualAndEndTimeGreaterThanEqual(
+                    mentor, activeStatuses, end, start)) {
+                throw new IllegalStateException("Mentor có lịch trùng giờ");
+            }
+            if (bookingRepository.existsByLearnerAndStatusInAndStartTimeLessThanEqualAndEndTimeGreaterThanEqual(
+                    learner, activeStatuses, end, start)) {
+                throw new IllegalStateException("Bạn có lịch trùng giờ");
+            }
         }
     }
 
@@ -287,12 +350,15 @@ public class BookingServiceImpl implements BookingService {
      * to false so the learner can still complete the journey without being permanently blocked.
      */
     private void resetFinalVerificationIfNoActiveBooking(Booking booking) {
-        if (booking.getJourneyId() == null || !"JOURNEY_MENTORING".equals(booking.getBookingType())) {
+        if (booking.getJourneyId() == null
+                || (!"JOURNEY_MENTORING".equals(booking.getBookingType())
+                    && !"ROADMAP_MENTORING".equals(booking.getBookingType()))) {
             return;
         }
         List<BookingStatus> activeStatuses = List.of(
                 BookingStatus.PENDING, BookingStatus.CONFIRMED,
-                BookingStatus.ONGOING, BookingStatus.PENDING_COMPLETION);
+                BookingStatus.ONGOING, BookingStatus.MENTORING_ACTIVE,
+                BookingStatus.PENDING_COMPLETION);
         boolean hasActiveBooking = bookingRepository.existsActiveJourneyBookingForAnyMentor(
                 booking.getJourneyId(), activeStatuses);
         if (!hasActiveBooking) {
@@ -319,13 +385,30 @@ public class BookingServiceImpl implements BookingService {
         if (booking.getStatus() != BookingStatus.PENDING) {
             throw new IllegalStateException("Chỉ duyệt booking ở trạng thái pending");
         }
-        booking.setStatus(BookingStatus.CONFIRMED);
+
+        // V3 Phase 2: ROADMAP_MENTORING → MENTORING_ACTIVE (long-running, escrow held until PASS)
+        if ("ROADMAP_MENTORING".equals(booking.getBookingType())) {
+            booking.setStatus(BookingStatus.MENTORING_ACTIVE);
+            booking.setRoadmapMentoringStartedAt(LocalDateTime.now());
+            // Set journey flags for final verification gate
+            if (booking.getJourneyId() != null) {
+                journeyRepository.findById(booking.getJourneyId()).ifPresent(journey -> {
+                    journey.setFinalVerificationRequired(true);
+                    journey.setJourneyOutputVerificationRequired(true);
+                    journeyRepository.save(journey);
+                });
+            }
+        } else {
+            booking.setStatus(BookingStatus.CONFIRMED);
+        }
         Booking saved = bookingRepository.save(booking);
 
         notificationService.createNotification(
                 booking.getLearner().getId(),
                 "Booking được chấp nhận",
-                "Mentor đã duyệt lịch học",
+                "ROADMAP_MENTORING".equals(booking.getBookingType())
+                        ? "Mentor đã chấp nhận đồng hành cùng bạn trên hành trình roadmap!"
+                        : "Mentor đã duyệt lịch học",
                 NotificationType.BOOKING_CONFIRMED,
                 saved.getId().toString(),
                 mentorId);
@@ -341,7 +424,10 @@ public class BookingServiceImpl implements BookingService {
         } catch (Exception e) {
         }
 
-        scheduleMeetingReminderEmails(saved);
+        // ROADMAP_MENTORING: no meeting reminder — meeting happens at final verification
+        if (!"ROADMAP_MENTORING".equals(booking.getBookingType())) {
+            scheduleMeetingReminderEmails(saved);
+        }
 
         return saved;
     }
@@ -998,10 +1084,11 @@ public class BookingServiceImpl implements BookingService {
         if (!booking.getLearner().getId().equals(learnerId)) {
             throw new IllegalArgumentException("Không có quyền hủy booking này");
         }
-        // V3 Phase 1: JOURNEY_MENTORING has no fixed session window.
-        // Once CONFIRMED the mentor has committed — learner cannot unilaterally cancel.
+        // V3 Phase 1+2: JOURNEY_MENTORING / ROADMAP_MENTORING have no fixed session window.
+        // Once CONFIRMED/MENTORING_ACTIVE the mentor has committed — learner cannot unilaterally cancel.
         // Only PENDING (mentor not yet responded) is cancellable.
-        if ("JOURNEY_MENTORING".equals(booking.getBookingType())) {
+        if ("JOURNEY_MENTORING".equals(booking.getBookingType())
+                || "ROADMAP_MENTORING".equals(booking.getBookingType())) {
             if (booking.getStatus() != BookingStatus.PENDING) {
                 throw new IllegalStateException(
                         "Booking hỗ trợ hành trình chỉ có thể hủy khi mentor chưa xác nhận. Liên hệ admin nếu cần hỗ trợ.");
@@ -1228,14 +1315,27 @@ public class BookingServiceImpl implements BookingService {
                 .learnerAvatar(learnerAvatar)
                 .disputeId(disputeRepository.findByBooking_Id(booking.getId()).map(d -> d.getId()).orElse(null))
                 .journeyId(booking.getJourneyId())
+                .roadmapSessionId(booking.getRoadmapSessionId())
                 .nodeId(booking.getNodeId())
                 .bookingType(booking.getBookingType())
+                .roadmapMentoringStartedAt(booking.getRoadmapMentoringStartedAt())
+                .verificationAttempts(booking.getVerificationAttempts())
+                .nextVerifyAllowedAt(booking.getNextVerifyAllowedAt())
                 .chatAllowed(isChatAllowed(booking))
                 .build();
     }
 
     private boolean isChatAllowed(Booking booking) {
-        if (booking == null || booking.getEndTime() == null) {
+        if (booking == null) {
+            return false;
+        }
+
+        // V3 Phase 2: MENTORING_ACTIVE has no end time — always allow chat
+        if (booking.getStatus() == BookingStatus.MENTORING_ACTIVE) {
+            return true;
+        }
+
+        if (booking.getEndTime() == null) {
             return false;
         }
 

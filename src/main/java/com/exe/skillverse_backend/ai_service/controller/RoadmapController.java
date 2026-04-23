@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -57,66 +56,57 @@ public class RoadmapController {
 
         /**
          * Generate a new personalized learning roadmap using AI
-         * 
+         * V3 Phase 3: DISABLED - Roadmap generation is only allowed through journey flow.
+         * Use POST /api/v1/journey/{journeyId}/generate-roadmap instead.
+         *
          * @param request        Roadmap generation parameters
          * @param authentication Current authenticated user
-         * @return Generated roadmap with session ID
+         * @return 403 FORBIDDEN with error message directing to journey flow
          */
         @PostMapping("/generate")
-        @Operation(summary = "Generate AI Roadmap", description = "Generate a personalized learning roadmap using Gemini AI based on user's goal, duration, experience, and learning style")
+        @Operation(summary = "Generate AI Roadmap (DISABLED - Use Journey Flow)",
+                description = "V3 Phase 3: Direct roadmap generation is disabled. Please use POST /api/v1/journey/{journeyId}/generate-roadmap after completing journey assessment.")
         @ApiResponses({
-                        @ApiResponse(responseCode = "201", description = "Tạo lộ trình thành công"),
-                        @ApiResponse(responseCode = "400", description = "Yêu cầu không hợp lệ hoặc mục tiêu bị từ chối"),
-                        @ApiResponse(responseCode = "401", description = "Chưa xác thực"),
-                        @ApiResponse(responseCode = "429", description = "Vượt giới hạn sử dụng"),
-                        @ApiResponse(responseCode = "500", description = "Lỗi hệ thống")
+                        @ApiResponse(responseCode = "403", description = "Tạo roadmap trực tiếp đã bị vô hiệu hóa. Vui lòng sử dụng luồng Journey."),
+                        @ApiResponse(responseCode = "401", description = "Chưa xác thực")
         })
         public ResponseEntity<RoadmapResponse> generateRoadmap(
                         @Valid @RequestBody GenerateRoadmapRequest request,
                         Authentication authentication) {
 
-                Jwt jwt = (Jwt) authentication.getPrincipal();
-                Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
+                // V3 Phase 3: Direct roadmap generation is disabled
+                // All roadmaps must be created through the journey flow
+                log.warn("Direct roadmap generation attempt blocked. User must complete journey assessment flow.");
 
-                User user = userRepository.findById(userId)
-                                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "User not found"));
-
-                String goalOrTarget = (request.getTarget() != null && !request.getTarget().isBlank())
-                                ? request.getTarget()
-                                : request.getGoal();
-                log.info("User {} requesting roadmap generation for goal/target: {} | type: {}", userId, goalOrTarget,
-                                request.getRoadmapType());
-
-                RoadmapResponse response = aiRoadmapService.generateRoadmap(request, user);
-
-                return ResponseEntity.status(HttpStatus.CREATED).body(response);
+                throw new ApiException(ErrorCode.FORBIDDEN,
+                        "Tạo lộ trình trực tiếp đã bị vô hiệu hóa. " +
+                        "Vui lòng truy cập /api/v1/journey để tạo hành trình học tập. " +
+                        "Lộ trình sẽ được tự động tạo sau khi bạn hoàn thành bài đánh giá kỹ năng.");
         }
 
         /**
          * Pre-validate roadmap generation request without actually generating
-         * 
+         * V3 Phase 3: DISABLED - Pre-validation is only done through journey flow.
+         *
          * @param request Roadmap generation parameters to validate
-         * @return List of validation warnings (INFO/WARNING/ERROR severity)
+         * @return 403 FORBIDDEN with error message directing to journey flow
          */
         @PostMapping("/validate")
-        @Operation(summary = "Pre-validate Roadmap Request", description = "Validate user inputs before generating roadmap. Returns warnings for deprecated technologies, time feasibility issues, test score validation, etc. ERROR severity blocks generation.")
+        @Operation(summary = "Pre-validate Roadmap Request (DISABLED - Use Journey Flow)",
+                description = "V3 Phase 3: Direct roadmap pre-validation is disabled. Please use POST /api/v1/journey/{journeyId}/generate-roadmap after completing journey assessment.")
         @ApiResponses({
-                        @ApiResponse(responseCode = "200", description = "Xác thực trước thành công"),
-                        @ApiResponse(responseCode = "400", description = "Yêu cầu không hợp lệ"),
+                        @ApiResponse(responseCode = "403", description = "Xác thực roadmap trực tiếp đã bị vô hiệu hóa. Vui lòng sử dụng luồng Journey."),
                         @ApiResponse(responseCode = "401", description = "Chưa xác thực")
         })
         public ResponseEntity<List<ValidationResult>> preValidate(
                         @Valid @RequestBody GenerateRoadmapRequest request) {
 
-                String vGoalOrTarget = (request.getTarget() != null && !request.getTarget().isBlank())
-                                ? request.getTarget()
-                                : request.getGoal();
-                log.info("Pre-validating roadmap request for goal/target: {} | type: {}", vGoalOrTarget,
-                                request.getRoadmapType());
+                // V3 Phase 3: Direct roadmap pre-validation is disabled
+                log.warn("Direct roadmap pre-validation attempt blocked. User must complete journey assessment flow.");
 
-                List<ValidationResult> warnings = aiRoadmapService.preValidateRequest(request);
-
-                return ResponseEntity.ok(warnings);
+                throw new ApiException(ErrorCode.FORBIDDEN,
+                        "Xác thực lộ trình trực tiếp đã bị vô hiệu hóa. " +
+                        "Vui lòng truy cập /api/v1/journey để tạo hành trình học tập.");
         }
 
         @GetMapping("/analytics/mode-counts")

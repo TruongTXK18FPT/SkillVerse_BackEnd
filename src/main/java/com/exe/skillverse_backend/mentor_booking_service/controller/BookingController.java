@@ -254,6 +254,14 @@ public class BookingController {
                 .learnerName(learnerName)
                 .learnerAvatar(learnerAvatar)
                 .disputeId(disputeRepository.findByBooking_Id(booking.getId()).map(d -> d.getId()).orElse(null))
+                .journeyId(booking.getJourneyId())
+                .roadmapSessionId(booking.getRoadmapSessionId())
+                .nodeId(booking.getNodeId())
+                .nodeSkillId(booking.getNodeSkillId())
+                .bookingType(booking.getBookingType())
+                .roadmapMentoringStartedAt(booking.getRoadmapMentoringStartedAt())
+                .verificationAttempts(booking.getVerificationAttempts())
+                .nextVerifyAllowedAt(booking.getNextVerifyAllowedAt())
                 .chatAllowed(isChatAllowed(booking))
                 .build();
     }

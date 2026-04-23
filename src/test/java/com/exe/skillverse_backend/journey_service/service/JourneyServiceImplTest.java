@@ -23,6 +23,7 @@ import com.exe.skillverse_backend.question_bank_service.service.QuestionBankServ
 import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
+import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
@@ -92,6 +93,8 @@ class JourneyServiceImplTest {
     private QuestionBankQuestionService questionBankQuestionService;
     @Mock
     private StudySessionRepository studySessionRepository;
+    @Mock
+    private BookingRepository bookingRepository;
 
     private JourneyServiceImpl service;
     private ObjectMapper objectMapper;
@@ -115,6 +118,7 @@ class JourneyServiceImplTest {
                 questionBankService,
                 questionBankQuestionService,
                 studySessionRepository,
+                bookingRepository,
                 objectMapper);
 
         lenient().when(journeyRepository.save(any(Journey.class))).thenAnswer(invocation -> {
@@ -139,6 +143,9 @@ class JourneyServiceImplTest {
         });
         lenient().when(entityManager.getReference(eq(QuestionBank.class), any(Long.class))).thenAnswer(invocation ->
                 QuestionBank.builder().id(invocation.getArgument(1)).build());
+        // V3 Phase 3: single-journey enforcement stubs
+        lenient().when(journeyRepository.hasNonTerminalJourney(any(User.class))).thenReturn(false);
+        lenient().when(bookingRepository.hasActiveBookingsForJourney(any(Long.class))).thenReturn(false);
     }
 
     @Test
@@ -231,7 +238,7 @@ class JourneyServiceImplTest {
 
         JourneySummaryResponse response = service.completeJourney(user, 13L);
 
-        assertEquals(Journey.JourneyStatus.COMPLETED, response.getStatus());
+        assertEquals(Journey.JourneyStatus.COMPLETED_UNVERIFIED, response.getStatus());
         assertEquals(100, response.getProgressPercentage());
         assertEquals(1, response.getMilestones().size());
         assertEquals("JOURNEY_COMPLETED", response.getMilestones().get(0).getMilestone());

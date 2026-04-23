@@ -95,4 +95,34 @@ public class FinalVerificationController {
         return ResponseEntity.noContent().build();
     }
 
+    // ─── V3 Phase 2: ROADMAP_MENTORING final meeting flow ─────────────────────
+
+    @PostMapping("/final-meeting/create")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<java.util.Map<String, String>> createFinalMeeting(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long journeyId) {
+        Long callerId = JwtUtils.extractUserId(jwt);
+        String meetingLink = gateService.createFinalMeetingLink(callerId, journeyId);
+        return ResponseEntity.ok(java.util.Map.of("meetingLink", meetingLink));
+    }
+
+    @PostMapping("/final-meeting/verdict")
+    @PreAuthorize("hasRole('MENTOR')")
+    public ResponseEntity<com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.VerificationEvidenceReportResponse> submitVerdict(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long journeyId,
+            @Valid @RequestBody com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitEvidenceReportRequest request) {
+        Long mentorId = JwtUtils.extractUserId(jwt);
+        return ResponseEntity.ok(gateService.submitEvidenceReportAndVerdict(mentorId, journeyId, request));
+    }
+
+    @GetMapping("/verification-history")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<java.util.List<com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.VerificationEvidenceReportResponse>> getVerificationHistory(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long journeyId) {
+        Long callerId = JwtUtils.extractUserId(jwt);
+        return ResponseEntity.ok(gateService.getVerificationHistory(callerId, journeyId));
+    }
 }

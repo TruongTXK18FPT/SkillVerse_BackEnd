@@ -4309,6 +4309,22 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             return;
         }
 
+        // V3 Phase 3: Block deletion if roadmap is linked to a non-terminal journey.
+        // User must complete or delete the journey first.
+        journeyRepository.findByRoadmapSessionId(sessionId).ifPresent(journey -> {
+            var terminalStatuses = java.util.Set.of(
+                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED,
+                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.CANCELLED,
+                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_UNVERIFIED,
+                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_VERIFIED
+            );
+            if (!terminalStatuses.contains(journey.getStatus())) {
+                throw new ApiException(ErrorCode.CONFLICT,
+                        "Không thể xóa roadmap đang liên kết với hành trình chưa hoàn thành. " +
+                                "Hãy hoàn thành hoặc xóa hành trình trước.");
+            }
+        });
+
         session.setStatus(RoadmapStatus.DELETED);
         // IMPORTANT: flush immediately so the UPDATE is sent to DB BEFORE any concurrent reads.
         // Without flush(), save() only marks the entity dirty — the SQL UPDATE is deferred
@@ -4331,6 +4347,20 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             throw new ApiException(ErrorCode.BAD_REQUEST,
                     "Please soft-delete the roadmap first before permanently deleting it");
         }
+
+        // V3 Phase 3: Block permanent deletion if roadmap is still linked to a non-terminal journey.
+        journeyRepository.findByRoadmapSessionId(sessionId).ifPresent(journey -> {
+            var terminalStatuses = java.util.Set.of(
+                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED,
+                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.CANCELLED,
+                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_UNVERIFIED,
+                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_VERIFIED
+            );
+            if (!terminalStatuses.contains(journey.getStatus())) {
+                throw new ApiException(ErrorCode.CONFLICT,
+                        "Không thể xóa vĩnh viễn roadmap đang liên kết với hành trình chưa hoàn thành.");
+            }
+        });
 
         int clearedJourneys = journeyRepository.clearRoadmapSessionId(sessionId);
         progressRepository.deleteBySessionId(sessionId);

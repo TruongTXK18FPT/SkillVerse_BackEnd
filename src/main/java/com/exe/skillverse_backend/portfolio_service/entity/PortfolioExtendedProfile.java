@@ -124,6 +124,10 @@ public class PortfolioExtendedProfile {
     @Column(name = "hourly_rate")
     private Double hourlyRate; // For freelancing
 
+    @Column(name = "roadmap_mentoring_price")
+    private Double roadmapMentoringPrice; // For ROADMAP_MENTORING bookings
+
+
     @Column(name = "preferred_currency", length = 10)
     private String preferredCurrency; // USD, VND, EUR, etc.
 

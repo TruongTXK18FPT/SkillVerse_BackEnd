@@ -250,11 +250,11 @@ skillverse:
     # AI Generate Test Configuration (separate Mistral API key for guided journey)
     generate-test:
       api-key: ${AI_GENERATE_TEST_KEY:}
-      model: ${AI_GENERATE_TEST_MODEL:mistral-large-latest}
+      model: ${AI_GENERATE_TEST_MODEL:mistral-small-latest}
       enabled: ${AI_GENERATE_TEST_ENABLED:true}
-      max-tokens: ${AI_GENERATE_TEST_MAX_TOKENS:30000}
+      max-tokens: ${AI_GENERATE_TEST_MAX_TOKENS:8000}
       temperature: ${AI_GENERATE_TEST_TEMPERATURE:0.7}
-      timeout-ms: ${AI_GENERATE_TEST_TIMEOUT:180000}
+      timeout-ms: ${AI_GENERATE_TEST_TIMEOUT:300000}
 
     # AI Candidate Search Configuration (separate Mistral API key for recruiter search)
     search:

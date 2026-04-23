@@ -58,7 +58,7 @@ public class Booking {
     private Integer durationMinutes;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "status", nullable = false, length = 20)
+    @Column(name = "status", nullable = false, length = 30)
     @Builder.Default
     private BookingStatus status = BookingStatus.PENDING;
 
@@ -108,6 +108,20 @@ public class Booking {
 
     @Column(name = "booking_type", length = 30)
     private String bookingType;
+
+    // ─── V3 Phase 2: ROADMAP_MENTORING tracking ────────────────────────────────
+    /** Timestamp when mentor accepted and mentoring engagement started. */
+    @Column(name = "roadmap_mentoring_started_at")
+    private LocalDateTime roadmapMentoringStartedAt;
+
+    /** Number of final verification attempts (PASS/FAIL). Max 3 before auto-cancel. */
+    @Builder.Default
+    @Column(name = "verification_attempts")
+    private Integer verificationAttempts = 0;
+
+    /** Earliest time learner can request re-verification after a FAIL (7-day cooldown). */
+    @Column(name = "next_verify_allowed_at")
+    private LocalDateTime nextVerifyAllowedAt;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
