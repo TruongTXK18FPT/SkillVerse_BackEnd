@@ -9,13 +9,18 @@ import com.exe.skillverse_backend.ai_knowledge_service.entity.enums.AiKnowledgeA
 import com.exe.skillverse_backend.ai_knowledge_service.entity.enums.AiKnowledgeIngestionStatus;
 import com.exe.skillverse_backend.ai_knowledge_service.entity.enums.AiKnowledgeUseCase;
 import com.exe.skillverse_backend.ai_knowledge_service.service.AiKnowledgeDocumentService;
+import com.exe.skillverse_backend.ai_knowledge_service.service.AiKnowledgeDocumentService.DownloadedAiKnowledgeDocument;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import jakarta.validation.Valid;
+import java.nio.charset.StandardCharsets;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -86,6 +91,12 @@ public class AdminAiKnowledgeController {
         return ResponseEntity.ok(aiKnowledgeDocumentService.getAdminDocumentDetail(id));
     }
 
+    @GetMapping("/documents/{id}/download")
+    public ResponseEntity<byte[]> downloadDocument(@PathVariable Long id) {
+        DownloadedAiKnowledgeDocument download = aiKnowledgeDocumentService.downloadAdminDocument(id);
+        return buildDownloadResponse(download);
+    }
+
     @PostMapping("/documents/{id}/review")
     public ResponseEntity<AiKnowledgeDocumentDetailResponse> reviewDocument(
             @AuthenticationPrincipal Jwt jwt,
@@ -112,5 +123,16 @@ public class AdminAiKnowledgeController {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private ResponseEntity<byte[]> buildDownloadResponse(DownloadedAiKnowledgeDocument download) {
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(download.fileName(), StandardCharsets.UTF_8)
+                .build();
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .contentType(MediaType.parseMediaType(download.contentType()))
+                .body(download.bytes());
     }
 }

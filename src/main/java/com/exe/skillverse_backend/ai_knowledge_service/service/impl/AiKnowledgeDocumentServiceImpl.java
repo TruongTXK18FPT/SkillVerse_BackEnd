@@ -192,6 +192,12 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public DownloadedAiKnowledgeDocument downloadAdminDocument(Long id) {
+        return buildDownload(getActiveDocument(id));
+    }
+
+    @Override
     @Transactional
     public AiKnowledgeDocumentDetailResponse reviewDocument(Long id, User admin, ReviewAiKnowledgeRequest request) {
         AiKnowledgeDocument document = getActiveDocument(id);
@@ -258,6 +264,14 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
         AiKnowledgeDocument document = getActiveDocument(id);
         authorizationService.assertMentorCanAccessDocument(mentor, document);
         return documentMapper.toDetail(document);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public DownloadedAiKnowledgeDocument downloadMentorDocument(User mentor, Long id) {
+        AiKnowledgeDocument document = getActiveDocument(id);
+        authorizationService.assertMentorCanAccessDocument(mentor, document);
+        return buildDownload(document);
     }
 
     @Override
@@ -438,6 +452,31 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
             throw new ApiException(ErrorCode.BAD_REQUEST, e.getMessage());
         } catch (IOException e) {
             throw new ApiException(ErrorCode.INTERNAL_ERROR, "Failed to upload knowledge document");
+        }
+    }
+
+    private DownloadedAiKnowledgeDocument buildDownload(AiKnowledgeDocument document) {
+        Media media = mediaRepository.findById(document.getMediaId())
+                .orElseThrow(() -> new ApiException(ErrorCode.INTERNAL_ERROR, "Media not found for AI knowledge document"));
+
+        if (media.getCloudinaryPublicId() == null || media.getCloudinaryPublicId().isBlank()) {
+            throw new ApiException(ErrorCode.INTERNAL_ERROR, "Stored file is missing Cloudinary public ID");
+        }
+
+        String resourceType = media.getCloudinaryResourceType() != null && !media.getCloudinaryResourceType().isBlank()
+                ? media.getCloudinaryResourceType()
+                : "raw";
+
+        try {
+            byte[] bytes = cloudinaryService.fetchFile(media.getCloudinaryPublicId(), resourceType);
+            String contentType = normalize(document.getMimeType());
+            return new DownloadedAiKnowledgeDocument(
+                    document.getOriginalFileName(),
+                    contentType != null ? contentType : "application/octet-stream",
+                    bytes
+            );
+        } catch (IOException e) {
+            throw new ApiException(ErrorCode.INTERNAL_ERROR, "Failed to download knowledge document");
         }
     }
 

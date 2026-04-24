@@ -14,6 +14,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
 public interface AiKnowledgeDocumentService {
+    record DownloadedAiKnowledgeDocument(String fileName, String contentType, byte[] bytes) {}
+
     AiKnowledgeDocumentDetailResponse uploadAdminChatbotDocument(User admin, AdminChatbotKnowledgeUploadRequest request);
 
     AiKnowledgeDocumentDetailResponse uploadAdminRoadmapDocument(User admin, AdminRoadmapKnowledgeUploadRequest request);
@@ -32,6 +34,8 @@ public interface AiKnowledgeDocumentService {
 
     AiKnowledgeDocumentDetailResponse getAdminDocumentDetail(Long id);
 
+    DownloadedAiKnowledgeDocument downloadAdminDocument(Long id);
+
     AiKnowledgeDocumentDetailResponse reviewDocument(Long id, User admin, ReviewAiKnowledgeRequest request);
 
     AiKnowledgeDocumentDetailResponse reindexDocument(Long id);
@@ -41,6 +45,8 @@ public interface AiKnowledgeDocumentService {
     Page<AiKnowledgeDocumentListItemResponse> listMentorDocuments(User mentor, Pageable pageable);
 
     AiKnowledgeDocumentDetailResponse getMentorDocumentDetail(User mentor, Long id);
+
+    DownloadedAiKnowledgeDocument downloadMentorDocument(User mentor, Long id);
 
     void deleteMentorPendingSubmission(User mentor, Long id);
 }
