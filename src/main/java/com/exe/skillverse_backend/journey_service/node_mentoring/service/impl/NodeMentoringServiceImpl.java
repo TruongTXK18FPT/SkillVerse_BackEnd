@@ -154,6 +154,12 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         boolean isOwner = journey.getUser() != null && callerId.equals(journey.getUser().getId());
         boolean isAssignedMentor = bookingRepository.existsActiveNodeBookingForMentor(
                 callerId, journeyId, nodeId, ASSIGNED_MENTOR_STATUSES);
+        // Fallback: ROADMAP_MENTORING / JOURNEY_MENTORING bookings have nodeId=null
+        // but still authorize the mentor to view evidence for any node in the journey.
+        if (!isAssignedMentor) {
+            isAssignedMentor = bookingRepository.existsActiveJourneyBookingForMentor(
+                    callerId, journeyId, ASSIGNED_MENTOR_STATUSES);
+        }
         if (!isOwner && !isAssignedMentor) {
             throw new ApiException(ErrorCode.FORBIDDEN,
                     "Access denied: you are not the journey owner or an assigned mentor for node " + nodeId);

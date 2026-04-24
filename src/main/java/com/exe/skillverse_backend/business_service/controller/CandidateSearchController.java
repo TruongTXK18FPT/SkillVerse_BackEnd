@@ -48,6 +48,13 @@ public class CandidateSearchController {
             @RequestParam(required = false) Boolean openToOffers,
             @RequestParam(required = false) Boolean hasPortfolio,
             @RequestParam(required = false) Boolean hasCertificates,
+            @RequestParam(required = false) Boolean isVerified,
+            @RequestParam(required = false) Boolean isPremium,
+            @RequestParam(required = false) Boolean hasRelevantProjects,
+            @RequestParam(required = false) Boolean hasCompletedMissions,
+            @RequestParam(required = false) Boolean mustMatchPrimarySkill,
+            @RequestParam(required = false) Integer minOverallScore,
+            @RequestParam(required = false) Integer minSkillFit,
             @RequestParam(required = false) Long jobId,
             @RequestParam(required = false) Long shortTermJobId,
             @RequestParam(defaultValue = "0") int page,
@@ -73,6 +80,13 @@ public class CandidateSearchController {
                 .openToOffers(openToOffers)
                 .hasPortfolio(hasPortfolio)
                 .hasCertificates(hasCertificates)
+                .isVerified(isVerified)
+                .isPremium(isPremium)
+                .hasRelevantProjects(hasRelevantProjects)
+                .hasCompletedMissions(hasCompletedMissions)
+                .mustMatchPrimarySkill(mustMatchPrimarySkill)
+                .minOverallScore(minOverallScore)
+                .minSkillFit(minSkillFit)
                 .jobId(jobId)
                 .shortTermJobId(shortTermJobId)
                 .page(page)

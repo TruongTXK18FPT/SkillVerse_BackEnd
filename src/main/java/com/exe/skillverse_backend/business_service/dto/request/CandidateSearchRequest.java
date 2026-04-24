@@ -30,6 +30,13 @@ public class CandidateSearchRequest {
     private Boolean openToOffers; // Only candidates open to job offers
     private Boolean hasPortfolio; // Only candidates with portfolio
     private Boolean hasCertificates; // Only candidates with certificates
+    private Boolean isVerified; // Only candidates with verified skills/evidence
+    private Boolean isPremium; // Only premium/highlighted candidates
+    private Boolean hasRelevantProjects; // Only candidates with projects matching job requirements
+    private Boolean hasCompletedMissions; // Only candidates with completed SkillVerse missions/jobs
+    private Boolean mustMatchPrimarySkill; // Hard-filter candidates missing the primary skill
+    private Integer minOverallScore; // 0-100
+    private Integer minSkillFit; // 0-100
 
     // For matching with specific job
     private Long jobId; // Match candidates to this long-term job posting

@@ -18,6 +18,7 @@ import com.exe.skillverse_backend.business_service.service.SearchAnalyticsServic
 import com.exe.skillverse_backend.business_service.repository.CandidateSearchSessionRepository;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterShortlistRepository;
+import com.exe.skillverse_backend.business_service.service.CandidateFitScoringService;
 import com.exe.skillverse_backend.business_service.service.CandidateSearchService;
 import com.exe.skillverse_backend.business_service.service.RecruitmentChatService;
 import com.exe.skillverse_backend.portfolio_service.dto.CandidateSummaryDTO;
@@ -65,6 +66,7 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
     private final AISearchService aiSearchService;
     private final RecruitmentChatService recruitmentChatService;
     private final SearchAnalyticsService searchAnalyticsService;
+    private final CandidateFitScoringService candidateFitScoringService;
     private final ObjectMapper objectMapper;
     private final com.exe.skillverse_backend.journey_service.repository.JourneyRepository journeyRepository;
 
@@ -323,16 +325,15 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
             throw new ForbiddenException("Bạn không có quyền xem ứng viên cho tin này.");
         }
 
-        // Get candidates with match scores
-        Pageable pageable = PageRequest.of(page, size, Sort.by("totalScore").descending());
-        Page<CandidateMatchScore> matchScores = matchScoreRepository.findByJobPostingIdOrderByScoreDesc(jobId, pageable);
+        CandidateSearchRequest request = CandidateSearchRequest.builder()
+                .jobId(jobId)
+                .page(page)
+                .size(size)
+                .sortBy("matchScore")
+                .sortOrder("DESC")
+                .build();
 
-        // Map to DTO
-        List<CandidateSummaryDTO> candidates = matchScores.getContent().stream()
-                .map(ms -> mapMatchScoreToDTO(ms, job))
-                .collect(Collectors.toList());
-
-        return new PageImpl<>(candidates, pageable, matchScores.getTotalElements());
+        return searchCandidates(recruiterId, request);
     }
 
     @Override
@@ -450,32 +451,40 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         // Start with base candidate info
         CandidateSummaryDTO dto = mapProfileToDTO(profile);
 
-        // Calculate component scores
-        double skillScore = calculateSkillScore(profile, job, shortTermJob, request, dto);
-        double projectScore = calculateProjectScore(profile, dto);
-        double certScore = calculateCertificateScore(profile, dto);
-        double missionScore = calculateMissionScore(profile, dto);
+        CandidateFitScoringService.ScoreResult score =
+                candidateFitScoringService.score(profile, job, shortTermJob, request);
 
-        // Calculate total weighted score
-        double totalScore = (skillScore * SKILL_WEIGHT.doubleValue())
-                + (projectScore * PROJECT_WEIGHT.doubleValue())
-                + (certScore * CERT_WEIGHT.doubleValue())
-                + (missionScore * MISSION_WEIGHT.doubleValue());
+        dto.setMatchScore(Math.round(score.getOverallScore() * 100.0) / 100.0);
+        dto.setMatchQuality(determineMatchQuality(score.getOverallScore()));
+        dto.setSkillMatchPercent((int) Math.round(score.getSkillFit() * 100));
 
-        dto.setMatchScore(Math.round(totalScore * 100.0) / 100.0);
-        dto.setMatchQuality(determineMatchQuality(totalScore));
+        // Backward-compatible weighted component fields for existing UI.
+        dto.setSkillMatchScore(Math.round(score.getSkillFit() * 0.35 * 100.0) / 100.0);
+        dto.setProjectMatchScore(Math.round(score.getEvidenceFit() * 0.20 * 100.0) / 100.0);
+        dto.setCertMatchScore(Math.round(score.getConfidenceFit() * 0.10 * 100.0) / 100.0);
+        dto.setMissionMatchScore(Math.round(score.getDeliveryFit() * 0.10 * 100.0) / 100.0);
+        dto.setExperienceMatchScore(Math.round(score.getExperienceFit() * 0.15 * 100.0) / 100.0);
+        dto.setEvidenceMatchScore(Math.round(score.getEvidenceFit() * 0.20 * 100.0) / 100.0);
+        dto.setDeliveryMatchScore(Math.round(score.getDeliveryFit() * 0.10 * 100.0) / 100.0);
+        dto.setLogisticsMatchScore(Math.round(score.getLogisticsFit() * 0.10 * 100.0) / 100.0);
+        dto.setConfidenceMatchScore(Math.round(score.getConfidenceFit() * 0.10 * 100.0) / 100.0);
+        dto.setRiskPenaltyScore(score.getRiskPenalty());
 
-        // Set skill match percentage
-        dto.setSkillMatchPercent((int) Math.round(skillScore * 100));
-
-        // Set ranking breakdown
-        dto.setSkillMatchScore(Math.round(skillScore * SKILL_WEIGHT.doubleValue() * 100.0) / 100.0);
-        dto.setProjectMatchScore(Math.round(projectScore * PROJECT_WEIGHT.doubleValue() * 100.0) / 100.0);
-        dto.setCertMatchScore(Math.round(certScore * CERT_WEIGHT.doubleValue() * 100.0) / 100.0);
-        dto.setMissionMatchScore(Math.round(missionScore * MISSION_WEIGHT.doubleValue() * 100.0) / 100.0);
-
-        // Populate detailed breakdown context
-        populateDetailedBreakdown(dto, profile, job, shortTermJob, skillScore, projectScore, certScore, missionScore);
+        dto.setPrimarySkillMatch(score.getPrimarySkillMatch());
+        dto.setMatchedSkills(score.getMatchedSkills());
+        dto.setUnmatchedSkills(score.getUnmatchedSkills());
+        dto.setTotalRequiredSkills(score.getTotalRequiredSkills());
+        dto.setTotalCandidateSkills(score.getTotalCandidateSkills());
+        dto.setCompletedMissionsCount(score.getCompletedMissionsCount());
+        dto.setTotalCertificatesCount(score.getTotalCertificatesCount());
+        dto.setTotalVerifiedSkillsCount(score.getTotalVerifiedSkillsCount());
+        dto.setRelevantProjectsCount(score.getRelevantProjectsCount());
+        dto.setRelevantCertificatesCount(score.getRelevantCertificatesCount());
+        dto.setRelevantMissionsCount(score.getRelevantMissionsCount());
+        dto.setAverageMissionRating(score.getAverageMissionRating());
+        dto.setIsVerified(score.isVerified());
+        dto.setFitExplanation(score.getFitExplanation());
+        dto.setFitAnalysis(score.getAnalysis());
 
         return dto;
     }
@@ -506,8 +515,40 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         Comparator<CandidateSummaryDTO> comparator;
         switch (sortBy) {
             case "skillmatchpercent":
+            case "skillfit":
                 comparator = Comparator.comparingInt(
                         candidate -> candidate.getSkillMatchPercent() != null ? candidate.getSkillMatchPercent() : 0
+                );
+                break;
+            case "experiencefit":
+                comparator = Comparator.comparingDouble(
+                        candidate -> getFitComponentScore(candidate, "experienceFit")
+                );
+                break;
+            case "evidencefit":
+                comparator = Comparator.comparingDouble(
+                        candidate -> getFitComponentScore(candidate, "evidenceFit")
+                );
+                break;
+            case "deliveryfit":
+                comparator = Comparator.comparingDouble(
+                        candidate -> getFitComponentScore(candidate, "deliveryFit")
+                );
+                break;
+            case "logisticsfit":
+                comparator = Comparator.comparingDouble(
+                        candidate -> getFitComponentScore(candidate, "logisticsFit")
+                );
+                break;
+            case "confidencefit":
+                comparator = Comparator.comparingDouble(
+                        candidate -> getFitComponentScore(candidate, "confidenceFit")
+                );
+                break;
+            case "risk":
+            case "riskpenalty":
+                comparator = Comparator.comparingDouble(
+                        candidate -> candidate.getRiskPenaltyScore() != null ? candidate.getRiskPenaltyScore() : 0.0
                 );
                 break;
             case "totalprojects":
@@ -588,6 +629,18 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         }
     }
 
+    private double getFitComponentScore(CandidateSummaryDTO candidate, String key) {
+        if (candidate == null || candidate.getFitAnalysis() == null || candidate.getFitAnalysis().getComponents() == null) {
+            return 0.0;
+        }
+
+        return candidate.getFitAnalysis().getComponents().stream()
+                .filter(component -> key.equalsIgnoreCase(component.getKey()))
+                .map(component -> component.getScore() != null ? component.getScore() : 0.0)
+                .findFirst()
+                .orElse(0.0);
+    }
+
     private boolean matchesCandidateFilters(
             PortfolioExtendedProfile profile,
             CandidateSummaryDTO dto,
@@ -629,6 +682,48 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         if (Boolean.TRUE.equals(request.getHasCertificates()) &&
                 (profile.getTotalCertificates() == null || profile.getTotalCertificates() <= 0)) {
             return false;
+        }
+
+        if (Boolean.TRUE.equals(request.getHasPortfolio()) &&
+                (profile.getCustomUrlSlug() == null || profile.getCustomUrlSlug().isBlank())) {
+            return false;
+        }
+
+        if (Boolean.TRUE.equals(request.getIsVerified()) && !Boolean.TRUE.equals(dto.getIsVerified())) {
+            return false;
+        }
+
+        if (Boolean.TRUE.equals(request.getIsPremium()) && !dto.isHighlighted()) {
+            return false;
+        }
+
+        if (Boolean.TRUE.equals(request.getHasRelevantProjects()) &&
+                (dto.getRelevantProjectsCount() == null || dto.getRelevantProjectsCount() <= 0)) {
+            return false;
+        }
+
+        if (Boolean.TRUE.equals(request.getHasCompletedMissions()) &&
+                (dto.getCompletedMissionsCount() == null || dto.getCompletedMissionsCount() <= 0)) {
+            return false;
+        }
+
+        if (Boolean.TRUE.equals(request.getMustMatchPrimarySkill()) &&
+                !Boolean.TRUE.equals(dto.getPrimarySkillMatch())) {
+            return false;
+        }
+
+        if (request.getMinOverallScore() != null) {
+            double scorePercent = (dto.getMatchScore() != null ? dto.getMatchScore() : 0.0) * 100.0;
+            if (scorePercent < request.getMinOverallScore()) {
+                return false;
+            }
+        }
+
+        if (request.getMinSkillFit() != null) {
+            int skillFit = dto.getSkillMatchPercent() != null ? dto.getSkillMatchPercent() : 0;
+            if (skillFit < request.getMinSkillFit()) {
+                return false;
+            }
         }
 
         if (request.getLocation() != null && !request.getLocation().isBlank()) {
@@ -1093,9 +1188,13 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
                 .customUrlSlug(profile.getCustomUrlSlug())
                 .topSkills(profile.getTopSkills()) // Keep as JSON string
                 .isHighlighted(isPremium)
+                .isVerified(false)
                 .hourlyRate(profile.getHourlyRate())
                 .preferredCurrency(profile.getPreferredCurrency())
                 .totalProjects(profile.getTotalProjects())
+                .yearsOfExperience(profile.getYearsOfExperience())
+                .location(profile.getLocation())
+                .availabilityStatus(profile.getAvailabilityStatus())
                 .build();
     }
 
