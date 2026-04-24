@@ -67,6 +67,26 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
             "text/plain",
             "text/markdown"
     );
+    private static final Set<String> SUPPORTED_INDUSTRIES = Set.of(
+            "IT",
+            "Business",
+            "Finance",
+            "Marketing",
+            "Design",
+            "Education",
+            "Healthcare",
+            "Logistics",
+            "Legal",
+            "Public Administration",
+            "Agriculture",
+            "Service Hospitality",
+            "Arts Entertainment"
+    );
+    private static final Set<String> SUPPORTED_LEVELS = Set.of(
+            "beginner",
+            "intermediate",
+            "advanced"
+    );
 
     private final AiKnowledgeDocumentRepository documentRepository;
     private final AiKnowledgeAuthorizationService authorizationService;
@@ -318,6 +338,8 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
 
         Media media = uploadMedia(normalizedFile, actor.getId(), folder);
         ExtractionResult extractionResult = extractText(media, normalizedFile.getContentType());
+        String normalizedIndustry = normalizeKnowledgeIndustry(industry);
+        String normalizedLevel = normalizeKnowledgeLevel(level);
 
         AiKnowledgeDocument document = AiKnowledgeDocument.builder()
                 .mediaId(media.getId())
@@ -330,8 +352,8 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
                 .mentorId(mentorId)
                 .skillName(normalize(skillName))
                 .skillSlug(normalize(skillSlug))
-                .industry(normalize(industry))
-                .level(normalize(level))
+                .industry(normalizedIndustry)
+                .level(normalizedLevel)
                 .courseId(courseId)
                 .moduleId(moduleId)
                 .assignmentId(assignmentId)
@@ -653,6 +675,34 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
         String normalized = normalize(value);
         if (normalized == null) {
             throw new ApiException(ErrorCode.BAD_REQUEST, message);
+        }
+        return normalized;
+    }
+
+    private String normalizeKnowledgeIndustry(String value) {
+        String normalized = normalize(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (!SUPPORTED_INDUSTRIES.contains(normalized)) {
+            throw new ApiException(
+                    ErrorCode.BAD_REQUEST,
+                    "Invalid industry. Allowed values: " + SUPPORTED_INDUSTRIES
+            );
+        }
+        return normalized;
+    }
+
+    private String normalizeKnowledgeLevel(String value) {
+        String normalized = normalize(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (!SUPPORTED_LEVELS.contains(normalized)) {
+            throw new ApiException(
+                    ErrorCode.BAD_REQUEST,
+                    "Invalid level. Allowed values: " + SUPPORTED_LEVELS
+            );
         }
         return normalized;
     }
