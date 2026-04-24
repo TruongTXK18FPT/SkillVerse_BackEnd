@@ -725,21 +725,33 @@ public class JourneyServiceImpl implements JourneyService {
 
     private Optional<QuestionBankResponse> resolveQuestionBankForJourney(
             Journey journey, String domain, String industry, String jobRole) {
+        String skillName = journey != null ? journey.getSkillName() : null;
+        log.info("resolveQuestionBankForJourney: journeyId={}, type={}, skillName={}, domain={}, industry={}, jobRole={}",
+                journey != null ? journey.getId() : null,
+                journey != null ? journey.getType() : null,
+                skillName,
+                domain,
+                industry,
+                jobRole);
+
         if (isSkillJourney(journey)) {
             Optional<QuestionBankResponse> scopedBank = questionBankService.findActiveBank(
                     domain,
                     industry,
                     jobRole,
-                    journey != null ? journey.getSkillName() : null);
+                    skillName);
             if (scopedBank.isPresent()) {
+                log.info("Found exact skill-scoped question bank: {}", scopedBank.get().getId());
                 return scopedBank;
             }
             if ((industry == null || industry.isBlank()) && jobRole != null && !jobRole.isBlank()) {
+                log.info("Trying findActiveBankByJobRole fallback: domain={}, jobRole={}, skillName={}", domain, jobRole, skillName);
                 return questionBankService.findActiveBankByJobRole(
                         domain,
                         jobRole,
-                        journey != null ? journey.getSkillName() : null);
+                        skillName);
             }
+            log.info("No question bank found for skill journey with skillName={}", skillName);
             return Optional.empty();
         }
         return questionBankService.findActiveBank(domain, jobRole);
