@@ -20,8 +20,10 @@ import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -64,6 +66,72 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
   // Use Gemini native endpoint instead of OpenAI-compatible one
   private static final String GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
+
+  // Domain keyword map for smart detection (static to avoid re-creation per request)
+  // Includes both English and Vietnamese terms for better native language support
+  private static final Map<String, List<String>> DOMAIN_KEYWORDS = Map.of(
+      "it", List.of(
+          // Vietnamese - Software/Programming
+          "lập trình", "phần mềm", "kỹ sư phần mềm", "lập trình viên", "developer",
+          "ứng dụng", "trang web", "website", "hệ thống", "công nghệ thông tin",
+          "cntt", "it", "tin học", "máy tính", "viết code", "coding",
+          // Vietnamese - Technical roles
+          "kỹ sư", "chuyên viên", "kỹ thuật viên", "nhà phát triển",
+          // English technical terms
+          "code", "java", "python", "react", "angular", "backend", "frontend",
+          "devops", "database", "sql", "javascript", "typescript", "spring",
+          "docker", "kubernetes", "aws", "cloud", "web", "app", "mobile",
+          "ios", "android", "fullstack", "api", "microservices", "ai",
+          "machine learning", "data science", "blockchain", "cybersecurity"),
+      "business", List.of(
+          // Vietnamese
+          "marketing", "bán hàng", "kinh doanh", "quản lý", "quản trị",
+          "startup", "khởi nghiệp", "kế hoạch", "chiến lược", "khách hàng",
+          "seo", "quảng cáo", "truyền thông", "thương mại", "doanh nghiệp",
+          "công ty", "tài chính", "kế toán", "nhân sự", "hành chính",
+          "đầu tư", "chứng khoán", "ngân hàng", "bảo hiểm", "bất động sản",
+          // English
+          "sales", "management", "strategy", "customer", "ads", "finance",
+          "accounting", "hr", "admin", "investment", "banking", "insurance",
+          "real estate", "ecommerce", "retail", "wholesale", "logistics"),
+      "design", List.of(
+          // Vietnamese
+          "thiết kế", "thiết kế đồ họa", "thiết kế web", "thiết kế sản phẩm",
+          "mỹ thuật", "nghệ thuật", "sáng tạo", "dàn trang", "trực quan",
+          "hình ảnh", "đa phương tiện", "animation", "motion", "video",
+          // English
+          "ui", "ux", "figma", "photoshop", "illustrator", "graphic",
+          "creative", "adobe", "sketch", "prototyping", "wireframe",
+          "branding", "logo", "visual", "multimedia", "3d", "blender"),
+      "healthcare", List.of(
+          // Vietnamese
+          "y tế", "bác sĩ", "điều dưỡng", "dược", "dược sĩ", "sức khỏe",
+          "y học", "bệnh viện", "phòng khám", "chăm sóc sức khỏe",
+          "y tá", "nha khoa", "thú y", "veterinary", "dinh dưỡng", "nutrition",
+          "trị liệu", "therapy", "xét nghiệm", "lab", "phẫu thuật",
+          // English
+          "medical", "health", "nurse", "pharmacy", "doctor", "dentist",
+          "veterinarian", "clinical", "surgery", "diagnosis", "patient"),
+      "engineering", List.of(
+          // Vietnamese
+          "kỹ thuật", "kỹ sư", "cơ khí", "điện", "điện tử", "công nghiệp",
+          "tự động hóa", "robotics", "năng lượng", "xây dựng", "kiến trúc",
+          "cầu đường", "giao thông", "môi trường", "hóa học", "vật liệu",
+          // English
+          "mechanical", "electrical", "civil", "construction", "architecture",
+          "automotive", "aerospace", "chemical", "materials", "environmental",
+          "structural", "manufacturing", "production", "quality control"),
+      "education", List.of(
+          // Vietnamese
+          "giáo dục", "giảng viên", "đào tạo", "học thuật", "giáo viên",
+          "trường học", "đại học", "cao đẳng", "trung cấp", "phổ thông",
+          "mầm non", "tiểu học", "trung học", "ghi danh", "tuyển sinh",
+          "e-learning", "học trực tuyến", "gia sư", "mentor", "huấn luyện",
+          // English
+          "teaching", "lecturer", "training", "academic", "school",
+          "university", "college", "kindergarten", "tutoring", "coaching",
+          "curriculum", "pedagogy", "research", "scholarship")
+  );
 
   public AiChatbotServiceImpl(
       @Qualifier("mistralAiChatModel") ChatModel mistralChatModel,
@@ -345,21 +413,41 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           request.getChatMode(), sessionId, user.getId());
     }
 
-    // Build conversation context
+    // Build conversation context - limit to last 12 messages to avoid large context window
+    // Uses PageRequest for pagination - follows Spring Data JPA best practices
+    final int CONTEXT_WINDOW_LIMIT = 12;
     List<ChatMessage> previousMessages = chatMessageRepository
-        .findBySessionIdOrderByCreatedAtAsc(sessionId);
+        .findRecentBySessionId(sessionId, PageRequest.of(0, CONTEXT_WINDOW_LIMIT));
+
+    // Smart domain detection from user message
+    DetectedResult detectedContext = detectDomain(request.getMessage());
+
+    // Get persisted domain from session for continuity (if current message has no clear domain)
+    String sessionDomain = chatSession.getDetectedDomain();
+
+    // Determine effective domain: new detection takes priority, fallback to session
+    String effectiveDomain = (detectedContext != null) ? detectedContext.domain() : sessionDomain;
 
     // Add correction hints to help AI detect and fix invalid inputs
     String messageWithHints = addCorrectionHints(request.getMessage());
-    log.info("Chat mode: {}, Session: {}, Original message: {}",
-        request.getChatMode(), sessionId, request.getMessage());
+    log.info("Chat mode: {}, Session: {}, Detected domain: {}, Session domain: {}",
+        request.getChatMode(), sessionId,
+        detectedContext != null ? detectedContext.domain() : "none",
+        sessionDomain != null ? sessionDomain : "none");
 
-    // Call AI with automatic provider selection and fallback
-    String aiResponse = callAIWithFallback(messageWithHints, previousMessages, request);
+    // Call AI with automatic provider selection and fallback (passing session domain for persistence)
+    String aiResponse = callAIWithFallback(messageWithHints, previousMessages, request, sessionDomain);
     // Sanitize: remove '####' headings from AI response as requested
     aiResponse = sanitizeAIResponse(aiResponse);
 
     LocalDateTime messageTimestamp = LocalDateTime.now();
+
+    // Persist detected domain to session for continuity in future messages
+    if (effectiveDomain != null && !effectiveDomain.equals(sessionDomain)) {
+      chatSession.setDetectedDomain(effectiveDomain);
+      log.info("Updated session {} detectedDomain to '{}'", sessionId, effectiveDomain);
+    }
+
     updateSessionMetadata(
         chatSession,
         request,
@@ -388,7 +476,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
         .message(request.getMessage())
         .aiResponse(aiResponse)
         .timestamp(chatMessage.getCreatedAt())
-        .chatMode(request.getChatMode());
+        .chatMode(request.getChatMode())
+        .detectedDomain(detectedContext != null ? detectedContext.domain() : null);
 
     // Add expert context if in EXPERT_MODE
     if (request.getChatMode() == ChatMode.EXPERT_MODE) {
@@ -468,9 +557,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
    * Call Mistral AI for chat using Spring AI
    * Using Mistral AI for latest 2026 career trends and insights
    */
-  private String callAIWithFallback(String userMessage, List<ChatMessage> previousMessages, ChatRequest request) {
-    log.info("Calling Mistral AI chatbot using Spring AI");
-
+  private String callAIWithFallback(String userMessage, List<ChatMessage> previousMessages, ChatRequest request,
+      String sessionDomain) {
     try {
       String agentSuffix = (request.getAiAgentMode() != null
           && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode()))
@@ -480,21 +568,21 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode())) {
         try {
           return callGeminiForChat(userMessage, previousMessages, request, agentSuffix, geminiModel,
-              "Gemini Primary");
+              "Gemini Primary", sessionDomain);
         } catch (Exception ge) {
           String msg = ge.getMessage() != null ? ge.getMessage().toLowerCase() : "";
           if (msg.contains("429") || msg.contains("quota") || msg.contains("resource_exhausted")
               || msg.contains("rate limit")) {
             try {
               return callGeminiForChat(userMessage, previousMessages, request, agentSuffix, geminiFallbackModel,
-                  "Gemini Fallback");
+                  "Gemini Fallback", sessionDomain);
             } catch (Exception ge2) {
               String normalSuffix = "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions>.";
-              return callMistralForChat(userMessage, previousMessages, request, normalSuffix);
+              return callMistralForChat(userMessage, previousMessages, request, normalSuffix, sessionDomain);
             }
           } else {
             String normalSuffix = "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions>.";
-            return callMistralForChat(userMessage, previousMessages, request, normalSuffix);
+            return callMistralForChat(userMessage, previousMessages, request, normalSuffix, sessionDomain);
           }
         }
       }
@@ -502,7 +590,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       if (localAiGateway != null && localAiGateway.isAvailable()) {
         try {
           String ragContext = localAiGateway.fetchRagContext(userMessage, null, 5);
-          String localSystemPrompt = resolveSystemPromptForLocal(request, previousMessages, agentSuffix, ragContext);
+          String localSystemPrompt = resolveSystemPromptForLocal(request, previousMessages, agentSuffix, ragContext, sessionDomain);
           log.info("Using Local AI for normal chat mode");
           return localAiGateway.call(localSystemPrompt, buildConversationHistoryText(userMessage, previousMessages));
         } catch (LocalAiGateway.LocalAiQueueFullException qfe) {
@@ -511,13 +599,15 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           log.warn("Local AI failed, falling back to Mistral: {}", localEx.getMessage());
         }
       }
-      return callMistralForChat(userMessage, previousMessages, request, agentSuffix);
+      // Local AI not available or failed, use Mistral
+      log.info("Local AI unavailable, using Mistral for normal chat mode");
+      return callMistralForChat(userMessage, previousMessages, request, agentSuffix, sessionDomain);
     } catch (Exception e) {
       log.error("Mistral AI failed: {}", e.getMessage());
 
       try {
         String normalAgentSuffix = "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.";
-        return callMistralForChat(userMessage, previousMessages, request, normalAgentSuffix);
+        return callMistralForChat(userMessage, previousMessages, request, normalAgentSuffix, sessionDomain);
       } catch (Exception e2) {
         // FALLBACK: Return a helpful response instead of throwing error
         return generateFallbackResponse(userMessage);
@@ -530,7 +620,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
    * Mistral provides more recent training data for 2026 career trends
    */
   private String callMistralForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request,
-      String agentSuffix) {
+      String agentSuffix, String sessionDomain) {
     try {
       // Build conversation history
       StringBuilder contextBuilder = new StringBuilder();
@@ -546,32 +636,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       String conversationHistory = contextBuilder.toString();
       log.debug("Calling Mistral AI with {} previous messages", previousMessages.size());
 
-      // DETERMINE SYSTEM PROMPT based on chat mode
-      String systemPrompt;
-
-      if (request.getChatMode() == ChatMode.EXPERT_MODE) {
-        // EXPERT_MODE: Try to get specialized prompt
-        systemPrompt = expertPromptService.getSystemPrompt(
-            request.getDomain(),
-            request.getIndustry(),
-            request.getJobRole());
-
-        // If no expert prompt found, fall back to general prompt
-        if (systemPrompt == null) {
-          log.warn("No expert prompt found for role: {}, falling back to general advisor",
-              request.getJobRole());
-          systemPrompt = SYSTEM_PROMPT;
-        } else {
-          log.info("Using expert prompt for: {} - {} - {}",
-              request.getDomain(), request.getIndustry(), request.getJobRole());
-        }
-      } else {
-        // GENERAL_CAREER_ADVISOR: Use default prompt
-        // Use simpler prompt for first message, full prompt for subsequent
-        boolean isFirstTurn = previousMessages == null || previousMessages.isEmpty();
-        systemPrompt = isFirstTurn ? SYSTEM_PROMPT_SIMPLE : SYSTEM_PROMPT;
-        log.info("Using general career advisor prompt (first turn: {})", isFirstTurn);
-      }
+      // Smart domain detection for prompt selection (with session persistence)
+      String systemPrompt = resolveSmartSystemPrompt(userMessage, previousMessages, sessionDomain);
 
       // Append critical instruction
       String finalSystemPrompt = systemPrompt +
@@ -604,8 +670,75 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     }
   }
 
+  /**
+   * Resolve system prompt using smart domain detection with session persistence.
+   * If current message has no clear domain but session has persisted domain,
+   * continue using the persisted domain for consistent expert persona.
+   *
+   * @param userMessage Current user message
+   * @param previousMessages Previous messages in conversation
+   * @param sessionDomain Domain persisted from previous turns in this session (nullable)
+   * @return System prompt to use
+   */
+  private String resolveSmartSystemPrompt(String userMessage, List<ChatMessage> previousMessages,
+      String sessionDomain) {
+    DetectedResult detected = detectDomain(userMessage);
+
+    // Case 1: Detected domain from current message - use it (may override session)
+    if (detected != null) {
+      String prompt = expertPromptService.getSystemPrompt(detected.domain(), null, null);
+      if (prompt != null) {
+        log.info("[SmartChat] EXPERT prompt | domain='{}' | keyword='{}' | source=detected",
+            detected.domain(), detected.matchedKeyword());
+        return prompt;
+      }
+      log.info("[SmartChat] No expert prompt for detected domain='{}', using GENERAL", detected.domain());
+    }
+    // Case 2: No domain in message but session has persisted domain - continue with session domain
+    else if (sessionDomain != null && !sessionDomain.isBlank()) {
+      String prompt = expertPromptService.getSystemPrompt(sessionDomain, null, null);
+      if (prompt != null) {
+        log.info("[SmartChat] EXPERT prompt | domain='{}' | source=session", sessionDomain);
+        return prompt;
+      }
+      log.info("[SmartChat] Session domain='{}' has no expert prompt, using GENERAL", sessionDomain);
+    }
+    // Case 3: No domain at all
+    else {
+      log.info("[SmartChat] No domain detected and no session domain, using GENERAL prompt");
+    }
+
+    boolean isFirstTurn = previousMessages == null || previousMessages.isEmpty();
+    return isFirstTurn ? SYSTEM_PROMPT_SIMPLE : SYSTEM_PROMPT;
+  }
+
+  /**
+   * Detect domain from user message using keyword matching
+   * Returns detected result or null if no match
+   */
+  private DetectedResult detectDomain(String message) {
+    if (message == null || message.isBlank()) {
+      return null;
+    }
+
+    String normalized = message.toLowerCase();
+
+    for (Map.Entry<String, List<String>> entry : DOMAIN_KEYWORDS.entrySet()) {
+      for (String keyword : entry.getValue()) {
+        if (normalized.contains(keyword)) {
+          return new DetectedResult(entry.getKey(), keyword);
+        }
+      }
+    }
+
+    return null;
+  }
+
+  // Simple record for detection result
+  private record DetectedResult(String domain, String matchedKeyword) {}
+
   private String callGeminiForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request,
-      String agentSuffix, String modelName, String label) {
+      String agentSuffix, String modelName, String label, String sessionDomain) {
     StringBuilder contextBuilder = new StringBuilder();
     contextBuilder.append("Conversation history:\n");
     for (ChatMessage prev : previousMessages) {
@@ -614,19 +747,9 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     }
     contextBuilder.append("User: ").append(userMessage);
     String conversationHistory = contextBuilder.toString();
-    String systemPrompt;
-    if (request.getChatMode() == ChatMode.EXPERT_MODE) {
-      systemPrompt = expertPromptService.getSystemPrompt(
-          request.getDomain(),
-          request.getIndustry(),
-          request.getJobRole());
-      if (systemPrompt == null) {
-        systemPrompt = SYSTEM_PROMPT;
-      }
-    } else {
-      boolean isFirstTurn = previousMessages == null || previousMessages.isEmpty();
-      systemPrompt = isFirstTurn ? SYSTEM_PROMPT_SIMPLE : SYSTEM_PROMPT;
-    }
+
+    // Smart domain detection for prompt selection (with session persistence)
+    String systemPrompt = resolveSmartSystemPrompt(userMessage, previousMessages, sessionDomain);
     String finalSystemPrompt = systemPrompt +
         "\nCRITICAL: Hãy trả lời bằng đúng ngôn ngữ người dùng đang dùng (ưu tiên Tiếng Việt). Nếu phát hiện yêu cầu vô lý (ví dụ mục tiêu IELTS 10.0), hãy giải thích và đưa gợi ý hợp lệ bằng Tiếng Việt.";
     if (agentSuffix != null && !agentSuffix.isEmpty()) {
@@ -1474,18 +1597,9 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   }
 
   private String resolveSystemPromptForLocal(ChatRequest request, List<ChatMessage> previousMessages,
-      String agentSuffix, String ragContext) {
-    String systemPrompt;
-    if (request.getChatMode() == ChatMode.EXPERT_MODE) {
-      systemPrompt = expertPromptService.getSystemPrompt(
-          request.getDomain(), request.getIndustry(), request.getJobRole());
-      if (systemPrompt == null) {
-        systemPrompt = SYSTEM_PROMPT;
-      }
-    } else {
-      boolean isFirstTurn = previousMessages == null || previousMessages.isEmpty();
-      systemPrompt = isFirstTurn ? SYSTEM_PROMPT_SIMPLE : SYSTEM_PROMPT;
-    }
+      String agentSuffix, String ragContext, String sessionDomain) {
+    // Smart domain detection for prompt selection (with session persistence)
+    String systemPrompt = resolveSmartSystemPrompt(request.getMessage(), previousMessages, sessionDomain);
     String result = systemPrompt
         + "\nCRITICAL: Hãy trả lời bằng đúng ngôn ngữ người dùng đang dùng (ưu tiên Tiếng Việt).";
     if (agentSuffix != null && !agentSuffix.isEmpty()) {

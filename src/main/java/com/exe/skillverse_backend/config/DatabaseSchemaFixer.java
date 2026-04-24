@@ -455,6 +455,15 @@ public class DatabaseSchemaFixer {
                     this::patchAiKnowledgeDocumentsTable,
                     this::verifyAiKnowledgeDocumentsTable);
 
+            // ═══════════════════════════════════════════════════════════════════
+            // AI Chatbot — Smart Domain Persistence
+            // ═══════════════════════════════════════════════════════════════════
+
+            applyPatch("add-chat-session-detected-domain",
+                    "Add detected_domain column to chat_sessions for AI domain persistence across session",
+                    this::patchChatSessionDetectedDomain,
+                    this::verifyChatSessionDetectedDomain);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -3161,5 +3170,39 @@ public class DatabaseSchemaFixer {
                 && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_skill_slug")
                 && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_course_module_assignment")
                 && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_archived_at");
+    }
+
+    // ─── AI Chatbot — Smart Domain Persistence ─────────────────────────────────
+
+    /**
+     * Add detected_domain column to chat_sessions for AI domain persistence.
+     * This column stores the detected domain (e.g., "it", "business") from smart detection
+     * to maintain expert persona across the session when user's follow-up messages
+     * don't contain clear domain keywords.
+     *
+     * SAFE FOR PRODUCTION:
+     * - Column is nullable (existing sessions will have null values)
+     * - No default value required
+     * - No data migration needed
+     * - Only affects new sessions or sessions after AI chat
+     */
+    private void patchChatSessionDetectedDomain() {
+        if (!hasTable("chat_sessions")) {
+            log.debug("Table chat_sessions does not exist yet, skipping patch.");
+            return;
+        }
+
+        // Add nullable column - safe for existing data
+        executeSql("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS detected_domain VARCHAR(50)");
+
+        log.info("Added detected_domain column to chat_sessions for AI domain persistence");
+    }
+
+    private boolean verifyChatSessionDetectedDomain() {
+        if (!hasTable("chat_sessions")) {
+            return true; // Skip verification if table doesn't exist yet
+        }
+
+        return hasColumn("chat_sessions", "detected_domain");
     }
 }

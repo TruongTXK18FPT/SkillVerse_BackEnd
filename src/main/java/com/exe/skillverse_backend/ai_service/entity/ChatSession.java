@@ -68,6 +68,14 @@ public class ChatSession {
     @Column(name = "job_role", length = 255)
     private String jobRole;
 
+    /**
+     * Detected domain from smart detection (e.g., "it", "business", "design")
+     * Persisted to maintain expert persona across session when user's message
+     * doesn't contain clear domain keywords
+     */
+    @Column(name = "detected_domain", length = 50)
+    private String detectedDomain;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "expert_prompt_config_id")
     @ToString.Exclude

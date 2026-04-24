@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.ai_service.repository;
 
 import com.exe.skillverse_backend.ai_service.entity.ChatMessage;
 import java.util.List;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -15,6 +16,13 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
      */
     @Query("SELECT cm FROM ChatMessage cm WHERE cm.chatSession.id = :sessionId ORDER BY cm.createdAt ASC")
     List<ChatMessage> findBySessionIdOrderByCreatedAtAsc(@Param("sessionId") Long sessionId);
+
+    /**
+     * Find recent messages in a session (limited to avoid large context windows)
+     * Uses Pageable to limit results - portable across database vendors
+     */
+    @Query("SELECT cm FROM ChatMessage cm WHERE cm.chatSession.id = :sessionId ORDER BY cm.createdAt ASC")
+    List<ChatMessage> findRecentBySessionId(@Param("sessionId") Long sessionId, Pageable pageable);
 
     /**
      * Find latest message in a session

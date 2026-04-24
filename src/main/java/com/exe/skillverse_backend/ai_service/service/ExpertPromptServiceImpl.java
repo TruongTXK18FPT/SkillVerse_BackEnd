@@ -37,8 +37,12 @@ public class ExpertPromptServiceImpl extends BaseExpertPromptService implements 
         String normalizedIndustry = (industry == null) ? "" : industry.trim().toLowerCase();
         String normalizedDomain = (domain == null) ? "" : domain.trim().toLowerCase();
 
-        // If no specific role, return null (AiChatbotService will use default)
+        // If no specific role, check if domain is provided for domain-only queries
         if (normalizedRole.isEmpty()) {
+            // Domain-only query (e.g., from smart detection): return generic domain expert prompt
+            if (!normalizedDomain.isEmpty()) {
+                return new ExpertPromptResolution(getGenericExpertPrompt(normalizedDomain), null);
+            }
             return new ExpertPromptResolution(null, null);
         }
 

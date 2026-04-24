@@ -30,6 +30,12 @@ public class ChatResponse {
      * Expert context (only populated in EXPERT_MODE)
      */
     private ExpertContext expertContext;
+
+    /**
+     * Detected domain from user message (e.g., "it", "business", "design")
+     * Populated when smart detection identifies a domain from keywords
+     */
+    private String detectedDomain;
     
     /**
      * Nested class for expert mode context information
