@@ -14,6 +14,7 @@ public final class AiKnowledgeDocTypeResolver {
         return switch (useCase) {
             case CHATBOT_GLOBAL -> "guide";
             case ROADMAP_SKILL -> "skill";
+            // Kept for historical document compatibility — not an active upload path.
             case GRADING_ASSIGNMENT, GRADING_MODULE -> "assignment";
             case GRADING_COURSE -> "lesson";
         };

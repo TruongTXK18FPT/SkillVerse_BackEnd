@@ -11,6 +11,7 @@ import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
 import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
+import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
@@ -74,11 +75,14 @@ class AssignmentAiGradingServiceImplTest {
     @Mock
     private ChatModel chatModel;
 
-        @Mock
+    @Mock
     private CourseLearningProgressService courseLearningProgressService;
 
     @Mock
     private LocalAiGateway localAiGateway;
+
+    @Mock
+    private LessonRepository lessonRepository;
 
     private AssignmentAiGradingServiceImpl service;
 
@@ -100,7 +104,8 @@ class AssignmentAiGradingServiceImplTest {
                 notificationService,
                 chatModel,
                 courseLearningProgressService,
-                null
+                null,
+                lessonRepository
         );
 
         User mentor = User.builder().id(7L).firstName("Mentor").lastName("One").build();
@@ -334,7 +339,7 @@ class AssignmentAiGradingServiceImplTest {
         AssignmentAiGradingServiceImpl serviceWithLocal = new AssignmentAiGradingServiceImpl(
                 assignmentRepository, submissionRepository, criteriaRepository, criteriaScoreRepository,
                 mediaRepository, gradingPromptService, fileExtractor, notificationService,
-                null, courseLearningProgressService, localAiGateway);
+                null, courseLearningProgressService, localAiGateway, lessonRepository);
 
         when(localAiGateway.isAvailable()).thenReturn(true);
         when(localAiGateway.call(anyString(), anyString())).thenReturn("not-valid-json");
@@ -358,7 +363,7 @@ class AssignmentAiGradingServiceImplTest {
         AssignmentAiGradingServiceImpl serviceWithLocal = new AssignmentAiGradingServiceImpl(
                 assignmentRepository, submissionRepository, criteriaRepository, criteriaScoreRepository,
                 mediaRepository, gradingPromptService, fileExtractor, notificationService,
-                null, courseLearningProgressService, localAiGateway);
+                null, courseLearningProgressService, localAiGateway, lessonRepository);
 
         when(localAiGateway.isAvailable()).thenReturn(true);
         when(localAiGateway.fetchRagContext(anyString(), any(), anyInt()))

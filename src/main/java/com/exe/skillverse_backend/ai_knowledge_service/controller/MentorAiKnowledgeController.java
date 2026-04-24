@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.ai_knowledge_service.controller;
 
-import com.exe.skillverse_backend.ai_knowledge_service.dto.request.MentorGradingKnowledgeSubmissionRequest;
 import com.exe.skillverse_backend.ai_knowledge_service.dto.request.MentorRoadmapKnowledgeSubmissionRequest;
 import com.exe.skillverse_backend.ai_knowledge_service.dto.response.AiKnowledgeDocumentDetailResponse;
 import com.exe.skillverse_backend.ai_knowledge_service.dto.response.AiKnowledgeDocumentListItemResponse;
@@ -41,15 +40,6 @@ public class MentorAiKnowledgeController {
         User mentor = userResolver.resolve(jwt);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(aiKnowledgeDocumentService.submitMentorRoadmapDocument(mentor, request));
-    }
-
-    @PostMapping("/grading-documents")
-    public ResponseEntity<AiKnowledgeDocumentDetailResponse> submitGradingDocument(
-            @AuthenticationPrincipal Jwt jwt,
-            @Valid @ModelAttribute MentorGradingKnowledgeSubmissionRequest request) {
-        User mentor = userResolver.resolve(jwt);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(aiKnowledgeDocumentService.submitMentorGradingDocument(mentor, request));
     }
 
     @GetMapping("/documents")

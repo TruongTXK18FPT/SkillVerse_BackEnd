@@ -2,7 +2,6 @@ package com.exe.skillverse_backend.ai_knowledge_service.service;
 
 import com.exe.skillverse_backend.ai_knowledge_service.dto.request.AdminChatbotKnowledgeUploadRequest;
 import com.exe.skillverse_backend.ai_knowledge_service.dto.request.AdminRoadmapKnowledgeUploadRequest;
-import com.exe.skillverse_backend.ai_knowledge_service.dto.request.MentorGradingKnowledgeSubmissionRequest;
 import com.exe.skillverse_backend.ai_knowledge_service.dto.request.MentorRoadmapKnowledgeSubmissionRequest;
 import com.exe.skillverse_backend.ai_knowledge_service.dto.request.ReviewAiKnowledgeRequest;
 import com.exe.skillverse_backend.ai_knowledge_service.dto.response.AiKnowledgeDocumentDetailResponse;
@@ -20,8 +19,6 @@ public interface AiKnowledgeDocumentService {
     AiKnowledgeDocumentDetailResponse uploadAdminRoadmapDocument(User admin, AdminRoadmapKnowledgeUploadRequest request);
 
     AiKnowledgeDocumentDetailResponse submitMentorRoadmapDocument(User mentor, MentorRoadmapKnowledgeSubmissionRequest request);
-
-    AiKnowledgeDocumentDetailResponse submitMentorGradingDocument(User mentor, MentorGradingKnowledgeSubmissionRequest request);
 
     Page<AiKnowledgeDocumentListItemResponse> listAdminDocuments(
             AiKnowledgeUseCase useCase,

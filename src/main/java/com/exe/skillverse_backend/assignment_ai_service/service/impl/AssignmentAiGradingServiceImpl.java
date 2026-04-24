@@ -10,9 +10,11 @@ import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.SubmissionCriteriaScore;
+import com.exe.skillverse_backend.course_service.entity.enums.LessonType;
 import com.exe.skillverse_backend.course_service.repository.AssignmentCriteriaRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
+import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.repository.SubmissionCriteriaScoreRepository;
 import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
 import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
@@ -42,6 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingService {
 
     private static final int MAX_AI_GRADE_ATTEMPTS = 3;
+    private static final int DB_CONTEXT_MAX_CHARS = 4000;
 
     private final AssignmentRepository assignmentRepository;
     private final AssignmentSubmissionRepository submissionRepository;
@@ -55,6 +58,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
     private final ChatModel chatModel;
     private final ObjectMapper objectMapper;
     private final LocalAiGateway localAiGateway;
+    private final LessonRepository lessonRepository;
 
     public AssignmentAiGradingServiceImpl(
             AssignmentRepository assignmentRepository,
@@ -67,7 +71,8 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
             NotificationService notificationService,
             @Autowired(required = false) @Qualifier("assignmentAiChatModel") ChatModel chatModel,
             @Autowired(required = false) CourseLearningProgressService courseLearningProgressService,
-            @Autowired(required = false) LocalAiGateway localAiGateway) {
+            @Autowired(required = false) LocalAiGateway localAiGateway,
+            LessonRepository lessonRepository) {
         this.assignmentRepository = assignmentRepository;
         this.submissionRepository = submissionRepository;
         this.criteriaRepository = criteriaRepository;
@@ -79,6 +84,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         this.chatModel = chatModel;
         this.courseLearningProgressService = courseLearningProgressService;
         this.localAiGateway = localAiGateway;
+        this.lessonRepository = lessonRepository;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -136,20 +142,18 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
             throw new IllegalArgumentException("No content to grade. Submission is empty.");
         }
 
-        // Enrich grading prompt with RAG context if available
+        // Enrich grading prompt with course/module reading context
         String ragPrefix = "";
-        if (localAiGateway != null) {
-            try {
-                String ragQuery = assignment.getTitle() != null ? assignment.getTitle() : "assignment grading";
-                String ragContext = fetchGradingRagContext(ragQuery, assignment, module, course);
-                if (!ragContext.isBlank()) {
-                    ragPrefix = "## Lý thuyết tham chiếu từ bài giảng\n" + ragContext
-                            + "\n\nHãy chấm bài DỰA TRÊN lý thuyết tham chiếu ở trên."
-                            + " Nếu bài làm sai so với tài liệu, hãy trừ điểm và giải thích rõ.\n\n";
-                }
-            } catch (Exception ragEx) {
-                log.warn("RAG fetch failed for assignment grading, continuing without context: {}", ragEx.getMessage());
+        try {
+            String ragQuery = buildRagQuery(course, module, assignment);
+            String courseContext = fetchCourseContentContext(ragQuery, module, course);
+            if (!courseContext.isBlank()) {
+                ragPrefix = "## Lý thuyết tham chiếu từ bài giảng\n" + courseContext
+                        + "\n\nHãy chấm bài DỰA TRÊN lý thuyết tham chiếu ở trên."
+                        + " Nếu bài làm sai so với tài liệu, hãy trừ điểm và giải thích rõ.\n\n";
             }
+        } catch (Exception contextEx) {
+            log.warn("Course context fetch failed for grading, continuing without context: {}", contextEx.getMessage());
         }
 
         // Build prompt
@@ -333,47 +337,68 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         return dto;
     }
 
-    private String fetchGradingRagContext(String ragQuery, Assignment assignment, Module module, Course course) {
-        String courseId = course.getId().toString();
-        String moduleId = module.getId().toString();
-        String assignmentId = assignment.getId().toString();
+    private String buildRagQuery(Course course, Module module, Assignment assignment) {
+        StringBuilder sb = new StringBuilder();
+        if (course.getTitle() != null && !course.getTitle().isBlank()) {
+            sb.append(course.getTitle());
+        }
+        if (module.getTitle() != null && !module.getTitle().isBlank()) {
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(module.getTitle());
+        }
+        if (assignment.getTitle() != null && !assignment.getTitle().isBlank()) {
+            if (sb.length() > 0) sb.append(" ");
+            sb.append(assignment.getTitle());
+        }
+        return sb.length() > 0 ? sb.toString() : "assignment grading";
+    }
 
-        String ragContext = localAiGateway.fetchRagContext(
-                ragQuery,
-                Map.of(
-                        "doc_type", "assignment",
-                        "course_id", courseId,
-                        "module_id", moduleId,
-                        "domain", "grading_assignment_" + assignmentId
-                ),
-                3);
+    private String fetchCourseContentContext(String ragQuery, Module module, Course course) {
+        if (localAiGateway != null) {
+            String courseId = course.getId().toString();
+            String moduleId = module.getId().toString();
 
-        if (!ragContext.isBlank()) {
-            return ragContext;
+            // Tier 1: module-scoped course content via RAG (course_id + module_id)
+            String ragContext = localAiGateway.fetchRagContext(
+                    ragQuery,
+                    Map.of(
+                            "doc_type", "lesson",
+                            "domain", "course_content",
+                            "course_id", courseId,
+                            "module_id", moduleId
+                    ),
+                    5);
+
+            if (!ragContext.isBlank()) {
+                return ragContext;
+            }
+
+            // Tier 2: course-scoped course content via RAG (course_id only)
+            ragContext = localAiGateway.fetchRagContext(
+                    ragQuery,
+                    Map.of(
+                            "doc_type", "lesson",
+                            "domain", "course_content",
+                            "course_id", courseId
+                    ),
+                    5);
+
+            if (!ragContext.isBlank()) {
+                return ragContext;
+            }
         }
 
-        ragContext = localAiGateway.fetchRagContext(
-                ragQuery,
-                Map.of(
-                        "doc_type", "assignment",
-                        "course_id", courseId,
-                        "module_id", moduleId,
-                        "domain", "grading_module"
-                ),
-                3);
-
-        if (!ragContext.isBlank()) {
-            return ragContext;
+        // Tier 3: direct DB fallback — reading lessons in the module, truncated to DB_CONTEXT_MAX_CHARS
+        String dbContext = lessonRepository.findByModuleIdOrderByOrderIndexAsc(module.getId()).stream()
+                .filter(l -> LessonType.READING.equals(l.getType())
+                        && l.getContentText() != null
+                        && !l.getContentText().isBlank())
+                .map(l -> "### " + l.getTitle() + "\n" + l.getContentText())
+                .collect(Collectors.joining("\n\n"));
+        if (dbContext.length() > DB_CONTEXT_MAX_CHARS) {
+            dbContext = dbContext.substring(0, DB_CONTEXT_MAX_CHARS) + "\n...[truncated]";
         }
-
-        return localAiGateway.fetchRagContext(
-                ragQuery,
-                Map.of(
-                        "doc_type", "lesson",
-                        "course_id", courseId,
-                        "domain", "grading_course"
-                ),
-                3);
+        return dbContext;
     }
 
     private AiGradingResultDTO callAiWithRetry(String userPrompt) {

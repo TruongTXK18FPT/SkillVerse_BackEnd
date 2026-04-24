@@ -2,7 +2,6 @@ package com.exe.skillverse_backend.ai_knowledge_service.service.impl;
 
 import com.exe.skillverse_backend.ai_knowledge_service.dto.request.AdminChatbotKnowledgeUploadRequest;
 import com.exe.skillverse_backend.ai_knowledge_service.dto.request.AdminRoadmapKnowledgeUploadRequest;
-import com.exe.skillverse_backend.ai_knowledge_service.dto.request.MentorGradingKnowledgeSubmissionRequest;
 import com.exe.skillverse_backend.ai_knowledge_service.dto.request.MentorRoadmapKnowledgeSubmissionRequest;
 import com.exe.skillverse_backend.ai_knowledge_service.dto.request.ReviewAiKnowledgeRequest;
 import com.exe.skillverse_backend.ai_knowledge_service.dto.response.AiKnowledgeDocumentDetailResponse;
@@ -21,12 +20,6 @@ import com.exe.skillverse_backend.ai_knowledge_service.service.AiKnowledgeTextEx
 import com.exe.skillverse_backend.ai_knowledge_service.util.AiKnowledgeDocTypeResolver;
 import com.exe.skillverse_backend.ai_knowledge_service.util.AiKnowledgeSlugUtils;
 import com.exe.skillverse_backend.auth_service.entity.User;
-import com.exe.skillverse_backend.course_service.entity.Assignment;
-import com.exe.skillverse_backend.course_service.entity.Course;
-import com.exe.skillverse_backend.course_service.entity.Module;
-import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
-import com.exe.skillverse_backend.course_service.repository.CourseRepository;
-import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.exception.ApiException;
@@ -44,7 +37,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -96,9 +88,6 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
     private final MediaService mediaService;
     private final CloudinaryService cloudinaryService;
     private final MediaRepository mediaRepository;
-    private final CourseRepository courseRepository;
-    private final ModuleRepository moduleRepository;
-    private final AssignmentRepository assignmentRepository;
     private final ApplicationEventPublisher eventPublisher;
 
     @Override
@@ -168,30 +157,6 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
                 null,
                 null,
                 null,
-                false
-        );
-        return documentMapper.toDetail(document);
-    }
-
-    @Override
-    @Transactional
-    public AiKnowledgeDocumentDetailResponse submitMentorGradingDocument(User mentor, MentorGradingKnowledgeSubmissionRequest request) {
-        ResolvedGradingScope scope = resolveGradingScope(mentor, request);
-        AiKnowledgeDocument document = createDocument(
-                mentor,
-                request.getFile(),
-                request.getTitle(),
-                request.getDescription(),
-                null,
-                null,
-                scope.useCase(),
-                AiKnowledgeApprovalStatus.PENDING,
-                mentor.getId(),
-                null,
-                null,
-                scope.courseId(),
-                scope.moduleId(),
-                scope.assignmentId(),
                 false
         );
         return documentMapper.toDetail(document);
@@ -493,40 +458,6 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "AI knowledge document not found: " + id));
     }
 
-    private ResolvedGradingScope resolveGradingScope(User mentor, MentorGradingKnowledgeSubmissionRequest request) {
-        if (request.getAssignmentId() != null) {
-            Assignment assignment = assignmentRepository.findById(request.getAssignmentId())
-                    .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Assignment not found: " + request.getAssignmentId()));
-            Long resolvedModuleId = assignment.getModule().getId();
-            Long resolvedCourseId = assignment.getModule().getCourse().getId();
-            assertMatches(request.getCourseId(), resolvedCourseId, "courseId does not match assignment");
-            if (request.getModuleId() != null) {
-                assertMatches(request.getModuleId(), resolvedModuleId, "moduleId does not match assignment");
-            }
-            authorizationService.assertMentorOwnsAssignment(mentor, assignment.getId());
-            return new ResolvedGradingScope(AiKnowledgeUseCase.GRADING_ASSIGNMENT, resolvedCourseId, resolvedModuleId, assignment.getId());
-        }
-
-        if (request.getModuleId() != null) {
-            Module module = moduleRepository.findById(request.getModuleId())
-                    .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Module not found: " + request.getModuleId()));
-            Long resolvedCourseId = module.getCourse().getId();
-            assertMatches(request.getCourseId(), resolvedCourseId, "courseId does not match module");
-            authorizationService.assertMentorOwnsModule(mentor, module.getId());
-            return new ResolvedGradingScope(AiKnowledgeUseCase.GRADING_MODULE, resolvedCourseId, module.getId(), null);
-        }
-
-        Course course = Optional.ofNullable(courseRepository.findByIdWithAuthor(request.getCourseId()))
-                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Course not found: " + request.getCourseId()));
-        authorizationService.assertMentorOwnsCourse(mentor, course.getId());
-        return new ResolvedGradingScope(AiKnowledgeUseCase.GRADING_COURSE, course.getId(), null, null);
-    }
-
-    private void assertMatches(Long provided, Long resolved, String message) {
-        if (provided != null && !provided.equals(resolved)) {
-            throw new ApiException(ErrorCode.BAD_REQUEST, message);
-        }
-    }
 
     private String requireSkillSlug(String skillName) {
         String skillSlug = AiKnowledgeSlugUtils.toRoadmapSkillSlug(skillName);
@@ -736,9 +667,6 @@ public class AiKnowledgeDocumentServiceImpl implements AiKnowledgeDocumentServic
     }
 
     private record ExtractionResult(String extractedText, String extractError, AiKnowledgeIngestionStatus ingestionStatus) {
-    }
-
-    private record ResolvedGradingScope(AiKnowledgeUseCase useCase, Long courseId, Long moduleId, Long assignmentId) {
     }
 
     private static final class InMemoryMultipartFile implements MultipartFile {
