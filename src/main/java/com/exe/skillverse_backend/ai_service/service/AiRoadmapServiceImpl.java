@@ -1502,16 +1502,47 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             return "";
         }
 
-        Map<String, String> filters = new LinkedHashMap<>();
-        filters.put("doc_type", "skill");
-
         String skillSlug = resolveRoadmapSkillSlug(request);
+
+        // Tier 1: if skillSlug + canonical industry/level available, try scoped query first
         if (skillSlug != null) {
-            filters.put("domain", AiKnowledgeSlugUtils.toRoadmapDomain(skillSlug));
+            String canonicalIndustry = resolveCanonicalIndustry(request.getIndustry());
+            String canonicalLevel = resolveCanonicalLevel(request.getCurrentLevel());
+            boolean hasIndustry = canonicalIndustry != null;
+            boolean hasLevel = canonicalLevel != null;
+
+            if (hasIndustry || hasLevel) {
+                Map<String, String> scopedFilters = new LinkedHashMap<>();
+                scopedFilters.put("doc_type", "skill");
+                scopedFilters.put("domain", AiKnowledgeSlugUtils.toRoadmapDomain(skillSlug));
+                if (hasIndustry) scopedFilters.put("industry", canonicalIndustry);
+                if (hasLevel) scopedFilters.put("level", canonicalLevel);
+
+                String ragContext = localAiGateway.fetchRagContext(ragQuery, scopedFilters, 5);
+                if (!ragContext.isBlank()) {
+                    return "## Tài liệu Skill tham khảo từ SkillVerse\n"
+                            + ragContext
+                            + "\n\nHãy tạo roadmap bám sát tài liệu trên nếu phù hợp với mục tiêu người học.";
+                }
+            }
+
+            // Tier 2: skill-domain only (no industry/level)
+            Map<String, String> domainFilters = new LinkedHashMap<>();
+            domainFilters.put("doc_type", "skill");
+            domainFilters.put("domain", AiKnowledgeSlugUtils.toRoadmapDomain(skillSlug));
+
+            String ragContext = localAiGateway.fetchRagContext(ragQuery, domainFilters, 5);
+            if (!ragContext.isBlank()) {
+                return "## Tài liệu Skill tham khảo từ SkillVerse\n"
+                        + ragContext
+                        + "\n\nHãy tạo roadmap bám sát tài liệu trên nếu phù hợp với mục tiêu người học.";
+            }
+
+            return "";
         }
 
-        String ragContext = localAiGateway.fetchRagContext(ragQuery, filters, 5);
-
+        // Tier 3: skillSlug unresolvable — broad doc_type=skill only
+        String ragContext = localAiGateway.fetchRagContext(ragQuery, Map.of("doc_type", "skill"), 5);
         if (ragContext.isBlank()) {
             return "";
         }
@@ -1562,6 +1593,37 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         }
 
         return skillSlug.matches("[a-z0-9]+(?:-[a-z0-9]+)*") ? skillSlug : null;
+    }
+
+    private static final Set<String> CANONICAL_INDUSTRIES = Set.of(
+            "IT", "Business", "Finance", "Marketing", "Design",
+            "Education", "Healthcare", "Logistics", "Legal",
+            "Public Administration", "Agriculture", "Service Hospitality", "Arts Entertainment");
+
+    private static final Set<String> CANONICAL_LEVELS = Set.of("beginner", "intermediate", "advanced");
+
+    /**
+     * Returns the canonical industry value if the input matches any canonical industry
+     * (case-insensitive). Returns null if no match — prevents non-canonical values from
+     * being sent as RAG exact-match filters.
+     */
+    private String resolveCanonicalIndustry(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String trimmed = raw.trim();
+        for (String canonical : CANONICAL_INDUSTRIES) {
+            if (canonical.equalsIgnoreCase(trimmed)) return canonical;
+        }
+        return null;
+    }
+
+    /**
+     * Returns the canonical level value if the input matches any canonical level
+     * (case-insensitive). Returns null if no match.
+     */
+    private String resolveCanonicalLevel(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        String lower = raw.trim().toLowerCase(Locale.ROOT);
+        return CANONICAL_LEVELS.contains(lower) ? lower : null;
     }
 
         private String callMistralRoadmapFallback(GenerateRoadmapRequest request) {

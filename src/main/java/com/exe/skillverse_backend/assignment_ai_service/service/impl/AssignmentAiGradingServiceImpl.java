@@ -357,7 +357,8 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                 Map.of(
                         "doc_type", "assignment",
                         "course_id", courseId,
-                        "module_id", moduleId
+                        "module_id", moduleId,
+                        "domain", "grading_module"
                 ),
                 3);
 
@@ -369,7 +370,8 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                 ragQuery,
                 Map.of(
                         "doc_type", "lesson",
-                        "course_id", courseId
+                        "course_id", courseId,
+                        "domain", "grading_course"
                 ),
                 3);
     }

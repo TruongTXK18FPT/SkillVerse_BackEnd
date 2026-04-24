@@ -589,7 +589,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       // Normal mode: try Local AI first, fallback to Mistral
       if (localAiGateway != null && localAiGateway.isAvailable()) {
         try {
-          String ragContext = localAiGateway.fetchRagContext(userMessage, null, 5);
+          String ragContext = localAiGateway.fetchRagContext(userMessage, Map.of("doc_type", "guide", "domain", "chatbot_global"), 5);
           String localSystemPrompt = resolveSystemPromptForLocal(request, previousMessages, agentSuffix, ragContext, sessionDomain);
           log.info("Using Local AI for normal chat mode");
           return localAiGateway.call(localSystemPrompt, buildConversationHistoryText(userMessage, previousMessages));
@@ -648,7 +648,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
       // Enrich prompt with RAG context if available
       if (localAiGateway != null && localAiGateway.isAvailable()) {
-        String ragContext = localAiGateway.fetchRagContext(userMessage, null, 5);
+        String ragContext = localAiGateway.fetchRagContext(userMessage, Map.of("doc_type", "guide", "domain", "chatbot_global"), 5);
         if (!ragContext.isBlank()) {
           finalSystemPrompt = finalSystemPrompt + "\n\n## TÀI LIỆU SKILLVERSE THAM KHẢO:\n" + ragContext;
         }
