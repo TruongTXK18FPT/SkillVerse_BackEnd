@@ -3248,4 +3248,180 @@ public class DatabaseSchemaFixer {
 
         return hasColumn("chat_sessions", "detected_domain");
     }
+
+    // ─── student_skill_verification_requests table ──────────────────────────────
+
+    private void patchStudentSkillVerificationRequestsTable() {
+        if (!hasTable("student_skill_verification_requests")) {
+            executeSql("""
+                CREATE TABLE student_skill_verification_requests (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    skill_name VARCHAR(100) NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                    github_url VARCHAR(500),
+                    portfolio_url VARCHAR(500),
+                    additional_notes TEXT,
+                    review_note TEXT,
+                    reviewed_by BIGINT,
+                    requested_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                    reviewed_at TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """);
+        }
+
+        executeSql("""
+            ALTER TABLE student_skill_verification_requests
+                ADD COLUMN IF NOT EXISTS user_id BIGINT,
+                ADD COLUMN IF NOT EXISTS skill_name VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'PENDING',
+                ADD COLUMN IF NOT EXISTS github_url VARCHAR(500),
+                ADD COLUMN IF NOT EXISTS portfolio_url VARCHAR(500),
+                ADD COLUMN IF NOT EXISTS additional_notes TEXT,
+                ADD COLUMN IF NOT EXISTS review_note TEXT,
+                ADD COLUMN IF NOT EXISTS reviewed_by BIGINT,
+                ADD COLUMN IF NOT EXISTS requested_at TIMESTAMP DEFAULT NOW(),
+                ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
+        """);
+
+        executeSql("""
+            ALTER TABLE student_skill_verification_requests
+                ALTER COLUMN user_id SET NOT NULL,
+                ALTER COLUMN skill_name SET NOT NULL,
+                ALTER COLUMN status SET DEFAULT 'PENDING',
+                ALTER COLUMN status SET NOT NULL,
+                ALTER COLUMN requested_at SET DEFAULT NOW(),
+                ALTER COLUMN requested_at SET NOT NULL,
+                ALTER COLUMN updated_at SET DEFAULT NOW(),
+                ALTER COLUMN updated_at SET NOT NULL
+        """);
+
+        if (hasTable("users") && !hasForeignKey("student_skill_verification_requests", "fk_ssvr_user")) {
+            executeSql("""
+                ALTER TABLE student_skill_verification_requests
+                ADD CONSTRAINT fk_ssvr_user FOREIGN KEY (user_id) REFERENCES users(id)
+            """);
+        }
+
+        if (hasTable("users") && !hasForeignKey("student_skill_verification_requests", "fk_ssvr_reviewed_by")) {
+            executeSql("""
+                ALTER TABLE student_skill_verification_requests
+                ADD CONSTRAINT fk_ssvr_reviewed_by FOREIGN KEY (reviewed_by) REFERENCES users(id)
+            """);
+        }
+
+        executeSql("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'chk_ssvr_status'
+                ) THEN
+                    ALTER TABLE student_skill_verification_requests
+                    ADD CONSTRAINT chk_ssvr_status
+                    CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED'));
+                END IF;
+            END $$;
+        """);
+
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ssvr_user_status ON student_skill_verification_requests(user_id, status)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ssvr_status_requested ON student_skill_verification_requests(status, requested_at)");
+    }
+
+    private boolean verifyStudentSkillVerificationRequestsTable() {
+        if (!hasTable("student_skill_verification_requests")) {
+            return false;
+        }
+
+        return hasColumn("student_skill_verification_requests", "id")
+                && hasColumn("student_skill_verification_requests", "user_id")
+                && hasColumn("student_skill_verification_requests", "skill_name")
+                && hasColumn("student_skill_verification_requests", "status")
+                && hasColumn("student_skill_verification_requests", "github_url")
+                && hasColumn("student_skill_verification_requests", "portfolio_url")
+                && hasColumn("student_skill_verification_requests", "additional_notes")
+                && hasColumn("student_skill_verification_requests", "review_note")
+                && hasColumn("student_skill_verification_requests", "reviewed_by")
+                && hasColumn("student_skill_verification_requests", "requested_at")
+                && hasColumn("student_skill_verification_requests", "reviewed_at")
+                && hasColumn("student_skill_verification_requests", "updated_at")
+                && hasIndex("idx_ssvr_user_status")
+                && hasIndex("idx_ssvr_status_requested")
+                && (!hasTable("users") || hasForeignKey("student_skill_verification_requests", "fk_ssvr_user"));
+    }
+
+    // ─── student_verification_evidences table ───────────────────────────────────
+
+    private void patchStudentVerificationEvidencesTable() {
+        if (!hasTable("student_verification_evidences")) {
+            executeSql("""
+                CREATE TABLE student_verification_evidences (
+                    id BIGSERIAL PRIMARY KEY,
+                    verification_request_id BIGINT NOT NULL,
+                    evidence_type VARCHAR(30) NOT NULL,
+                    evidence_url VARCHAR(1000),
+                    description TEXT,
+                    certificate_id BIGINT,
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+            """);
+        }
+
+        executeSql("""
+            ALTER TABLE student_verification_evidences
+                ADD COLUMN IF NOT EXISTS verification_request_id BIGINT,
+                ADD COLUMN IF NOT EXISTS evidence_type VARCHAR(30),
+                ADD COLUMN IF NOT EXISTS evidence_url VARCHAR(1000),
+                ADD COLUMN IF NOT EXISTS description TEXT,
+                ADD COLUMN IF NOT EXISTS certificate_id BIGINT,
+                ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
+        """);
+
+        executeSql("""
+            ALTER TABLE student_verification_evidences
+                ALTER COLUMN verification_request_id SET NOT NULL,
+                ALTER COLUMN evidence_type SET NOT NULL,
+                ALTER COLUMN created_at SET DEFAULT NOW(),
+                ALTER COLUMN created_at SET NOT NULL
+        """);
+
+        if (hasTable("student_skill_verification_requests")
+                && !hasForeignKey("student_verification_evidences", "fk_sve_request")) {
+            executeSql("""
+                ALTER TABLE student_verification_evidences
+                ADD CONSTRAINT fk_sve_request FOREIGN KEY (verification_request_id)
+                REFERENCES student_skill_verification_requests(id) ON DELETE CASCADE
+            """);
+        }
+
+        if (hasTable("external_certificates")
+                && !hasForeignKey("student_verification_evidences", "fk_sve_certificate")) {
+            executeSql("""
+                ALTER TABLE student_verification_evidences
+                ADD CONSTRAINT fk_sve_certificate FOREIGN KEY (certificate_id)
+                REFERENCES external_certificates(id)
+            """);
+        }
+
+        executeSql("CREATE INDEX IF NOT EXISTS idx_sve_request ON student_verification_evidences(verification_request_id)");
+    }
+
+    private boolean verifyStudentVerificationEvidencesTable() {
+        if (!hasTable("student_verification_evidences")) {
+            return false;
+        }
+
+        return hasColumn("student_verification_evidences", "id")
+                && hasColumn("student_verification_evidences", "verification_request_id")
+                && hasColumn("student_verification_evidences", "evidence_type")
+                && hasColumn("student_verification_evidences", "evidence_url")
+                && hasColumn("student_verification_evidences", "description")
+                && hasColumn("student_verification_evidences", "certificate_id")
+                && hasColumn("student_verification_evidences", "created_at")
+                && hasIndex("idx_sve_request")
+                && (!hasTable("student_skill_verification_requests")
+                        || hasForeignKey("student_verification_evidences", "fk_sve_request"));
+    }
 }
