@@ -109,6 +109,9 @@ public class AiKnowledgeMetadataBuilderImpl implements AiKnowledgeMetadataBuilde
                 }
                 return AiKnowledgeSlugUtils.toRoadmapDomain(skillSlug);
                 
+            // Legacy compatibility only — do not use for new mentor uploads.
+            // Runtime AI grading now queries domain=course_content and falls back to DB reading lessons.
+            // These cases exist solely to handle existing rows during admin review/reindex/archive.
             case GRADING_ASSIGNMENT:
                 return document.getAssignmentId() != null ? "grading_assignment_" + document.getAssignmentId() : null;
                 

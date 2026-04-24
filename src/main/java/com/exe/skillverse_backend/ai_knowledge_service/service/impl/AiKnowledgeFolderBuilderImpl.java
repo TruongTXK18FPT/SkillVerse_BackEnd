@@ -41,6 +41,8 @@ public class AiKnowledgeFolderBuilderImpl implements AiKnowledgeFolderBuilder {
                 }
                 return BASE + "/roadmap/approved/" + skillSlug;
 
+            // Kept for historical document compatibility — not an active upload path.
+            // Mentor grading-doc uploads were removed 2026-04-24.
             case GRADING_ASSIGNMENT:
                 return buildGradingFolder(mentorId, courseId, moduleId, assignmentId, isPending);
 
