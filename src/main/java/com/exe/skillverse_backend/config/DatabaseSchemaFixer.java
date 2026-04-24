@@ -296,6 +296,16 @@ public class DatabaseSchemaFixer {
                     this::patchStudentVerificationRemoveOcrColumns,
                     this::verifyStudentVerificationOcrColumnsRemoved);
 
+            applyPatch("create-student-skill-verification-requests-table",
+                    "Create student_skill_verification_requests table for student skill verification workflow",
+                    this::patchStudentSkillVerificationRequestsTable,
+                    this::verifyStudentSkillVerificationRequestsTable);
+
+            applyPatch("create-student-verification-evidences-table",
+                    "Create student_verification_evidences table for skill verification evidence attachments",
+                    this::patchStudentVerificationEvidencesTable,
+                    this::verifyStudentVerificationEvidencesTable);
+
             // ─── course_skill_tags ElementCollection table ───────────────────────────
             applyPatch("create-course-skill-tags-table",
                     "Create course_skill_tags ElementCollection table for free-form skill tags",
