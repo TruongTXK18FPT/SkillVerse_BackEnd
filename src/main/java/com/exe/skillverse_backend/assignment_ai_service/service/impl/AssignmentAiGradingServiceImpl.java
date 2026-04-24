@@ -8,8 +8,10 @@ import com.exe.skillverse_backend.course_service.entity.Assignment;
 import com.exe.skillverse_backend.course_service.entity.AssignmentCriteria;
 import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleDetailDTO;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.SubmissionCriteriaScore;
+import com.exe.skillverse_backend.course_service.service.impl.RevisionPinnedContentResolver;
 import com.exe.skillverse_backend.course_service.entity.enums.LessonType;
 import com.exe.skillverse_backend.course_service.repository.AssignmentCriteriaRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
@@ -30,6 +32,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -59,6 +62,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
     private final ObjectMapper objectMapper;
     private final LocalAiGateway localAiGateway;
     private final LessonRepository lessonRepository;
+    private final RevisionPinnedContentResolver revisionPinnedContentResolver;
 
     public AssignmentAiGradingServiceImpl(
             AssignmentRepository assignmentRepository,
@@ -72,7 +76,8 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
             @Autowired(required = false) @Qualifier("assignmentAiChatModel") ChatModel chatModel,
             @Autowired(required = false) CourseLearningProgressService courseLearningProgressService,
             @Autowired(required = false) LocalAiGateway localAiGateway,
-            LessonRepository lessonRepository) {
+            LessonRepository lessonRepository,
+            RevisionPinnedContentResolver revisionPinnedContentResolver) {
         this.assignmentRepository = assignmentRepository;
         this.submissionRepository = submissionRepository;
         this.criteriaRepository = criteriaRepository;
@@ -85,6 +90,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         this.courseLearningProgressService = courseLearningProgressService;
         this.localAiGateway = localAiGateway;
         this.lessonRepository = lessonRepository;
+        this.revisionPinnedContentResolver = revisionPinnedContentResolver;
         this.objectMapper = new ObjectMapper();
     }
 
@@ -146,7 +152,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         String ragPrefix = "";
         try {
             String ragQuery = buildRagQuery(course, module, assignment);
-            String courseContext = fetchCourseContentContext(ragQuery, module, course);
+            String courseContext = fetchCourseContentContext(ragQuery, submission, module, course);
             if (!courseContext.isBlank()) {
                 ragPrefix = "## Lý thuyết tham chiếu từ bài giảng\n" + courseContext
                         + "\n\nHãy chấm bài DỰA TRÊN lý thuyết tham chiếu ở trên."
@@ -353,12 +359,23 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         return sb.length() > 0 ? sb.toString() : "assignment grading";
     }
 
-    private String fetchCourseContentContext(String ragQuery, Module module, Course course) {
+    private String fetchCourseContentContext(
+            String ragQuery,
+            AssignmentSubmission submission,
+            Module module,
+            Course course) {
+        // Tier 1: learner pinned revision reading content
+        Assignment assignment = submission.getAssignment();
+        String pinnedContext = resolvePinnedReadingContext(submission, assignment, module, course);
+        if (!pinnedContext.isBlank()) {
+            return pinnedContext;
+        }
+
         if (localAiGateway != null) {
             String courseId = course.getId().toString();
             String moduleId = module.getId().toString();
 
-            // Tier 1: module-scoped course content via RAG (course_id + module_id)
+            // Tier 2: module-scoped course content via RAG (course_id + module_id)
             String ragContext = localAiGateway.fetchRagContext(
                     ragQuery,
                     Map.of(
@@ -373,7 +390,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                 return ragContext;
             }
 
-            // Tier 2: course-scoped course content via RAG (course_id only)
+            // Tier 3: course-scoped course content via RAG (course_id only)
             ragContext = localAiGateway.fetchRagContext(
                     ragQuery,
                     Map.of(
@@ -388,7 +405,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
             }
         }
 
-        // Tier 3: direct DB fallback — reading lessons in the module, truncated to DB_CONTEXT_MAX_CHARS
+        // Tier 4: live DB fallback — reading lessons in the module, truncated to DB_CONTEXT_MAX_CHARS
         String dbContext = lessonRepository.findByModuleIdOrderByOrderIndexAsc(module.getId()).stream()
                 .filter(l -> LessonType.READING.equals(l.getType())
                         && l.getContentText() != null
@@ -399,6 +416,43 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
             dbContext = dbContext.substring(0, DB_CONTEXT_MAX_CHARS) + "\n...[truncated]";
         }
         return dbContext;
+    }
+
+    private String resolvePinnedReadingContext(
+            AssignmentSubmission submission,
+            Assignment assignment,
+            Module module,
+            Course course) {
+        Long learnerId = submission.getUser().getId();
+        return revisionPinnedContentResolver.resolveModulesWithContent(course, learnerId)
+                .flatMap(modules -> {
+                    // Step 1: find pinned module that contains this assignment ID
+                    Optional<ModuleDetailDTO> byAssignment = modules.stream()
+                            .filter(m -> m.getAssignments() != null && m.getAssignments().stream()
+                                    .anyMatch(a -> assignment.getId().equals(a.getId())))
+                            .findFirst();
+                    if (byAssignment.isPresent()) {
+                        return byAssignment;
+                    }
+                    // Step 2: fall back to matching by live module ID
+                    return modules.stream()
+                            .filter(m -> module.getId().equals(m.getId()))
+                            .findFirst();
+                })
+                .map(m -> {
+                    if (m.getLessons() == null) return "";
+                    String ctx = m.getLessons().stream()
+                            .filter(l -> LessonType.READING.equals(l.getType())
+                                    && l.getContentText() != null
+                                    && !l.getContentText().isBlank())
+                            .map(l -> "### " + l.getTitle() + "\n" + l.getContentText())
+                            .collect(Collectors.joining("\n\n"));
+                    if (ctx.length() > DB_CONTEXT_MAX_CHARS) {
+                        ctx = ctx.substring(0, DB_CONTEXT_MAX_CHARS) + "\n...[truncated]";
+                    }
+                    return ctx;
+                })
+                .orElse("");
     }
 
     private AiGradingResultDTO callAiWithRetry(String userPrompt) {
