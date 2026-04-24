@@ -1,6 +1,10 @@
 package com.exe.skillverse_backend.journey_service.node_mentoring.service.impl;
 
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
+import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
+import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
+import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
+import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.ReviewNodeSubmissionRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitNodeEvidenceRequest;
@@ -58,6 +62,8 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
     private final RoadmapNodeReviewRepository reviewRepo;
     private final RoadmapNodeVerificationRepository verificationRepo;
     private final BookingRepository bookingRepository;
+    private final UserRoadmapProgressRepository progressRepository;
+    private final RoadmapSessionRepository roadmapSessionRepository;
 
     // ─── Assignment ───────────────────────────────────────────────────────────
 
@@ -163,7 +169,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
     @Transactional
     public NodeReviewResponse reviewSubmission(Long actingMentorId, Long journeyId, String nodeId,
                                                ReviewNodeSubmissionRequest request) {
-        resolver.resolveJourneyWithRoadmap(journeyId);
+        Journey journey = resolver.resolveJourneyWithRoadmap(journeyId);
         requireAssignedMentor(actingMentorId, journeyId, nodeId);
 
         RoadmapNodeSubmission s = submissionRepo.findByJourneyIdAndNodeId(journeyId, nodeId)
@@ -174,6 +180,8 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
             throw new ApiException(ErrorCode.CONFLICT,
                     "Submission already verified; review not allowed");
         }
+
+        requireLearnerMarkedNodeCompleted(journey, nodeId);
 
         RoadmapNodeReview review = RoadmapNodeReview.builder()
                 .submissionId(s.getId())
@@ -190,15 +198,19 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
             case APPROVED -> {
                 s.setVerificationStatus(VerificationStatus.APPROVED);
                 s.setMentorFeedback(request.getFeedback());
+                syncNodeCompletionState(journey, nodeId, true);
             }
             case REWORK_REQUESTED -> {
                 s.setSubmissionStatus(SubmissionStatus.REWORK_REQUESTED);
                 s.setVerificationStatus(VerificationStatus.UNDER_REVIEW);
                 s.setMentorFeedback(request.getFeedback());
+                syncNodeCompletionState(journey, nodeId, false);
             }
             case REJECTED -> {
+                s.setSubmissionStatus(SubmissionStatus.REWORK_REQUESTED);
                 s.setVerificationStatus(VerificationStatus.REJECTED);
                 s.setMentorFeedback(request.getFeedback());
+                syncNodeCompletionState(journey, nodeId, false);
             }
         }
         submissionRepo.save(s);
@@ -212,7 +224,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
     @Transactional
     public NodeVerificationResponse verifyNode(Long actingMentorId, Long journeyId, String nodeId,
                                                VerifyNodeRequest request) {
-        resolver.resolveJourneyWithRoadmap(journeyId);
+        Journey journey = resolver.resolveJourneyWithRoadmap(journeyId);
         requireAssignedMentor(actingMentorId, journeyId, nodeId);
 
         RoadmapNodeSubmission s = submissionRepo.findByJourneyIdAndNodeId(journeyId, nodeId)
@@ -238,8 +250,11 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
 
         if (request.getNodeVerificationStatus() == NodeVerificationStatus.VERIFIED) {
             s.setVerificationStatus(VerificationStatus.VERIFIED);
+            syncNodeCompletionState(journey, nodeId, true);
         } else {
+            s.setSubmissionStatus(SubmissionStatus.REWORK_REQUESTED);
             s.setVerificationStatus(VerificationStatus.REJECTED);
+            syncNodeCompletionState(journey, nodeId, false);
         }
         submissionRepo.save(s);
 
@@ -262,6 +277,57 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
             throw new ApiException(ErrorCode.FORBIDDEN,
                     "Mentor is not assigned to node " + nodeId + " in journey " + journeyId);
         }
+    }
+
+    private void requireLearnerMarkedNodeCompleted(Journey journey, String nodeId) {
+        if (journey == null || journey.getRoadmapSessionId() == null) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Journey has no roadmap session to validate node completion");
+        }
+
+        UserRoadmapProgress progress = progressRepository
+                .findBySessionIdAndQuestId(journey.getRoadmapSessionId(), nodeId)
+                .orElse(null);
+        if (progress == null || progress.getStatus() != UserRoadmapProgress.ProgressStatus.COMPLETED) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Learner must mark this node as completed before mentor review");
+        }
+    }
+
+    private void syncNodeCompletionState(Journey journey, String nodeId, boolean completed) {
+        if (journey == null || journey.getRoadmapSessionId() == null || nodeId == null || nodeId.isBlank()) {
+            return;
+        }
+
+        RoadmapSession roadmapSession = roadmapSessionRepository
+                .findById(journey.getRoadmapSessionId())
+                .orElse(null);
+        if (roadmapSession == null) {
+            return;
+        }
+
+        UserRoadmapProgress progress = progressRepository
+                .findBySessionIdAndQuestId(roadmapSession.getId(), nodeId)
+                .orElse(UserRoadmapProgress.builder()
+                        .roadmapSession(roadmapSession)
+                        .questId(nodeId)
+                        .status(UserRoadmapProgress.ProgressStatus.NOT_STARTED)
+                        .progress(0)
+                        .build());
+
+        if (completed) {
+            progress.setStatus(UserRoadmapProgress.ProgressStatus.COMPLETED);
+            progress.setProgress(100);
+            if (progress.getCompletedAt() == null) {
+                progress.setCompletedAt(Instant.now());
+            }
+        } else {
+            progress.setStatus(UserRoadmapProgress.ProgressStatus.NOT_STARTED);
+            progress.setProgress(0);
+            progress.setCompletedAt(null);
+        }
+
+        progressRepository.save(progress);
     }
 
     /**
@@ -327,6 +393,9 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                 .findFirstBySubmissionIdOrderByVerifiedAtDesc(s.getId())
                 .map(NodeVerificationResponse::from)
                 .orElse(null);
-        return NodeEvidenceRecordResponse.from(s, latestReview, latestVerification);
+        UserRoadmapProgress roadmapProgress = s.getRoadmapSessionId() != null
+                ? progressRepository.findBySessionIdAndQuestId(s.getRoadmapSessionId(), s.getNodeId()).orElse(null)
+                : null;
+        return NodeEvidenceRecordResponse.from(s, latestReview, latestVerification, roadmapProgress);
     }
 }

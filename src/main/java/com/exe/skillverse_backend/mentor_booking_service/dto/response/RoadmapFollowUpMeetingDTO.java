@@ -19,13 +19,21 @@ public class RoadmapFollowUpMeetingDTO {
     private Long learnerId;
     private String title;
     private String agenda;
+    private String purpose;
     private LocalDateTime scheduledAt;
     private Integer durationMinutes;
     private String meetingLink;
     private String status;
     private String notes;
+    private String createdByRole;
+    private Long createdByUserId;
+    private LocalDateTime acceptedAt;
+    private LocalDateTime rejectedAt;
+    private String rejectReason;
+    private Boolean canJoin;
 
     public static RoadmapFollowUpMeetingDTO from(RoadmapFollowUpMeeting entity) {
+        boolean accepted = "ACCEPTED".equalsIgnoreCase(entity.getStatus());
         return RoadmapFollowUpMeetingDTO.builder()
                 .id(entity.getId())
                 .bookingId(entity.getBookingId())
@@ -34,11 +42,18 @@ public class RoadmapFollowUpMeetingDTO {
                 .learnerId(entity.getLearnerId())
                 .title(entity.getTitle())
                 .agenda(entity.getAgenda())
+                .purpose(entity.getPurpose())
                 .scheduledAt(entity.getScheduledAt())
                 .durationMinutes(entity.getDurationMinutes())
                 .meetingLink(entity.getMeetingLink())
                 .status(entity.getStatus())
                 .notes(entity.getNotes())
+                .createdByRole(entity.getCreatedByRole())
+                .createdByUserId(entity.getCreatedByUserId())
+                .acceptedAt(entity.getAcceptedAt())
+                .rejectedAt(entity.getRejectedAt())
+                .rejectReason(entity.getRejectReason())
+                .canJoin(accepted && entity.getMeetingLink() != null && !entity.getMeetingLink().isBlank())
                 .build();
     }
 }

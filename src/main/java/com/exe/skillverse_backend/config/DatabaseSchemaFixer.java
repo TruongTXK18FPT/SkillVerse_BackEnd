@@ -446,6 +446,11 @@ public class DatabaseSchemaFixer {
                     this::patchRoadmapFollowUpMeetingsTable,
                     this::verifyRoadmapFollowUpMeetingsTable);
 
+            applyPatch("v3p3-extend-roadmap-follow-up-meetings",
+                    "Extend roadmap_follow_up_meetings with purpose, creator role, accept/reject tracking",
+                    this::patchRoadmapFollowUpMeetingsExtended,
+                    this::verifyRoadmapFollowUpMeetingsExtended);
+
             // ═══════════════════════════════════════════════════════════════════
             // AI Knowledge Documents — Phase 1
             // ═══════════════════════════════════════════════════════════════════
@@ -2971,6 +2976,44 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyRoadmapFollowUpMeetingsTable() {
         return hasTable("roadmap_follow_up_meetings");
+    }
+
+    // ─── roadmap_follow_up_meetings extended columns ──────────────────────────
+
+    private void patchRoadmapFollowUpMeetingsExtended() {
+        if (!hasTable("roadmap_follow_up_meetings")) return;
+        executeSql("""
+            ALTER TABLE roadmap_follow_up_meetings
+                ADD COLUMN IF NOT EXISTS purpose VARCHAR(500),
+                ADD COLUMN IF NOT EXISTS created_by_role VARCHAR(20),
+                ADD COLUMN IF NOT EXISTS created_by_user_id BIGINT,
+                ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP,
+                ADD COLUMN IF NOT EXISTS reject_reason VARCHAR(500)
+        """);
+        // Backfill purpose from existing agenda/title for legacy rows.
+        executeSql("""
+            UPDATE roadmap_follow_up_meetings
+               SET purpose = COALESCE(NULLIF(TRIM(agenda), ''), title)
+             WHERE purpose IS NULL
+        """);
+        // Default legacy rows to MENTOR as creator, since all existing records were mentor-created.
+        executeSql("""
+            UPDATE roadmap_follow_up_meetings
+               SET created_by_role = 'MENTOR',
+                   created_by_user_id = mentor_id
+             WHERE created_by_role IS NULL
+        """);
+    }
+
+    private boolean verifyRoadmapFollowUpMeetingsExtended() {
+        if (!hasTable("roadmap_follow_up_meetings")) return true;
+        return hasColumn("roadmap_follow_up_meetings", "purpose")
+                && hasColumn("roadmap_follow_up_meetings", "created_by_role")
+                && hasColumn("roadmap_follow_up_meetings", "created_by_user_id")
+                && hasColumn("roadmap_follow_up_meetings", "accepted_at")
+                && hasColumn("roadmap_follow_up_meetings", "rejected_at")
+                && hasColumn("roadmap_follow_up_meetings", "reject_reason");
     }
 
     // ─── AI Knowledge Documents table ─────────────────────────────────────────

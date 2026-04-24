@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.journey_service.node_mentoring.dto.response;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeSubmission;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeSubmission.SubmissionStatus;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeSubmission.VerificationStatus;
+import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -37,6 +38,8 @@ public class NodeEvidenceRecordResponse {
 
     private Instant submittedAt;
     private Instant updatedAt;
+    private Boolean learnerMarkedComplete;
+    private String roadmapProgressStatus;
 
     /** Most recent review, if any. */
     private NodeReviewResponse latestReview;
@@ -47,7 +50,8 @@ public class NodeEvidenceRecordResponse {
     public static NodeEvidenceRecordResponse from(
             RoadmapNodeSubmission s,
             NodeReviewResponse latestReview,
-            NodeVerificationResponse latestVerification) {
+            NodeVerificationResponse latestVerification,
+            UserRoadmapProgress roadmapProgress) {
         return NodeEvidenceRecordResponse.builder()
                 .id(s.getId())
                 .journeyId(s.getJourneyId())
@@ -63,6 +67,13 @@ public class NodeEvidenceRecordResponse {
                 .mentorFeedback(s.getMentorFeedback())
                 .submittedAt(s.getSubmittedAt())
                 .updatedAt(s.getUpdatedAt())
+                .learnerMarkedComplete(
+                        roadmapProgress != null
+                                && roadmapProgress.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
+                .roadmapProgressStatus(
+                        roadmapProgress != null && roadmapProgress.getStatus() != null
+                                ? roadmapProgress.getStatus().name()
+                                : null)
                 .latestReview(latestReview)
                 .latestVerification(latestVerification)
                 .build();

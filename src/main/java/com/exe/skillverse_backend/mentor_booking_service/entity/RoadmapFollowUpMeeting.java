@@ -66,6 +66,33 @@ public class RoadmapFollowUpMeeting {
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
+    /**
+     * Mục đích của buổi họp — BẮT BUỘC với meeting mới (fallback từ agenda/title cho bản ghi cũ).
+     */
+    @Column(name = "purpose", length = 500)
+    private String purpose;
+
+    /**
+     * Ai tạo buổi họp: MENTOR hoặc LEARNER. Dùng để xác định bên còn lại cần accept.
+     */
+    @Column(name = "created_by_role", length = 20)
+    private String createdByRole;
+
+    /**
+     * ID người tạo (mentor hoặc learner).
+     */
+    @Column(name = "created_by_user_id")
+    private Long createdByUserId;
+
+    @Column(name = "accepted_at")
+    private LocalDateTime acceptedAt;
+
+    @Column(name = "rejected_at")
+    private LocalDateTime rejectedAt;
+
+    @Column(name = "reject_reason", length = 500)
+    private String rejectReason;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

@@ -38,15 +38,19 @@ public interface MentorRoadmapWorkspaceService {
     List<RoadmapFollowUpMeetingDTO> getFollowUps(Long callerId, Long bookingId);
 
     RoadmapFollowUpMeetingDTO createFollowUp(
-            Long mentorId,
+            Long callerId,
             Long bookingId,
             RoadmapFollowUpMeetingDTO request);
 
     RoadmapFollowUpMeetingDTO updateFollowUp(
-            Long mentorId,
+            Long callerId,
             Long bookingId,
             Long meetingId,
             RoadmapFollowUpMeetingDTO request);
 
-    void deleteFollowUp(Long mentorId, Long bookingId, Long meetingId);
+    void deleteFollowUp(Long callerId, Long bookingId, Long meetingId);
+
+    RoadmapFollowUpMeetingDTO acceptFollowUp(Long callerId, Long bookingId, Long meetingId);
+
+    RoadmapFollowUpMeetingDTO rejectFollowUp(Long callerId, Long bookingId, Long meetingId, String reason);
 }

@@ -23,6 +23,10 @@ import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -33,14 +37,24 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspaceService {
 
+    /**
+     * Booking statuses that allow the mentor to modify roadmap content.
+     * - CONFIRMED: mentor has approved booking, can start preparing the roadmap
+     *   (for non-ROADMAP_MENTORING bookings that go through CONFIRMED state)
+     * - MENTORING_ACTIVE: the primary mentoring state for ROADMAP_MENTORING bookings
+     * - PENDING_COMPLETION: mentoring is wrapping up but still allows final edits
+     */
     private static final Set<BookingStatus> WRITABLE_STATUSES = Set.of(
+            BookingStatus.CONFIRMED,
             BookingStatus.MENTORING_ACTIVE,
             BookingStatus.PENDING_COMPLETION);
 
@@ -74,7 +88,32 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
     public RoadmapMentorWorkspaceResponse getWorkspace(Long callerId, Long bookingId) {
         Booking booking = getRoadmapBookingOrThrow(bookingId);
         ensureReadAccess(callerId, booking);
-        Journey journey = getJourneyWithRoadmap(booking);
+
+        Journey journey = getJourneyForBooking(booking);
+        List<RoadmapFollowUpMeetingDTO> meetings = followUpMeetingRepository
+                .findByBookingIdOrderByScheduledAtAsc(bookingId)
+                .stream()
+                .map(RoadmapFollowUpMeetingDTO::from)
+                .toList();
+
+        // Journey exists but roadmap not generated yet → return workspace with empty roadmap
+        if (journey.getRoadmapSessionId() == null) {
+            log.info("Workspace for booking {} — journey {} has no roadmap session yet",
+                    bookingId, journey.getId());
+            return RoadmapMentorWorkspaceResponse.builder()
+                    .booking(bookingService.getBookingDetail(callerId, bookingId))
+                    .journeyId(journey.getId())
+                    .roadmapSessionId(null)
+                    .roadmap(RoadmapResponse.builder()
+                            .roadmap(List.of())
+                            .statistics(RoadmapResponse.RoadmapStatistics.builder()
+                                    .totalNodes(0).mainNodes(0).sideNodes(0)
+                                    .totalEstimatedHours(0.0).build())
+                            .build())
+                    .followUpMeetings(meetings)
+                    .build();
+        }
+
         RoadmapSession session = getRoadmapSession(journey.getRoadmapSessionId());
         RoadmapResponse roadmap = parseRoadmap(session);
 
@@ -83,10 +122,7 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
                 .journeyId(journey.getId())
                 .roadmapSessionId(session.getId())
                 .roadmap(roadmap)
-                .followUpMeetings(followUpMeetingRepository.findByBookingIdOrderByScheduledAtAsc(bookingId)
-                        .stream()
-                        .map(RoadmapFollowUpMeetingDTO::from)
-                        .toList())
+                .followUpMeetings(meetings)
                 .build();
     }
 
@@ -266,51 +302,83 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
     @Override
     @Transactional
     public RoadmapFollowUpMeetingDTO createFollowUp(
-            Long mentorId,
+            Long callerId,
             Long bookingId,
             RoadmapFollowUpMeetingDTO request) {
         Booking booking = getRoadmapBookingOrThrow(bookingId);
-        ensureWriteAccess(mentorId, booking);
+        ensureReadAccess(callerId, booking);
+
+        if (request.getScheduledAt() == null) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "scheduledAt là bắt buộc");
+        }
+        String purpose = request.getPurpose();
+        if (purpose == null || purpose.isBlank()) {
+            purpose = request.getAgenda();
+        }
+        if (purpose == null || purpose.isBlank()) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, "purpose (mục đích buổi họp) là bắt buộc");
+        }
+
+        boolean isMentor = Objects.equals(callerId, booking.getMentor().getId());
+        String creatorRole = isMentor ? "MENTOR" : "LEARNER";
+        // Creator đã tự động "accept" phía mình → chờ bên còn lại.
+        String initialStatus = isMentor ? "PENDING_LEARNER" : "PENDING_MENTOR";
 
         RoadmapFollowUpMeeting entity = RoadmapFollowUpMeeting.builder()
                 .bookingId(bookingId)
                 .journeyId(booking.getJourneyId())
                 .mentorId(booking.getMentor().getId())
                 .learnerId(booking.getLearner().getId())
-                .title(request.getTitle() == null || request.getTitle().isBlank() ? "Checkpoint roadmap" : request.getTitle())
+                .title(request.getTitle() == null || request.getTitle().isBlank() ? "Buổi họp roadmap" : request.getTitle())
                 .agenda(request.getAgenda())
+                .purpose(purpose)
                 .scheduledAt(request.getScheduledAt())
                 .durationMinutes(request.getDurationMinutes() == null || request.getDurationMinutes() <= 0 ? 30 : request.getDurationMinutes())
                 .meetingLink(request.getMeetingLink())
-                .status(request.getStatus())
+                .status(initialStatus)
                 .notes(request.getNotes())
+                .createdByRole(creatorRole)
+                .createdByUserId(callerId)
                 .build();
 
-        if (entity.getScheduledAt() == null) {
-            throw new ApiException(ErrorCode.VALIDATION_FAILED, "scheduledAt là bắt buộc");
+        RoadmapFollowUpMeeting saved = followUpMeetingRepository.save(entity);
+        // Auto-gen Jitsi nếu chưa có link.
+        if (saved.getMeetingLink() == null || saved.getMeetingLink().isBlank()) {
+            saved.setMeetingLink(generateJitsiLink(bookingId, saved.getId()));
+            saved = followUpMeetingRepository.save(saved);
         }
-
-        return RoadmapFollowUpMeetingDTO.from(followUpMeetingRepository.save(entity));
+        return RoadmapFollowUpMeetingDTO.from(saved);
     }
 
     @Override
     @Transactional
     public RoadmapFollowUpMeetingDTO updateFollowUp(
-            Long mentorId,
+            Long callerId,
             Long bookingId,
             Long meetingId,
             RoadmapFollowUpMeetingDTO request) {
         Booking booking = getRoadmapBookingOrThrow(bookingId);
-        ensureWriteAccess(mentorId, booking);
+        ensureReadAccess(callerId, booking);
 
         RoadmapFollowUpMeeting entity = followUpMeetingRepository.findByIdAndBookingId(meetingId, bookingId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Không tìm thấy follow-up meeting"));
+
+        // Chỉ creator được phép sửa, và không thể sửa khi đã ACCEPTED/COMPLETED.
+        if (entity.getCreatedByUserId() != null && !Objects.equals(callerId, entity.getCreatedByUserId())) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "Chỉ người tạo meeting mới được chỉnh sửa");
+        }
+        if ("ACCEPTED".equalsIgnoreCase(entity.getStatus()) || "COMPLETED".equalsIgnoreCase(entity.getStatus())) {
+            throw new ApiException(ErrorCode.CONFLICT, "Không thể sửa meeting đã được chấp nhận hoặc đã hoàn tất");
+        }
 
         if (request.getTitle() != null) {
             entity.setTitle(request.getTitle());
         }
         if (request.getAgenda() != null) {
             entity.setAgenda(request.getAgenda());
+        }
+        if (request.getPurpose() != null && !request.getPurpose().isBlank()) {
+            entity.setPurpose(request.getPurpose());
         }
         if (request.getScheduledAt() != null) {
             entity.setScheduledAt(request.getScheduledAt());
@@ -321,9 +389,6 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
         if (request.getMeetingLink() != null) {
             entity.setMeetingLink(request.getMeetingLink());
         }
-        if (request.getStatus() != null) {
-            entity.setStatus(request.getStatus());
-        }
         if (request.getNotes() != null) {
             entity.setNotes(request.getNotes());
         }
@@ -333,33 +398,127 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
 
     @Override
     @Transactional
-    public void deleteFollowUp(Long mentorId, Long bookingId, Long meetingId) {
+    public void deleteFollowUp(Long callerId, Long bookingId, Long meetingId) {
         Booking booking = getRoadmapBookingOrThrow(bookingId);
-        ensureWriteAccess(mentorId, booking);
+        ensureReadAccess(callerId, booking);
         RoadmapFollowUpMeeting entity = followUpMeetingRepository.findByIdAndBookingId(meetingId, bookingId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Không tìm thấy follow-up meeting"));
+        boolean isMentor = Objects.equals(callerId, booking.getMentor().getId());
+        boolean isCreator = entity.getCreatedByUserId() != null
+                && Objects.equals(callerId, entity.getCreatedByUserId());
+        if (!isMentor && !isCreator) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "Chỉ mentor hoặc người tạo meeting mới được xóa");
+        }
         followUpMeetingRepository.delete(entity);
+    }
+
+    @Override
+    @Transactional
+    public RoadmapFollowUpMeetingDTO acceptFollowUp(Long callerId, Long bookingId, Long meetingId) {
+        Booking booking = getRoadmapBookingOrThrow(bookingId);
+        ensureReadAccess(callerId, booking);
+
+        RoadmapFollowUpMeeting entity = followUpMeetingRepository.findByIdAndBookingId(meetingId, bookingId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Không tìm thấy follow-up meeting"));
+
+        boolean isMentor = Objects.equals(callerId, booking.getMentor().getId());
+        String status = entity.getStatus() == null ? "" : entity.getStatus().toUpperCase();
+        boolean callerCanAccept = (isMentor && "PENDING_MENTOR".equals(status))
+                || (!isMentor && "PENDING_LEARNER".equals(status))
+                // Back-compat: meeting cũ có status SCHEDULED — cho phép phía đối diện creator accept
+                || ("SCHEDULED".equals(status)
+                        && entity.getCreatedByUserId() != null
+                        && !Objects.equals(callerId, entity.getCreatedByUserId()));
+        if (!callerCanAccept) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Bạn không phải phía cần chấp nhận meeting này (trạng thái hiện tại: " + entity.getStatus() + ")");
+        }
+        entity.setStatus("ACCEPTED");
+        entity.setAcceptedAt(LocalDateTime.now());
+        if (entity.getMeetingLink() == null || entity.getMeetingLink().isBlank()) {
+            entity.setMeetingLink(generateJitsiLink(bookingId, entity.getId()));
+        }
+        return RoadmapFollowUpMeetingDTO.from(followUpMeetingRepository.save(entity));
+    }
+
+    @Override
+    @Transactional
+    public RoadmapFollowUpMeetingDTO rejectFollowUp(Long callerId, Long bookingId, Long meetingId, String reason) {
+        Booking booking = getRoadmapBookingOrThrow(bookingId);
+        ensureReadAccess(callerId, booking);
+
+        RoadmapFollowUpMeeting entity = followUpMeetingRepository.findByIdAndBookingId(meetingId, bookingId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Không tìm thấy follow-up meeting"));
+
+        if ("ACCEPTED".equalsIgnoreCase(entity.getStatus()) || "COMPLETED".equalsIgnoreCase(entity.getStatus())) {
+            throw new ApiException(ErrorCode.CONFLICT, "Không thể từ chối meeting đã chấp nhận hoặc đã hoàn tất");
+        }
+        entity.setStatus("REJECTED");
+        entity.setRejectedAt(LocalDateTime.now());
+        if (reason != null && !reason.isBlank()) {
+            entity.setRejectReason(reason.length() > 500 ? reason.substring(0, 500) : reason);
+        }
+        return RoadmapFollowUpMeetingDTO.from(followUpMeetingRepository.save(entity));
+    }
+
+    private String generateJitsiLink(Long bookingId, Long meetingId) {
+        // Room name ngẫu nhiên nhưng deterministic dựa trên booking + meeting + hash ngắn.
+        String base = "skillverse-roadmap-" + bookingId + "-" + meetingId;
+        String hash;
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-1");
+            byte[] digest = md.digest(base.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 4 && i < digest.length; i++) {
+                sb.append(String.format("%02x", digest[i]));
+            }
+            hash = sb.toString();
+        } catch (NoSuchAlgorithmException ex) {
+            hash = Long.toHexString(System.nanoTime() & 0xFFFFFF);
+        }
+        return "https://meet.jit.si/" + base + "-" + hash;
     }
 
     private Booking getRoadmapBookingOrThrow(Long bookingId) {
         Booking booking = bookingRepository.findById(bookingId)
-                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Không tìm thấy booking roadmap"));
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND,
+                        "Không tìm thấy booking #" + bookingId));
         if (!"ROADMAP_MENTORING".equals(booking.getBookingType())) {
-            throw new ApiException(ErrorCode.VALIDATION_FAILED, "Booking này không thuộc loại ROADMAP_MENTORING");
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "Booking #" + bookingId + " không thuộc loại ROADMAP_MENTORING (hiện tại: "
+                            + booking.getBookingType() + ")");
         }
         return booking;
     }
 
-    private Journey getJourneyWithRoadmap(Booking booking) {
+    /**
+     * Get the Journey entity for a booking. Does NOT require roadmapSessionId to exist
+     * (the session may not have been generated yet for new bookings).
+     */
+    private Journey getJourneyForBooking(Booking booking) {
         if (booking.getJourneyId() == null) {
-            throw new ApiException(ErrorCode.VALIDATION_FAILED, "Booking roadmap chưa gắn với journey");
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "Booking #" + booking.getId() + " chưa gắn với journey. "
+                            + "Học viên cần tạo booking với journeyId hợp lệ.");
         }
 
-        Journey journey = journeyRepository.findById(booking.getJourneyId())
-                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Không tìm thấy journey của booking"));
+        return journeyRepository.findById(booking.getJourneyId())
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND,
+                        "Không tìm thấy journey #" + booking.getJourneyId()
+                                + " (có thể đã bị xóa)"));
+    }
+
+    /**
+     * Get the Journey entity for a booking AND require a valid roadmap session.
+     * Used for write operations that modify roadmap content.
+     */
+    private Journey getJourneyWithRoadmap(Booking booking) {
+        Journey journey = getJourneyForBooking(booking);
 
         if (journey.getRoadmapSessionId() == null) {
-            throw new ApiException(ErrorCode.NOT_FOUND, "Journey chưa có roadmap session");
+            throw new ApiException(ErrorCode.NOT_FOUND,
+                    "Journey #" + journey.getId() + " chưa có roadmap session. "
+                            + "Học viên cần hoàn thành assessment để hệ thống tạo roadmap trước khi mentor có thể chỉnh sửa.");
         }
 
         return journey;
@@ -367,22 +526,28 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
 
     private RoadmapSession getRoadmapSession(Long roadmapSessionId) {
         return roadmapSessionRepository.findById(roadmapSessionId)
-                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Không tìm thấy roadmap session"));
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND,
+                        "Không tìm thấy roadmap session #" + roadmapSessionId));
     }
 
     private void ensureReadAccess(Long callerId, Booking booking) {
         if (!Objects.equals(callerId, booking.getMentor().getId())
                 && !Objects.equals(callerId, booking.getLearner().getId())) {
-            throw new ApiException(ErrorCode.FORBIDDEN, "Bạn không có quyền xem workspace roadmap này");
+            throw new ApiException(ErrorCode.FORBIDDEN,
+                    "Bạn (userId=" + callerId + ") không có quyền xem workspace roadmap này. "
+                            + "Chỉ mentor hoặc learner của booking mới có quyền.");
         }
     }
 
     private void ensureWriteAccess(Long mentorId, Booking booking) {
         if (!Objects.equals(mentorId, booking.getMentor().getId())) {
-            throw new ApiException(ErrorCode.FORBIDDEN, "Chỉ mentor của booking mới được chỉnh sửa roadmap này");
+            throw new ApiException(ErrorCode.FORBIDDEN,
+                    "Chỉ mentor của booking mới được chỉnh sửa roadmap này");
         }
         if (!WRITABLE_STATUSES.contains(booking.getStatus())) {
-            throw new ApiException(ErrorCode.CONFLICT, "Roadmap chỉ có thể chỉnh sửa khi booking đang mentoring hoặc chờ hoàn tất");
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Roadmap chỉ có thể chỉnh sửa khi booking ở trạng thái: "
+                            + WRITABLE_STATUSES + " (hiện tại: " + booking.getStatus() + ")");
         }
     }
 

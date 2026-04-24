@@ -124,35 +124,61 @@ public class MentorRoadmapWorkspaceController {
     }
 
     @PostMapping("/{bookingId}/follow-ups")
-    @Operation(summary = "Mentor tạo follow-up meeting mới")
+    @Operation(summary = "Mentor hoặc learner tạo follow-up meeting mới (bên kia cần accept)")
     public ResponseEntity<RoadmapFollowUpMeetingDTO> createFollowUp(
             @PathVariable Long bookingId,
             @Valid @RequestBody RoadmapFollowUpMeetingDTO request,
             Authentication authentication) {
-        Long mentorId = getUserId(authentication);
-        return ResponseEntity.ok(workspaceService.createFollowUp(mentorId, bookingId, request));
+        Long callerId = getUserId(authentication);
+        return ResponseEntity.ok(workspaceService.createFollowUp(callerId, bookingId, request));
     }
 
     @PutMapping("/{bookingId}/follow-ups/{meetingId}")
-    @Operation(summary = "Mentor cập nhật follow-up meeting")
+    @Operation(summary = "Người tạo meeting cập nhật khi chưa được accept")
     public ResponseEntity<RoadmapFollowUpMeetingDTO> updateFollowUp(
             @PathVariable Long bookingId,
             @PathVariable Long meetingId,
             @Valid @RequestBody RoadmapFollowUpMeetingDTO request,
             Authentication authentication) {
-        Long mentorId = getUserId(authentication);
-        return ResponseEntity.ok(workspaceService.updateFollowUp(mentorId, bookingId, meetingId, request));
+        Long callerId = getUserId(authentication);
+        return ResponseEntity.ok(workspaceService.updateFollowUp(callerId, bookingId, meetingId, request));
     }
 
     @DeleteMapping("/{bookingId}/follow-ups/{meetingId}")
-    @Operation(summary = "Mentor xóa follow-up meeting")
+    @Operation(summary = "Mentor hoặc người tạo meeting xóa lịch hẹn")
     public ResponseEntity<Void> deleteFollowUp(
             @PathVariable Long bookingId,
             @PathVariable Long meetingId,
             Authentication authentication) {
-        Long mentorId = getUserId(authentication);
-        workspaceService.deleteFollowUp(mentorId, bookingId, meetingId);
+        Long callerId = getUserId(authentication);
+        workspaceService.deleteFollowUp(callerId, bookingId, meetingId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{bookingId}/follow-ups/{meetingId}/accept")
+    @Operation(summary = "Bên còn lại chấp nhận meeting (mentor hoặc learner)")
+    public ResponseEntity<RoadmapFollowUpMeetingDTO> acceptFollowUp(
+            @PathVariable Long bookingId,
+            @PathVariable Long meetingId,
+            Authentication authentication) {
+        Long callerId = getUserId(authentication);
+        return ResponseEntity.ok(workspaceService.acceptFollowUp(callerId, bookingId, meetingId));
+    }
+
+    @PostMapping("/{bookingId}/follow-ups/{meetingId}/reject")
+    @Operation(summary = "Bên còn lại từ chối meeting, kèm lý do tùy chọn")
+    public ResponseEntity<RoadmapFollowUpMeetingDTO> rejectFollowUp(
+            @PathVariable Long bookingId,
+            @PathVariable Long meetingId,
+            @RequestBody(required = false) RejectFollowUpRequest request,
+            Authentication authentication) {
+        Long callerId = getUserId(authentication);
+        String reason = request != null ? request.reason() : null;
+        return ResponseEntity.ok(workspaceService.rejectFollowUp(callerId, bookingId, meetingId, reason));
+    }
+
+    /** Inline record DTO để chứa lý do từ chối. */
+    public record RejectFollowUpRequest(String reason) {
     }
 
     // =====================================================================

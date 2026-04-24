@@ -91,6 +91,13 @@ public class BookingReviewController {
         return ResponseEntity.ok(stats);
     }
 
+    @GetMapping("/mentor/{mentorId}/stats")
+    @Operation(summary = "Get aggregate review stats for any mentor (Public)")
+    public ResponseEntity<BookingReviewStatsDTO> getMentorReviewStatsPublic(@PathVariable Long mentorId) {
+        BookingReviewStatsDTO stats = reviewService.getMentorReviewStats(mentorId);
+        return ResponseEntity.ok(stats);
+    }
+
     @GetMapping("/mentor/{mentorId}")
     @Operation(summary = "Get reviews by mentor (Public)")
     public ResponseEntity<?> getMentorReviewsPublic(@PathVariable Long mentorId) {

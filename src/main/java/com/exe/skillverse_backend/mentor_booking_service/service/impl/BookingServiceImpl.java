@@ -106,6 +106,14 @@ public class BookingServiceImpl implements BookingService {
                 ? LocalDateTime.of(2099, 12, 31, 23, 59)
                 : start.plusMinutes(request.getDurationMinutes());
 
+        // V3 Phase 2: auto-populate roadmapSessionId from journey for ROADMAP_MENTORING bookings
+        Long resolvedRoadmapSessionId = null;
+        if (isRoadmapMentoring && request.getJourneyId() != null) {
+            resolvedRoadmapSessionId = journeyRepository.findById(request.getJourneyId())
+                    .map(j -> j.getRoadmapSessionId())
+                    .orElse(null);
+        }
+
         Booking booking = Booking.builder()
                 .mentor(mentor)
                 .learner(learner)
@@ -115,6 +123,7 @@ public class BookingServiceImpl implements BookingService {
                 .status(BookingStatus.PENDING)
                 .priceVnd(request.getPriceVnd())
                 .journeyId(request.getJourneyId())
+                .roadmapSessionId(resolvedRoadmapSessionId)
                 .nodeId(request.getNodeId())
                 .nodeSkillId(request.getNodeSkillId())
                 .bookingType(request.getBookingType())
