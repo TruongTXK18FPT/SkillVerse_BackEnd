@@ -415,6 +415,9 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
             // Step 5: Time budget validator vs total_estimated_hours
             List<String> warnings = new ArrayList<>();
+            if (parsed.graphWarnings() != null) {
+                warnings.addAll(parsed.graphWarnings());
+            }
             try {
                 if (parsed.statistics() != null && parsed.statistics().getTotalEstimatedHours() != null) {
                     int minutesPerDay = parseDailyTimeMinutes(request.getDailyTime());
@@ -1688,6 +1691,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                 10) description: cho phép **inline** Markdown (được: **bold**, *italic*, `code`). CẤM: ```, >, #, -, newlines trong chuỗi. Tối đa 240 ký tự.
                                                 9) CRITICAL BRACKET RULE: Trước khi dừng output, verify tất cả [ có ] đóng và { có } đóng. Nếu phải dừng giữa chừng: đóng node (}), đóng array (]), rồi dừng. KHÔNG bỏ dở mid-field.
 
+                                                BRANCHING POLICY:
+                                                - MAIN nodes form one required spine from first to last.
+                                                - SIDE nodes are optional support attached to one MAIN parent.
+                                                - Never use SIDE as prerequisite for MAIN.
+                                                - BASIC may be straight with 0-2 SIDE nodes.
+
                                                 SCHEMA JSON:
                                                 {
                                                     "roadmap_metadata": {
@@ -1828,6 +1837,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         int currentYear = Year.now().getValue();
         String yearContext = "CURRENT_YEAR: " + currentYear + "\n";
         String adaptiveGraphGuidance = buildAdaptiveGraphGuidance(request);
+        String branchingPolicyGuidance = buildBranchingPolicyGuidance(request);
         String base = expertPersona + "\n" + ruleBlock + "\n" + domainBlock + "\n" + expertPackBlock + "\n"
                 + yearContext
                 + """
@@ -1912,8 +1922,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
                         ### Node Structure:
                         - 10-15 nodes (bắt buộc)
-                        - 2-3 root nodes (không có prerequisites)
-                        - Main path ≥ 6 nodes
+                        - Exactly 1 root MAIN node (no prerequisites)
+                        - Main path >= 6 nodes unless BASIC/short-duration input needs a smaller straight roadmap
                         - MỖI node bắt buộc có estimated_time_minutes là số nguyên > 0 (không dùng 0)
 
                         ### Node Types by Experience:
@@ -1970,8 +1980,30 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         """
                 + "\n"
                 + adaptiveGraphGuidance
+                + "\n"
+                + branchingPolicyGuidance
                 + "\n";
         return base;
+    }
+
+    private String buildBranchingPolicyGuidance(GenerateRoadmapRequest request) {
+        String desiredDepth = nullSafe(request.getDesiredDepth()).trim().toUpperCase(Locale.ROOT);
+        if (desiredDepth.isBlank()) {
+            desiredDepth = "SOLID";
+        }
+        return String.format("""
+                ## ROADMAP BRANCHING POLICY (ENFORCED)
+                - Always create a clear MAIN spine: MAIN nodes are required steps from first to last.
+                - Every MAIN node after the first must depend on the previous MAIN node.
+                - SIDE nodes are optional support only. Attach each SIDE node to exactly one MAIN parent.
+                - Never put a SIDE node in the prerequisites of a MAIN node.
+                - Create SIDE nodes only for extra practice, alternative tools, deeper theory, mini-project extensions, interview/job-ready bonuses, or foundation review.
+                - Do not branch just to make the roadmap look complex.
+                - BASIC depth can be a straight roadmap with 0-2 SIDE nodes.
+                - SOLID depth should use 2-4 meaningful SIDE nodes when the goal has optional support topics.
+                - ADVANCED depth may use 4-6 SIDE nodes for specialization, advanced practice, and job-ready evidence.
+                - Current desiredDepth: %s.
+                """, desiredDepth);
     }
 
     private String buildAdaptiveGraphGuidance(GenerateRoadmapRequest request) {
@@ -2262,8 +2294,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         "Invalid roadmap structure: missing or empty 'roadmap' array");
             }
             List<RoadmapResponse.RoadmapNode> nodes = parseNodes(roadmapArray);
+            List<String> graphWarnings = new ArrayList<>();
             RoadmapGraphCanonicalizer.Result canonicalGraph = RoadmapGraphCanonicalizer.canonicalize(nodes);
             nodes = canonicalGraph.nodes();
+            if (canonicalGraph.warnings() != null) {
+                graphWarnings.addAll(canonicalGraph.warnings());
+            }
 
             // BUG-8 FIX: Post-canonicalization fallback — if NO edges exist at all,
             // infer a linear chain from sequential order so the roadmap is never a "floating" graph
@@ -2279,6 +2315,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 }
             }
 
+            RoadmapBranchingNormalizer.Result branchingGraph = RoadmapBranchingNormalizer.normalize(nodes);
+            nodes = branchingGraph.nodes();
+            if (branchingGraph.warnings() != null) {
+                graphWarnings.addAll(branchingGraph.warnings());
+            }
+
             // INFO log: summary of canonicalized graph
             log.info("[RoadmapGen] Canonicalized {} nodes: {} roots, {} branches, {} child-derived-parents, {} dep-only",
                     nodes.size(),
@@ -2291,6 +2333,14 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             }
             if (edgesCount == 0 && nodes.size() > 1) {
                 log.warn("[RoadmapGen] ALL {} nodes are roots — BUG-8 linear chain applied", nodes.size());
+            }
+
+            log.info("[RoadmapGen] Branching normalized {} nodes into {} MAIN spine nodes and {} optional SIDE nodes",
+                    nodes.size(),
+                    branchingGraph.mainNodes(),
+                    branchingGraph.sideNodes());
+            if (!graphWarnings.isEmpty()) {
+                log.warn("[RoadmapGen] Graph normalization warnings: {}", graphWarnings);
             }
 
             // Parse statistics
@@ -2392,7 +2442,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     skillDependencies.size());
 
             return new ParsedRoadmap(metadata, nodes, statistics, learningTips,
-                    overview, structure, thinkingProgression, projectsEvidence, nextSteps, skillDependencies);
+                    overview, structure, thinkingProgression, projectsEvidence, nextSteps, skillDependencies,
+                    graphWarnings);
 
         } catch (JsonProcessingException e) {
                 String errorMessage = safeMessage(e);
@@ -2655,6 +2706,27 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return target.asBoolean();
     }
 
+    private Integer readInteger(JsonNode node, String... keys) {
+        JsonNode target = firstPresentNode(node, keys);
+        if (target == null || target.isNull()) {
+            return null;
+        }
+        if (target.isInt() || target.isLong()) {
+            return target.asInt();
+        }
+        if (target.isNumber()) {
+            return (int) Math.round(target.asDouble());
+        }
+        if (target.isTextual()) {
+            try {
+                return Integer.parseInt(target.asText().trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     private String timelineTokenToVietnameseDuration(String value) {
         if (value == null || value.isBlank()) {
             return null;
@@ -2799,10 +2871,14 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .estimatedTimeMinutes(estimatedTimeMinutes)
                     .type(type)
                     .difficulty(defaultText(readText(nodeJson, "difficulty"), "medium"))
+                    .phaseId(readText(nodeJson, "phase_id", "phaseId"))
+                    .orderIndex(readInteger(nodeJson, "order_index", "orderIndex"))
+                    .mainPathIndex(readInteger(nodeJson, "main_path_index", "mainPathIndex"))
                     // Tree node fields (with smart fallback)
                     .isCore(readBoolean(nodeJson, type == RoadmapResponse.RoadmapNode.NodeType.MAIN, "is_core", "isCore"))
                     .parentId(readText(nodeJson, "parent_id", "parentId"))
                     .suggestedCourseIds(parseStringArray(nodeJson.path("suggested_course_ids"), nodeJson.path("suggestedCourseIds")))
+                    .suggestedModuleIds(parseStringArray(nodeJson.path("suggested_module_ids"), nodeJson.path("suggestedModuleIds")))
                     // Learning content
                     .learningObjectives(parseStringArray(nodeJson.path("learning_objectives"), nodeJson.path("learningObjectives")))
                     .keyConcepts(parseStringArray(nodeJson.path("key_concepts"), nodeJson.path("keyConcepts")))
@@ -3308,7 +3384,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             List<String> thinkingProgression,
             List<RoadmapResponse.ProjectEvidence> projectsEvidence,
             RoadmapResponse.NextSteps nextSteps,
-            List<RoadmapResponse.SkillDependency> skillDependencies) {
+            List<RoadmapResponse.SkillDependency> skillDependencies,
+            List<String> graphWarnings) {
     }
 
     /**
@@ -3603,6 +3680,11 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
             // Load progress data
             Map<String, RoadmapResponse.QuestProgress> progressMap = resolveProgressData(session, parsed.nodes());
+            List<String> warnings = new ArrayList<>();
+            if (parsed.graphWarnings() != null) {
+                warnings.addAll(parsed.graphWarnings());
+            }
+            warnings.addAll(computeWarnings(parsed.metadata(), parsed.statistics()));
 
             return RoadmapResponse.builder()
                     .sessionId(session.getId())
@@ -3611,7 +3693,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .roadmap(computeNodeStatuses(parsed.nodes(), progressMap))
                     .statistics(parsed.statistics())
                     .learningTips(parsed.learningTips())
-                    .warnings(computeWarnings(parsed.metadata(), parsed.statistics()))
+                    .warnings(warnings)
                     .overview(parsed.overview())
                     .structure(parsed.structure())
                     .thinkingProgression(parsed.thinkingProgression())
@@ -4248,7 +4330,6 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             List<RoadmapResponse.RoadmapNode> nodes,
             Map<String, RoadmapResponse.QuestProgress> progressMap) {
 
-        // Build set of completed node IDs for fast lookup
         Set<String> completedNodeIds = new HashSet<>();
         Set<String> inProgressNodeIds = new HashSet<>();
         if (progressMap != null) {
@@ -4262,10 +4343,20 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             }
         }
 
-        // Compute status for each node in roadmap order.
-        // Only the first pending node can be AVAILABLE/IN_PROGRESS; later nodes remain LOCKED.
-        boolean encounteredFirstPendingNode = false;
-        for (RoadmapResponse.RoadmapNode node : nodes) {
+        Map<String, RoadmapResponse.RoadmapNode> byId = nodes.stream()
+                .filter(node -> node != null && node.getId() != null && !node.getId().isBlank())
+                .collect(Collectors.toMap(
+                        RoadmapResponse.RoadmapNode::getId,
+                        node -> node,
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+
+        Set<String> unlockedMainNodeIds = new HashSet<>();
+        boolean encounteredFirstPendingMain = false;
+        for (RoadmapResponse.RoadmapNode node : nodes.stream()
+                .filter(this::isMainRoadmapNode)
+                .sorted(this::compareRoadmapLearningOrder)
+                .toList()) {
             if (node == null || node.getId() == null || node.getId().isBlank()) {
                 continue;
             }
@@ -4276,19 +4367,41 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 continue;
             }
 
-            if (!encounteredFirstPendingNode) {
-                encounteredFirstPendingNode = true;
+            if (!encounteredFirstPendingMain) {
+                encounteredFirstPendingMain = true;
 
                 if (inProgressNodeIds.contains(nodeId)) {
                     node.setNodeStatus("IN_PROGRESS");
+                    unlockedMainNodeIds.add(nodeId);
                 } else if (arePrerequisitesCompleted(node, completedNodeIds)) {
                     node.setNodeStatus("AVAILABLE");
+                    unlockedMainNodeIds.add(nodeId);
                 } else {
                     node.setNodeStatus("LOCKED");
                 }
             } else {
                 node.setNodeStatus("LOCKED");
             }
+        }
+
+        for (RoadmapResponse.RoadmapNode node : nodes) {
+            if (node == null || node.getId() == null || node.getId().isBlank() || isMainRoadmapNode(node)) {
+                continue;
+            }
+            String nodeId = node.getId();
+
+            if (completedNodeIds.contains(nodeId)) {
+                node.setNodeStatus("COMPLETED");
+                continue;
+            }
+            if (inProgressNodeIds.contains(nodeId)) {
+                node.setNodeStatus("IN_PROGRESS");
+                continue;
+            }
+
+            node.setNodeStatus(isSideNodeUnlocked(node, byId, completedNodeIds, unlockedMainNodeIds)
+                    ? "AVAILABLE"
+                    : "LOCKED");
         }
 
         return nodes;
@@ -4309,7 +4422,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return true;
     }
 
-    private RoadmapResponse.RoadmapNode findFirstSequentialPlayableNode(
+    private RoadmapResponse.RoadmapNode findFirstSequentialPlayableMainNode(
             List<RoadmapResponse.RoadmapNode> nodes,
             Map<String, RoadmapResponse.QuestProgress> progressMap) {
         Set<String> completedNodeIds = new HashSet<>();
@@ -4325,7 +4438,10 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             }
         }
 
-        for (RoadmapResponse.RoadmapNode node : nodes) {
+        for (RoadmapResponse.RoadmapNode node : nodes.stream()
+                .filter(this::isMainRoadmapNode)
+                .sorted(this::compareRoadmapLearningOrder)
+                .toList()) {
             if (node == null || node.getId() == null || node.getId().isBlank()) {
                 continue;
             }
@@ -4343,6 +4459,93 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         }
 
         return null;
+    }
+
+    private boolean isSideNodePlayable(
+            RoadmapResponse.RoadmapNode node,
+            List<RoadmapResponse.RoadmapNode> nodes,
+            Map<String, RoadmapResponse.QuestProgress> progressMap) {
+        if (node == null || isMainRoadmapNode(node)) {
+            return false;
+        }
+
+        Set<String> completedNodeIds = new HashSet<>();
+        Set<String> unlockedMainNodeIds = new HashSet<>();
+        if (progressMap != null) {
+            for (Map.Entry<String, RoadmapResponse.QuestProgress> entry : progressMap.entrySet()) {
+                RoadmapResponse.QuestProgress progress = entry.getValue();
+                if (progress != null && "COMPLETED".equals(progress.getStatus())) {
+                    completedNodeIds.add(entry.getKey());
+                }
+            }
+        }
+
+        RoadmapResponse.RoadmapNode firstPlayableMain = findFirstSequentialPlayableMainNode(nodes, progressMap);
+        if (firstPlayableMain != null && firstPlayableMain.getId() != null) {
+            unlockedMainNodeIds.add(firstPlayableMain.getId());
+        }
+
+        Map<String, RoadmapResponse.RoadmapNode> byId = nodes.stream()
+                .filter(candidate -> candidate != null && candidate.getId() != null && !candidate.getId().isBlank())
+                .collect(Collectors.toMap(
+                        RoadmapResponse.RoadmapNode::getId,
+                        candidate -> candidate,
+                        (left, right) -> left,
+                        LinkedHashMap::new));
+
+        return isSideNodeUnlocked(node, byId, completedNodeIds, unlockedMainNodeIds);
+    }
+
+    private boolean isSideNodeUnlocked(
+            RoadmapResponse.RoadmapNode sideNode,
+            Map<String, RoadmapResponse.RoadmapNode> byId,
+            Set<String> completedNodeIds,
+            Set<String> unlockedMainNodeIds) {
+        if (sideNode == null) {
+            return false;
+        }
+
+        String parentId = sideNode.getParentId();
+        RoadmapResponse.RoadmapNode parent = parentId != null ? byId.get(parentId) : null;
+        if (parent != null && isMainRoadmapNode(parent)) {
+            return completedNodeIds.contains(parentId) || unlockedMainNodeIds.contains(parentId);
+        }
+
+        return arePrerequisitesCompleted(sideNode, completedNodeIds);
+    }
+
+    private boolean isMainRoadmapNode(RoadmapResponse.RoadmapNode node) {
+        return node != null
+                && (node.getType() == RoadmapResponse.RoadmapNode.NodeType.MAIN || Boolean.TRUE.equals(node.getIsCore()));
+    }
+
+    private int compareRoadmapLearningOrder(
+            RoadmapResponse.RoadmapNode left,
+            RoadmapResponse.RoadmapNode right) {
+        int leftMain = left != null && left.getMainPathIndex() != null ? left.getMainPathIndex() : Integer.MAX_VALUE;
+        int rightMain = right != null && right.getMainPathIndex() != null ? right.getMainPathIndex() : Integer.MAX_VALUE;
+        if (leftMain != rightMain) {
+            return Integer.compare(leftMain, rightMain);
+        }
+
+        int leftOrder = left != null && left.getOrderIndex() != null ? left.getOrderIndex() : Integer.MAX_VALUE;
+        int rightOrder = right != null && right.getOrderIndex() != null ? right.getOrderIndex() : Integer.MAX_VALUE;
+        if (leftOrder != rightOrder) {
+            return Integer.compare(leftOrder, rightOrder);
+        }
+
+        String leftId = left != null ? left.getId() : null;
+        String rightId = right != null ? right.getId() : null;
+        if (leftId == null && rightId == null) {
+            return 0;
+        }
+        if (leftId == null) {
+            return 1;
+        }
+        if (rightId == null) {
+            return -1;
+        }
+        return leftId.compareTo(rightId);
     }
 
     /**
@@ -4365,7 +4568,20 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     session,
                     nodes,
                     loadProgressData(session.getId()));
-            RoadmapResponse.RoadmapNode nextPlayableNode = findFirstSequentialPlayableNode(nodes, progressSnapshot);
+            RoadmapResponse.RoadmapNode requestedNode = nodes.stream()
+                    .filter(node -> node != null && questId.equals(node.getId()))
+                    .findFirst()
+                    .orElseThrow(() -> new ApiException(ErrorCode.BAD_REQUEST, "Roadmap node not found"));
+
+            if (!isMainRoadmapNode(requestedNode)) {
+                if (isSideNodePlayable(requestedNode, nodes, progressSnapshot)) {
+                    return;
+                }
+                throw new ApiException(ErrorCode.FORBIDDEN,
+                        "Bạn cần mở node chính liên quan trước khi hoàn thành node phụ.");
+            }
+
+            RoadmapResponse.RoadmapNode nextPlayableNode = findFirstSequentialPlayableMainNode(nodes, progressSnapshot);
             if (nextPlayableNode == null) {
                 throw new ApiException(ErrorCode.FORBIDDEN,
                         "Bạn cần hoàn thành node trước đó trước khi mở node tiếp theo.");
@@ -4569,7 +4785,18 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 session,
                 nodes,
                 loadProgressData(session.getId()));
-        RoadmapResponse.RoadmapNode nextPlayableNode = findFirstSequentialPlayableNode(nodes, progressSnapshot);
+        RoadmapResponse.RoadmapNode requestedNode = nodes.stream()
+                .filter(node -> node != null && nodeId.equals(node.getId()))
+                .findFirst()
+                .orElseThrow(() -> new ApiException(ErrorCode.BAD_REQUEST, "Roadmap node not found"));
+
+        if (!isMainRoadmapNode(requestedNode)) {
+            if (!isSideNodePlayable(requestedNode, nodes, progressSnapshot)) {
+                throw new ApiException(ErrorCode.FORBIDDEN,
+                        "Bạn cần mở node chính liên quan trước khi hoàn thành node phụ.");
+            }
+        } else {
+        RoadmapResponse.RoadmapNode nextPlayableNode = findFirstSequentialPlayableMainNode(nodes, progressSnapshot);
         if (nextPlayableNode == null) {
             throw new ApiException(ErrorCode.FORBIDDEN,
                     "Bạn cần hoàn thành node trước đó trước khi mở node tiếp theo.");
@@ -4577,6 +4804,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         if (!nodeId.equals(nextPlayableNode.getId())) {
             throw new ApiException(ErrorCode.FORBIDDEN,
                     String.format("Bạn cần hoàn thành node '%s' trước.", nextPlayableNode.getTitle()));
+        }
+
         }
 
         // Step 1: Mark all linked tasks done (single batch sync after)

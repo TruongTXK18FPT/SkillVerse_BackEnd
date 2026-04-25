@@ -279,17 +279,40 @@ public class RoadmapCompletionSyncService {
 
             List<RoadmapResponse.RoadmapNode> nodes = new ArrayList<>();
             for (JsonNode nodeJson : roadmapArray) {
+                RoadmapResponse.RoadmapNode.NodeType nodeType = parseNodeType(nodeJson);
                 nodes.add(RoadmapResponse.RoadmapNode.builder()
                         .id(nodeJson.path("id").asText(null))
                         .title(nodeJson.path("title").asText(null))
+                        .type(nodeType)
                         .difficulty(nodeJson.path("difficulty").asText(null))
+                        .phaseId(readText(nodeJson, "phase_id", "phaseId"))
+                        .orderIndex(readInteger(nodeJson, "order_index", "orderIndex"))
+                        .mainPathIndex(readInteger(nodeJson, "main_path_index", "mainPathIndex"))
+                        .isCore(readBoolean(nodeJson, nodeType == RoadmapResponse.RoadmapNode.NodeType.MAIN, "is_core", "isCore"))
+                        .parentId(readText(nodeJson, "parent_id", "parentId"))
                         .suggestedCourseIds(parseStringArray(nodeJson.path("suggested_course_ids"), nodeJson.path("suggestedCourseIds")))
+                        .suggestedModuleIds(parseStringArray(nodeJson.path("suggested_module_ids"), nodeJson.path("suggestedModuleIds")))
+                        .prerequisites(parseStringArray(nodeJson.path("prerequisites")))
+                        .children(parseStringArray(nodeJson.path("children")))
                         .build());
             }
-            return nodes;
+            RoadmapGraphCanonicalizer.Result canonical = RoadmapGraphCanonicalizer.canonicalize(nodes);
+            return RoadmapBranchingNormalizer.normalize(canonical.nodes()).nodes();
         } catch (Exception ex) {
             log.warn("Unable to parse roadmap nodes for session {}: {}", session.getId(), ex.getMessage());
             return List.of();
+        }
+    }
+
+    private RoadmapResponse.RoadmapNode.NodeType parseNodeType(JsonNode nodeJson) {
+        String type = readText(nodeJson, "type");
+        if (type == null) {
+            return RoadmapResponse.RoadmapNode.NodeType.MAIN;
+        }
+        try {
+            return RoadmapResponse.RoadmapNode.NodeType.valueOf(type.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return RoadmapResponse.RoadmapNode.NodeType.MAIN;
         }
     }
 
@@ -426,6 +449,60 @@ public class RoadmapCompletionSyncService {
             return 0;
         }
         return Math.max(0, Math.min(100, progress));
+    }
+
+    private JsonNode firstPresentNode(JsonNode node, String... keys) {
+        if (node == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            JsonNode candidate = node.path(key);
+            if (!candidate.isMissingNode() && !candidate.isNull()) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private String readText(JsonNode node, String... keys) {
+        JsonNode target = firstPresentNode(node, keys);
+        if (target == null) {
+            return null;
+        }
+        String value = target.asText(null);
+        if (value == null || value.trim().isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private Boolean readBoolean(JsonNode node, Boolean fallback, String... keys) {
+        JsonNode target = firstPresentNode(node, keys);
+        return target == null ? fallback : target.asBoolean();
+    }
+
+    private Integer readInteger(JsonNode node, String... keys) {
+        JsonNode target = firstPresentNode(node, keys);
+        if (target == null || target.isNull()) {
+            return null;
+        }
+        if (target.isInt() || target.isLong()) {
+            return target.asInt();
+        }
+        if (target.isNumber()) {
+            return (int) Math.round(target.asDouble());
+        }
+        if (target.isTextual()) {
+            try {
+                return Integer.parseInt(target.asText().trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private List<String> parseStringArray(JsonNode... candidates) {

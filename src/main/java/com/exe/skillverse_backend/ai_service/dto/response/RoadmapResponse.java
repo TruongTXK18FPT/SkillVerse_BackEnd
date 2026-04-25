@@ -101,6 +101,9 @@ public class RoadmapResponse {
         private Integer estimatedTimeMinutes;
         private NodeType type;
         private String difficulty; // easy, medium, hard
+        private String phaseId;
+        private Integer orderIndex;
+        private Integer mainPathIndex;
 
         // Tree node fields for vertical tree UI
         private Boolean isCore; // true for main path, false for side quest
