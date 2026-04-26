@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.business_service.repository;
 
 import com.exe.skillverse_backend.business_service.entity.Dispute;
 import com.exe.skillverse_backend.business_service.entity.Dispute.DisputeStatus;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -43,5 +44,5 @@ public interface DisputeRepository extends JpaRepository<Dispute, Long> {
 
     // Find disputes where admin exceeded 5-day resolution SLA
     @Query("SELECT d FROM Dispute d WHERE d.status IN ('OPEN','UNDER_INVESTIGATION','AWAITING_RESPONSE') AND d.adminResolutionDeadlineAt < :now AND d.status != 'ESCALATED'")
-    List<Dispute> findOverdueDisputes(@Param("now") java.time.LocalDateTime now);
+    List<Dispute> findOverdueDisputes(@Param("now") LocalDateTime now);
 }

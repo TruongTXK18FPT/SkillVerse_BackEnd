@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.notification_service.service.impl.Notification
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.service.impl.WalletServiceImpl;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -133,7 +134,7 @@ public class BookingAutoCancelSchedulerImpl {
                     booking.getLearner().getId(),
                     booking.getPriceVnd(),
                     booking.getId());
-            java.math.BigDecimal mentorPay = booking.getPriceVnd().multiply(new java.math.BigDecimal("0.80"));
+            BigDecimal mentorPay = booking.getPriceVnd().multiply(new BigDecimal("0.80"));
             walletService.payMentorForBooking(
                     booking.getMentor().getId(),
                     mentorPay,

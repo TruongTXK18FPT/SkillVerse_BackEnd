@@ -87,7 +87,7 @@ public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
      * Find PENDING_APPROVAL jobs that have been waiting for more than specified days (for auto-cancel scheduler)
      */
     @Query("SELECT j FROM JobPosting j WHERE j.status = :status AND j.createdAt < :cutoffDate")
-    List<JobPosting> findByStatusAndCreatedAtBefore(@Param("status") JobStatus status, @Param("cutoffDate") java.time.LocalDateTime cutoffDate);
+    List<JobPosting> findByStatusAndCreatedAtBefore(@Param("status") JobStatus status, @Param("cutoffDate") LocalDateTime cutoffDate);
 
     /**
      * Find all OPEN jobs with recruiter eagerly loaded, ordered by boosted jobs first

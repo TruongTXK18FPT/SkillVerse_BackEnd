@@ -6,6 +6,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -55,16 +56,16 @@ public class BookingDispute {
     private String resolutionNotes;
 
     @Column(name = "refund_amount", precision = 12, scale = 2)
-    private java.math.BigDecimal refundAmount;
+    private BigDecimal refundAmount;
 
     @Column(name = "released_amount", precision = 12, scale = 2)
-    private java.math.BigDecimal releasedAmount;
+    private BigDecimal releasedAmount;
 
     @Column(name = "mentor_payout_amount", precision = 12, scale = 2)
-    private java.math.BigDecimal mentorPayoutAmount;
+    private BigDecimal mentorPayoutAmount;
 
     @Column(name = "admin_commission_amount", precision = 12, scale = 2)
-    private java.math.BigDecimal adminCommissionAmount;
+    private BigDecimal adminCommissionAmount;
 
     @Column(name = "resolved_by")
     private Long resolvedBy;

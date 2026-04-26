@@ -1001,8 +1001,8 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
                 .map(String::toLowerCase)
                 .collect(Collectors.toList());
 
-        List<String> matched = new java.util.ArrayList<>();
-        List<String> unmatched = new java.util.ArrayList<>();
+        List<String> matched = new ArrayList<>();
+        List<String> unmatched = new ArrayList<>();
         for (String reqSkill : requiredSkills) {
             String reqLower = reqSkill.toLowerCase().trim();
             boolean found = candidateSkillsLower.stream().anyMatch(cs -> cs.contains(reqLower));

@@ -21,6 +21,7 @@ import org.mapstruct.NullValuePropertyMappingStrategy;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 
 @Mapper(config = CustomMapperConfig.class, uses = { UserMapper.class, MediaMapper.class, ModuleMapper.class })
 public interface CourseMapper {
@@ -173,7 +174,7 @@ public interface CourseMapper {
     @AfterMapping
     default void afterToEntity(CourseCreateDTO dto, @MappingTarget Course course) {
         if (course.getCourseSkillTags() == null) {
-            course.setCourseSkillTags(new java.util.ArrayList<>());
+            course.setCourseSkillTags(new ArrayList<>());
         }
     }
 
@@ -212,9 +213,9 @@ public interface CourseMapper {
     @AfterMapping
     default void afterUpdateEntity(CourseUpdateDTO dto, @MappingTarget Course course) {
         if (dto.getCourseSkills() != null) {
-            course.setCourseSkillTags(new java.util.ArrayList<>(dto.getCourseSkills()));
+            course.setCourseSkillTags(new ArrayList<>(dto.getCourseSkills()));
         } else if (course.getCourseSkillTags() == null) {
-            course.setCourseSkillTags(new java.util.ArrayList<>());
+            course.setCourseSkillTags(new ArrayList<>());
         }
     }
 

@@ -50,6 +50,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.data.domain.PageImpl;
@@ -113,7 +114,7 @@ class PremiumServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        premiumService = org.mockito.Mockito.spy(new PremiumServiceImpl(
+        premiumService = Mockito.spy(new PremiumServiceImpl(
                 premiumPlanRepository,
                 userSubscriptionRepository,
                 userRepository,

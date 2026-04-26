@@ -9,8 +9,11 @@ import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import com.exe.skillverse_backend.study_service.entity.DashboardNote;
@@ -54,7 +57,7 @@ public class TaskBoardController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             Authentication authentication) {
-        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(page, size);
+        Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(taskBoardService.getArchivedTasks(getUserId(authentication), roadmapSessionId, pageable));
     }
 
@@ -64,11 +67,11 @@ public class TaskBoardController {
     }
 
     @PostMapping("/archive-roadmap/{roadmapSessionId}")
-    public ResponseEntity<java.util.Map<String, Object>> archiveRoadmapTasks(
+    public ResponseEntity<Map<String, Object>> archiveRoadmapTasks(
             @PathVariable Long roadmapSessionId,
             Authentication authentication) {
         int archived = taskBoardService.archiveTasksByRoadmapSession(getUserId(authentication), roadmapSessionId);
-        return ResponseEntity.ok(java.util.Map.of(
+        return ResponseEntity.ok(Map.of(
                 "archivedCount", archived,
                 "roadmapSessionId", roadmapSessionId,
                 "message", "Đã ẩn " + archived + " task của roadmap."

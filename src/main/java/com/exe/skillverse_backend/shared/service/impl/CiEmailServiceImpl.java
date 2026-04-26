@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.shared.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.shared.service.EmailService;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import lombok.extern.slf4j.Slf4j;
@@ -137,7 +138,7 @@ public class CiEmailServiceImpl implements EmailService {
             String email,
             String fullName,
             String jobTitle,
-            java.time.LocalDateTime scheduledAt,
+            LocalDateTime scheduledAt,
             Integer durationMinutes,
             String meetingType,
             String meetingLink,

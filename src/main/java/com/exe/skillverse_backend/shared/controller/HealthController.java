@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.io.File;
 import java.sql.Connection;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -195,7 +196,7 @@ public class HealthController {
     private Map<String, Object> checkDiskSpace() {
         Map<String, Object> diskHealth = new HashMap<>();
         try {
-            java.io.File file = new java.io.File(".");
+            File file = new File(".");
             long freeSpace = file.getFreeSpace();
             long totalSpace = file.getTotalSpace();
             long usedSpace = totalSpace - freeSpace;

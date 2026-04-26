@@ -2,6 +2,8 @@ package com.exe.skillverse_backend.business_service.repository;
 
 import com.exe.skillverse_backend.business_service.entity.JobEscrow;
 import com.exe.skillverse_backend.business_service.entity.JobEscrow.EscrowStatus;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -22,13 +24,13 @@ public interface JobEscrowRepository extends JpaRepository<JobEscrow, Long> {
      * Get total platform fee earned from all fully released escrows
      */
     @Query("SELECT COALESCE(SUM(e.platformFee), 0) FROM JobEscrow e WHERE e.status = 'FULLY_RELEASED'")
-    java.math.BigDecimal getTotalPlatformFee();
+    BigDecimal getTotalPlatformFee();
 
     /**
      * Get total escrow amount from all funded/released escrows
      */
     @Query("SELECT COALESCE(SUM(e.totalAmount), 0) FROM JobEscrow e WHERE e.status IN ('FUNDED', 'PARTIALLY_RELEASED', 'FULLY_RELEASED')")
-    java.math.BigDecimal getTotalEscrowVolume();
+    BigDecimal getTotalEscrowVolume();
 
     /**
      * Count escrows by status
@@ -41,9 +43,9 @@ public interface JobEscrowRepository extends JpaRepository<JobEscrow, Long> {
     @Query("SELECT COALESCE(SUM(e.platformFee), 0) FROM JobEscrow e " +
            "WHERE e.status = 'FULLY_RELEASED' " +
            "AND e.releasedAt >= :startDate AND e.releasedAt <= :endDate")
-    java.math.BigDecimal getPlatformFeeInRange(
-        @Param("startDate") java.time.LocalDateTime startDate,
-        @Param("endDate") java.time.LocalDateTime endDate
+    BigDecimal getPlatformFeeInRange(
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
     );
 
     /**
@@ -52,8 +54,8 @@ public interface JobEscrowRepository extends JpaRepository<JobEscrow, Long> {
     @Query("SELECT COALESCE(SUM(e.totalAmount), 0) FROM JobEscrow e " +
            "WHERE e.status IN ('FUNDED', 'PARTIALLY_RELEASED', 'FULLY_RELEASED') " +
            "AND e.fundedAt >= :startDate AND e.fundedAt <= :endDate")
-    java.math.BigDecimal getEscrowVolumeInRange(
-        @Param("startDate") java.time.LocalDateTime startDate,
-        @Param("endDate") java.time.LocalDateTime endDate
+    BigDecimal getEscrowVolumeInRange(
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
     );
 }

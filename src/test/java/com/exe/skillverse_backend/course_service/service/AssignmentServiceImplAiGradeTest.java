@@ -23,6 +23,7 @@ import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.exe.skillverse_backend.shared.service.MediaService;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +39,7 @@ import org.mockito.quality.Strictness;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.math.BigDecimal;
@@ -99,9 +101,9 @@ class AssignmentServiceImplAiGradeTest {
     @Mock
     private CloudinaryService cloudinaryService;
     @Mock
-    private com.exe.skillverse_backend.shared.service.MediaService mediaService;
+    private MediaService mediaService;
     @Mock
-    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+    private ApplicationEventPublisher eventPublisher;
 
     private AssignmentServiceImpl service;
 

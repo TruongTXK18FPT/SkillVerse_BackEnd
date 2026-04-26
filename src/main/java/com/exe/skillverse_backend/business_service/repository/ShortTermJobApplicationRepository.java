@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.business_service.repository;
 
 import com.exe.skillverse_backend.business_service.entity.ShortTermJobApplication;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermApplicationStatus;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -92,9 +93,9 @@ public interface ShortTermJobApplicationRepository extends JpaRepository<ShortTe
 
     // Find applications where recruiter has exceeded 48h review SLA (SUBMITTED + deadline passed)
     @Query("SELECT a FROM ShortTermJobApplication a WHERE a.status = 'SUBMITTED' AND a.reviewDeadlineAt < :now")
-    List<ShortTermJobApplication> findOverdueReviewApplications(@Param("now") java.time.LocalDateTime now);
+    List<ShortTermJobApplication> findOverdueReviewApplications(@Param("now") LocalDateTime now);
 
     // Find applications where user has exceeded 72h response SLA for cancellation
     @Query("SELECT a FROM ShortTermJobApplication a WHERE a.status = 'CANCELLATION_REQUESTED' AND a.responseDeadlineAt < :now")
-    List<ShortTermJobApplication> findOverdueCancellationResponse(@Param("now") java.time.LocalDateTime now);
+    List<ShortTermJobApplication> findOverdueCancellationResponse(@Param("now") LocalDateTime now);
 }

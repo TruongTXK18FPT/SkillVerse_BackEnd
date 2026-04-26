@@ -25,6 +25,7 @@ import com.exe.skillverse_backend.course_service.service.impl.AssignmentServiceI
 import com.exe.skillverse_backend.course_service.service.impl.RevisionPinnedContentResolver;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.user_service.entity.UserProfile;
@@ -78,7 +79,7 @@ class AssignmentServiceImplTest {
     private NotificationService notificationService;
 
         @Mock
-        private org.springframework.context.ApplicationEventPublisher eventPublisher;
+        private ApplicationEventPublisher eventPublisher;
 
     @Mock
     private AssignmentMapper assignmentMapper;

@@ -2,10 +2,12 @@ package com.exe.skillverse_backend.assignment_ai_service.service.impl;
 
 import com.exe.skillverse_backend.assignment_ai_service.service.FileTextExtractorService;
 import com.exe.skillverse_backend.shared.entity.Media;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -64,7 +66,7 @@ public class FileTextExtractorServiceImpl implements FileTextExtractorService {
              PDDocument document = PDDocument.load(is)) {
             PDFTextStripper stripper = new PDFTextStripper();
             return stripper.getText(document);
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             log.error("Failed to extract text from PDF: {}", url, e);
             throw new RuntimeException("Failed to read PDF content", e);
         }
@@ -75,7 +77,7 @@ public class FileTextExtractorServiceImpl implements FileTextExtractorService {
              XWPFDocument document = new XWPFDocument(is)) {
             XWPFWordExtractor extractor = new XWPFWordExtractor(document);
             return extractor.getText();
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             log.error("Failed to extract text from DOCX: {}", url, e);
             throw new RuntimeException("Failed to read DOCX content", e);
         }
@@ -87,7 +89,7 @@ public class FileTextExtractorServiceImpl implements FileTextExtractorService {
             Charset charset = detectCharset(bytes);
             String text = new String(skipBom(bytes, charset), charset);
             return text.replace("\u0000", "");
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             log.error("Failed to extract text from text file: {}", url, e);
             throw new RuntimeException("Failed to read text content", e);
         }
@@ -130,11 +132,11 @@ public class FileTextExtractorServiceImpl implements FileTextExtractorService {
                 && (bytes[0] & 0xFF) == 0xEF
                 && (bytes[1] & 0xFF) == 0xBB
                 && (bytes[2] & 0xFF) == 0xBF) {
-            return java.util.Arrays.copyOfRange(bytes, 3, bytes.length);
+            return Arrays.copyOfRange(bytes, 3, bytes.length);
         }
         if ((charset.equals(StandardCharsets.UTF_16LE) || charset.equals(StandardCharsets.UTF_16BE))
                 && bytes.length >= 2) {
-            return java.util.Arrays.copyOfRange(bytes, 2, bytes.length);
+            return Arrays.copyOfRange(bytes, 2, bytes.length);
         }
         return bytes;
     }

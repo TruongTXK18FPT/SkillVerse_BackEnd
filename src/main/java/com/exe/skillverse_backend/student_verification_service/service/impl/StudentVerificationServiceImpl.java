@@ -19,6 +19,7 @@ import com.exe.skillverse_backend.student_verification_service.service.StudentVe
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,7 +28,6 @@ import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
 import java.util.Locale;

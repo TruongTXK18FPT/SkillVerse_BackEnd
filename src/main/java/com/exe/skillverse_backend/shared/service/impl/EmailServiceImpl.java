@@ -8,6 +8,8 @@ import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import lombok.RequiredArgsConstructor;
@@ -1087,7 +1089,7 @@ public class EmailServiceImpl implements EmailService {
             String email,
             String fullName,
             String jobTitle,
-            java.time.LocalDateTime scheduledAt,
+            LocalDateTime scheduledAt,
             Integer durationMinutes,
             String meetingType,
             String meetingLink,
@@ -1109,7 +1111,7 @@ public class EmailServiceImpl implements EmailService {
     private String buildInterviewScheduledHtmlContent(
             String fullName,
             String jobTitle,
-            java.time.LocalDateTime scheduledAt,
+            LocalDateTime scheduledAt,
             Integer durationMinutes,
             String meetingType,
             String meetingLink,
@@ -1117,7 +1119,7 @@ public class EmailServiceImpl implements EmailService {
             String location,
             String interviewerName) {
         String dateTimeStr = scheduledAt != null
-                ? scheduledAt.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm, 'ngày' dd/MM/yyyy"))
+                ? scheduledAt.format(DateTimeFormatter.ofPattern("HH:mm, 'ngày' dd/MM/yyyy"))
                 : "Chưa xác định";
         String durationStr = durationMinutes != null ? durationMinutes + " phút" : "60 phút";
         String meetingLinkBlock = meetingLink != null && !meetingLink.isBlank()

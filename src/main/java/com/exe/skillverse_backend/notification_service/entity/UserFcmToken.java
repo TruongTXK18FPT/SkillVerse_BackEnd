@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.notification_service.entity;
 
 import jakarta.persistence.*;
+import java.time.LocalDateTime;
 import lombok.*;
 
 @Entity
@@ -34,13 +35,13 @@ public class UserFcmToken {
 
     @Column(name = "created_at", nullable = false)
     @Builder.Default
-    private java.time.LocalDateTime createdAt = java.time.LocalDateTime.now();
+    private LocalDateTime createdAt = LocalDateTime.now();
 
     @Column(name = "updated_at")
-    private java.time.LocalDateTime updatedAt;
+    private LocalDateTime updatedAt;
 
     @PreUpdate
     public void preUpdate() {
-        this.updatedAt = java.time.LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
     }
 }

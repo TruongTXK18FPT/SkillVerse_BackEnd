@@ -30,6 +30,7 @@ import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -77,7 +78,7 @@ public class CourseLearningProgressServiceImpl implements CourseLearningProgress
     private final CertificateService certificateService;
     private final RoadmapCompletionSyncService roadmapCompletionSyncService;
     private final MeterRegistry meterRegistry;
-    private final java.time.Clock clock = java.time.Clock.systemDefaultZone();
+    private final Clock clock = Clock.systemDefaultZone();
 
     @Override
     @Transactional(readOnly = true)
