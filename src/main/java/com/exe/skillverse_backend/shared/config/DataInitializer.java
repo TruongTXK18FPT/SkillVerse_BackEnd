@@ -40,7 +40,7 @@ public class DataInitializer implements CommandLineRunner {
                 log.info("🚀 [ORDER 1] DataInitializer starting...");
                 fixDatabaseConstraints();
                 initializeRoles();
-                initializeUsers();
+                log.info("⏭️ Skipping user seed for production-ready startup");
                 initializePremiumPlans();
                 log.info("✅ [ORDER 1] DataInitializer completed");
                 // initializeProfiles(); // Temporarily disabled - profiles can be created via
