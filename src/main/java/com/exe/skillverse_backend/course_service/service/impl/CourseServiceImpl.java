@@ -742,6 +742,15 @@ public class CourseServiceImpl implements CourseService {
         course.setRevisioningEnabled(Boolean.TRUE);
     }
 
+    /**
+     * Apply active revision metadata to CourseDetailDTO.
+     *
+     * <p>Note: This method overlays course-level metadata (title, description, etc.) from the
+     * active revision. However, CourseDetailDTO.modules reflects the live module structure
+     * from the entity mapping, not the pinned snapshot. For enrolled learners,
+     * RevisionPinnedContentResolver provides the correct pinned view. The public batch
+     * endpoint intentionally returns live structure for simplicity (no actorId required).
+     */
     private void applyRevisionToDetail(CourseDetailDTO detail, CourseRevision revision) {
         if (detail == null || revision == null) {
             return;

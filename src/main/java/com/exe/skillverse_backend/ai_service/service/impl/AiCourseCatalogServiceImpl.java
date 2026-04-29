@@ -234,7 +234,9 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
                 safe(requirements) + " " +
                 safe(courseSkillTags)).toLowerCase();
 
-        // Add module titles
+        // Add module titles from live modules table for searchable signals
+        // Note: Module titles come from live DB, not content_snapshot_json. For full active
+        // revision correctness, consider parsing content_snapshot_json in future iterations.
         List<Object[]> moduleRows = moduleRepository.findAllModulesWithCourseId(List.of(courseId));
         for (Object[] mr : moduleRows) {
             Long mid = ((Number) mr[1]).longValue();
@@ -557,6 +559,8 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
         }
 
         // === Phase 3: Batch load module IDs and titles ===
+        // Note: Module data comes from live modules table. For full active revision correctness,
+        // consider loading from content_snapshot_json of the active revision in future iterations.
         for (Object[] row : moduleRepository.findAllModulesWithCourseId(courseIds)) {
             Long cid = ((Number) row[0]).longValue();
             Long mid = ((Number) row[1]).longValue();

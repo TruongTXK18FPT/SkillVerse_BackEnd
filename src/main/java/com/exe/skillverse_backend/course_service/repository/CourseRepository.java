@@ -180,23 +180,29 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
      * <p>Filters to:
      * - Course.status = PUBLIC (only live courses)
      * - Only the APPROVED revision via Course.active_revision_id
-     * - Metadata from CourseRevision (not Course) for correctness after revision publishes
+     * - Metadata (title, description, category, level) from CourseRevision (not Course)
+     *   for correctness after revision publishes
+     *
+     * <p>Limitation: Module titles used for BM25 searchable signals are sourced from
+     * live modules table (via separate query in AiCourseCatalogServiceImpl), not from
+     * content_snapshot_json. For full active revision correctness of module content,
+     * consider parsing content_snapshot_json in future iterations.
      *
      * <p>Metadata columns are JSONB on CourseRevision. Cast to TEXT so AiCourseCatalogServiceImpl
      * can parse them as JSON arrays and join into searchable text.
      */
     @Transactional(readOnly = true)
     @Query(value = """
-        SELECT c.id, c.title, c.description, c.short_description, c.category, c.level,
+        SELECT c.id, cr.title, cr.description, cr.short_description, cr.category, cr.level,
                c.created_at, COUNT(e.user_id),
-               cr.learning_objectives_json::TEXT,
-               cr.requirements_json::TEXT,
-               cr.course_skill_tags_json::TEXT
+               CAST(cr.learning_objectives_json AS VARCHAR),
+               CAST(cr.requirements_json AS VARCHAR),
+               CAST(cr.course_skill_tags_json AS VARCHAR)
         FROM courses c
-        INNER JOIN course_revisions cr ON cr.id = c.active_revision_id
+        INNER JOIN course_revisions cr ON cr.id = c.active_revision_id AND cr.status = 'APPROVED'
         LEFT JOIN course_enrollment e ON c.id = e.course_id
         WHERE c.status = 'PUBLIC'
-        GROUP BY c.id, c.title, c.short_description, c.category, c.level, c.created_at, cr.id,
+        GROUP BY c.id, cr.title, cr.short_description, cr.category, cr.level, c.created_at, cr.id,
                  cr.learning_objectives_json, cr.requirements_json, cr.course_skill_tags_json
         """,
         nativeQuery = true)
@@ -205,19 +211,22 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
     /**
      * Fetch a single PUBLIC course by ID with its active revision metadata.
      * Used for incremental BM25 catalog refresh on course revision approval.
+     *
+     * <p>Note: This returns course-level metadata from active revision. Module-level
+     * searchable signals (module titles) are loaded separately from live modules table.
      */
     @Transactional(readOnly = true)
     @Query(value = """
-        SELECT c.id, c.title, c.description, c.short_description, c.category, c.level,
+        SELECT c.id, cr.title, cr.description, cr.short_description, cr.category, cr.level,
                c.created_at, COUNT(e.user_id),
-               cr.learning_objectives_json::TEXT,
-               cr.requirements_json::TEXT,
-               cr.course_skill_tags_json::TEXT
+               CAST(cr.learning_objectives_json AS VARCHAR),
+               CAST(cr.requirements_json AS VARCHAR),
+               CAST(cr.course_skill_tags_json AS VARCHAR)
         FROM courses c
-        INNER JOIN course_revisions cr ON cr.id = c.active_revision_id
+        INNER JOIN course_revisions cr ON cr.id = c.active_revision_id AND cr.status = 'APPROVED'
         LEFT JOIN course_enrollment e ON c.id = e.course_id
         WHERE c.status = 'PUBLIC' AND c.id = :courseId
-        GROUP BY c.id, c.title, c.short_description, c.category, c.level, c.created_at, cr.id,
+        GROUP BY c.id, cr.title, cr.short_description, cr.category, cr.level, c.created_at, cr.id,
                  cr.learning_objectives_json, cr.requirements_json, cr.course_skill_tags_json
         """,
         nativeQuery = true)

@@ -21,9 +21,9 @@ import java.util.stream.Collectors;
  * <p>Algorithm overview:
  * <ol>
  *   <li><b>Phase B1 (Course matching):</b> Score each pre-selected course per node
- *       using keyword match + diversity penalty → top-2 courses per node</li>
- *   <li><b>Phase B2 (Module distribution):</b> Evenly distribute each course's modules
- *       across all nodes that reference it, by tree order</li>
+ *       using keyword match + diversity penalty → up to 3 courses per node</li>
+ *   <li><b>Phase B2 (Module distribution):</b> Evenly distribute the primary course's
+ *       modules across all nodes that reference it, by tree order</li>
  *   <li><b>Phase B3 (Validation):</b> Strip hallucinated module IDs by batch-checking against DB</li>
  * </ol>
  *
@@ -31,15 +31,18 @@ import java.util.stream.Collectors;
  * <pre>
  * finalScore = scoreCourseMatch(course, node) - (timesUsed × DIVERSITY_PENALTY)
  * </pre>
- * <p>Example: "React Complete" used 3 times already → penalty = 15 → a course that
+ * <p>Example: "React Complete" used 3 times already → penalty = 9 → a course that
  * hasn't been used gets priority even if the keyword match is slightly lower.
  * Result: No single course dominates 80% of roadmap nodes.
  *
  * <h3>Mode-specific limits</h3>
  * <ul>
- *   <li>SKILL_BASED   → pre-select top-5 courses (1 skill, narrow scope)</li>
+ *   <li>SKILL_BASED   → pre-select top-3 courses (1 skill, narrow scope)</li>
  *   <li>CAREER_BASED  → pre-select top-15 courses (many skills, wide scope)</li>
  * </ul>
+ *
+ * <p>User-facing recommendations are courses. Module titles are searchable signals
+ * for matching and primary-course module IDs are kept only as Study Planner context.
  *
  * @see AiCourseCatalogServiceImpl
  * @see #matchNodesToCoursesAndModules
@@ -53,11 +56,11 @@ public class MultiLevelCourseMatcher {
      * Penalty applied per each previous assignment of the same course.
      * Formula: diversityPenalty = timesUsed × DIVERSITY_PENALTY
      *
-     * <p>With DIVERSITY_PENALTY = 5, a course used 3 times loses 15 points on its
+     * <p>With DIVERSITY_PENALTY = 3, a course used 3 times loses 9 points on its
      * next matching attempt — enough to let a lesser-known course win if it's a better
      * fit for the current node.
      */
-    public static final int DIVERSITY_PENALTY = 5;
+    public static final int DIVERSITY_PENALTY = 3;
 
     /** Pre-select limit for SKILL_BASED roadmaps (1 skill, narrow scope) */
     public static final int SKILL_BASED_LIMIT = 3;
@@ -69,13 +72,16 @@ public class MultiLevelCourseMatcher {
      * Max courses assigned to a single roadmap node — differentiated by roadmap type.
      *
      * <ul>
-     *   <li>SKILL_BASED  = 1 course/node  (narrow skill scope, each course covers enough)</li>
+     *   <li>SKILL_BASED  = 3 courses/node (1 primary + up to 2 alternatives for variety)</li>
      *   <li>CAREER_BASED = 3 courses/node (wide career scope, node may need beginner+intermediate+advanced)</li>
      * </ul>
      *
+     * <p>Note: Only the primary course (first in list) receives module distribution for
+     * Study Planner integration. Alternatives are for user reference only.
+     *
      * <p>Selected dynamically in {@link #matchNodesToCoursesAndModules} via {@code roadmapMode}.
      */
-    private static final int MAX_COURSES_PER_SKILL_NODE = 1;
+    private static final int MAX_COURSES_PER_SKILL_NODE = 3;
     private static final int MAX_COURSES_PER_CAREER_NODE = 3;
 
     /** Penalize courses that miss core intent anchors from topic (e.g., java, spring). */
@@ -249,14 +255,17 @@ public class MultiLevelCourseMatcher {
 
             if (!selectedCourseIds.isEmpty()) {
                 node.setSuggestedCourseIds(selectedCourseIds);
+                // Track all displayed recommendations so diversity applies to primary and alternatives.
                 for (String idStr : selectedCourseIds) {
                     Long cid = Long.parseLong(idStr);
                     usedCourseCount.merge(cid, 1, Integer::sum);
-                    courseToNodes.computeIfAbsent(cid, k -> new ArrayList<>()).add(node);
                 }
+                // Only the primary course drives suggestedModuleIds for Study Planner context.
+                Long primaryCourseId = Long.parseLong(selectedCourseIds.get(0));
+                courseToNodes.computeIfAbsent(primaryCourseId, k -> new ArrayList<>()).add(node);
                 assignedNodes++;
-                log.info("[Matcher] Node '{}' topic='{}' | candidates={} | selected={} courses",
-                        node.getId(), nodeTopic, candidates.size(), selectedCourseIds.size());
+                log.info("[Matcher] Node '{}' topic='{}' | candidates={} | selected={} courses | primary={}",
+                        node.getId(), nodeTopic, candidates.size(), selectedCourseIds.size(), primaryCourseId);
             } else {
                 skippedNoPositiveScore++;
                 log.debug("Node '{}' skipped: no valid candidate after gating (sampleRejects={})",
@@ -369,6 +378,14 @@ public class MultiLevelCourseMatcher {
         // Difficulty alignment bonus
         if (difficulty != null && level.contains(difficulty.toLowerCase())) {
             score += 2;
+        }
+
+        // Efficiency bonus: short courses get a small boost without overpowering relevance.
+        int moduleCount = course.getModuleCount();
+        if (moduleCount > 0 && moduleCount <= 5) {
+            score += 2;
+        } else if (moduleCount > 5 && moduleCount <= 10) {
+            score += 1;
         }
 
         return new MatchScore(score, anchorHits, structuralHits);
