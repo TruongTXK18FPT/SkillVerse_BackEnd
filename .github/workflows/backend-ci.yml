@@ -321,36 +321,11 @@ jobs:
              fi
           fi
 
-          # Create an isolated network for CI-local services
-          docker network create ci-test-net >/dev/null 2>&1 || true
-
           # Start Redis for the test
           echo "🚀 Starting Redis container..."
           docker run -d --name test-redis \
-            --network ci-test-net \
-            --network-alias redis \
+            -p 6379:6379 \
             redis:7-alpine
-
-          # Start Postgres for the test (CI-local, deterministic)
-          echo "🚀 Starting Postgres container..."
-          docker run -d --name test-postgres \
-            --network ci-test-net \
-            --network-alias db \
-            -e POSTGRES_DB=skillverse_db \
-            -e POSTGRES_USER=skillverse_user \
-            -e POSTGRES_PASSWORD="${DB_PASSWORD}" \
-            postgres:16-alpine
-
-          # Wait for Postgres to be ready
-          echo "⏳ Waiting for Postgres to be ready..."
-          for i in {1..30}; do
-            if docker exec test-postgres pg_isready -U skillverse_user -d skillverse_db >/dev/null 2>&1; then
-              echo "✅ Postgres is ready!"
-              break
-            fi
-            echo "⏳ Postgres not ready yet... ($i/30)"
-            sleep 2
-          done
 
           # Wait for Redis to be ready
           sleep 5
@@ -358,14 +333,14 @@ jobs:
           # Start backend container with all environment variables
           echo "🚀 Starting backend container..."
           docker run -d --name test-backend \
-            --network ci-test-net \
             -p 8080:8080 \
+            --link test-redis:redis \
             -e SPRING_PROFILES_ACTIVE=docker \
             -e LOCAL_AI_ENABLED=false \
-            -e SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/skillverse_db \
+            -e SPRING_DATASOURCE_URL=jdbc:postgresql://221.132.33.141:5432/skillverse_db \
             -e SPRING_DATASOURCE_USERNAME=skillverse_user \
             -e SPRING_DATASOURCE_PASSWORD="${DB_PASSWORD}" \
-            -e SPRING_JPA_HIBERNATE_DDL_AUTO=update \
+            -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
             -e SPRING_DATA_REDIS_HOST=redis \
             -e SPRING_DATA_REDIS_PORT=6379 \
             -e FPT_AI_KEY="${FPT_AI_KEY}" \
@@ -439,9 +414,8 @@ jobs:
             echo ""
             echo "📋 Port status:"
             netstat -tlnp 2>/dev/null | grep :8080 || echo "Port 8080 not listening"
-            docker stop test-backend test-redis test-postgres || true
-            docker rm test-backend test-redis test-postgres || true
-            docker network rm ci-test-net || true
+            docker stop test-backend test-redis || true
+            docker rm test-backend test-redis || true
             exit 1
           fi
 
@@ -451,9 +425,8 @@ jobs:
 
           # Cleanup
           echo "🧹 Cleaning up containers..."
-          docker stop test-backend test-redis test-postgres || true
-          docker rm test-backend test-redis test-postgres || true
-          docker network rm ci-test-net || true
+          docker stop test-backend test-redis || true
+          docker rm test-backend test-redis || true
           echo "✅ Docker test completed successfully!"
 
       - name: 📦 Save Docker Image Artifact
