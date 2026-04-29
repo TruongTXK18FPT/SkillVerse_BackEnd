@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -37,8 +38,16 @@ public class DatabaseSchemaFixer {
 
     private final JdbcTemplate jdbcTemplate;
 
+    @Value("${app.database-schema-fixer.enabled:true}")
+    private boolean enabled;
+
     @PostConstruct
     public void fixDatabaseConstraints() {
+        if (!enabled) {
+            log.info("DatabaseSchemaFixer skipped: app.database-schema-fixer.enabled=false");
+            return;
+        }
+
         String productName = getDatabaseProductName();
         if (!isPostgreSql(productName)) {
             log.warn("DatabaseSchemaFixer skipped: only PostgreSQL is supported. Detected: {}", productName);

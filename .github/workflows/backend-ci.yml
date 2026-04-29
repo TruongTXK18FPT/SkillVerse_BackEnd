@@ -384,6 +384,7 @@ jobs:
             --link test-db:test-db \
             -e SPRING_PROFILES_ACTIVE=docker \
             -e LOCAL_AI_ENABLED=false \
+            -e APP_DATABASE_SCHEMA_FIXER_ENABLED=false \
             -e SPRING_DATASOURCE_URL=jdbc:postgresql://test-db:5432/skillverse_db \
             -e SPRING_DATASOURCE_USERNAME=skillverse_user \
             -e SPRING_DATASOURCE_PASSWORD="${TEST_DB_PASSWORD}" \
