@@ -332,23 +332,31 @@ jobs:
           # Start Redis for the test
           echo "🚀 Starting Redis container..."
           docker run -d --name test-redis \
-            -p 6379:6379 \
             redis:7-alpine redis-server --appendonly yes --requirepass secret_password
 
           # Wait for Redis to be ready
           sleep 5
 
-          # Wait for the shared PostgreSQL server to be writable.
-          # pg_isready alone can pass too early around restarts; Hibernate DDL validation
-          # needs the primary to be out of recovery mode.
+          # Start an isolated PostgreSQL database for the image smoke test.
+          # Do not depend on the shared VPS database here; GitHub-hosted runners
+          # may not be allowed through the database firewall.
+          TEST_DB_PASSWORD="${DB_PASSWORD:-secret_password}"
+          echo "Starting PostgreSQL container..."
+          docker run -d --name test-db \
+            -e POSTGRES_USER=skillverse_user \
+            -e POSTGRES_PASSWORD="${TEST_DB_PASSWORD}" \
+            -e POSTGRES_DB=skillverse_db \
+            postgres:17-alpine
+
           echo "Waiting for PostgreSQL to be ready..."
           POSTGRES_CLIENT_IMAGE="postgres:17-alpine"
           DB_READY=false
           for i in {1..60}; do
             DB_STATE=$(docker run --rm \
-              -e PGPASSWORD="${DB_PASSWORD}" \
+              --link test-db:test-db \
+              -e PGPASSWORD="${TEST_DB_PASSWORD}" \
               "$POSTGRES_CLIENT_IMAGE" \
-              psql -h 221.132.33.141 -p 5432 -U skillverse_user -d skillverse_db \
+              psql -h test-db -p 5432 -U skillverse_user -d skillverse_db \
               -tAc "SELECT CASE WHEN pg_is_in_recovery() THEN 'recovery' ELSE 'ready' END" 2>/dev/null || true)
 
             if [ "$DB_STATE" = "ready" ]; then
@@ -363,6 +371,8 @@ jobs:
 
           if [ "$DB_READY" = false ]; then
             echo "PostgreSQL did not become writable within 5 minutes."
+            docker stop test-redis test-db || true
+            docker rm test-redis test-db || true
             exit 1
           fi
 
@@ -371,12 +381,13 @@ jobs:
           docker run -d --name test-backend \
             -p 8080:8080 \
             --link test-redis:redis \
+            --link test-db:test-db \
             -e SPRING_PROFILES_ACTIVE=docker \
             -e LOCAL_AI_ENABLED=false \
-            -e SPRING_DATASOURCE_URL=jdbc:postgresql://221.132.33.141:5432/skillverse_db \
+            -e SPRING_DATASOURCE_URL=jdbc:postgresql://test-db:5432/skillverse_db \
             -e SPRING_DATASOURCE_USERNAME=skillverse_user \
-            -e SPRING_DATASOURCE_PASSWORD="${DB_PASSWORD}" \
-            -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
+            -e SPRING_DATASOURCE_PASSWORD="${TEST_DB_PASSWORD}" \
+            -e SPRING_JPA_HIBERNATE_DDL_AUTO=update \
             -e SPRING_DATA_REDIS_HOST=redis \
             -e SPRING_DATA_REDIS_PORT=6379 \
             -e SPRING_DATA_REDIS_PASSWORD=secret_password \
@@ -423,6 +434,8 @@ jobs:
               echo "❌ Container stopped unexpectedly!"
               docker ps -a --filter name=test-backend
               docker logs test-backend --tail 100
+              docker stop test-backend test-redis test-db || true
+              docker rm test-backend test-redis test-db || true
               exit 1
             fi
             
@@ -451,8 +464,8 @@ jobs:
             echo ""
             echo "📋 Port status:"
             netstat -tlnp 2>/dev/null | grep :8080 || echo "Port 8080 not listening"
-            docker stop test-backend test-redis || true
-            docker rm test-backend test-redis || true
+            docker stop test-backend test-redis test-db || true
+            docker rm test-backend test-redis test-db || true
             exit 1
           fi
 
@@ -462,8 +475,8 @@ jobs:
 
           # Cleanup
           echo "🧹 Cleaning up containers..."
-          docker stop test-backend test-redis || true
-          docker rm test-backend test-redis || true
+          docker stop test-backend test-redis test-db || true
+          docker rm test-backend test-redis test-db || true
           echo "✅ Docker test completed successfully!"
 
   # Job 5: Deploy to VPS
