@@ -505,14 +505,11 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyQuizzesDescriptionOid() {
-        // Fresh CI databases may not have quizzes yet. Do not fail startup in that case;
-        // the patch will be re-evaluated once Hibernate creates the table.
         if (!hasTable("quizzes") || !hasColumn("quizzes", "description")) {
-            return true;
+            return false;
         }
-
         var results = jdbcTemplate.queryForList(
-            "SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'quizzes' AND column_name = 'description'"
+            "SELECT data_type FROM information_schema.columns WHERE table_name = 'quizzes' AND column_name = 'description'"
         );
         return !results.isEmpty() && "text".equalsIgnoreCase((String) results.get(0).get("data_type"));
     }
