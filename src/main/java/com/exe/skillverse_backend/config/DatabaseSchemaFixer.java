@@ -535,12 +535,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyStudentLearningReportSnapshotColumns() {
-        // Fresh CI databases may not have student_learning_reports yet. Do not fail startup in that case;
-        // the patch will be re-evaluated once Hibernate creates the table.
-        if (!hasTable("student_learning_reports")) {
-            return true;
-        }
-        return hasColumn("student_learning_reports", "average_progress_snapshot")
+        return hasTable("student_learning_reports")
+                && hasColumn("student_learning_reports", "average_progress_snapshot")
                 && hasColumn("student_learning_reports", "learning_trend")
                 && hasColumn("student_learning_reports", "recommended_focus")
                 && hasColumn("student_learning_reports", "total_study_hours_snapshot")
@@ -561,10 +557,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyEnsureSummarySnapshotColumn() {
-        if (!hasTable("student_learning_reports")) {
-            return true;
-        }
-        return hasColumn("student_learning_reports", "summary_snapshot");
+        return hasTable("student_learning_reports")
+                && hasColumn("student_learning_reports", "summary_snapshot");
     }
 
     // ─── course_enrollment learning tracking columns ─────────────────────────
@@ -632,7 +626,7 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyModulePrerequisitesTable() {
         if (!hasTable("module_prerequisites")) {
-            return true;
+            return false;
         }
         return hasColumn("module_prerequisites", "module_id")
                 && hasColumn("module_prerequisites", "prerequisite_module_id");
@@ -993,7 +987,7 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyAssignmentPromptAuditLogTable() {
         if (!hasTable("assignment_prompt_audit_log")) {
-            return true;
+            return false;
         }
 
         return hasColumn("assignment_prompt_audit_log", "id")
@@ -1033,7 +1027,7 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyContractSignaturesTable() {
-        if (!hasTable("contract_signatures")) return true;
+        if (!hasTable("contract_signatures")) return false;
         return hasColumn("contract_signatures", "id")
                 && hasColumn("contract_signatures", "contract_id")
                 && hasColumn("contract_signatures", "signed_by")
@@ -1050,10 +1044,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyViolationReportsReportedUserName() {
-        if (!hasTable("violation_reports")) {
-            return true;
-        }
-        return hasColumn("violation_reports", "reported_user_name");
+        return hasTable("violation_reports")
+                && hasColumn("violation_reports", "reported_user_name");
     }
 
     private void patchJobContractsTable() {
@@ -1133,7 +1125,7 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyJobContractsTable() {
-        if (!hasTable("job_contracts")) return true;
+        if (!hasTable("job_contracts")) return false;
         return hasColumn("job_contracts", "id")
                 && hasColumn("job_contracts", "application_id")
                 && hasColumn("job_contracts", "status")
@@ -1156,10 +1148,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyRecruiterProfilesCompanyLogoPublicId() {
-        if (!hasTable("recruiter_profiles")) {
-            return true;
-        }
-        return hasColumn("recruiter_profiles", "company_logo_public_id");
+        return hasTable("recruiter_profiles")
+                && hasColumn("recruiter_profiles", "company_logo_public_id");
     }
 
     private void patchRecruiterProfilesCompanyLogoUrl() {
@@ -1173,10 +1163,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyRecruiterProfilesCompanyLogoUrl() {
-        if (!hasTable("recruiter_profiles")) {
-            return true;
-        }
-        return hasColumn("recruiter_profiles", "company_logo_url");
+        return hasTable("recruiter_profiles")
+                && hasColumn("recruiter_profiles", "company_logo_url");
     }
 
     // ─── Infrastructure ─────────────────────────────────────────────────────
@@ -1226,7 +1214,7 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyNotificationsTypeConstraint() {
         if (!hasTable("notifications")) {
-            return true;
+            return false;
         }
 
         var results = jdbcTemplate.queryForList("""
@@ -1284,7 +1272,7 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyInterviewSchedulesTable() {
-        if (!hasTable("interview_schedules")) return true;
+        if (!hasTable("interview_schedules")) return false;
         return hasColumn("interview_schedules", "id")
                 && hasColumn("interview_schedules", "application_id")
                 && hasColumn("interview_schedules", "scheduled_at")
@@ -1301,10 +1289,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyJobApplicationsInterviewResult() {
-        if (!hasTable("job_applications")) {
-            return true;
-        }
-        return hasColumn("job_applications", "interview_result");
+        return hasTable("job_applications")
+                && hasColumn("job_applications", "interview_result");
     }
 
     private void patchNotificationTypesInterviewScheduling() {
@@ -1322,7 +1308,7 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyNotificationTypesInterviewScheduling() {
-        if (!hasTable("notifications")) return true;
+        if (!hasTable("notifications")) return false;
         var results = jdbcTemplate.queryForList("""
             SELECT pg_get_constraintdef(c.oid) AS constraint_def
             FROM pg_constraint c
@@ -1352,7 +1338,7 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyJobApplicationsInterviewStatuses() {
-        if (!hasTable("job_applications")) return true;
+        if (!hasTable("job_applications")) return false;
         var results = jdbcTemplate.queryForList("""
             SELECT pg_get_constraintdef(c.oid) AS constraint_def
             FROM pg_constraint c
@@ -1381,7 +1367,7 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyInterviewSchedulesDropUnique() {
-        if (!hasTable("interview_schedules")) return true;
+        if (!hasTable("interview_schedules")) return false;
         try {
             var results = jdbcTemplate.queryForList("""
                 SELECT 1 FROM pg_constraint c
@@ -1417,7 +1403,7 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyInterviewSchedulesNoShowStatus() {
-        if (!hasTable("interview_schedules")) return true;
+        if (!hasTable("interview_schedules")) return false;
         var results = jdbcTemplate.queryForList("""
             SELECT pg_get_constraintdef(c.oid) AS constraint_def
             FROM pg_constraint c
@@ -1451,10 +1437,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyInterviewSchedulesResponseTrackingColumns() {
-        if (!hasTable("interview_schedules")) {
-            return true;
-        }
-        return hasColumn("interview_schedules", "response_deadline_at")
+        return hasTable("interview_schedules")
+                && hasColumn("interview_schedules", "response_deadline_at")
                 && hasColumn("interview_schedules", "responded_at")
                 && hasColumn("interview_schedules", "cancelled_by")
                 && hasColumn("interview_schedules", "cancel_reason")
@@ -1474,10 +1458,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyJobApplicationsOfferColumns() {
-        if (!hasTable("job_applications")) {
-            return true;
-        }
-        return hasColumn("job_applications", "offer_details")
+        return hasTable("job_applications")
+                && hasColumn("job_applications", "offer_details")
                 && hasColumn("job_applications", "candidate_offer_response")
                 && hasColumn("job_applications", "offer_round");
     }
@@ -1496,10 +1478,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyJobApplicationsStructuredOfferColumns() {
-        if (!hasTable("job_applications")) {
-            return true;
-        }
-        return hasColumn("job_applications", "offer_salary")
+        return hasTable("job_applications")
+                && hasColumn("job_applications", "offer_salary")
                 && hasColumn("job_applications", "offer_additional_requirements")
                 && hasColumn("job_applications", "counter_salary_amount")
                 && hasColumn("job_applications", "counter_additional_requirements");
@@ -1533,7 +1513,7 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyPrechatMessagesBookingId() {
-        if (!hasTable("prechat_messages")) return true;
+        if (!hasTable("prechat_messages")) return false;
         return hasColumn("prechat_messages", "booking_id")
                 && hasForeignKey("prechat_messages", "fk_prechat_messages_booking");
     }
@@ -1562,7 +1542,7 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyShortTermJobsStatusWidth() {
-        if (!hasTable("short_term_jobs")) return true;
+        if (!hasTable("short_term_jobs")) return false;
         var results = jdbcTemplate.queryForList("""
             SELECT pg_get_constraintdef(c.oid) AS constraint_def
             FROM pg_constraint c
@@ -1598,7 +1578,7 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyShortTermApplicationsStatusWidth() {
-        if (!hasTable("short_term_job_applications")) return true;
+        if (!hasTable("short_term_job_applications")) return false;
         var results = jdbcTemplate.queryForList("""
             SELECT pg_get_constraintdef(c.oid) AS constraint_def
             FROM pg_constraint c
@@ -1625,10 +1605,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyPortfolioExtendedProfilesHistoryColumns() {
-        if (!hasTable("portfolio_extended_profiles")) {
-            return true;
-        }
-        return hasColumn("portfolio_extended_profiles", "work_experiences")
+        return hasTable("portfolio_extended_profiles")
+                && hasColumn("portfolio_extended_profiles", "work_experiences")
                 && hasColumn("portfolio_extended_profiles", "education_history");
     }
 
@@ -1641,10 +1619,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyPortfolioExtendedProfilesAchievementsColumn() {
-        if (!hasTable("portfolio_extended_profiles")) {
-            return true;
-        }
-        return hasColumn("portfolio_extended_profiles", "achievements");
+        return hasTable("portfolio_extended_profiles")
+                && hasColumn("portfolio_extended_profiles", "achievements");
     }
 
     // ─── wallet_transactions: sync transaction_type check constraint ────────────────
@@ -1667,7 +1643,7 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyWalletTransactionTypeConstraint() {
         if (!hasTable("wallet_transactions")) {
-            return true;
+            return false;
         }
 
         var results = jdbcTemplate.queryForList("""
@@ -1707,10 +1683,8 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyCourseSkillTagsTable() {
-        if (!hasTable("course_skill_tags")) {
-            return true;
-        }
-        return hasColumn("course_skill_tags", "course_id")
+        return hasTable("course_skill_tags")
+                && hasColumn("course_skill_tags", "course_id")
                 && hasColumn("course_skill_tags", "skill_tag");
     }
 
@@ -1761,9 +1735,6 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyCourseRevisionsCourseSkillTagsJsonColumn() {
-        if (!hasTable("course_revisions")) {
-            return true;
-        }
         return hasColumn("course_revisions", "course_skill_tags_json");
     }
 
@@ -1812,9 +1783,6 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyCourseRevisionsThumbnailMediaId() {
-        if (!hasTable("course_revisions")) {
-            return true;
-        }
         return hasColumn("course_revisions", "thumbnail_media_id");
     }
 
@@ -2147,7 +2115,7 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyStudentVerificationRequestsTable() {
         if (!hasTable("student_verification_requests")) {
-            return true;
+            return false;
         }
 
         return hasColumn("student_verification_requests", "id")
