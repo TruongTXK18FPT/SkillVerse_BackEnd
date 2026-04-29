@@ -333,10 +333,38 @@ jobs:
           echo "🚀 Starting Redis container..."
           docker run -d --name test-redis \
             -p 6379:6379 \
-            redis:7-alpine
+            redis:7-alpine redis-server --appendonly yes --requirepass secret_password
 
           # Wait for Redis to be ready
           sleep 5
+
+          # Wait for the shared PostgreSQL server to be writable.
+          # pg_isready alone can pass too early around restarts; Hibernate DDL validation
+          # needs the primary to be out of recovery mode.
+          echo "Waiting for PostgreSQL to be ready..."
+          POSTGRES_CLIENT_IMAGE="postgres:17-alpine"
+          DB_READY=false
+          for i in {1..60}; do
+            DB_STATE=$(docker run --rm \
+              -e PGPASSWORD="${DB_PASSWORD}" \
+              "$POSTGRES_CLIENT_IMAGE" \
+              psql -h 221.132.33.141 -p 5432 -U skillverse_user -d skillverse_db \
+              -tAc "SELECT CASE WHEN pg_is_in_recovery() THEN 'recovery' ELSE 'ready' END" 2>/dev/null || true)
+
+            if [ "$DB_STATE" = "ready" ]; then
+              echo "PostgreSQL is ready."
+              DB_READY=true
+              break
+            fi
+
+            echo "PostgreSQL not ready yet (state: ${DB_STATE:-unreachable}), waiting 5 seconds... ($i/60)"
+            sleep 5
+          done
+
+          if [ "$DB_READY" = false ]; then
+            echo "PostgreSQL did not become writable within 5 minutes."
+            exit 1
+          fi
 
           # Start backend container with all environment variables
           echo "🚀 Starting backend container..."
@@ -351,6 +379,7 @@ jobs:
             -e SPRING_JPA_HIBERNATE_DDL_AUTO=validate \
             -e SPRING_DATA_REDIS_HOST=redis \
             -e SPRING_DATA_REDIS_PORT=6379 \
+            -e SPRING_DATA_REDIS_PASSWORD=secret_password \
             -e FPT_AI_KEY="${FPT_AI_KEY}" \
             -e JWT_SECRET="${JWT_SECRET}" \
             -e JWT_REFRESH_PEPPER="${JWT_REFRESH_PEPPER}" \
@@ -583,6 +612,33 @@ jobs:
               NETWORK_NAME=$(docker network ls --filter name=skillverse --format '{{.Name}}' | head -1)
             fi
             echo "Using network: $NETWORK_NAME"
+
+            # Wait for the local PostgreSQL container to be writable before starting Hibernate.
+            if docker ps --format '{{.Names}}' | grep -qx skillverse-db; then
+              echo "Waiting for PostgreSQL container to be ready..."
+              DB_READY=false
+              for i in {1..60}; do
+                DB_STATE=$(docker exec \
+                  -e PGPASSWORD="${SPRING_DATASOURCE_PASSWORD}" \
+                  skillverse-db \
+                  psql -U "${SPRING_DATASOURCE_USERNAME:-skillverse_user}" -d skillverse_db \
+                  -tAc "SELECT CASE WHEN pg_is_in_recovery() THEN 'recovery' ELSE 'ready' END" 2>/dev/null || true)
+
+                if [ "$DB_STATE" = "ready" ]; then
+                  echo "PostgreSQL container is ready."
+                  DB_READY=true
+                  break
+                fi
+
+                echo "PostgreSQL not ready yet (state: ${DB_STATE:-unreachable}), waiting 5 seconds... ($i/60)"
+                sleep 5
+              done
+
+              if [ "$DB_READY" = false ]; then
+                echo "PostgreSQL container did not become writable within 5 minutes."
+                exit 1
+              fi
+            fi
             
             # Start backend with explicit environment variables using docker run
             # This guarantees env vars are passed to the container
