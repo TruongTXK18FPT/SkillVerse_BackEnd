@@ -1,6 +1,6 @@
 -- ============================================================
 -- SKILLVERSE DATABASE SCHEMA
--- PostgreSQL DDL Script (Excludes: seminar, parent, gamification)
+-- PostgreSQL DDL Script
 -- Generated from JPA Entity classes
 -- ============================================================
 
@@ -17,7 +17,7 @@ CREATE TABLE roles (
 
 -- Users table
 CREATE TABLE users (
-    id                   BIGSERIAL PRIMARY KEY,
+    id                   BIGSERIAL ![1777199275582](image/database_schema/1777199275582.png)PRIMARY KEY,
     email                VARCHAR(255) NOT NULL UNIQUE,
     password             VARCHAR(255),
     first_name           VARCHAR(255),
@@ -695,6 +695,13 @@ CREATE TABLE job_applications (
     reviewed_at         TIMESTAMP,
     processed_at        TIMESTAMP,
     interview_result    TEXT,
+    offer_details       TEXT,
+    offer_salary        BIGINT,
+    offer_additional_requirements TEXT,
+    candidate_offer_response TEXT,
+    counter_salary_amount BIGINT,
+    counter_additional_requirements TEXT,
+    offer_round         INTEGER DEFAULT 0,
     CONSTRAINT uk_job_application_user_job UNIQUE (user_id, job_posting_id)
 );
 
@@ -1217,6 +1224,11 @@ CREATE TABLE interview_schedules (
     location        VARCHAR(500),
     interviewer_name VARCHAR(200),
     interview_notes TEXT,
+    response_deadline_at TIMESTAMP,
+    responded_at     TIMESTAMP,
+    cancelled_by     VARCHAR(20),
+    cancel_reason    TEXT,
+    completed_at     TIMESTAMP,
     status          VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     created_at      TIMESTAMP NOT NULL,
     updated_at      TIMESTAMP
@@ -1817,6 +1829,70 @@ CREATE TABLE mentor_reviews (
 CREATE INDEX idx_mentor_reviews_user_id ON mentor_reviews(user_id);
 CREATE INDEX idx_mentor_reviews_mentor_id ON mentor_reviews(mentor_id);
 
+-- Mentor skill verification requests
+CREATE TABLE mentor_skill_verification_requests (
+    id               BIGSERIAL PRIMARY KEY,
+    mentor_id        BIGINT NOT NULL REFERENCES users(id),
+    skill_name       VARCHAR(100) NOT NULL,
+    status           VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    github_url       VARCHAR(500),
+    portfolio_url    VARCHAR(500),
+    additional_notes TEXT,
+    review_note      TEXT,
+    reviewed_by      BIGINT REFERENCES users(id),
+    requested_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+    reviewed_at      TIMESTAMP,
+    updated_at       TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_msvr_mentor_status ON mentor_skill_verification_requests(mentor_id, status);
+CREATE INDEX idx_msvr_status_requested ON mentor_skill_verification_requests(status, requested_at);
+
+-- Mentor verification evidences
+CREATE TABLE mentor_verification_evidences (
+    id                      BIGSERIAL PRIMARY KEY,
+    verification_request_id BIGINT NOT NULL REFERENCES mentor_skill_verification_requests(id) ON DELETE CASCADE,
+    evidence_type           VARCHAR(30) NOT NULL,
+    evidence_url            VARCHAR(1000),
+    description             TEXT,
+    certificate_id          BIGINT REFERENCES external_certificates(id),
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_mve_request ON mentor_verification_evidences(verification_request_id);
+
+-- Student skill verification requests
+CREATE TABLE student_skill_verification_requests (
+    id               BIGSERIAL PRIMARY KEY,
+    user_id          BIGINT NOT NULL REFERENCES users(id),
+    skill_name       VARCHAR(100) NOT NULL,
+    status           VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    github_url       VARCHAR(500),
+    portfolio_url    VARCHAR(500),
+    additional_notes TEXT,
+    review_note      TEXT,
+    reviewed_by      BIGINT REFERENCES users(id),
+    requested_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+    reviewed_at      TIMESTAMP,
+    updated_at       TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_ssvr_user_status ON student_skill_verification_requests(user_id, status);
+CREATE INDEX idx_ssvr_status_requested ON student_skill_verification_requests(status, requested_at);
+
+-- Student verification evidences
+CREATE TABLE student_verification_evidences (
+    id                      BIGSERIAL PRIMARY KEY,
+    verification_request_id BIGINT NOT NULL REFERENCES student_skill_verification_requests(id) ON DELETE CASCADE,
+    evidence_type           VARCHAR(30) NOT NULL,
+    evidence_url            VARCHAR(1000),
+    description             TEXT,
+    certificate_id          BIGINT REFERENCES external_certificates(id),
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_sve_request ON student_verification_evidences(verification_request_id);
+
 -- ============================================================
 -- SECTION 10: AI SERVICE
 -- ============================================================
@@ -1934,6 +2010,50 @@ CREATE INDEX idx_taxonomy_entries_domain ON taxonomy_entries(domain);
 CREATE INDEX idx_taxonomy_entries_role ON taxonomy_entries(role);
 CREATE INDEX idx_taxonomy_entries_active ON taxonomy_entries(active);
 
+-- AI knowledge documents
+CREATE TABLE ai_knowledge_documents (
+    id                  BIGSERIAL PRIMARY KEY,
+    media_id            BIGINT NOT NULL,
+    title               VARCHAR(255) NOT NULL,
+    description         TEXT,
+    use_case            VARCHAR(50) NOT NULL,
+    approval_status     VARCHAR(20) NOT NULL,
+    ingestion_status    VARCHAR(20) NOT NULL,
+    uploaded_by_user_id BIGINT NOT NULL,
+    approved_by_user_id BIGINT,
+    mentor_id           BIGINT,
+    skill_name          VARCHAR(255),
+    skill_slug          VARCHAR(255),
+    industry            VARCHAR(100),
+    level               VARCHAR(100),
+    course_id           BIGINT,
+    module_id           BIGINT,
+    assignment_id       BIGINT,
+    doc_type            VARCHAR(20) NOT NULL,
+    rag_doc_id          VARCHAR(100) UNIQUE,
+    mime_type           VARCHAR(255) NOT NULL,
+    file_size_bytes     BIGINT NOT NULL,
+    original_file_name  VARCHAR(500) NOT NULL,
+    storage_folder      VARCHAR(1000) NOT NULL,
+    storage_url         VARCHAR(2000) NOT NULL,
+    extracted_text      TEXT,
+    extract_error       TEXT,
+    review_note         TEXT,
+    approved_at         TIMESTAMP,
+    indexed_at          TIMESTAMP,
+    archived_at         TIMESTAMP,
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_ai_knowledge_documents_media_id ON ai_knowledge_documents(media_id);
+CREATE INDEX idx_ai_knowledge_documents_uploaded_by ON ai_knowledge_documents(uploaded_by_user_id);
+CREATE INDEX idx_ai_knowledge_documents_approval_status ON ai_knowledge_documents(approval_status);
+CREATE INDEX idx_ai_knowledge_documents_ingestion_status ON ai_knowledge_documents(ingestion_status);
+CREATE INDEX idx_ai_knowledge_documents_use_case ON ai_knowledge_documents(use_case);
+CREATE INDEX idx_ai_knowledge_documents_mentor_id ON ai_knowledge_documents(mentor_id);
+CREATE INDEX idx_ai_knowledge_documents_skill_slug ON ai_knowledge_documents(skill_slug);
+
 -- ============================================================
 -- SECTION 11: JOURNEY SERVICE
 -- ============================================================
@@ -1965,6 +2085,34 @@ CREATE TABLE journeys (
 CREATE INDEX idx_journeys_user_id ON journeys(user_id);
 CREATE INDEX idx_journeys_status ON journeys(status);
 CREATE INDEX idx_journeys_created_at ON journeys(created_at);
+
+-- Roadmap follow-up meetings
+CREATE TABLE roadmap_follow_up_meetings (
+    id                 BIGSERIAL PRIMARY KEY,
+    booking_id         BIGINT NOT NULL,
+    journey_id         BIGINT NOT NULL,
+    mentor_id          BIGINT NOT NULL,
+    learner_id         BIGINT NOT NULL,
+    title              VARCHAR(255) NOT NULL,
+    agenda             TEXT,
+    scheduled_at       TIMESTAMP NOT NULL,
+    duration_minutes   INTEGER NOT NULL,
+    meeting_link       VARCHAR(1000),
+    status             VARCHAR(30) NOT NULL DEFAULT 'SCHEDULED',
+    notes              TEXT,
+    purpose            VARCHAR(500),
+    created_by_role    VARCHAR(20),
+    created_by_user_id BIGINT,
+    accepted_at        TIMESTAMP,
+    rejected_at        TIMESTAMP,
+    reject_reason      VARCHAR(500),
+    created_at         TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_roadmap_follow_up_meetings_booking_id ON roadmap_follow_up_meetings(booking_id);
+CREATE INDEX idx_roadmap_follow_up_meetings_journey_id ON roadmap_follow_up_meetings(journey_id);
+CREATE INDEX idx_roadmap_follow_up_meetings_mentor_scheduled ON roadmap_follow_up_meetings(mentor_id, scheduled_at);
 
 -- Journey progress
 CREATE TABLE journey_progress (

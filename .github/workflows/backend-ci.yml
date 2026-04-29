@@ -286,19 +286,6 @@ jobs:
         run: |
           ./mvnw clean package -DskipTests -q
 
-      - name: 🧹 Free up disk space
-        run: |
-          echo "🧹 Cleaning up disk space before Docker build..."
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo docker system prune -af --volumes
-          echo "✅ Disk cleanup completed"
-          df -h
-
       - name: 🐳 Build Docker Image
         run: |
           docker build -t skillverse-backend:${{ github.sha }} .
@@ -491,13 +478,7 @@ jobs:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
-      - name: 📥 Download Docker Image Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-image-${{ github.sha }}
-          path: ./image
-
-      - name: � Setup SSH Key
+      - name: 🔑 Setup SSH Key
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
@@ -585,9 +566,6 @@ jobs:
 
           echo "📤 Copying .env to VPS..."
           scp -o StrictHostKeyChecking=no .env ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_PROJECT_PATH }}/.env
-
-          echo "📤 Copying Docker image artifact to VPS..."
-          scp -o StrictHostKeyChecking=no ./image/skillverse-backend-${{ github.sha }}.tar.gz ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_PROJECT_PATH }}/skillverse-backend-${{ github.sha }}.tar.gz
 
           echo " Connecting to VPS to deploy..."
           ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
