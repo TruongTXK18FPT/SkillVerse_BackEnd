@@ -1732,6 +1732,11 @@ public class DatabaseSchemaFixer {
     // ─── skills.name case-insensitive unique index ───────────────────────────────
 
     private void patchSkillsNameUniqueIndex() {
+        if (!hasTable("skills")) {
+            log.debug("Table skills does not exist yet, skipping patch.");
+            return;
+        }
+
         // PostgreSQL: functional unique index on UPPER(name) allows only one of 'java'/'JAVA'/'Java'
         executeSql("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_name_upper
