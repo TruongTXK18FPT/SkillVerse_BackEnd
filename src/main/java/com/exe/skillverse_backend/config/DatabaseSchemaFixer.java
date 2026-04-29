@@ -1206,8 +1206,10 @@ public class DatabaseSchemaFixer {
     }
 
     private boolean verifyJobPostingsPostingFeeCharged() {
-        return hasTable("job_postings")
-                && hasColumn("job_postings", "posting_fee_charged");
+        if (!hasTable("job_postings")) {
+            return true;
+        }
+        return hasColumn("job_postings", "posting_fee_charged");
     }
 
     private void patchNotificationsTypeConstraint() {
@@ -2318,7 +2320,7 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyJobDisputesDisputeTypeConstraint() {
         if (!hasTable("job_disputes")) {
-            return false;
+            return true;
         }
 
         var results = jdbcTemplate.queryForList("""
