@@ -119,6 +119,14 @@ jobs:
             ./target/site/jacoco/
           retention-days: 7
 
+      - name: 📦 Upload JAR Artifact
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: backend-jar-${{ github.sha }}
+          path: ./target/*.jar
+          retention-days: 7
+
   # Job 2: Security & Dependency Check
   security-scan:
     name: 🔒 Security & Dependency Scan
@@ -429,17 +437,6 @@ jobs:
           docker rm test-backend test-redis || true
           echo "✅ Docker test completed successfully!"
 
-      - name: 📦 Save Docker Image Artifact
-        run: |
-          docker save skillverse-backend:${{ github.sha }} | gzip > skillverse-backend-${{ github.sha }}.tar.gz
-
-      - name: 📤 Upload Docker Image Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-image-${{ github.sha }}
-          path: ./skillverse-backend-${{ github.sha }}.tar.gz
-          retention-days: 7
-
   # Job 5: Deploy to VPS
   deploy:
     name: 🚀 Deploy to VPS
@@ -542,8 +539,6 @@ jobs:
 
           echo " Connecting to VPS to deploy..."
           ssh -o StrictHostKeyChecking=no ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
-            set -euo pipefail
-
             echo "📂 Navigating to project directory..."
             cd ${{ secrets.VPS_PROJECT_PATH }}
             
@@ -572,14 +567,11 @@ jobs:
             docker stop skillverse-backend 2>/dev/null || true
             docker rm -f skillverse-backend 2>/dev/null || true
             
-            # Remove old backend images to free space before loading the new image
+            # Remove old backend images to force rebuild/update
             docker images | grep backend | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
             
-            # Load the prebuilt image from CI
-            gunzip -c skillverse-backend-${{ github.sha }}.tar.gz | docker load
-            docker tag skillverse-backend:${{ github.sha }} skillverse-backend:v1
-            docker tag skillverse-backend:${{ github.sha }} skillverse-backend:latest
-            rm -f skillverse-backend-${{ github.sha }}.tar.gz
+            # Build new backend image
+            docker build -t skillverse-backend:v1 .
             
             # Get the docker compose network name
             NETWORK_NAME=$(docker network ls --filter name=skillverse -q | head -1)
