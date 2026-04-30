@@ -92,6 +92,11 @@ public class DatabaseSchemaFixer {
                     this::patchCourseEnrollmentLearningColumns,
                     this::verifyCourseEnrollmentLearningColumns);
 
+            applyPatch("backfill-course-enrollment-completed-at",
+                    "Backfill completed_at for COMPLETED enrollments that predate the completed_at column",
+                    this::patchBackfillCourseEnrollmentCompletedAt,
+                    this::verifyBackfillCourseEnrollmentCompletedAt);
+
                 applyPatch("create-module-prerequisites-table",
                     "Create module_prerequisites table for Hibernate schema validation",
                     this::patchModulePrerequisitesTable,
@@ -616,6 +621,26 @@ public class DatabaseSchemaFixer {
                 && hasColumn("course_enrollment", "upgrade_policy_snapshot")
                 && hasColumn("course_enrollment", "last_upgraded_at")
                 && hasColumn("course_enrollment", "completed_at");
+    }
+
+    // ─── backfill completed_at for pre-existing COMPLETED enrollments ─────
+
+    private void patchBackfillCourseEnrollmentCompletedAt() {
+        if (!hasTable("course_enrollment")) return;
+        executeSql("""
+            UPDATE course_enrollment
+            SET completed_at = COALESCE(last_upgraded_at, enroll_date)
+            WHERE status = 'COMPLETED'
+              AND completed_at IS NULL
+        """);
+    }
+
+    private boolean verifyBackfillCourseEnrollmentCompletedAt() {
+        if (!hasTable("course_enrollment")) return true;
+        Integer nullCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM course_enrollment WHERE status = 'COMPLETED' AND completed_at IS NULL",
+                Integer.class);
+        return nullCount != null && nullCount == 0;
     }
 
     // ─── module_prerequisites table ─────────────────────────────────────────
