@@ -83,6 +83,12 @@ public class MentorProfileResponse {
     @Schema(description = "Awarded badges")
     private String[] badges;
 
+    @Schema(description = "CCCD Extracted Data (JSON)")
+    private String cccdExtractedData;
+
+    @Schema(description = "Identity Verified Status")
+    private Boolean identityVerified;
+
     @Data
     @Builder
     @NoArgsConstructor

@@ -42,6 +42,21 @@ public class AdminUserDetailResponse {
     private String avatarUrl;
     private String bio;
     
+    // Mentor Specific Fields
+    private String cccdNumber;
+    private String cccdExtractedData;
+    private Boolean identityVerified;
+    private String mentorSkills;
+    private String mentorExpertise;
+    private Integer yearsOfExperience;
+    
+    // Recruiter Specific Fields
+    private String companyName;
+    private String taxCode;
+    private String industry;
+    private String businessLicenseUrl;
+    private Boolean companyVerified;
+
     // Statistics
     private Long coursesCreated;
     private Long coursesEnrolled;

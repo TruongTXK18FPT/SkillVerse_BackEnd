@@ -20,4 +20,11 @@ public interface IdentityVerificationService {
      * @param adminId The admin's user ID performing the action
      */
     void adminApproveCccd(Long userId, Long adminId);
+
+    /**
+     * Mentor cancels their pending CCCD identity verification request.
+     * Clears CCCD-related data from the profile.
+     * @param userId The user ID of the mentor
+     */
+    void cancelCccdRequest(Long userId);
 }

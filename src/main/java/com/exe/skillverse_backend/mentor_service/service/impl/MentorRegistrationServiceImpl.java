@@ -212,6 +212,28 @@ public class MentorRegistrationServiceImpl
                     java.util.Map<String, Object> combinedData = new java.util.HashMap<>();
                     combinedData.put("front", objectMapper.readTree(frontResult.getRawJson() != null ? frontResult.getRawJson() : "{}"));
                     combinedData.put("back", objectMapper.readTree(backResult.getRawJson() != null ? backResult.getRawJson() : "{}"));
+
+                    // Check for duplicates - check if another mentor already has this CCCD
+                    // Note: at this point the current user's profile hasn't been saved yet,
+                    // so any existing record belongs to a different mentor
+                    if (frontResult.getIdNumber() != null) {
+                        java.util.List<com.exe.skillverse_backend.mentor_service.entity.MentorProfile> existingMentors = mentorProfileRepository.findByCccdNumber(frontResult.getIdNumber());
+                        if (existingMentors != null && !existingMentors.isEmpty()) {
+                            // Filter to only count genuinely different users
+                            boolean hasDifferentOwner = existingMentors.stream()
+                                .anyMatch(m -> m.getIdentityVerified() != null && m.getIdentityVerified());
+                            if (hasDifferentOwner) {
+                                log.warn("Duplicate CCCD detected during registration (already verified): {}", frontResult.getIdNumber());
+                                combinedData.put("isDuplicate", true);
+                                combinedData.put("duplicateMessage", "Cảnh báo: Số CCCD này đã được xác thực bởi Mentor khác trên hệ thống.");
+                            } else {
+                                log.warn("CCCD number already exists but not yet verified: {}", frontResult.getIdNumber());
+                                combinedData.put("isDuplicate", true);
+                                combinedData.put("duplicateMessage", "Cảnh báo: Số CCCD này đã được nộp bởi Mentor khác đang chờ duyệt.");
+                            }
+                        }
+                    }
+
                     request.setCccdExtractedData(objectMapper.writeValueAsString(combinedData));
                 } catch (Exception e) {
                     log.error("Failed to extract CCCD data for: {}", email, e);

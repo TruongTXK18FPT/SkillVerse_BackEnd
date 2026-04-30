@@ -26,8 +26,10 @@ public interface MentorProfileRepository extends JpaRepository<MentorProfile, Lo
     @Query("SELECT m FROM MentorProfile m WHERE (m.identityVerified IS NULL OR m.identityVerified = false) " +
            "AND m.cccdExtractedData IS NOT NULL " +
            "AND LENGTH(m.cccdExtractedData) > 5 " +
-           "AND m.cccdExtractedData NOT LIKE '%processing%' " +
-           "AND m.cccdExtractedData NOT LIKE '%error%' " +
+           "AND m.cccdExtractedData NOT LIKE '%\"status\":\"processing\"%' " +
+           "AND m.cccdExtractedData NOT LIKE '%\"status\":\"error\"%' " +
            "ORDER BY m.updatedAt DESC")
     List<MentorProfile> findPendingCccdVerifications();
+
+    List<MentorProfile> findByCccdNumber(String cccdNumber);
 }

@@ -501,6 +501,16 @@ public class DatabaseSchemaFixer {
                     this::patchMentorProfilesCccdColumns,
                     this::verifyMentorProfilesCccdColumns);
 
+            applyPatch("drop-mentor-profiles-cccd-number-unique",
+                    "Drop unique constraint on mentor_profiles.cccd_number to allow manual review of duplicates",
+                    this::patchMentorProfilesCccdNumberDropUnique,
+                    this::verifyMentorProfilesCccdNumberDropUnique);
+
+            applyPatch("drop-mentor-profiles-cccd-number-unique-v2",
+                    "Force drop unique index idx_mentor_profiles_cccd_number (v1 was recorded before index drop was added)",
+                    this::patchMentorProfilesCccdNumberDropUniqueV2,
+                    this::verifyMentorProfilesCccdNumberDropUniqueV2);
+
             // ═══════════════════════════════════════════════════════════════════
             // Media — Cloudinary metadata columns (defensive backfill)
             // ═══════════════════════════════════════════════════════════════════
@@ -3339,8 +3349,9 @@ public class DatabaseSchemaFixer {
 
         executeSql("ALTER TABLE mentor_profiles ALTER COLUMN identity_verified SET DEFAULT FALSE");
         executeSql("ALTER TABLE mentor_profiles ALTER COLUMN identity_verified SET NOT NULL");
+        // Non-unique index for lookup performance (duplicates allowed for admin manual review)
         executeSql("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_mentor_profiles_cccd_number
+            CREATE INDEX IF NOT EXISTS idx_mentor_profiles_cccd_number_lookup
             ON mentor_profiles(cccd_number)
             WHERE cccd_number IS NOT NULL
         """);
@@ -3357,8 +3368,7 @@ public class DatabaseSchemaFixer {
                 && hasColumn("mentor_profiles", "cccd_front_url")
                 && hasColumn("mentor_profiles", "cccd_back_url")
                 && hasColumn("mentor_profiles", "cccd_extracted_data")
-                && hasColumn("mentor_profiles", "identity_verified")
-                && hasIndex("idx_mentor_profiles_cccd_number");
+                && hasColumn("mentor_profiles", "identity_verified");
     }
 
     private void patchMediaCloudinaryColumns() {
@@ -3568,5 +3578,65 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyDropPremiumPlansMaxSubscribers() {
         return !hasTable("premium_plans") || !hasColumn("premium_plans", "max_subscribers");
+    }
+
+    private void patchMentorProfilesCccdNumberDropUnique() {
+        if (!hasTable("mentor_profiles")) return;
+        
+        // Drop the Hibernate-generated unique constraint
+        executeSql("ALTER TABLE mentor_profiles DROP CONSTRAINT IF EXISTS uk5arpbds3y4lekip4xl6ab6rv8");
+        
+        // Drop any explicit unique index that might have been created
+        executeSql("DROP INDEX IF EXISTS idx_mentor_profiles_cccd_number");
+    }
+
+    private boolean verifyMentorProfilesCccdNumberDropUnique() {
+        if (!hasTable("mentor_profiles")) return true;
+        
+        // Check if constraint exists in information_schema
+        Integer constraintCount = jdbcTemplate.queryForObject(
+            "SELECT count(*) FROM information_schema.table_constraints WHERE table_name = 'mentor_profiles' AND constraint_name = 'uk5arpbds3y4lekip4xl6ab6rv8'",
+            Integer.class
+        );
+        
+        // Check if index exists
+        Integer indexCount = jdbcTemplate.queryForObject(
+            "SELECT count(*) FROM pg_indexes WHERE tablename = 'mentor_profiles' AND indexname = 'idx_mentor_profiles_cccd_number'",
+            Integer.class
+        );
+        
+        return (constraintCount != null && constraintCount == 0) && (indexCount != null && indexCount == 0);
+    }
+
+    private void patchMentorProfilesCccdNumberDropUniqueV2() {
+        if (!hasTable("mentor_profiles")) return;
+        // Drop the unique index that was created by the original cccd-columns patch
+        executeSql("DROP INDEX IF EXISTS idx_mentor_profiles_cccd_number");
+        // Also drop any Hibernate-generated unique constraints on cccd_number
+        executeSql("ALTER TABLE mentor_profiles DROP CONSTRAINT IF EXISTS uk5arpbds3y4lekip4xl6ab6rv8");
+        // Drop ALL unique constraints/indexes on cccd_number using dynamic SQL
+        executeSql("""
+            DO $$
+            DECLARE r RECORD;
+            BEGIN
+                FOR r IN (
+                    SELECT indexname FROM pg_indexes
+                    WHERE tablename = 'mentor_profiles'
+                    AND indexdef LIKE '%UNIQUE%'
+                    AND indexdef LIKE '%cccd_number%'
+                ) LOOP
+                    EXECUTE 'DROP INDEX IF EXISTS ' || r.indexname;
+                END LOOP;
+            END $$
+        """);
+    }
+
+    private boolean verifyMentorProfilesCccdNumberDropUniqueV2() {
+        if (!hasTable("mentor_profiles")) return true;
+        Integer count = jdbcTemplate.queryForObject(
+            "SELECT count(*) FROM pg_indexes WHERE tablename = 'mentor_profiles' AND indexdef LIKE '%UNIQUE%' AND indexdef LIKE '%cccd_number%'",
+            Integer.class
+        );
+        return count != null && count == 0;
     }
 }

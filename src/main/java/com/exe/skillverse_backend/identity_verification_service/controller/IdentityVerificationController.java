@@ -123,4 +123,23 @@ public class IdentityVerificationController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
     }
+    @PostMapping("/cancel-cccd")
+    @Operation(summary = "Cancel pending CCCD request", description = "Allows a mentor to cancel their pending CCCD verification request and resubmit later.")
+    public ResponseEntity<Map<String, Object>> cancelCccdRequest(@AuthenticationPrincipal Jwt jwt) {
+        try {
+            identityVerificationService.cancelCccdRequest(Long.parseLong(jwt.getSubject()));
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("message", "Yêu cầu xác thực CCCD đã được hủy thành công.");
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Failed to cancel CCCD request", e);
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        }
+    }
 }

@@ -27,6 +27,8 @@ import com.exe.skillverse_backend.notification_service.service.NotificationServi
 import com.exe.skillverse_backend.wallet_service.service.WithdrawalService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
+import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import jakarta.persistence.EntityManager;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import java.time.LocalDateTime;
@@ -64,6 +66,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         private final CourseRepository courseRepository;
         private final CourseEnrollmentRepository enrollmentRepository;
         private final NotificationService notificationService;
+        private final MentorProfileRepository mentorProfileRepository;
+        private final RecruiterProfileRepository recruiterProfileRepository;
 
         @Override
         @Transactional(readOnly = true)
@@ -358,7 +362,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                         fullName = user.getEmail().split("@")[0];
                 }
 
-                return AdminUserDetailResponse.builder()
+                AdminUserDetailResponse.AdminUserDetailResponseBuilder builder = AdminUserDetailResponse.builder()
                                 .id(user.getId())
                                 .email(user.getEmail())
                                 .firstName(user.getFirstName())
@@ -377,19 +381,39 @@ public class AdminUserServiceImpl implements AdminUserService {
                                 .avatarUrl(null) // TODO: Get from media service
                                 .bio(null) // TODO: Get from user profile
                                 .coursesCreated(user.getCourses() != null ? (long) user.getCourses().size() : 0L)
-                                .coursesEnrolled(user.getEnrollments() != null ? (long) user.getEnrollments().size()
-                                                : 0L)
-                                .certificatesEarned(
-                                                user.getCertificates() != null ? (long) user.getCertificates().size()
-                                                                : 0L)
+                                .coursesEnrolled(user.getEnrollments() != null ? (long) user.getEnrollments().size() : 0L)
+                                .certificatesEarned(user.getCertificates() != null ? (long) user.getCertificates().size() : 0L)
                                 .totalSpent(0L) // TODO: Calculate from purchases
                                 .totalEarned(0L) // TODO: Calculate from earnings
                                 .loginCount(0) // TODO: Track login count
                                 .lastLoginAt(user.getUpdatedAt())
                                 .lastLoginIp(null) // TODO: Track IP
                                 .recentCourses(recentCourses)
-                                .recentCertificates(recentCertificates)
-                                .build();
+                                .recentCertificates(recentCertificates);
+
+                // Populate Mentor/Recruiter specific fields
+                if (user.getPrimaryRole() == PrimaryRole.MENTOR) {
+                        mentorProfileRepository.findByUserId(userId).ifPresent(mentor -> {
+                                builder.cccdNumber(mentor.getCccdNumber())
+                                       .cccdExtractedData(mentor.getCccdExtractedData())
+                                       .identityVerified(mentor.getIdentityVerified())
+                                       .mentorSkills(mentor.getSkills())
+                                       .mentorExpertise(mentor.getMainExpertiseAreas())
+                                       .yearsOfExperience(mentor.getYearsOfExperience())
+                                       .bio(mentor.getBio());
+                        });
+                } else if (user.getPrimaryRole() == PrimaryRole.RECRUITER) {
+                        recruiterProfileRepository.findByUserId(userId).ifPresent(recruiter -> {
+                                builder.companyName(recruiter.getCompanyName())
+                                       .taxCode(recruiter.getTaxCodeOrBusinessRegistrationNumber())
+                                       .industry(recruiter.getIndustry())
+                                       .businessLicenseUrl(recruiter.getCompanyDocumentsUrl())
+                                       .companyVerified(com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus.APPROVED.equals(recruiter.getApplicationStatus()))
+                                       .bio(recruiter.getCompanyAddress());
+                        });
+                }
+
+                return builder.build();
         }
 
         @Override

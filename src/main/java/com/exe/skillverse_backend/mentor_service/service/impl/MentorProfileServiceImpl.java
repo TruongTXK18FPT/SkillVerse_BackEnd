@@ -733,6 +733,8 @@ public class MentorProfileServiceImpl implements MentorProfileService {
                 .skillPoints(profile.getSkillPoints())
                 .currentLevel(profile.getCurrentLevel())
                 .badges(badges)
+                .cccdExtractedData(profile.getCccdExtractedData())
+                .identityVerified(profile.getIdentityVerified() != null ? profile.getIdentityVerified() : false)
                 .build();
     }
 

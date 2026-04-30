@@ -92,6 +92,16 @@ public class IdentityVerificationServiceImpl implements IdentityVerificationServ
                 Map<String, Object> combinedData = new HashMap<>();
                 combinedData.put("front", parseJsonQuietly(frontResult.getRawJson()));
                 combinedData.put("back", parseJsonQuietly(backResult.getRawJson()));
+
+                // Check for duplicates
+                if (frontResult.getIdNumber() != null) {
+                    java.util.List<com.exe.skillverse_backend.mentor_service.entity.MentorProfile> existingMentors = mentorProfileRepository.findByCccdNumber(frontResult.getIdNumber());
+                    if (existingMentors != null && existingMentors.stream().anyMatch(m -> !m.getUserId().equals(userId))) {
+                        log.warn("Duplicate CCCD detected during legacy upload: {}", frontResult.getIdNumber());
+                        combinedData.put("isDuplicate", true);
+                        combinedData.put("duplicateMessage", "Cảnh báo: Số CCCD này đã được sử dụng bởi Mentor khác trên hệ thống.");
+                    }
+                }
                 
                 String extractedJson = "{}";
                 try {
@@ -99,6 +109,7 @@ public class IdentityVerificationServiceImpl implements IdentityVerificationServ
                 } catch (Exception e) {
                     log.warn("Failed to serialize combined FPT.AI data", e);
                 }
+
 
                 profile.setCccdNumber(frontResult.getIdNumber());
                 profile.setCccdFullName(frontResult.getFullName());
@@ -159,5 +170,29 @@ public class IdentityVerificationServiceImpl implements IdentityVerificationServ
         }
 
         log.info("Admin {} successfully approved CCCD for userId: {}", adminId, userId);
+    }
+    @Override
+    @Transactional
+    public void cancelCccdRequest(Long userId) {
+        log.info("Mentor cancelling pending CCCD identity verification request for userId: {}", userId);
+
+        MentorProfile mentorProfile = mentorProfileRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Mentor profile not found for user: " + userId));
+
+        if (Boolean.TRUE.equals(mentorProfile.getIdentityVerified())) {
+            throw new IllegalArgumentException("Cannot cancel: Identity is already verified.");
+        }
+
+        // Clear all CCCD related fields
+        mentorProfile.setCccdNumber(null);
+        mentorProfile.setCccdFullName(null);
+        mentorProfile.setCccdDob(null);
+        mentorProfile.setCccdExtractedData(null);
+        
+        // Ensure identityVerified is false (it should be already, but just to be safe)
+        mentorProfile.setIdentityVerified(false);
+
+        mentorProfileRepository.save(mentorProfile);
+        log.info("Successfully cancelled CCCD request for userId: {}", userId);
     }
 }

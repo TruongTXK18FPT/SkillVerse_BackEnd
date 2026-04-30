@@ -96,8 +96,9 @@ public class MentorProfile {
     private String badges; // JSON array of awarded badges
 
     // Identity Verification (CCCD)
-    @Column(name = "cccd_number", unique = true)
+    @Column(name = "cccd_number")
     private String cccdNumber;           // Số CCCD
+
 
     @Column(name = "cccd_full_name")
     private String cccdFullName;         // Họ tên trên CCCD
