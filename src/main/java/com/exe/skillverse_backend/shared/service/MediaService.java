@@ -78,6 +78,8 @@ public interface MediaService {
      */
     String getSignedUrl(Long mediaId, Long actorId);
 
+    String getSignedUrl(Long mediaId, Long actorId, String filename);
+
     /**
      * Search media files by filename
      */

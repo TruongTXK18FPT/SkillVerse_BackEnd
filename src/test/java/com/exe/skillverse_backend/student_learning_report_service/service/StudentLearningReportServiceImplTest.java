@@ -94,7 +94,8 @@ class StudentLearningReportServiceImplTest {
                 courseEnrollmentRepository,
                 shortTermJobApplicationRepository,
                 jobReviewRepository,
-                objectMapper);
+                objectMapper,
+                new com.exe.skillverse_backend.student_learning_report_service.service.recommendation.RecommendationEngine());
 
         student = User.builder()
                 .id(1L)
@@ -188,7 +189,12 @@ class StudentLearningReportServiceImplTest {
                         .overview(StudentLearningReportResponse.Overview.builder()
                                 .overallProgress(20)
                                 .learningTrend("stable")
-                                .recommendations(List.of("Old recommendation"))
+                                .recommendations(List.of(StudentLearningReportResponse.Recommendation.builder()
+                                        .id("legacy-prev")
+                                        .tier("IMPROVE")
+                                        .category("GROWTH")
+                                        .title("Old recommendation")
+                                        .build()))
                                 .build())
                         .build()))
                 .build();
@@ -216,10 +222,16 @@ class StudentLearningReportServiceImplTest {
         assertEquals(30, summary.getCourseStats().getAverageActiveCourseProgress());
         assertEquals(35, summary.getOverallProgress());
         assertEquals("improving", summary.getLearningTrend());
-        assertEquals(6, summary.getOverview().getRecommendations().size());
-        assertTrue(summary.getOverview().getRecommendations().get(0).contains("120 phút/tuần"));
-        assertTrue(summary.getOverview().getRecommendations().get(1).contains("Backend Java"));
-        assertTrue(summary.getOverview().getRecommendations().get(2).contains("task tồn"));
+        java.util.List<StudentLearningReportResponse.Recommendation> recs = summary.getOverview().getRecommendations();
+        assertTrue(recs.size() >= 3, "engine should emit multiple recommendations");
+        assertTrue(recs.stream().anyMatch(r -> "STUDY".equals(r.getCategory())),
+                "expected a STUDY recommendation");
+        assertTrue(recs.stream().anyMatch(r -> "ROADMAP".equals(r.getCategory())),
+                "expected a ROADMAP recommendation");
+        assertTrue(recs.stream().anyMatch(r -> "TASK".equals(r.getCategory())),
+                "expected a TASK recommendation");
+        assertTrue(recs.stream().allMatch(r -> r.getTitle() != null && !r.getTitle().isBlank()),
+                "every recommendation should have a title");
         verify(roadmapSessionRepository).findByUserIdAndStatusNotDeleted(1L);
         verify(roadmapSessionRepository, never()).findByUserIdOrderByCreatedAtDesc(1L);
     }

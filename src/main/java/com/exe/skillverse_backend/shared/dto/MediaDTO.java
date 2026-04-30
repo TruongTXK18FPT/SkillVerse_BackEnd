@@ -21,5 +21,6 @@ public class MediaDTO {
     private Long uploadedBy;   // chỉ expose id của user
     private String uploadedByName; // tuỳ chọn: lấy firstName + lastName
     private LocalDateTime uploadedAt;
+    private String cloudinaryPublicId; // Cloudinary public ID for file operations
 }
 

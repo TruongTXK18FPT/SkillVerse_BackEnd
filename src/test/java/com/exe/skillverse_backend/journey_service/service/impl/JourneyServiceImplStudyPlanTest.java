@@ -38,6 +38,7 @@ import com.exe.skillverse_backend.study_service.repository.StudySessionRepositor
 import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
@@ -90,6 +91,8 @@ class JourneyServiceImplStudyPlanTest {
     private StudySessionRepository studySessionRepository;
     @Mock
     private BookingRepository bookingRepository;
+    @Mock
+    private PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
 
     @InjectMocks
     private JourneyServiceImpl service;
@@ -113,6 +116,7 @@ class JourneyServiceImplStudyPlanTest {
                 questionBankQuestionService,
                 studySessionRepository,
                 bookingRepository,
+                portfolioExtendedProfileRepository,
                 new ObjectMapper());
 
         // Mock session persistence (GAP-2 fix: sessions are now created before tasks)

@@ -22,6 +22,8 @@ public interface MentorRegistrationService extends RegistrationService<MentorReg
             MultipartFile cvPortfolioFile,
             MultipartFile certificatesFile,
             MultipartFile[] certificatesFiles,
-            Boolean mergeCertificates
+            Boolean mergeCertificates,
+            MultipartFile cccdFrontFile,
+            MultipartFile cccdBackFile
     );
 }

@@ -44,6 +44,11 @@ public class CiEmailServiceImpl implements EmailService {
     }
 
     @Override
+    public void sendCccdVerificationApprovedEmail(String email, String fullName) {
+        logSkip("sendCccdVerificationApprovedEmail", email);
+    }
+
+    @Override
     public void sendJobApplicationReviewed(String email, String fullName, String jobTitle) {
         logSkip("sendJobApplicationReviewed", email);
     }

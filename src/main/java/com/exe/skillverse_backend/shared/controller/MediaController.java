@@ -15,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class MediaController {
 
     private final MediaService mediaService;
+    private final com.exe.skillverse_backend.shared.service.CloudinaryService cloudinaryService;
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(
@@ -127,10 +129,40 @@ public class MediaController {
     @Operation(summary = "Get signed URL for accessing media file")
     public ResponseEntity<Map<String, String>> getSignedUrl(
             @Parameter(description = "Media ID") @PathVariable @NotNull Long mediaId,
-            @Parameter(description = "Actor ID") @RequestParam @NotNull Long actorId) {
-        
-        String signedUrl = mediaService.getSignedUrl(mediaId, actorId);
+            @Parameter(description = "Actor ID") @RequestParam @NotNull Long actorId,
+            @Parameter(description = "Filename for download (optional)") @RequestParam(required = false) String filename) {
+
+        String signedUrl = mediaService.getSignedUrl(mediaId, actorId, filename);
         return ResponseEntity.ok(Map.of("url", signedUrl));
+    }
+
+    @GetMapping("/{mediaId}/download")
+    @Operation(summary = "Download media file with original filename")
+    public ResponseEntity<byte[]> downloadFile(
+            @Parameter(description = "Media ID") @PathVariable @NotNull Long mediaId,
+            @Parameter(description = "Actor ID") @RequestParam @NotNull Long actorId) throws IOException {
+
+        MediaDTO media = mediaService.get(mediaId);
+        String filename = media.getFileName() != null ? media.getFileName() : "download";
+        String contentType = media.getType() != null ? media.getType() : "application/octet-stream";
+
+        // Fetch file bytes from Cloudinary
+        String publicId = media.getCloudinaryPublicId();
+        String resourceType = determineResourceType(contentType);
+
+        byte[] fileBytes = cloudinaryService.fetchFile(publicId, resourceType);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.parseMediaType(contentType))
+                .body(fileBytes);
+    }
+
+    private String determineResourceType(String contentType) {
+        if (contentType == null) return "raw";
+        if (contentType.startsWith("image/")) return "image";
+        if (contentType.startsWith("video/")) return "video";
+        return "raw";
     }
 
     @GetMapping("/owner/{ownerId}")
@@ -172,7 +204,6 @@ public class MediaController {
     }
 
     @PostMapping("/validate")
-    @Operation(summary = "Validate file before upload")
     public ResponseEntity<Map<String, String>> validateFile(
             @Parameter(description = "Content type") @RequestParam String contentType,
             @Parameter(description = "File size") @RequestParam Long fileSize) {

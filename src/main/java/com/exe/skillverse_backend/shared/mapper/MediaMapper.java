@@ -15,6 +15,7 @@ public interface MediaMapper {
 
     // Entity -> DTO
     @Mapping(target = "uploadedByName", expression = "java(media.getUploadedByUser() != null ? (media.getUploadedByUser().getFirstName() + \" \" + media.getUploadedByUser().getLastName()).trim() : null)")
+    @Mapping(target = "cloudinaryPublicId", source = "cloudinaryPublicId")
     MediaDTO toDto(Media media);
 
     // DTO (create) -> Entity

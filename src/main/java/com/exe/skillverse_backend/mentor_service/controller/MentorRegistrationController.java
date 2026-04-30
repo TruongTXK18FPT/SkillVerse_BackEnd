@@ -58,7 +58,9 @@ public class MentorRegistrationController {
             @RequestParam(value = "cvPortfolioFile", required = false) MultipartFile cvPortfolioFile,
             @RequestParam(value = "certificatesFile", required = false) MultipartFile certificatesFile,
             @RequestParam(value = "certificatesFiles", required = false) MultipartFile[] certificatesFiles,
-            @RequestParam(value = "mergeCertificates", required = false) Boolean mergeCertificates) {
+            @RequestParam(value = "mergeCertificates", required = false) Boolean mergeCertificates,
+            @RequestParam(value = "cccdFrontFile") MultipartFile cccdFrontFile,
+            @RequestParam(value = "cccdBackFile") MultipartFile cccdBackFile) {
         try {
             log.info("Processing mentor registration for email: {}", email);
 
@@ -66,7 +68,8 @@ public class MentorRegistrationController {
             MentorRegistrationResponse response = mentorRegistrationService.registerMentor(
                     email, password, confirmPassword, fullName, phone, bio, address, region,
                     linkedinProfile, mainExpertiseArea, yearsOfExperience, personalProfile,
-                    cvPortfolioFile, certificatesFile, certificatesFiles, mergeCertificates);
+                    cvPortfolioFile, certificatesFile, certificatesFiles, mergeCertificates,
+                    cccdFrontFile, cccdBackFile);
 
             log.info("Mentor registration successful for email: {}", email);
             return ResponseEntity.status(HttpStatus.CREATED).body(response);

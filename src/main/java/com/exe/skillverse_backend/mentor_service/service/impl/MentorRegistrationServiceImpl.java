@@ -8,6 +8,8 @@ import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.mentor_service.entity.MentorProfile;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.mentor_service.service.MentorRegistrationService;
+import com.exe.skillverse_backend.identity_verification_service.dto.IdCardExtractionResult;
+import com.exe.skillverse_backend.identity_verification_service.service.FptAiEkycService;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
@@ -56,7 +58,9 @@ public class MentorRegistrationServiceImpl
         private final MentorProfileRepository mentorProfileRepository;
         private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
         private final CloudinaryService cloudinaryService;
+        private final FptAiEkycService fptAiEkycService;
         private final Validator validator;
+        private final ObjectMapper objectMapper;
 
         @Override
         @Transactional
@@ -121,7 +125,9 @@ public class MentorRegistrationServiceImpl
                         MultipartFile cvPortfolioFile,
                         MultipartFile certificatesFile,
                         MultipartFile[] certificatesFiles,
-                        Boolean mergeCertificates) {
+                        Boolean mergeCertificates,
+                        MultipartFile cccdFrontFile,
+                        MultipartFile cccdBackFile) {
 
                 try {
                         log.info("Starting mentor registration for email: {}", email);
@@ -130,7 +136,8 @@ public class MentorRegistrationServiceImpl
                         MentorRegistrationRequest request = createMentorRegistrationRequest(
                                         email, password, confirmPassword, fullName, phone, bio, address, region,
                                         linkedinProfile, mainExpertiseArea, yearsOfExperience, personalProfile,
-                                        cvPortfolioFile, certificatesFile, certificatesFiles, mergeCertificates);
+                                        cvPortfolioFile, certificatesFile, certificatesFiles, mergeCertificates,
+                                        cccdFrontFile, cccdBackFile);
 
                         // 2. Process registration using existing logic
                         return register(request);
@@ -160,7 +167,9 @@ public class MentorRegistrationServiceImpl
                         MultipartFile cvPortfolioFile,
                         MultipartFile certificatesFile,
                         MultipartFile[] certificatesFiles,
-                        Boolean mergeCertificates) {
+                        Boolean mergeCertificates,
+                        MultipartFile cccdFrontFile,
+                        MultipartFile cccdBackFile) {
 
                 MentorRegistrationRequest request = new MentorRegistrationRequest();
                 request.setEmail(email);
@@ -175,6 +184,39 @@ public class MentorRegistrationServiceImpl
                 request.setMainExpertiseArea(mainExpertiseArea);
                 request.setYearsOfExperience(yearsOfExperience);
                 request.setPersonalProfile(personalProfile);
+
+                // 1. Process CCCD Files and Extract Data with FPT.AI
+                if (cccdFrontFile == null || cccdFrontFile.isEmpty() || cccdBackFile == null || cccdBackFile.isEmpty()) {
+                        throw new IllegalArgumentException("Both front and back CCCD images are required for registration.");
+                }
+
+                // We do NOT save images to Cloudinary or anywhere else due to privacy policy.
+                // We extract data using FPT.AI and then discard the images.
+                log.info("Extracting CCCD data with FPT.AI for: {} synchronously during registration", email);
+
+                try {
+                    IdCardExtractionResult frontResult = fptAiEkycService.extractIdCardInfo(cccdFrontFile.getBytes(), cccdFrontFile.getOriginalFilename());
+                    IdCardExtractionResult backResult = fptAiEkycService.extractIdCardInfo(cccdBackFile.getBytes(), cccdBackFile.getOriginalFilename());
+
+                    if (!frontResult.isSuccess()) {
+                            throw new IllegalArgumentException("Failed to extract data from front CCCD: " + frontResult.getErrorMessage());
+                    }
+                    if (!backResult.isSuccess()) {
+                            throw new IllegalArgumentException("Failed to extract data from back CCCD: " + backResult.getErrorMessage());
+                    }
+
+                    request.setCccdNumber(frontResult.getIdNumber());
+                    request.setCccdFullName(frontResult.getFullName());
+                    request.setCccdDob(frontResult.getDob());
+
+                    java.util.Map<String, Object> combinedData = new java.util.HashMap<>();
+                    combinedData.put("front", objectMapper.readTree(frontResult.getRawJson() != null ? frontResult.getRawJson() : "{}"));
+                    combinedData.put("back", objectMapper.readTree(backResult.getRawJson() != null ? backResult.getRawJson() : "{}"));
+                    request.setCccdExtractedData(objectMapper.writeValueAsString(combinedData));
+                } catch (Exception e) {
+                    log.error("Failed to extract CCCD data for: {}", email, e);
+                    throw new RuntimeException("Failed to extract CCCD data: " + e.getMessage());
+                }
 
                 if (cvPortfolioFile != null && !cvPortfolioFile.isEmpty()) {
                         validateCvPortfolioFile(cvPortfolioFile);
@@ -389,6 +431,14 @@ public class MentorRegistrationServiceImpl
                                 .certifications(request.getCertificateUrls() != null
                                                 ? toJson(request.getCertificateUrls())
                                                 : null)
+                                // Identity Verification (CCCD)
+                                .cccdNumber(request.getCccdNumber())
+                                .cccdFullName(request.getCccdFullName())
+                                .cccdDob(request.getCccdDob())
+                                .cccdFrontUrl(request.getCccdFrontUrl())
+                                .cccdBackUrl(request.getCccdBackUrl())
+                                .cccdExtractedData(request.getCccdExtractedData())
+                                .identityVerified(false) // Needs admin review
                                 // Application status
                                 .applicationStatus(ApplicationStatus.PENDING)
                                 .applicationDate(LocalDateTime.now())

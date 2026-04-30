@@ -277,15 +277,24 @@ jobs:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
+      - name: 🧹 Free Docker Disk Space
+        run: |
+          echo "Disk usage before cleanup:"
+          df -h
+          docker system df || true
+          rm -rf ~/.docker/buildx/activity/* 2>/dev/null || true
+          docker builder prune -af || true
+          docker system prune -af || true
+          echo "Disk usage after cleanup:"
+          df -h
+          docker system df || true
+
       - name: ☕ Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
           java-version: ${{ env.JAVA_VERSION }}
           cache: "maven"
-
-      - name: 🐳 Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
 
       - name: 🔐 Make mvnw executable
         run: chmod +x mvnw
@@ -296,7 +305,7 @@ jobs:
 
       - name: 🐳 Build Docker Image
         run: |
-          docker build -t skillverse-backend:${{ github.sha }} .
+          DOCKER_BUILDKIT=0 docker build -t skillverse-backend:${{ github.sha }} .
           docker tag skillverse-backend:${{ github.sha }} skillverse-backend:latest
           docker tag skillverse-backend:${{ github.sha }} skillverse-backend:v1
 
@@ -604,17 +613,59 @@ jobs:
             [ -n "$CLOUDINARY_CLOUD_NAME" ] && echo "✅ CLOUDINARY_CLOUD_NAME loaded" || echo "❌ CLOUDINARY_CLOUD_NAME missing"
             [ -n "$ASSIGNMENT_AI_API_KEY" ] && echo "✅ ASSIGNMENT_AI_API_KEY loaded" || echo "❌ ASSIGNMENT_AI_API_KEY missing"
             
+            show_disk_usage() {
+              echo "Disk usage:"
+              df -h / /tmp 2>/dev/null || df -h
+              echo ""
+              echo "Docker disk usage:"
+              docker system df || true
+            }
+
+            require_disk_space() {
+              REQUIRED_KB="${1:-2097152}"
+              ROOT_AVAILABLE_KB=$(df -Pk / | awk 'NR==2 {print $4}')
+              TMP_AVAILABLE_KB=$(df -Pk /tmp | awk 'NR==2 {print $4}')
+              if [ "${ROOT_AVAILABLE_KB:-0}" -lt "$REQUIRED_KB" ] || [ "${TMP_AVAILABLE_KB:-0}" -lt 262144 ]; then
+                echo "Not enough free disk space for Docker deployment."
+                echo "Required root free space: ${REQUIRED_KB} KB. Actual: ${ROOT_AVAILABLE_KB:-unknown} KB."
+                echo "Required /tmp free space: 262144 KB. Actual: ${TMP_AVAILABLE_KB:-unknown} KB."
+                show_disk_usage
+                exit 1
+              fi
+            }
+
+            echo "Disk usage before Docker cleanup:"
+            show_disk_usage
+
             # Stop and remove old backend container (both compose and standalone)
             docker compose stop backend 2>/dev/null || true
             docker compose rm -f backend 2>/dev/null || true
             docker stop skillverse-backend 2>/dev/null || true
             docker rm -f skillverse-backend 2>/dev/null || true
+
+            # Free Docker build cache before building. Cleanup after deployment is
+            # too late when buildx or runc cannot write temp files.
+            rm -rf ~/.docker/buildx/activity/* 2>/dev/null || true
+            find /tmp -maxdepth 1 -type f -name 'runc-process*' -delete 2>/dev/null || true
+            docker builder prune -af 2>/dev/null || true
+            docker buildx prune -af 2>/dev/null || true
+            docker container prune -f 2>/dev/null || true
+            docker image prune -af 2>/dev/null || true
             
             # Remove old backend images to force rebuild/update
             docker images | grep backend | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+
+            echo "Disk usage after Docker cleanup:"
+            show_disk_usage
+            require_disk_space 2097152
             
             # Build new backend image
-            docker build -t skillverse-backend:v1 .
+            if ! DOCKER_BUILDKIT=0 docker build -t skillverse-backend:v1 .; then
+              echo "Docker build failed."
+              show_disk_usage
+              exit 1
+            fi
+            require_disk_space 524288
             
             # Get the docker compose network name
             NETWORK_NAME=$(docker network ls --filter name=skillverse -q | head -1)
@@ -637,6 +688,12 @@ jobs:
                   skillverse-db \
                   psql -U "${SPRING_DATASOURCE_USERNAME:-skillverse_user}" -d skillverse_db \
                   -tAc "SELECT CASE WHEN pg_is_in_recovery() THEN 'recovery' ELSE 'ready' END" 2>/dev/null || true)
+
+                if echo "$DB_STATE" | grep -qi "no space left on device"; then
+                  echo "Docker cannot execute commands because the VPS disk or /tmp is full."
+                  show_disk_usage
+                  exit 1
+                fi
 
                 if [ "$DB_STATE" = "ready" ]; then
                   echo "PostgreSQL container is ready."
@@ -743,6 +800,8 @@ jobs:
             echo "✅ Backend deployed successfully and healthy!"
             
             # Clean up unused images
+            rm -rf ~/.docker/buildx/activity/* 2>/dev/null || true
+            docker builder prune -af 2>/dev/null || true
             docker system prune -f
           ENDSSH
 

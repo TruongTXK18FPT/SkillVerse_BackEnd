@@ -196,6 +196,11 @@ public class AuthServiceImpl implements AuthService {
                         userDto.setAuthProvider(user.getAuthProvider().toString());
                         userDto.setGoogleLinked(user.isGoogleLinked());
 
+                        if (user.getPrimaryRole() == PrimaryRole.MENTOR) {
+                                mentorProfileRepository.findByUserId(user.getId())
+                                        .ifPresent(profile -> userDto.setIdentityVerified(profile.getIdentityVerified()));
+                        }
+
                         return AuthResponse.builder()
                                         .accessToken(accessToken)
                                         .refreshToken(refreshToken)
@@ -359,6 +364,11 @@ public class AuthServiceImpl implements AuthService {
                                 : null);
                         userDto.setAuthProvider(user.getAuthProvider().toString());
                         userDto.setGoogleLinked(user.isGoogleLinked());
+
+                        if (user.getPrimaryRole() == PrimaryRole.MENTOR) {
+                                mentorProfileRepository.findByUserId(user.getId())
+                                        .ifPresent(profile -> userDto.setIdentityVerified(profile.getIdentityVerified()));
+                        }
                         log.info("Token refresh successful for user: {}", user.getEmail());
 
                         return AuthResponse.builder()
@@ -764,6 +774,11 @@ public class AuthServiceImpl implements AuthService {
                                         .collect(Collectors.toSet()));
                         userDto.setAuthProvider(user.getAuthProvider().toString());
                         userDto.setGoogleLinked(user.isGoogleLinked());
+
+                        if (user.getPrimaryRole() == PrimaryRole.MENTOR) {
+                                mentorProfileRepository.findByUserId(user.getId())
+                                        .ifPresent(profile -> userDto.setIdentityVerified(profile.getIdentityVerified()));
+                        }
 
                         // 11. Build response
                         AuthResponse response = AuthResponse.builder()

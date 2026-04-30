@@ -11,41 +11,89 @@ import com.exe.skillverse_backend.question_bank_service.service.SkillResolveServ
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.shared.util.SkillNameUtils;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
+import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.Set;
+import java.util.regex.Pattern;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
- * AI-powered service that resolves a skill name to the matching
- * domain / industry / job role using the same Mistral AI model
- * used for quiz generation.
+ * Deterministic skill resolver for matching a typed skill to the closest
+ * domain / industry / job role from ExpertPromptConfig.
  *
- * The prompt is intentionally compact to keep latency low (~1-3s).
+ * This intentionally avoids AI calls. The resolver scores aliases, keywords,
+ * role hints, job-role text, industry, and typo-tolerant token similarity.
  */
 @Service
-@RequiredArgsConstructor
-@Slf4j
 @Transactional
 public class SkillResolveServiceImpl implements SkillResolveService {
 
-    private final ChatModel generateTestChatModel;
+    private static final Pattern DIACRITICS = Pattern.compile("\\p{M}+");
+    private static final Pattern NON_SEARCH_CHARS = Pattern.compile("[^a-z0-9\\s.#+]");
+    private static final Pattern SEPARATORS = Pattern.compile("[_\\-/\\\\]+");
+    private static final int AUTO_CREATE_MIN_CONFIDENCE = 50;
+
+    private static final Map<String, List<String>> SKILL_ALIASES = Map.ofEntries(
+            Map.entry("react", List.of("react", "reactjs", "react.js", "react js")),
+            Map.entry("vue", List.of("vue", "vuejs", "vue.js", "vue js")),
+            Map.entry("angular", List.of("angular", "angularjs", "angular.js")),
+            Map.entry("node", List.of("node", "nodejs", "node.js", "node js")),
+            Map.entry("next", List.of("next", "nextjs", "next.js", "next js")),
+            Map.entry("spring", List.of("spring", "springboot", "spring boot", "spring_boot", "spring framework")),
+            Map.entry("java", List.of("java", "java se", "java ee", "jdk")),
+            Map.entry("python", List.of("python", "python3", "py")),
+            Map.entry("javascript", List.of("javascript", "js", "ecmascript", "es6")),
+            Map.entry("typescript", List.of("typescript", "ts")),
+            Map.entry("csharp", List.of("c#", "csharp", "c sharp", "dotnet", ".net", "asp.net")),
+            Map.entry("cpp", List.of("c++", "cpp", "cplusplus")),
+            Map.entry("php", List.of("php", "laravel", "symfony")),
+            Map.entry("go", List.of("go", "golang")),
+            Map.entry("flutter", List.of("flutter", "dart", "flutter dart")),
+            Map.entry("docker", List.of("docker", "dockerfile", "docker compose", "docker-compose")),
+            Map.entry("kubernetes", List.of("kubernetes", "k8s", "kube")),
+            Map.entry("aws", List.of("aws", "amazon web services", "amazon cloud")),
+            Map.entry("azure", List.of("azure", "microsoft azure", "ms azure")),
+            Map.entry("gcp", List.of("gcp", "google cloud", "google cloud platform")),
+            Map.entry("sql", List.of("sql", "mysql", "postgresql", "postgres", "mssql", "sql server")),
+            Map.entry("figma", List.of("figma", "figma design")),
+            Map.entry("uiux", List.of("ui/ux", "uiux", "ui ux", "ui/ux design", "user experience", "user interface")),
+            Map.entry("ml", List.of("ml", "machine learning", "deep learning")),
+            Map.entry("ai", List.of("ai", "artificial intelligence", "generative ai", "gen ai", "llm")),
+            Map.entry("devops", List.of("devops", "dev ops", "ci/cd", "cicd")),
+            Map.entry("qa", List.of("qa", "quality assurance", "testing", "tester", "qc")),
+            Map.entry("excel", List.of("excel", "microsoft excel", "ms excel", "spreadsheet")),
+            Map.entry("powerbi", List.of("powerbi", "power bi", "power_bi")),
+            Map.entry("seo", List.of("seo", "search engine optimization")),
+            Map.entry("marketing", List.of("marketing", "digital marketing", "online marketing")),
+            Map.entry("sales", List.of("sales", "ban hang", "kinh doanh")),
+            Map.entry("accounting", List.of("accounting", "ke toan", "bookkeeping")),
+            Map.entry("hr", List.of("hr", "human resources", "nhan su", "tuyen dung"))
+    );
+
+    private static final Map<String, String> REVERSE_ALIAS_MAP = buildReverseAliasMap();
+
     private final ExpertPromptConfigRepository expertPromptConfigRepository;
     private final QuestionBankRepository questionBankRepository;
     private final QuestionBankService questionBankService;
-    private final ObjectMapper objectMapper;
+
+    public SkillResolveServiceImpl(
+            ExpertPromptConfigRepository expertPromptConfigRepository,
+            QuestionBankRepository questionBankRepository,
+            QuestionBankService questionBankService
+    ) {
+        this.expertPromptConfigRepository = expertPromptConfigRepository;
+        this.questionBankRepository = questionBankRepository;
+        this.questionBankService = questionBankService;
+    }
 
     @Override
     public SkillResolveResponse resolveSkill(String skillName) {
@@ -57,61 +105,35 @@ public class SkillResolveServiceImpl implements SkillResolveService {
         return doResolve(skillName, true);
     }
 
-    // ================================================================
-    // Core logic
-    // ================================================================
-
     private SkillResolveResponse doResolve(String skillName, boolean autoCreate) {
-        String normalizedSkill = normalizeSkillName(skillName);
-        log.info("Resolving skill '{}' (normalized: '{}'), autoCreate={}", skillName, normalizedSkill, autoCreate);
-
-        // Step 1: Build available roles catalog for the AI prompt
-        List<ExpertPromptConfig> allConfigs = expertPromptConfigRepository
+        String normalizedSkill = SkillNameUtils.normalizeRequired(skillName);
+        List<ExpertPromptConfig> configs = expertPromptConfigRepository
                 .findByIsActiveTrueOrderByDomainAscIndustryAscJobRoleAsc();
 
-        if (allConfigs.isEmpty()) {
+        if (configs.isEmpty()) {
             throw new ApiException(ErrorCode.INTERNAL_ERROR, "No expert prompt configs found in database");
         }
 
-        String rolesCatalog = buildRolesCatalog(allConfigs);
+        List<ResolveMatch> matches = rankMatches(skillName, configs);
+        ResolveMatch best = matches.getFirst();
 
-        // Step 2: Call AI
-        String prompt = buildResolvePrompt(skillName, rolesCatalog);
-        String aiResponse;
-        try {
-            aiResponse = ChatClient.create(generateTestChatModel)
-                    .prompt()
-                    .user(prompt)
-                    .call()
-                    .content();
-        } catch (Exception e) {
-            log.error("AI skill resolution failed for '{}': {}", skillName, e.getMessage(), e);
-            throw new ApiException(ErrorCode.INTERNAL_ERROR, "AI analysis failed: " + e.getMessage());
-        }
-
-        // Step 3: Parse AI response
-        AiResolveResult parsed = parseAiResponse(aiResponse, allConfigs);
-
-        // Step 4: Check existing question bank
-        String domainForDb = parsed.domain;
         Optional<com.exe.skillverse_backend.question_bank_service.entity.QuestionBank> existingBank =
                 questionBankRepository.findByExactScope(
-                        domainForDb,
-                        parsed.industry,
-                        parsed.jobRole,
+                        best.domain(),
+                        best.industry(),
+                        best.jobRole(),
                         normalizedSkill,
                         PageRequest.of(0, 1)
                 ).stream().findFirst();
 
-        // Build response
         SkillResolveResponse.SkillResolveResponseBuilder responseBuilder = SkillResolveResponse.builder()
                 .skillName(normalizedSkill)
-                .domain(parsed.domain)
-                .industry(parsed.industry)
-                .jobRole(parsed.jobRole)
-                .confidence(parsed.confidence)
-                .reasoning(parsed.reasoning)
-                .alternatives(parsed.alternatives);
+                .domain(best.domain())
+                .industry(best.industry())
+                .jobRole(best.jobRole())
+                .confidence(best.confidence())
+                .reasoning(best.reasoning())
+                .alternatives(toAlternatives(matches));
 
         if (existingBank.isPresent()) {
             responseBuilder
@@ -122,19 +144,18 @@ public class SkillResolveServiceImpl implements SkillResolveService {
             responseBuilder.questionBankExists(false);
         }
 
-        // Step 5: Auto-create question bank if requested and doesn't exist
-        if (autoCreate && existingBank.isEmpty() && parsed.confidence >= 50) {
+        if (autoCreate && existingBank.isEmpty() && best.confidence() >= AUTO_CREATE_MIN_CONFIDENCE) {
             try {
                 QuestionBankResponse createdBank = questionBankService.createBank(
                         CreateQuestionBankRequest.builder()
-                                .domain(parsed.domain)
-                                .industry(parsed.industry)
-                                .jobRole(parsed.jobRole)
+                                .domain(best.domain())
+                                .industry(best.industry())
+                                .jobRole(best.jobRole())
                                 .skillName(normalizedSkill)
-                                .title("Bộ câu hỏi đầu vào " + parsed.jobRole + " - " + formatSkillLabel(normalizedSkill))
-                                .description("Bộ câu hỏi đánh giá đầu vào cho kỹ năng "
-                                        + formatSkillLabel(normalizedSkill) + " thuộc vị trí "
-                                        + parsed.jobRole + " trong ngành " + parsed.industry + ".")
+                                .title("Question bank dau vao " + best.jobRole() + " - " + formatSkillLabel(normalizedSkill))
+                                .description("Bo cau hoi danh gia dau vao cho skill "
+                                        + formatSkillLabel(normalizedSkill) + " thuoc vi tri "
+                                        + best.jobRole() + " trong nganh " + best.industry() + ".")
                                 .build()
                 );
                 responseBuilder
@@ -143,218 +164,437 @@ public class SkillResolveServiceImpl implements SkillResolveService {
                         .questionBankExists(true)
                         .existingQuestionBankId(createdBank.getId())
                         .existingQuestionBankTitle(createdBank.getTitle());
-
-                log.info("Auto-created question bank {} for skill '{}'", createdBank.getId(), normalizedSkill);
-            } catch (Exception e) {
-                log.warn("Auto-create question bank failed for skill '{}': {}", normalizedSkill, e.getMessage());
-                // Don't fail the whole request, just report without the created bank
+            } catch (Exception ignored) {
+                // Keep the resolver usable even when the optional bank creation collides or fails.
             }
         }
 
         return responseBuilder.build();
     }
 
-    // ================================================================
-    // AI Prompt & Parsing
-    // ================================================================
+    private List<ResolveMatch> rankMatches(String skillName, List<ExpertPromptConfig> configs) {
+        String input = normalizeSearchText(skillName);
+        Set<String> expandedTerms = expandWithAliases(input);
+        List<String> inputTokens = tokenize(input);
 
-    private String buildRolesCatalog(List<ExpertPromptConfig> configs) {
-        StringBuilder sb = new StringBuilder();
-        String currentDomain = "";
-        String currentIndustry = "";
+        List<ResolveMatch> matches = configs.stream()
+                .map(config -> scoreConfig(config, input, expandedTerms, inputTokens))
+                .sorted(Comparator
+                        .comparingInt(ResolveMatch::confidence).reversed()
+                        .thenComparing(ResolveMatch::jobRole)
+                        .thenComparing(ResolveMatch::industry)
+                        .thenComparing(ResolveMatch::domain))
+                .toList();
 
-        for (ExpertPromptConfig config : configs) {
-            if (!config.getDomain().equals(currentDomain)) {
-                currentDomain = config.getDomain();
-                sb.append("\n[DOMAIN: ").append(currentDomain).append("]\n");
-                currentIndustry = "";
-            }
-            if (!config.getIndustry().equals(currentIndustry)) {
-                currentIndustry = config.getIndustry();
-                sb.append("  [INDUSTRY: ").append(currentIndustry).append("]\n");
-            }
-            sb.append("    - ").append(config.getJobRole());
-            if (config.getKeywords() != null && !config.getKeywords().isBlank()) {
-                sb.append(" (keywords: ").append(config.getKeywords()).append(")");
-            }
-            sb.append("\n");
+        if (matches.isEmpty()) {
+            throw new ApiException(ErrorCode.INTERNAL_ERROR, "No skill resolution candidates found");
         }
-
-        return sb.toString();
+        return matches;
     }
 
-    private String buildResolvePrompt(String skillName, String rolesCatalog) {
-        return """
-            Bạn là hệ thống phân loại kỹ năng (skill classification).
-            
-            Cho skill: "%s"
-            
-            Dưới đây là danh sách TẤT CẢ các domain/industry/jobRole có trong hệ thống:
-            %s
-            
-            Nhiệm vụ: Xác định skill "%s" phù hợp nhất với domain/industry/jobRole NÀO trong danh sách trên.
-            
-            Quy tắc:
-            1. Chỉ được chọn từ danh sách đã cho, KHÔNG được tạo giá trị mới.
-            2. Ưu tiên match theo keywords trước, rồi theo tên jobRole.
-            3. Nếu skill có thể thuộc nhiều role, chọn role phù hợp nhất và liệt kê alternatives.
-            4. Confidence: 90-100 = chắc chắn, 70-89 = khá chắc, 50-69 = có thể, <50 = không chắc.
-            
-            Ví dụ:
-            - "React" → Information Technology / Software Development / Frontend Developer (confidence: 95)
-            - "Java Spring Boot" → Information Technology / Software Development / Backend Developer (confidence: 95)
-            - "Figma" → Information Technology / Software Development / UI/UX Designer (confidence: 90)
-            
-            CHỈ trả lời bằng JSON hợp lệ (không markdown):
-            {
-              "domain": "...",
-              "industry": "...",
-              "jobRole": "...",
-              "confidence": 95,
-              "reasoning": "Giải thích ngắn tại sao chọn role này",
-              "alternatives": [
-                {"domain": "...", "industry": "...", "jobRole": "...", "confidence": 70}
-              ]
+    private ResolveMatch scoreConfig(
+            ExpertPromptConfig config,
+            String input,
+            Set<String> expandedTerms,
+            List<String> inputTokens
+    ) {
+        List<String> candidateKeywords = new ArrayList<>();
+        candidateKeywords.addAll(splitKeywords(config.getKeywords()));
+        candidateKeywords.addAll(builtInRoleHints(config));
+        candidateKeywords = candidateKeywords.stream()
+                .map(SkillResolveServiceImpl::normalizeSearchText)
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .toList();
+
+        String roleNorm = normalizeSearchText(config.getJobRole());
+        String industryNorm = normalizeSearchText(config.getIndustry());
+        String domainNorm = normalizeSearchText(config.getDomain());
+
+        Score score = new Score(0, "No strong signal");
+
+        for (String term : expandedTerms) {
+            for (String keyword : candidateKeywords) {
+                score.accept(scorePhrase(term, keyword, 98, 88, 72),
+                        "Matched keyword '" + keyword + "'");
             }
-            """.formatted(skillName, rolesCatalog, skillName);
+        }
+
+        for (String token : inputTokens) {
+            for (String keyword : candidateKeywords) {
+                score.accept(scoreTokenAgainstPhrase(token, keyword, 92),
+                        "Matched token '" + token + "' to keyword '" + keyword + "'");
+            }
+        }
+
+        for (String term : expandedTerms) {
+            score.accept(scorePhrase(term, roleNorm, 94, 82, 68),
+                    "Matched job role '" + config.getJobRole() + "'");
+            for (String roleToken : tokenize(roleNorm)) {
+                score.accept(Math.round(fuzzyTokenScore(term, roleToken) * 0.78f),
+                        "Matched role token '" + roleToken + "'");
+            }
+        }
+
+        int tokenCoverage = tokenCoverageScore(inputTokens, candidateKeywords, roleNorm);
+        score.accept(tokenCoverage, "Matched multiple skill terms");
+
+        for (String term : expandedTerms) {
+            score.accept(Math.round(scorePhrase(term, industryNorm, 55, 46, 35) * 0.9f),
+                    "Matched industry '" + config.getIndustry() + "'");
+            score.accept(Math.round(scorePhrase(term, domainNorm, 42, 35, 25) * 0.85f),
+                    "Matched domain '" + config.getDomain() + "'");
+        }
+
+        int confidence = Math.max(20, Math.min(100, score.value()));
+        return new ResolveMatch(
+                config.getDomain(),
+                config.getIndustry(),
+                config.getJobRole(),
+                confidence,
+                buildReasoning(score.reason(), confidence)
+        );
     }
 
-    @SuppressWarnings("unchecked")
-    private AiResolveResult parseAiResponse(String aiResponse, List<ExpertPromptConfig> allConfigs) {
-        String jsonStr = extractJsonFromResponse(aiResponse);
-
-        try {
-            Map<String, Object> parsed = objectMapper.readValue(jsonStr, new TypeReference<Map<String, Object>>() {});
-
-            String rawDomain = (String) parsed.get("domain");
-            String rawIndustry = (String) parsed.get("industry");
-            String rawJobRole = (String) parsed.get("jobRole");
-            int rawConfidence = parsed.get("confidence") instanceof Number
-                    ? ((Number) parsed.get("confidence")).intValue()
-                    : 50;
-            String reasoning = (String) parsed.get("reasoning");
-
-            // Validate that the AI returned values that actually exist
-            boolean isValid = allConfigs.stream().anyMatch(c ->
-                    c.getDomain().equalsIgnoreCase(rawDomain)
-                    && c.getIndustry().equalsIgnoreCase(rawIndustry)
-                    && c.getJobRole().equalsIgnoreCase(rawJobRole)
-            );
-
-            // Use corrected values if AI returned a non-existent combo
-            String domain = rawDomain;
-            String industry = rawIndustry;
-            String jobRole = rawJobRole;
-            int confidence = rawConfidence;
-
-            if (!isValid) {
-                log.warn("AI returned non-existent combo: {}/{}/{}, attempting correction", rawDomain, rawIndustry, rawJobRole);
-                ExpertPromptConfig closest = findClosestConfig(rawDomain, rawIndustry, rawJobRole, allConfigs);
-                if (closest != null) {
-                    domain = closest.getDomain();
-                    industry = closest.getIndustry();
-                    jobRole = closest.getJobRole();
-                    confidence = Math.max(rawConfidence - 20, 30);
-                }
-            }
-
-            // Parse alternatives
-            List<SkillResolveResponse.AlternativeMatch> alternatives = new ArrayList<>();
-            Object altsObj = parsed.get("alternatives");
-            if (altsObj instanceof List) {
-                for (Object alt : (List<?>) altsObj) {
-                    if (alt instanceof Map) {
-                        Map<String, Object> altMap = (Map<String, Object>) alt;
-                        String altDomain = (String) altMap.get("domain");
-                        String altIndustry = (String) altMap.get("industry");
-                        String altJobRole = (String) altMap.get("jobRole");
-                        int altConfidence = altMap.get("confidence") instanceof Number
-                                ? ((Number) altMap.get("confidence")).intValue()
-                                : 40;
-
-                        // Only include if the combo exists in our system
-                        boolean altValid = allConfigs.stream().anyMatch(c ->
-                                c.getDomain().equalsIgnoreCase(altDomain)
-                                && c.getIndustry().equalsIgnoreCase(altIndustry)
-                                && c.getJobRole().equalsIgnoreCase(altJobRole)
-                        );
-
-                        if (altValid) {
-                            alternatives.add(SkillResolveResponse.AlternativeMatch.builder()
-                                    .domain(altDomain)
-                                    .industry(altIndustry)
-                                    .jobRole(altJobRole)
-                                    .confidence(altConfidence)
-                                    .build());
-                        }
-                    }
-                }
-            }
-
-            return new AiResolveResult(domain, industry, jobRole, confidence, reasoning, alternatives);
-        } catch (Exception e) {
-            log.error("Failed to parse AI skill resolve response: {}", e.getMessage());
-            log.debug("Raw AI response: {}", aiResponse);
-            throw new ApiException(ErrorCode.INTERNAL_ERROR, "Failed to parse AI response: " + e.getMessage());
+    private int tokenCoverageScore(List<String> inputTokens, List<String> candidateKeywords, String roleNorm) {
+        if (inputTokens.isEmpty()) {
+            return 0;
         }
+
+        List<String> candidateTokens = new ArrayList<>();
+        for (String keyword : candidateKeywords) {
+            candidateTokens.addAll(tokenize(keyword));
+        }
+        candidateTokens.addAll(tokenize(roleNorm));
+
+        int total = 0;
+        int matched = 0;
+        for (String inputToken : inputTokens) {
+            int best = 0;
+            for (String candidateToken : candidateTokens) {
+                best = Math.max(best, fuzzyTokenScore(inputToken, candidateToken));
+            }
+            if (best >= 55) {
+                matched++;
+                total += best;
+            }
+        }
+
+        if (matched == 0) {
+            return 0;
+        }
+
+        int average = Math.round((float) total / inputTokens.size());
+        int coverageBonus = Math.round(20f * matched / inputTokens.size());
+        return Math.min(90, average + coverageBonus);
     }
 
-    private ExpertPromptConfig findClosestConfig(String domain, String industry, String jobRole,
-                                                  List<ExpertPromptConfig> configs) {
-        // Try exact jobRole match
-        for (ExpertPromptConfig c : configs) {
-            if (c.getJobRole().equalsIgnoreCase(jobRole)) {
-                return c;
-            }
+    private static int scorePhrase(String term, String target, int exact, int contains, int fuzzy) {
+        if (term.isBlank() || target.isBlank()) {
+            return 0;
         }
-        // Try domain + industry match
-        for (ExpertPromptConfig c : configs) {
-            if (c.getDomain().equalsIgnoreCase(domain) && c.getIndustry().equalsIgnoreCase(industry)) {
-                return c;
-            }
+        if (term.equals(target)) {
+            return exact;
         }
-        // Just return first config
-        return configs.isEmpty() ? null : configs.get(0);
+        if (term.contains(target) || target.contains(term)) {
+            int longer = Math.max(term.length(), target.length());
+            int shorter = Math.min(term.length(), target.length());
+            return Math.min(contains, Math.round(contains * (0.72f + 0.28f * shorter / longer)));
+        }
+        return Math.round(fuzzyTokenScore(term, target) * fuzzy / 100f);
     }
 
-    private String extractJsonFromResponse(String response) {
-        String jsonStr = response.trim();
-        if (jsonStr.startsWith("```json")) {
-            jsonStr = jsonStr.substring(7);
-        } else if (jsonStr.startsWith("```")) {
-            jsonStr = jsonStr.substring(3);
+    private static int scoreTokenAgainstPhrase(String token, String phrase, int maxScore) {
+        int best = fuzzyTokenScore(token, phrase);
+        for (String phraseToken : tokenize(phrase)) {
+            best = Math.max(best, fuzzyTokenScore(token, phraseToken));
         }
-        if (jsonStr.endsWith("```")) {
-            jsonStr = jsonStr.substring(0, jsonStr.length() - 3);
-        }
-        return jsonStr.trim();
+        return Math.round(best * maxScore / 100f);
     }
 
-    // ================================================================
-    // Helpers
-    // ================================================================
+    private static int fuzzyTokenScore(String a, String b) {
+        if (a == null || b == null || a.isBlank() || b.isBlank()) {
+            return 0;
+        }
+        if (a.equals(b)) {
+            return 100;
+        }
+        if (a.contains(b) || b.contains(a)) {
+            int longer = Math.max(a.length(), b.length());
+            int shorter = Math.min(a.length(), b.length());
+            return Math.round(62 + 30f * shorter / longer);
+        }
 
-    private String normalizeSkillName(String skillName) {
-        return SkillNameUtils.normalizeRequired(skillName);
+        String strippedA = stripCommonSuffixes(a);
+        String strippedB = stripCommonSuffixes(b);
+        if (!strippedA.isBlank() && strippedA.equals(strippedB)) {
+            return 86;
+        }
+        if (!strippedA.isBlank() && !strippedB.isBlank()
+                && (strippedA.contains(strippedB) || strippedB.contains(strippedA))) {
+            return 72;
+        }
+
+        if (a.length() <= 18 && b.length() <= 18) {
+            int distance = levenshteinDistance(a, b);
+            int maxLen = Math.max(a.length(), b.length());
+            float similarity = 1f - (float) distance / maxLen;
+            if (similarity >= 0.68f) {
+                return Math.round(similarity * 72);
+            }
+        }
+        return 0;
+    }
+
+    private static String stripCommonSuffixes(String value) {
+        return value.replaceAll("(js|lang|framework|developer|dev|engineer|specialist)$", "");
+    }
+
+    private static int levenshteinDistance(String s1, String s2) {
+        int[][] dp = new int[s1.length() + 1][s2.length() + 1];
+        for (int i = 0; i <= s1.length(); i++) {
+            dp[i][0] = i;
+        }
+        for (int j = 0; j <= s2.length(); j++) {
+            dp[0][j] = j;
+        }
+        for (int i = 1; i <= s1.length(); i++) {
+            for (int j = 1; j <= s2.length(); j++) {
+                int cost = s1.charAt(i - 1) == s2.charAt(j - 1) ? 0 : 1;
+                dp[i][j] = Math.min(
+                        Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
+                        dp[i - 1][j - 1] + cost
+                );
+            }
+        }
+        return dp[s1.length()][s2.length()];
+    }
+
+    private List<SkillResolveResponse.AlternativeMatch> toAlternatives(List<ResolveMatch> matches) {
+        List<SkillResolveResponse.AlternativeMatch> alternatives = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (int i = 1; i < matches.size() && alternatives.size() < 4; i++) {
+            ResolveMatch match = matches.get(i);
+            if (match.confidence() < 30) {
+                break;
+            }
+            String key = match.domain() + "|" + match.industry() + "|" + match.jobRole();
+            if (seen.add(key)) {
+                alternatives.add(SkillResolveResponse.AlternativeMatch.builder()
+                        .domain(match.domain())
+                        .industry(match.industry())
+                        .jobRole(match.jobRole())
+                        .confidence(match.confidence())
+                        .build());
+            }
+        }
+        return alternatives;
+    }
+
+    private static List<String> splitKeywords(String keywords) {
+        if (keywords == null || keywords.isBlank()) {
+            return List.of();
+        }
+        return List.of(keywords.split("[,;|]")).stream()
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .toList();
+    }
+
+    private static List<String> builtInRoleHints(ExpertPromptConfig config) {
+        String role = normalizeSearchText(config.getJobRole());
+        String industry = normalizeSearchText(config.getIndustry());
+        List<String> hints = new ArrayList<>();
+
+        if (role.contains("backend")) {
+            hints.addAll(List.of("backend", "api", "server", "java", "spring", "spring boot", "node", "express",
+                    "nestjs", "django", "flask", "laravel", "php", "c#", "asp.net", "sql", "postgresql",
+                    "mysql", "redis", "microservices"));
+        }
+        if (role.contains("frontend")) {
+            hints.addAll(List.of("frontend", "react", "reactjs", "vue", "angular", "nextjs", "javascript",
+                    "typescript", "html", "css", "tailwind", "web ui"));
+        }
+        if (role.contains("fullstack") || role.contains("full stack")) {
+            hints.addAll(List.of("fullstack", "full stack", "mern", "mean", "react node", "nextjs", "spring react",
+                    "web development"));
+        }
+        if (role.contains("mobile")) {
+            hints.addAll(List.of("mobile", "android", "ios", "flutter", "dart", "react native", "kotlin", "swift"));
+        }
+        if (role.contains("devops")) {
+            hints.addAll(List.of("devops", "ci cd", "docker", "kubernetes", "k8s", "terraform", "jenkins",
+                    "github actions"));
+        }
+        if (role.contains("cloud")) {
+            hints.addAll(List.of("cloud", "aws", "azure", "gcp", "google cloud", "cloud architecture",
+                    "cloud engineer"));
+        }
+        if (role.contains("qa") || role.contains("tester")) {
+            hints.addAll(List.of("qa", "qc", "testing", "tester", "selenium", "automation test", "manual test",
+                    "playwright", "cypress"));
+        }
+        if (role.contains("ui") || role.contains("ux") || role.contains("designer")) {
+            hints.addAll(List.of("ui", "ux", "ui ux", "figma", "wireframe", "prototype", "user experience",
+                    "user interface", "photoshop", "illustrator"));
+        }
+        if (role.contains("data analyst")) {
+            hints.addAll(List.of("data analyst", "sql", "excel", "power bi", "powerbi", "tableau", "dashboard",
+                    "data visualization"));
+        }
+        if (role.contains("business intelligence") || role.contains("bi")) {
+            hints.addAll(List.of("bi", "business intelligence", "power bi", "powerbi", "tableau", "dashboard",
+                    "data warehouse"));
+        }
+        if (role.contains("data engineer")) {
+            hints.addAll(List.of("data engineer", "etl", "spark", "airflow", "data pipeline", "warehouse",
+                    "big data"));
+        }
+        if (role.contains("machine learning") || role.contains("ai engineer")) {
+            hints.addAll(List.of("machine learning", "ml", "ai", "python", "tensorflow", "pytorch", "llm",
+                    "deep learning", "generative ai"));
+        }
+        if (role.contains("cyber") || role.contains("security") || role.contains("pentester") || role.contains("soc")) {
+            hints.addAll(List.of("security", "cybersecurity", "pentest", "penetration testing", "ethical hacker",
+                    "soc", "firewall", "network security", "threat"));
+        }
+        if (role.contains("marketing") || industry.contains("marketing")) {
+            hints.addAll(List.of("marketing", "digital marketing", "seo", "ads", "facebook ads", "google ads",
+                    "content marketing", "social media", "email marketing", "brand"));
+        }
+        if (role.contains("sales")) {
+            hints.addAll(List.of("sales", "ban hang", "telesales", "b2b sales", "closing", "crm"));
+        }
+        if (role.contains("business analyst")) {
+            hints.addAll(List.of("business analyst", "ba", "requirements", "process", "user story", "brd"));
+        }
+        if (role.contains("project manager")) {
+            hints.addAll(List.of("project manager", "pm", "pmp", "agile", "scrum", "kanban"));
+        }
+        if (role.contains("hr") || role.contains("recruitment")) {
+            hints.addAll(List.of("hr", "human resources", "recruitment", "talent acquisition", "headhunter",
+                    "nhan su", "tuyen dung"));
+        }
+        if (role.contains("accounting") || role.contains("finance")) {
+            hints.addAll(List.of("accounting", "finance", "ke toan", "excel", "financial analysis",
+                    "bookkeeping"));
+        }
+        if (role.contains("logistics") || role.contains("supply chain")) {
+            hints.addAll(List.of("logistics", "supply chain", "procurement", "inventory", "import export",
+                    "customs"));
+        }
+        return hints;
+    }
+
+    private static Set<String> expandWithAliases(String input) {
+        Set<String> result = new LinkedHashSet<>();
+        if (!input.isBlank()) {
+            result.add(input);
+        }
+        List<String> tokens = tokenize(input);
+        result.addAll(tokens);
+
+        for (String term : new ArrayList<>(result)) {
+            String canonical = REVERSE_ALIAS_MAP.get(term);
+            if (canonical != null) {
+                SKILL_ALIASES.getOrDefault(canonical, List.of()).stream()
+                        .map(SkillResolveServiceImpl::normalizeSearchText)
+                        .forEach(result::add);
+            }
+        }
+        return result;
+    }
+
+    private static Map<String, String> buildReverseAliasMap() {
+        Map<String, String> reverse = new LinkedHashMap<>();
+        SKILL_ALIASES.forEach((canonical, aliases) -> aliases.forEach(alias ->
+                reverse.put(normalizeSearchText(alias), canonical)));
+        return reverse;
+    }
+
+    private static String normalizeSearchText(String value) {
+        if (value == null) {
+            return "";
+        }
+        String noDiacritics = DIACRITICS.matcher(
+                Normalizer.normalize(value, Normalizer.Form.NFD)
+        ).replaceAll("").replace('đ', 'd').replace('Đ', 'D');
+        return NON_SEARCH_CHARS.matcher(SEPARATORS.matcher(noDiacritics.toLowerCase(Locale.ROOT))
+                        .replaceAll(" "))
+                .replaceAll("")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private static List<String> tokenize(String text) {
+        String normalized = normalizeSearchText(text);
+        if (normalized.isBlank()) {
+            return List.of();
+        }
+        return List.of(normalized.split("\\s+")).stream()
+                .filter(s -> !s.isBlank())
+                .toList();
+    }
+
+    private String buildReasoning(String matchReason, int confidence) {
+        if (confidence >= 85) {
+            return "Smart search found a strong match. " + matchReason + ".";
+        }
+        if (confidence >= 60) {
+            return "Smart search found a likely match. " + matchReason + ".";
+        }
+        return "Smart search picked the closest available role. " + matchReason + ".";
     }
 
     private String formatSkillLabel(String normalizedSkill) {
-        if (normalizedSkill == null) return "";
-        String[] parts = normalizedSkill.toLowerCase().split("_");
+        if (normalizedSkill == null || normalizedSkill.isBlank()) {
+            return "";
+        }
+        String[] parts = normalizedSkill.toLowerCase(Locale.ROOT).split("_");
         StringBuilder sb = new StringBuilder();
         for (String part : parts) {
-            if (sb.length() > 0) sb.append(" ");
-            sb.append(part.substring(0, 1).toUpperCase()).append(part.substring(1));
+            if (part.isBlank()) {
+                continue;
+            }
+            if (!sb.isEmpty()) {
+                sb.append(" ");
+            }
+            sb.append(part.substring(0, 1).toUpperCase(Locale.ROOT)).append(part.substring(1));
         }
         return sb.toString();
     }
 
-    private record AiResolveResult(
+    private record ResolveMatch(
             String domain,
             String industry,
             String jobRole,
             int confidence,
-            String reasoning,
-            List<SkillResolveResponse.AlternativeMatch> alternatives
-    ) {}
+            String reasoning
+    ) {
+    }
+
+    private static final class Score {
+        private int value;
+        private String reason;
+
+        private Score(int value, String reason) {
+            this.value = value;
+            this.reason = reason;
+        }
+
+        private void accept(int candidate, String candidateReason) {
+            if (candidate > value) {
+                value = candidate;
+                reason = candidateReason;
+            }
+        }
+
+        private int value() {
+            return value;
+        }
+
+        private String reason() {
+            return reason;
+        }
+    }
 }

@@ -5,13 +5,13 @@ import com.exe.skillverse_backend.question_bank_service.dto.response.SkillResolv
 public interface SkillResolveService {
 
     /**
-     * Use AI to analyze a skill name and determine the best matching
-     * domain, industry, and job role from the existing ExpertPromptConfig entries.
+     * Resolve a skill name to the best matching domain, industry, and job role
+     * from the existing ExpertPromptConfig entries using deterministic smart search.
      */
     SkillResolveResponse resolveSkill(String skillName);
 
     /**
-     * Resolve the skill via AI and auto-create the question bank if it doesn't exist.
+     * Resolve the skill and auto-create the question bank if it doesn't exist.
      */
     SkillResolveResponse resolveAndCreateQuestionBank(String skillName);
 }

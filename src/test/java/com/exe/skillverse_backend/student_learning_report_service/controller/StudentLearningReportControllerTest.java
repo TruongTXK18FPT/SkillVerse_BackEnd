@@ -82,7 +82,12 @@ class StudentLearningReportControllerTest {
                 .overview(StudentLearningReportResponse.Overview.builder()
                         .overallProgress(42)
                         .learningTrend("stable")
-                        .recommendations(List.of("Giữ nhịp học đều."))
+                        .recommendations(List.of(StudentLearningReportResponse.Recommendation.builder()
+                                .id("study-keep")
+                                .tier("STRENGTH")
+                                .category("STUDY")
+                                .title("Giữ nhịp học đều.")
+                                .build()))
                         .build())
                 .studyStats(StudentLearningReportResponse.StudyStats.builder()
                         .studyMinutesToday(30)
@@ -141,7 +146,8 @@ class StudentLearningReportControllerTest {
                         .with(SecurityMockMvcRequestPostProcessors.jwt().jwt(jwt -> jwt.claim("userId", 1L))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.overallProgress").value(42))
-                .andExpect(jsonPath("$.overview.recommendations[0]").value("Giữ nhịp học đều."));
+                .andExpect(jsonPath("$.overview.recommendations[0].title").value("Giữ nhịp học đều."))
+                .andExpect(jsonPath("$.overview.recommendations[0].tier").value("STRENGTH"));
     }
 
     @Test

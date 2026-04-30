@@ -32,4 +32,10 @@ public class UserDto {
      * If true, user can login with both password AND Google.
      */
     private boolean googleLinked;
+
+    /**
+     * Indicates whether the user's identity has been verified by an admin
+     * (Currently applies to Mentors with CCCD).
+     */
+    private Boolean identityVerified;
 }

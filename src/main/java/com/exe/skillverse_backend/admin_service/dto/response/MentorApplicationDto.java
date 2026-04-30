@@ -45,6 +45,27 @@ public class MentorApplicationDto {
     @Schema(description = "List of certificate URLs when uploaded separately")
     private List<String> certificateUrls;
 
+    @Schema(description = "CCCD Number")
+    private String cccdNumber;
+
+    @Schema(description = "CCCD Full Name")
+    private String cccdFullName;
+
+    @Schema(description = "CCCD Date of Birth")
+    private String cccdDob;
+
+    @Schema(description = "CCCD Front URL")
+    private String cccdFrontUrl;
+
+    @Schema(description = "CCCD Back URL")
+    private String cccdBackUrl;
+
+    @Schema(description = "Extracted CCCD JSON data")
+    private String cccdExtractedData;
+
+    @Schema(description = "Identity verification status")
+    private Boolean identityVerified;
+
     @Schema(description = "Application status", example = "PENDING")
     private ApplicationStatus applicationStatus;
 

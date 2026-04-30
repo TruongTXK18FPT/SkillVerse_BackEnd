@@ -493,6 +493,22 @@ public class DatabaseSchemaFixer {
                     this::patchChatSessionDetectedDomain,
                     this::verifyChatSessionDetectedDomain);
 
+            // ═══════════════════════════════════════════════════════════════════
+            // Identity Verification (CCCD) — mentor_profiles columns
+            // ═══════════════════════════════════════════════════════════════════
+            applyPatch("add-mentor-profiles-cccd-columns",
+                    "Add CCCD identity verification columns to mentor_profiles for FPT.AI eKYC integration",
+                    this::patchMentorProfilesCccdColumns,
+                    this::verifyMentorProfilesCccdColumns);
+
+            // ═══════════════════════════════════════════════════════════════════
+            // Media — Cloudinary metadata columns (defensive backfill)
+            // ═══════════════════════════════════════════════════════════════════
+            applyPatch("add-media-cloudinary-columns",
+                    "Add cloudinary_public_id and cloudinary_resource_type columns to media for Cloudinary integration",
+                    this::patchMediaCloudinaryColumns,
+                    this::verifyMediaCloudinaryColumns);
+
             applyPatch("drop-premium-plans-max-subscribers",
                     "Drop max_subscribers column from premium_plans — no business case for subscriber limits",
                     this::patchDropPremiumPlansMaxSubscribers,
@@ -3296,6 +3312,75 @@ public class DatabaseSchemaFixer {
         }
 
         return hasColumn("chat_sessions", "detected_domain");
+    }
+
+    private void patchMentorProfilesCccdColumns() {
+        if (!hasTable("mentor_profiles")) {
+            log.debug("Table mentor_profiles does not exist yet, skipping patch.");
+            return;
+        }
+
+        executeSql("""
+            ALTER TABLE mentor_profiles
+                ADD COLUMN IF NOT EXISTS cccd_number VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS cccd_full_name VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS cccd_dob VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS cccd_front_url VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS cccd_back_url VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS cccd_extracted_data TEXT,
+                ADD COLUMN IF NOT EXISTS identity_verified BOOLEAN DEFAULT FALSE
+        """);
+
+        executeSql("""
+            UPDATE mentor_profiles
+            SET identity_verified = FALSE
+            WHERE identity_verified IS NULL
+        """);
+
+        executeSql("ALTER TABLE mentor_profiles ALTER COLUMN identity_verified SET DEFAULT FALSE");
+        executeSql("ALTER TABLE mentor_profiles ALTER COLUMN identity_verified SET NOT NULL");
+        executeSql("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_mentor_profiles_cccd_number
+            ON mentor_profiles(cccd_number)
+            WHERE cccd_number IS NOT NULL
+        """);
+    }
+
+    private boolean verifyMentorProfilesCccdColumns() {
+        if (!hasTable("mentor_profiles")) {
+            return true;
+        }
+
+        return hasColumn("mentor_profiles", "cccd_number")
+                && hasColumn("mentor_profiles", "cccd_full_name")
+                && hasColumn("mentor_profiles", "cccd_dob")
+                && hasColumn("mentor_profiles", "cccd_front_url")
+                && hasColumn("mentor_profiles", "cccd_back_url")
+                && hasColumn("mentor_profiles", "cccd_extracted_data")
+                && hasColumn("mentor_profiles", "identity_verified")
+                && hasIndex("idx_mentor_profiles_cccd_number");
+    }
+
+    private void patchMediaCloudinaryColumns() {
+        if (!hasTable("media")) {
+            log.debug("Table media does not exist yet, skipping patch.");
+            return;
+        }
+
+        executeSql("""
+            ALTER TABLE media
+                ADD COLUMN IF NOT EXISTS cloudinary_public_id VARCHAR(255),
+                ADD COLUMN IF NOT EXISTS cloudinary_resource_type VARCHAR(255)
+        """);
+    }
+
+    private boolean verifyMediaCloudinaryColumns() {
+        if (!hasTable("media")) {
+            return true;
+        }
+
+        return hasColumn("media", "cloudinary_public_id")
+                && hasColumn("media", "cloudinary_resource_type");
     }
 
     // ─── student_skill_verification_requests table ──────────────────────────────

@@ -111,7 +111,9 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         Journey journey = resolver.resolveJourneyWithRoadmap(journeyId);
         resolver.ensureLearnerOwns(journey, learnerId);
 
-        RoadmapNodeSubmission s = submissionRepo.findByJourneyIdAndNodeId(journeyId, nodeId)
+        var existingSubmission = submissionRepo.findByJourneyIdAndNodeId(journeyId, nodeId);
+        boolean isNewSubmission = existingSubmission.isEmpty();
+        RoadmapNodeSubmission s = existingSubmission
                 .orElseGet(() -> RoadmapNodeSubmission.builder()
                         .journeyId(journeyId)
                         .roadmapSessionId(journey.getRoadmapSessionId())
@@ -119,11 +121,10 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                         .learnerId(learnerId)
                         .build());
 
-        // Block edits after node has been VERIFIED when journey locks nodes.
-        if (s.getVerificationStatus() == VerificationStatus.VERIFIED
-                && Boolean.TRUE.equals(journey.getNodeLockedAfterVerify())) {
+        if (!isNewSubmission && !canLearnerSubmitEvidence(s)) {
             throw new ApiException(ErrorCode.CONFLICT,
-                    "Node is verified and locked for further edits");
+                    "Minh chứng đã được nộp và đang chờ mentor đánh giá. "
+                            + "Bạn chỉ có thể nộp lại khi mentor yêu cầu làm lại hoặc đánh fail node này.");
         }
 
         s.setSubmissionText(request.getSubmissionText());
@@ -137,8 +138,11 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                 .orElseGet(() -> createSystemGeneratedAssignment(journey, nodeId));
         s.setAssignmentId(assignment.getId());
 
-        boolean wasRework = s.getSubmissionStatus() == SubmissionStatus.REWORK_REQUESTED;
-        s.setSubmissionStatus(wasRework ? SubmissionStatus.RESUBMITTED : SubmissionStatus.SUBMITTED);
+        boolean isRework = !isNewSubmission
+                && (s.getSubmissionStatus() == SubmissionStatus.REWORK_REQUESTED
+                || s.getSubmissionStatus() == SubmissionStatus.DRAFT
+                || s.getVerificationStatus() == VerificationStatus.REJECTED);
+        s.setSubmissionStatus(isRework ? SubmissionStatus.RESUBMITTED : SubmissionStatus.SUBMITTED);
         // New/updated submission resets verification state back to PENDING so a
         // mentor can review again. VERIFIED + unlocked journey shouldn't happen
         // because locked-journey case was rejected above.
@@ -146,6 +150,15 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
 
         RoadmapNodeSubmission saved = submissionRepo.save(s);
         return toEvidenceResponse(saved);
+    }
+
+    private boolean canLearnerSubmitEvidence(RoadmapNodeSubmission submission) {
+        if (submission == null) {
+            return true;
+        }
+        return submission.getSubmissionStatus() == SubmissionStatus.DRAFT
+                || submission.getSubmissionStatus() == SubmissionStatus.REWORK_REQUESTED
+                || submission.getVerificationStatus() == VerificationStatus.REJECTED;
     }
 
     @Override

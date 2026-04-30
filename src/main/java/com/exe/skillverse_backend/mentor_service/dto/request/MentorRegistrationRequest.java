@@ -49,6 +49,24 @@ public class MentorRegistrationRequest extends BaseRegistrationRequest {
     @Schema(description = "List of certificate URLs when uploaded separately")
     private List<String> certificateUrls;
 
+    @Schema(description = "CCCD Front URL")
+    private String cccdFrontUrl;
+
+    @Schema(description = "CCCD Back URL")
+    private String cccdBackUrl;
+
+    @Schema(description = "Extracted CCCD JSON data")
+    private String cccdExtractedData;
+
+    @Schema(description = "CCCD Number")
+    private String cccdNumber;
+
+    @Schema(description = "CCCD Full Name")
+    private String cccdFullName;
+
+    @Schema(description = "CCCD Date of Birth")
+    private String cccdDob;
+
     // Password Section (inherited from BaseRegistrationRequest)
     // password and confirmPassword fields are already available from
     // BaseRegistrationRequest

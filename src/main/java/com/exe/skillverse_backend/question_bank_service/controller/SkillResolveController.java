@@ -16,22 +16,21 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Controller for AI-powered skill resolution.
- * Uses the same AI model as quiz generation to analyze a skill name
- * and determine which domain/industry/jobRole it belongs to.
+ * Controller for deterministic smart skill resolution.
+ * Matches a typed skill to the closest domain/industry/jobRole without AI calls.
  */
 @RestController
 @RequestMapping("/api/v1/question-banks/skills")
 @RequiredArgsConstructor
 @Slf4j
-@Tag(name = "Skill Resolution", description = "AI-powered skill to career path resolution")
+@Tag(name = "Skill Resolution", description = "Smart skill to career path resolution")
 public class SkillResolveController {
 
     private final SkillResolveService skillResolveService;
 
     @PostMapping("/resolve")
     @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN') or hasRole('MENTOR')")
-    @Operation(summary = "Resolve skill to domain/industry/jobRole using AI",
+    @Operation(summary = "Resolve skill to domain/industry/jobRole using smart search",
             description = "Analyzes the given skill name and returns the best matching career path. " +
                     "Also checks if a question bank already exists for that path.")
     public ResponseEntity<SkillResolveResponse> resolveSkill(
@@ -43,7 +42,7 @@ public class SkillResolveController {
     @PostMapping("/resolve-and-create")
     @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "Resolve skill and auto-create question bank",
-            description = "Analyzes the skill, determines the career path, and automatically " +
+            description = "Matches the skill, determines the career path, and automatically " +
                     "creates a question bank if one doesn't exist for that path + skill.")
     public ResponseEntity<SkillResolveResponse> resolveAndCreateBank(
             @Valid @RequestBody SkillResolveRequest request) {

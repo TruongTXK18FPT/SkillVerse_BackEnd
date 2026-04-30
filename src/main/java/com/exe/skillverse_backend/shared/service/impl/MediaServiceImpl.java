@@ -307,7 +307,13 @@ public class MediaServiceImpl implements MediaService {
     @Override
     @Transactional(readOnly = true)
     public String getSignedUrl(Long mediaId, Long actorId) {
-        log.debug("Getting signed URL for media {} by user {}", mediaId, actorId);
+        return getSignedUrl(mediaId, actorId, null);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public String getSignedUrl(Long mediaId, Long actorId, String filename) {
+        log.debug("Getting signed URL for media {} by user {} with filename: {}", mediaId, actorId, filename);
 
         Media media = getMediaOrThrow(mediaId);
 
@@ -329,9 +335,14 @@ public class MediaServiceImpl implements MediaService {
                     }
                 }
 
-                log.debug("Creating Cloudinary signed URL: publicId={}, resourceType={}",
-                        media.getCloudinaryPublicId(), resourceType);
-                return cloudinaryService.generateSignedUrl(media.getCloudinaryPublicId(), resourceType);
+                // Use provided filename or fall back to stored filename
+                String downloadFilename = (filename != null && !filename.trim().isEmpty())
+                        ? filename
+                        : media.getFileName();
+
+                log.debug("Creating Cloudinary signed URL: publicId={}, resourceType={}, filename={}",
+                        media.getCloudinaryPublicId(), resourceType, downloadFilename);
+                return cloudinaryService.generateSignedUrl(media.getCloudinaryPublicId(), resourceType, downloadFilename);
             } else {
                 log.warn("Media {} has no Cloudinary public ID, returning public URL", mediaId);
                 return media.getUrl();

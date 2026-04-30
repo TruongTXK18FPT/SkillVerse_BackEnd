@@ -24,6 +24,7 @@ import com.exe.skillverse_backend.study_service.repository.StudySessionRepositor
 import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
@@ -95,6 +96,8 @@ class JourneyServiceImplTest {
     private StudySessionRepository studySessionRepository;
     @Mock
     private BookingRepository bookingRepository;
+    @Mock
+    private PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
 
     private JourneyServiceImpl service;
     private ObjectMapper objectMapper;
@@ -119,6 +122,7 @@ class JourneyServiceImplTest {
                 questionBankQuestionService,
                 studySessionRepository,
                 bookingRepository,
+                portfolioExtendedProfileRepository,
                 objectMapper);
 
         lenient().when(journeyRepository.save(any(Journey.class))).thenAnswer(invocation -> {

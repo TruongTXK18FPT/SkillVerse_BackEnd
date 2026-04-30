@@ -1,7 +1,15 @@
 package com.exe.skillverse_backend.student_learning_report_service.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -56,7 +64,97 @@ public class StudentLearningReportResponse {
     public static class Overview {
         private Integer overallProgress;
         private String learningTrend;
-        private List<String> recommendations;
+
+        @JsonDeserialize(contentUsing = RecommendationDeserializer.class)
+        private List<Recommendation> recommendations;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class Recommendation {
+        /** Stable identifier for the rule that produced this recommendation. */
+        private String id;
+        /** Tier: CRITICAL | IMPROVE | NEXT_STEP | STRENGTH. */
+        private String tier;
+        /** Category: STUDY | ROADMAP | TASK | COURSE | JOB | GROWTH. */
+        private String category;
+        /** Short headline for the recommendation card. */
+        private String title;
+        /** Data-driven observation that supports the recommendation. */
+        private String analysis;
+        /** Concrete, measurable action the learner should take. */
+        private String action;
+        /** Optional metric label, e.g. "On-time delivery". */
+        private String metricLabel;
+        /** Current metric value (number). */
+        private Number metricValue;
+        /** Target metric value (number). */
+        private Number metricTarget;
+        /** Unit shown next to metric, e.g. "%", "phút/tuần". */
+        private String metricUnit;
+        /** Optional deep-link path on the frontend, e.g. "/roadmap" or "/tasks". */
+        private String linkPath;
+        /** Label for the deep-link CTA button. */
+        private String linkLabel;
+    }
+
+    /**
+     * Backward-compatible deserializer: accepts either the new
+     * {@link Recommendation} object or a legacy plain string emitted by
+     * older snapshots stored in {@code summary_snapshot}.
+     */
+    public static class RecommendationDeserializer extends JsonDeserializer<Recommendation> {
+        @Override
+        public Recommendation deserialize(JsonParser parser, DeserializationContext ctx) throws IOException {
+            JsonToken token = parser.currentToken();
+            if (token == JsonToken.VALUE_STRING) {
+                String legacyText = parser.getValueAsString();
+                return Recommendation.builder()
+                        .id("legacy")
+                        .tier("IMPROVE")
+                        .category("GROWTH")
+                        .title(legacyText)
+                        .build();
+            }
+            JsonNode node = parser.readValueAsTree();
+            if (node == null || node.isNull()) {
+                return null;
+            }
+            Recommendation.RecommendationBuilder builder = Recommendation.builder()
+                    .id(text(node, "id"))
+                    .tier(text(node, "tier"))
+                    .category(text(node, "category"))
+                    .title(text(node, "title"))
+                    .analysis(text(node, "analysis"))
+                    .action(text(node, "action"))
+                    .metricLabel(text(node, "metricLabel"))
+                    .metricUnit(text(node, "metricUnit"))
+                    .linkPath(text(node, "linkPath"))
+                    .linkLabel(text(node, "linkLabel"));
+            JsonNode value = node.get("metricValue");
+            if (value != null && value.isNumber()) {
+                builder.metricValue(value.numberValue());
+            }
+            JsonNode target = node.get("metricTarget");
+            if (target != null && target.isNumber()) {
+                builder.metricTarget(target.numberValue());
+            }
+            return builder.build();
+        }
+
+        private String text(JsonNode node, String field) {
+            JsonNode value = node.get(field);
+            return value == null || value.isNull() ? null : value.asText();
+        }
+    }
+
+    /** Convenience helper used by service code to coerce builder lists. */
+    @SuppressWarnings("unused")
+    private static List<Recommendation> ensureRecommendations(List<Recommendation> input) {
+        return input == null ? new ArrayList<>() : input;
     }
 
     @Data

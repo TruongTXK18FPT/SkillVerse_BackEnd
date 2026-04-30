@@ -104,6 +104,16 @@ public interface CloudinaryService {
     String generateSignedUrl(String publicId, String resourceType);
 
     /**
+     * Generate a signed URL for private files with original filename
+     *
+     * @param publicId     The public ID of the file
+     * @param resourceType The resource type
+     * @param filename     The original filename to use in Content-Disposition header
+     * @return Signed URL string
+     */
+    String generateSignedUrl(String publicId, String resourceType, String filename);
+
+    /**
      * Fetch remote file bytes from Cloudinary using generated (optionally signed)
      * URL
      */

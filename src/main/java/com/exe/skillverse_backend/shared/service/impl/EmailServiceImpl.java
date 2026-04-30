@@ -37,221 +37,259 @@ public class EmailServiceImpl implements EmailService {
     private String fromEmail;
 
     @Value("${email.from-name:SkillVerse}")
-        private String fromName;
+    private String fromName;
 
-        private static final String LOGO_PATH = "c:/WorkSpace/EXE201/SkillVerse_BackEnd/src/assets/skillverse.png";
+    private static final String LOGO_PATH = "c:/WorkSpace/EXE201/SkillVerse_BackEnd/src/assets/skillverse.png";
 
-        @Override
-        public void sendOtpEmail(String email, String otp) {
-                try {
-                        String subject = "Xác thực email - SkillVerse";
-                        String htmlContent = buildOtpEmailHtmlContent(otp);
-                        sendHtmlEmail(email, subject, htmlContent);
+    @Override
+    public void sendOtpEmail(String email, String otp) {
+        try {
+            String subject = "Xác thực email - SkillVerse";
+            String htmlContent = buildOtpEmailHtmlContent(otp);
+            sendHtmlEmail(email, subject, htmlContent);
 
-                        log.info("🔐 EMAIL SERVICE: Đã gửi email OTP xác thực tới {}", email);
+            log.info("🔐 EMAIL SERVICE: Đã gửi email OTP xác thực tới {}", email);
 
-                } catch (Exception e) {
-                        log.error("❌ Gửi email OTP xác thực thất bại tới {}", email, e);
-                        log.info("🔐 [FALLBACK] EMAIL SERVICE: Gửi OTP xác thực tới {}", email);
-                        log.info("📧 Tiêu đề: Xác thực email - SkillVerse");
-                        log.info("📝 Mã xác thực của bạn: {}", otp);
-                        log.info("⏰ Mã sẽ hết hạn sau 5 phút");
-                        log.info("✉️  [MÔ PHỎNG] Đã gửi email tới {}", email);
-                }
+        } catch (Exception e) {
+            log.error("❌ Gửi email OTP xác thực thất bại tới {}", email, e);
+            log.info("🔐 [FALLBACK] EMAIL SERVICE: Gửi OTP xác thực tới {}", email);
+            log.info("📧 Tiêu đề: Xác thực email - SkillVerse");
+            log.info("📝 Mã xác thực của bạn: {}", otp);
+            log.info("⏰ Mã sẽ hết hạn sau 5 phút");
+            log.info("✉️  [MÔ PHỎNG] Đã gửi email tới {}", email);
         }
+    }
 
-        @Override
-        public void sendPasswordResetOtpEmail(String email, String otp) {
-                try {
-                        String subject = "Mã xác thực đặt lại mật khẩu - SkillVerse";
-                        String htmlContent = buildPasswordResetOtpHtmlContent(otp);
-                        sendHtmlEmail(email, subject, htmlContent);
+    @Override
+    public void sendPasswordResetOtpEmail(String email, String otp) {
+        try {
+            String subject = "Mã xác thực đặt lại mật khẩu - SkillVerse";
+            String htmlContent = buildPasswordResetOtpHtmlContent(otp);
+            sendHtmlEmail(email, subject, htmlContent);
 
-                        log.info("🔑 EMAIL SERVICE: Đã gửi email OTP đặt lại mật khẩu tới {}", email);
+            log.info("🔑 EMAIL SERVICE: Đã gửi email OTP đặt lại mật khẩu tới {}", email);
 
-                } catch (Exception e) {
-                        log.error("❌ Gửi email OTP đặt lại mật khẩu thất bại tới {}", email, e);
-                        log.info("🔑 [FALLBACK] EMAIL SERVICE: Gửi OTP đặt lại mật khẩu tới {}", email);
-                        log.info("📧 Tiêu đề: Mã xác thực đặt lại mật khẩu - SkillVerse");
-                        log.info("📝 Mã xác thực của bạn: {}", otp);
-                        log.info("⏰ Mã sẽ hết hạn sau 5 phút");
-                        log.info("✉️  [MÔ PHỎNG] Đã gửi email tới {}", email);
-                }
+        } catch (Exception e) {
+            log.error("❌ Gửi email OTP đặt lại mật khẩu thất bại tới {}", email, e);
+            log.info("🔑 [FALLBACK] EMAIL SERVICE: Gửi OTP đặt lại mật khẩu tới {}", email);
+            log.info("📧 Tiêu đề: Mã xác thực đặt lại mật khẩu - SkillVerse");
+            log.info("📝 Mã xác thực của bạn: {}", otp);
+            log.info("⏰ Mã sẽ hết hạn sau 5 phút");
+            log.info("✉️  [MÔ PHỎNG] Đã gửi email tới {}", email);
         }
+    }
 
-        @Override
-        public void sendWelcomeEmail(String email, String fullName) {
-                try {
-                        String subject = "🎉 Chào mừng đến với SkillVerse";
-                        String htmlContent = buildWelcomeEmailHtmlContent(fullName != null ? fullName : email);
-                        sendHtmlEmail(email, subject, htmlContent);
+    @Override
+    public void sendWelcomeEmail(String email, String fullName) {
+        try {
+            String subject = "🎉 Chào mừng đến với SkillVerse";
+            String htmlContent = buildWelcomeEmailHtmlContent(fullName != null ? fullName : email);
+            sendHtmlEmail(email, subject, htmlContent);
 
-                        log.info("🎉 EMAIL SERVICE: Welcome HTML email sent successfully to {}", email);
+            log.info("🎉 EMAIL SERVICE: Welcome HTML email sent successfully to {}", email);
 
-                } catch (Exception e) {
-                        log.error("❌ Failed to send welcome email to {}", email, e);
-                        log.info("🎉 [FALLBACK] EMAIL SERVICE: Sending welcome email to {}", email);
-                        log.info("📧 Subject: Welcome to SkillVerse!");
-                        log.info("📝 Message: Welcome {}! Your email has been verified successfully.",
-                                        fullName != null ? fullName : email);
-                        log.info("✉️  [SIMULATED] Welcome email sent successfully to {}", email);
-                }
+        } catch (Exception e) {
+            log.error("❌ Failed to send welcome email to {}", email, e);
+            log.info("🎉 [FALLBACK] EMAIL SERVICE: Sending welcome email to {}", email);
+            log.info("📧 Subject: Welcome to SkillVerse!");
+            log.info("📝 Message: Welcome {}! Your email has been verified successfully.",
+                    fullName != null ? fullName : email);
+            log.info("✉️  [SIMULATED] Welcome email sent successfully to {}", email);
         }
+    }
 
-        @Override
-        public void sendApprovalEmail(String email, String fullName, String role) {
-                try {
-                        String subject = "🎉 Phê duyệt thành công - SkillVerse";
-                        String htmlContent = buildApprovalEmailHtmlContent(fullName != null ? fullName : email, role);
-                        sendHtmlEmail(email, subject, htmlContent);
+    @Override
+    public void sendApprovalEmail(String email, String fullName, String role) {
+        try {
+            String subject = "🎉 Phê duyệt thành công - SkillVerse";
+            String htmlContent = buildApprovalEmailHtmlContent(fullName != null ? fullName : email, role);
+            sendHtmlEmail(email, subject, htmlContent);
 
-                        log.info("🎉 EMAIL SERVICE: Approval HTML email sent successfully to {} for role: {}", email, role);
+            log.info("🎉 EMAIL SERVICE: Approval HTML email sent successfully to {} for role: {}", email, role);
 
-                } catch (Exception e) {
-                        log.error("❌ Failed to send approval email to {}: {}", email, e.getMessage());
-                        log.info("🎉 [FALLBACK] EMAIL SERVICE: Sending approval email to {} for role: {}", email, role);
-                        log.info("📧 Subject: Phê duyệt thành công - SkillVerse");
-                        log.info("📝 {} đã được phê duyệt!", role);
-                        log.info("✉️  [SIMULATED] Approval email sent successfully to {}", email);
-                }
+        } catch (Exception e) {
+            log.error("❌ Failed to send approval email to {}: {}", email, e.getMessage());
+            log.info("🎉 [FALLBACK] EMAIL SERVICE: Sending approval email to {} for role: {}", email, role);
+            log.info("📧 Subject: Phê duyệt thành công - SkillVerse");
+            log.info("📝 {} đã được phê duyệt!", role);
+            log.info("✉️  [SIMULATED] Approval email sent successfully to {}", email);
         }
+    }
 
-        @Override
-        public void sendRejectionEmail(String email, String fullName, String role, String reason) {
-                try {
-                        SimpleMailMessage message = new SimpleMailMessage();
-                        message.setFrom(fromEmail);
-                        message.setTo(email);
-                        message.setSubject("Application Update - SkillVerse");
-                        message.setText(buildRejectionEmailContent(fullName, role, reason));
+    @Override
+    public void sendRejectionEmail(String email, String fullName, String role, String reason) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(email);
+            message.setSubject("Application Update - SkillVerse");
+            message.setText(buildRejectionEmailContent(fullName, role, reason));
 
-                        mailSender.send(message);
+            mailSender.send(message);
 
-                        log.info("📧 EMAIL SERVICE: Rejection email sent successfully to {} for role: {}", email, role);
+            log.info("📧 EMAIL SERVICE: Rejection email sent successfully to {} for role: {}", email, role);
 
-                } catch (Exception e) {
-                        log.error("❌ Failed to send rejection email to {}: {}", email, e.getMessage());
-                        log.info("📧 [FALLBACK] EMAIL SERVICE: Sending rejection email to {} for role: {}", email, role);
-                        log.info("📧 Subject: Application Update - SkillVerse");
-                        log.info("📝 Your {} application status has been updated", role.toLowerCase());
-                        log.info("✉️  [SIMULATED] Rejection email sent successfully to {}", email);
-                }
+        } catch (Exception e) {
+            log.error("❌ Failed to send rejection email to {}: {}", email, e.getMessage());
+            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending rejection email to {} for role: {}", email, role);
+            log.info("📧 Subject: Application Update - SkillVerse");
+            log.info("📝 Your {} application status has been updated", role.toLowerCase());
+            log.info("✉️  [SIMULATED] Rejection email sent successfully to {}", email);
         }
+    }
 
-        // [Nghiệp vụ] Dùng khung email table-based thống nhất để logo và màu thương hiệu hiển thị ổn định trên các email client.
-        private String buildCorporateEmailLayout(String badge, String title, String contentHtml, String footerNote) {
-                String safeFooter = (footerNote == null || footerNote.isBlank())
-                                ? "© 2026 SkillVerse. Email được gửi tự động từ hệ thống."
-                                : footerNote;
-
-                return """
-                                <!doctype html>
-                                <html lang=\"vi\">
-                                <head>
-                                    <meta charset=\"UTF-8\" />
-                                    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-                                    <title>SkillVerse Notification</title>
-                                    <style>
-                                        body { margin:0; padding:0; background:#f3f6fb; font-family:Arial, Helvetica, sans-serif; color:#132238; }
-                                        .wrapper { width:100%%; background:#f3f6fb; }
-                                        .container { width:640px; max-width:640px; border:1px solid #d9e4f1; border-radius:16px; overflow:hidden; background:#ffffff; }
-                                        .header { padding:22px 18px; background:#1f9ed7; background-image:linear-gradient(90deg,#f5a623 0%%,#1f9ed7 100%%); text-align:center; }
-                                        .logo { width:138px; max-width:138px; height:auto; display:block; margin:0 auto; }
-                                        .badge { display:inline-block; margin-top:12px; padding:6px 12px; border-radius:999px; background:#ffffff; color:#0f75bc; font-size:11px; font-weight:700; letter-spacing:0.4px; }
-                                        .content { padding:24px; }
-                                        h1 { margin:0 0 12px 0; font-size:24px; line-height:1.3; color:#10263f; }
-                                        p { margin:0 0 10px 0; font-size:14px; line-height:1.7; color:#344a63; }
-                                        .muted { color:#6c8098; font-size:13px; }
-                                        .otp-wrap { margin:16px 0 14px; border:1px dashed #c8d9ec; border-radius:12px; background:#f8fbff; text-align:center; padding:16px 12px; }
-                                        .otp-label { font-size:12px; color:#5d7692; letter-spacing:0.4px; margin-bottom:4px; }
-                                        .otp-code { font-size:34px; letter-spacing:6px; line-height:1.2; font-weight:700; color:#0f75bc; }
-                                        .section-card { margin:14px 0; border:1px solid #dbe6f3; border-radius:12px; background:#f9fcff; padding:14px; }
-                                        .info-table { width:100%%; border-collapse:separate; border-spacing:0; border:1px solid #dbe6f3; border-radius:12px; overflow:hidden; margin:12px 0; }
-                                        .info-table td { padding:12px 14px; font-size:14px; }
-                                        .info-table tr + tr td { border-top:1px solid #e8eff8; }
-                                        .info-table .label { color:#617991; width:42%%; }
-                                        .info-table .value { color:#163352; text-align:right; font-weight:700; }
-                                        .cta { margin-top:16px; }
-                                        .button { display:inline-block; background:#0f75bc; color:#ffffff !important; text-decoration:none; padding:12px 18px; border-radius:10px; font-size:14px; font-weight:700; }
-                                        .footer { padding:14px 20px 20px; border-top:1px solid #e6eef8; text-align:center; font-size:12px; color:#6c8098; background:#fbfdff; }
-                                    </style>
-                                </head>
-                                <body>
-                                    <table role=\"presentation\" class=\"wrapper\" cellpadding=\"0\" cellspacing=\"0\">
-                                        <tr>
-                                            <td align=\"center\" style=\"padding:24px 12px;\">
-                                                <table role=\"presentation\" class=\"container\" cellpadding=\"0\" cellspacing=\"0\">
-                                                    <tr>
-                                                        <td class=\"header\">
-                                                            <img class=\"logo\" src=\"cid:skillverse-logo\" alt=\"SkillVerse\" />
-                                                            <div class=\"badge\">%s</div>
-                                                        </td>
-                                                    </tr>
-                                                    <tr>
-                                                        <td class=\"content\">
-                                                            <h1>%s</h1>
-                                                            %s
-                                                        </td>
-                                                    </tr>
-                                                    <tr>
-                                                        <td class=\"footer\">%s</td>
-                                                    </tr>
-                                                </table>
-                                            </td>
-                                        </tr>
-                                    </table>
-                                </body>
-                                </html>
-                                """.formatted(badge, title, contentHtml, safeFooter);
+    @Override
+    public void sendCccdVerificationApprovedEmail(String email, String fullName) {
+        try {
+            String subject = "✅ Xác Thực Danh Tính Thành Công - SkillVerse";
+            String htmlContent = buildCccdApprovalEmailHtmlContent(fullName != null ? fullName : email);
+            sendHtmlEmail(email, subject, htmlContent);
+            log.info("✅ EMAIL SERVICE: CCCD approval email sent to {}", email);
+        } catch (Exception e) {
+            log.error("❌ Failed to send CCCD approval email to {}: {}", email, e.getMessage());
         }
+    }
 
-        // [Nghiệp vụ] Chuẩn hóa dòng thông tin hai cột để toàn bộ email ứng tuyển dễ đọc và đồng nhất.
-        private String buildCorporateInfoRow(String label, String value) {
-                String normalizedValue = (value == null || value.isBlank()) ? "-" : value;
-                return """
-                                <tr>
-                                    <td class=\"label\">%s</td>
-                                    <td class=\"value\">%s</td>
-                                </tr>
-                                """.formatted(label, normalizedValue);
-        }
+    private String buildCccdApprovalEmailHtmlContent(String name) {
+        String content = "<p>Kính gửi <strong>" + name + "</strong>,</p>"
+                + "<p>Hồ sơ xác thực danh tính (CCCD) của bạn đã được Admin kiểm duyệt và <strong style=\"color:#10b981\">xác thực thành công</strong>.</p>"
+                + "<div class=\"section-card\" style=\"border-left: 4px solid #10b981; background: #f0fdf4;\">"
+                + "<p style=\"margin:0 0 8px 0; color: #065f46;\"><strong>Điều này có nghĩa là:</strong></p>"
+                + "<table style=\"width:100%; border-collapse:collapse;\">"
+                + "<tr><td style=\"padding:4px 0; color:#065f46;\">✅</td><td style=\"padding:4px 0; color:#065f46;\">Tài khoản Mentor của bạn đã được kích hoạt <strong>đầy đủ</strong></td></tr>"
+                + "<tr><td style=\"padding:4px 0; color:#065f46;\">✅</td><td style=\"padding:4px 0; color:#065f46;\">Bạn có thể đăng nhập và sử dụng toàn bộ tính năng</td></tr>"
+                + "<tr><td style=\"padding:4px 0; color:#065f46;\">✅</td><td style=\"padding:4px 0; color:#065f46;\">Hợp tác với học viên và xây dựng hồ sơ chuyên nghiệp</td></tr>"
+                + "</table></div>"
+                + "<div class=\"cta\"><a class=\"button\" href=\"https://skillverse.vn\">Đăng nhập ngay</a></div>"
+                + "<p style=\"font-size:13px; color:#6b7280\">Nếu bạn có câu hỏi, vui lòng liên hệ đội ngũ hỗ trợ của chúng tôi.</p>";
 
-        // [Nghiệp vụ] Tạo bảng thông tin dùng chung cho các thông báo ứng tuyển và OTP nghiệp vụ.
-        private String buildCorporateInfoTable(String rowsHtml) {
-                return """
-                                <table role=\"presentation\" class=\"info-table\" cellpadding=\"0\" cellspacing=\"0\">
-                                    %s
+        return buildCorporateEmailLayout(
+                "XÁC THỰC DANH TÍNH",
+                "✅ Tài khoản Mentor đã được xác thực!",
+                content,
+                "© 2026 SkillVerse. Bảo mật và minh bạch là cam kết của chúng tôi.");
+    }
+
+    // [Nghiệp vụ] Dùng khung email table-based thống nhất để logo và màu thương
+    // hiệu hiển thị ổn định trên các email client.
+    private String buildCorporateEmailLayout(String badge, String title, String contentHtml, String footerNote) {
+        String safeFooter = (footerNote == null || footerNote.isBlank())
+                ? "© 2026 SkillVerse. Email được gửi tự động từ hệ thống."
+                : footerNote;
+
+        return """
+                <!doctype html>
+                <html lang=\"vi\">
+                <head>
+                    <meta charset=\"UTF-8\" />
+                    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+                    <title>SkillVerse Notification</title>
+                    <style>
+                        body { margin:0; padding:0; background:#f3f6fb; font-family:Arial, Helvetica, sans-serif; color:#132238; }
+                        .wrapper { width:100%%; background:#f3f6fb; }
+                        .container { width:640px; max-width:640px; border:1px solid #d9e4f1; border-radius:16px; overflow:hidden; background:#ffffff; }
+                        .header { padding:22px 18px; background:#1f9ed7; background-image:linear-gradient(90deg,#f5a623 0%%,#1f9ed7 100%%); text-align:center; }
+                        .logo { width:138px; max-width:138px; height:auto; display:block; margin:0 auto; }
+                        .badge { display:inline-block; margin-top:12px; padding:6px 12px; border-radius:999px; background:#ffffff; color:#0f75bc; font-size:11px; font-weight:700; letter-spacing:0.4px; }
+                        .content { padding:24px; }
+                        h1 { margin:0 0 12px 0; font-size:24px; line-height:1.3; color:#10263f; }
+                        p { margin:0 0 10px 0; font-size:14px; line-height:1.7; color:#344a63; }
+                        .muted { color:#6c8098; font-size:13px; }
+                        .otp-wrap { margin:16px 0 14px; border:1px dashed #c8d9ec; border-radius:12px; background:#f8fbff; text-align:center; padding:16px 12px; }
+                        .otp-label { font-size:12px; color:#5d7692; letter-spacing:0.4px; margin-bottom:4px; }
+                        .otp-code { font-size:34px; letter-spacing:6px; line-height:1.2; font-weight:700; color:#0f75bc; }
+                        .section-card { margin:14px 0; border:1px solid #dbe6f3; border-radius:12px; background:#f9fcff; padding:14px; }
+                        .info-table { width:100%%; border-collapse:separate; border-spacing:0; border:1px solid #dbe6f3; border-radius:12px; overflow:hidden; margin:12px 0; }
+                        .info-table td { padding:12px 14px; font-size:14px; }
+                        .info-table tr + tr td { border-top:1px solid #e8eff8; }
+                        .info-table .label { color:#617991; width:42%%; }
+                        .info-table .value { color:#163352; text-align:right; font-weight:700; }
+                        .cta { margin-top:16px; }
+                        .button { display:inline-block; background:#0f75bc; color:#ffffff !important; text-decoration:none; padding:12px 18px; border-radius:10px; font-size:14px; font-weight:700; }
+                        .footer { padding:14px 20px 20px; border-top:1px solid #e6eef8; text-align:center; font-size:12px; color:#6c8098; background:#fbfdff; }
+                    </style>
+                </head>
+                <body>
+                    <table role=\"presentation\" class=\"wrapper\" cellpadding=\"0\" cellspacing=\"0\">
+                        <tr>
+                            <td align=\"center\" style=\"padding:24px 12px;\">
+                                <table role=\"presentation\" class=\"container\" cellpadding=\"0\" cellspacing=\"0\">
+                                    <tr>
+                                        <td class=\"header\">
+                                            <img class=\"logo\" src=\"cid:skillverse-logo\" alt=\"SkillVerse\" />
+                                            <div class=\"badge\">%s</div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class=\"content\">
+                                            <h1>%s</h1>
+                                            %s
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class=\"footer\">%s</td>
+                                    </tr>
                                 </table>
-                                """.formatted(rowsHtml);
-        }
+                            </td>
+                        </tr>
+                    </table>
+                </body>
+                </html>
+                """
+                .formatted(badge, title, contentHtml, safeFooter);
+    }
 
-        private String buildOtpEmailHtmlContent(String otp) {
-                String content = "<p>Kính gửi bạn,</p>"
-                                + "<p>Cảm ơn bạn đã đăng ký tài khoản tại SkillVerse. Vui lòng nhập mã OTP dưới đây để hoàn tất xác thực email.</p>"
-                                + "<div class=\"otp-wrap\"><div class=\"otp-label\">MÃ OTP CỦA BẠN</div><div class=\"otp-code\">" + otp + "</div></div>"
-                                + "<p class=\"muted\">Mã có hiệu lực trong <strong>5 phút</strong>. Vui lòng không chia sẻ mã này cho bất kỳ ai.</p>"
-                                + "<p class=\"muted\">Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email.</p>";
+    // [Nghiệp vụ] Chuẩn hóa dòng thông tin hai cột để toàn bộ email ứng tuyển dễ
+    // đọc và đồng nhất.
+    private String buildCorporateInfoRow(String label, String value) {
+        String normalizedValue = (value == null || value.isBlank()) ? "-" : value;
+        return """
+                <tr>
+                    <td class=\"label\">%s</td>
+                    <td class=\"value\">%s</td>
+                </tr>
+                """.formatted(label, normalizedValue);
+    }
 
-                return buildCorporateEmailLayout(
-                                "XÁC THỰC EMAIL",
-                                "Mã OTP kích hoạt tài khoản",
-                                content,
-                                "© 2026 SkillVerse. Bảo mật tài khoản là ưu tiên hàng đầu.");
-        }
+    // [Nghiệp vụ] Tạo bảng thông tin dùng chung cho các thông báo ứng tuyển và OTP
+    // nghiệp vụ.
+    private String buildCorporateInfoTable(String rowsHtml) {
+        return """
+                <table role=\"presentation\" class=\"info-table\" cellpadding=\"0\" cellspacing=\"0\">
+                    %s
+                </table>
+                """.formatted(rowsHtml);
+    }
 
-        private String buildPasswordResetOtpHtmlContent(String otp) {
-                String content = "<p>Kính gửi bạn,</p>"
-                                + "<p>Hệ thống đã nhận được yêu cầu đặt lại mật khẩu cho tài khoản SkillVerse của bạn.</p>"
-                                + "<div class=\"otp-wrap\"><div class=\"otp-label\">MÃ OTP ĐẶT LẠI MẬT KHẨU</div><div class=\"otp-code\">" + otp + "</div></div>"
-                                + "<p class=\"muted\">Mã OTP có hiệu lực trong <strong>5 phút</strong>. Tuyệt đối không chia sẻ mã cho người khác.</p>"
-                                + "<p class=\"muted\">Nếu bạn không gửi yêu cầu này, vui lòng bỏ qua email và kiểm tra lại bảo mật tài khoản.</p>";
+    private String buildOtpEmailHtmlContent(String otp) {
+        String content = "<p>Kính gửi bạn,</p>"
+                + "<p>Cảm ơn bạn đã đăng ký tài khoản tại SkillVerse. Vui lòng nhập mã OTP dưới đây để hoàn tất xác thực email.</p>"
+                + "<div class=\"otp-wrap\"><div class=\"otp-label\">MÃ OTP CỦA BẠN</div><div class=\"otp-code\">" + otp
+                + "</div></div>"
+                + "<p class=\"muted\">Mã có hiệu lực trong <strong>5 phút</strong>. Vui lòng không chia sẻ mã này cho bất kỳ ai.</p>"
+                + "<p class=\"muted\">Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email.</p>";
 
-                return buildCorporateEmailLayout(
-                                "BẢO MẬT TÀI KHOẢN",
-                                "Mã OTP đặt lại mật khẩu",
-                                content,
-                                "© 2026 SkillVerse. Email thông báo bảo mật tự động.");
-        }
+        return buildCorporateEmailLayout(
+                "XÁC THỰC EMAIL",
+                "Mã OTP kích hoạt tài khoản",
+                content,
+                "© 2026 SkillVerse. Bảo mật tài khoản là ưu tiên hàng đầu.");
+    }
+
+    private String buildPasswordResetOtpHtmlContent(String otp) {
+        String content = "<p>Kính gửi bạn,</p>"
+                + "<p>Hệ thống đã nhận được yêu cầu đặt lại mật khẩu cho tài khoản SkillVerse của bạn.</p>"
+                + "<div class=\"otp-wrap\"><div class=\"otp-label\">MÃ OTP ĐẶT LẠI MẬT KHẨU</div><div class=\"otp-code\">"
+                + otp + "</div></div>"
+                + "<p class=\"muted\">Mã OTP có hiệu lực trong <strong>5 phút</strong>. Tuyệt đối không chia sẻ mã cho người khác.</p>"
+                + "<p class=\"muted\">Nếu bạn không gửi yêu cầu này, vui lòng bỏ qua email và kiểm tra lại bảo mật tài khoản.</p>";
+
+        return buildCorporateEmailLayout(
+                "BẢO MẬT TÀI KHOẢN",
+                "Mã OTP đặt lại mật khẩu",
+                content,
+                "© 2026 SkillVerse. Email thông báo bảo mật tự động.");
+    }
 
     private String buildWelcomeEmailContent(String name) {
         return """
@@ -457,7 +495,8 @@ public class EmailServiceImpl implements EmailService {
         try {
             String htmlContent = buildJobApplicationReviewedHtmlContent(fullName, jobTitle);
             sendHtmlEmail(email, "Your Job Application Has Been Reviewed — SkillVerse", htmlContent);
-            log.info("👀 EMAIL SERVICE: Application reviewed HTML email sent successfully to {} for job: {}", email, jobTitle);
+            log.info("👀 EMAIL SERVICE: Application reviewed HTML email sent successfully to {} for job: {}", email,
+                    jobTitle);
         } catch (Exception e) {
             log.error("❌ Failed to send application reviewed email to {}: {}", email, e.getMessage());
             log.info("👀 [FALLBACK] EMAIL SERVICE: Application reviewed email to {}", email);
@@ -467,11 +506,15 @@ public class EmailServiceImpl implements EmailService {
     /**
      * Send email when application is ACCEPTED with custom message
      */
-    public void sendJobApplicationAccepted(String email, String fullName, String jobTitle, String acceptanceMessage, String contactEmail) {
+    public void sendJobApplicationAccepted(String email, String fullName, String jobTitle, String acceptanceMessage,
+            String contactEmail) {
         try {
-            String htmlContent = buildJobApplicationAcceptedHtmlContent(fullName, jobTitle, acceptanceMessage, contactEmail);
-            sendHtmlEmail(email, "🎉 Congratulations! Your Job Application Has Been Accepted — SkillVerse", htmlContent);
-            log.info("🎉 EMAIL SERVICE: Application accepted HTML email sent successfully to {} for job: {}", email, jobTitle);
+            String htmlContent = buildJobApplicationAcceptedHtmlContent(fullName, jobTitle, acceptanceMessage,
+                    contactEmail);
+            sendHtmlEmail(email, "🎉 Congratulations! Your Job Application Has Been Accepted — SkillVerse",
+                    htmlContent);
+            log.info("🎉 EMAIL SERVICE: Application accepted HTML email sent successfully to {} for job: {}", email,
+                    jobTitle);
         } catch (Exception e) {
             log.error("❌ Failed to send application accepted email to {}: {}", email, e.getMessage());
             log.info("🎉 [FALLBACK] EMAIL SERVICE: Application accepted email to {}", email);
@@ -485,7 +528,8 @@ public class EmailServiceImpl implements EmailService {
         try {
             String htmlContent = buildJobApplicationRejectedHtmlContent(fullName, jobTitle, rejectionReason);
             sendHtmlEmail(email, "Job Application Update — SkillVerse", htmlContent);
-            log.info("📧 EMAIL SERVICE: Application rejected HTML email sent successfully to {} for job: {}", email, jobTitle);
+            log.info("📧 EMAIL SERVICE: Application rejected HTML email sent successfully to {} for job: {}", email,
+                    jobTitle);
         } catch (Exception e) {
             log.error("❌ Failed to send application rejected email to {}: {}", email, e.getMessage());
             log.info("📧 [FALLBACK] EMAIL SERVICE: Application rejected email to {}", email);
@@ -495,11 +539,14 @@ public class EmailServiceImpl implements EmailService {
     // ==================== SHORT-TERM JOB EMAIL NOTIFICATIONS ====================
 
     @Override
-    public void sendShortTermApplicationSubmitted(String email, String fullName, String jobTitle, String recruiterName, String deadline, String budget) {
+    public void sendShortTermApplicationSubmitted(String email, String fullName, String jobTitle, String recruiterName,
+            String deadline, String budget) {
         try {
-            String htmlContent = buildShortTermApplicationSubmittedHtmlContent(fullName, jobTitle, recruiterName, deadline, budget);
+            String htmlContent = buildShortTermApplicationSubmittedHtmlContent(fullName, jobTitle, recruiterName,
+                    deadline, budget);
             sendHtmlEmail(email, "Đơn ứng tuyển đã được gửi thành công — SkillVerse", htmlContent);
-            log.info("📋 EMAIL SERVICE: Short-term application submitted email sent to {} for job: {}", email, jobTitle);
+            log.info("📋 EMAIL SERVICE: Short-term application submitted email sent to {} for job: {}", email,
+                    jobTitle);
         } catch (Exception e) {
             log.error("❌ Failed to send short-term application submitted email to {}: {}", email, e.getMessage());
             log.info("📋 [FALLBACK] EMAIL SERVICE: Short-term application submitted email to {}", email);
@@ -507,9 +554,11 @@ public class EmailServiceImpl implements EmailService {
     }
 
     @Override
-    public void sendShortTermApplicationAccepted(String email, String fullName, String jobTitle, String recruiterName, String budget, String deadline) {
+    public void sendShortTermApplicationAccepted(String email, String fullName, String jobTitle, String recruiterName,
+            String budget, String deadline) {
         try {
-            String htmlContent = buildShortTermApplicationAcceptedHtmlContent(fullName, jobTitle, recruiterName, budget, deadline);
+            String htmlContent = buildShortTermApplicationAcceptedHtmlContent(fullName, jobTitle, recruiterName, budget,
+                    deadline);
             sendHtmlEmail(email, "🎉 Bạn đã được nhận! Ứng tuyển thành công — SkillVerse", htmlContent);
             log.info("🎉 EMAIL SERVICE: Short-term application accepted email sent to {} for job: {}", email, jobTitle);
         } catch (Exception e) {
@@ -519,9 +568,11 @@ public class EmailServiceImpl implements EmailService {
     }
 
     @Override
-    public void sendShortTermApplicationRejected(String email, String fullName, String jobTitle, String recruiterName, String reason) {
+    public void sendShortTermApplicationRejected(String email, String fullName, String jobTitle, String recruiterName,
+            String reason) {
         try {
-            String htmlContent = buildShortTermApplicationRejectedHtmlContent(fullName, jobTitle, recruiterName, reason);
+            String htmlContent = buildShortTermApplicationRejectedHtmlContent(fullName, jobTitle, recruiterName,
+                    reason);
             sendHtmlEmail(email, "Cập nhật trạng thái ứng tuyển — SkillVerse", htmlContent);
             log.info("📧 EMAIL SERVICE: Short-term application rejected email sent to {} for job: {}", email, jobTitle);
         } catch (Exception e) {
@@ -782,7 +833,8 @@ public class EmailServiceImpl implements EmailService {
         return sendBulkEmailAsync(emails, subject, htmlContent, 50, 2000);
     }
 
-    // ==================== JOB APPROVAL/REJECTION NOTIFICATIONS ====================
+    // ==================== JOB APPROVAL/REJECTION NOTIFICATIONS
+    // ====================
 
     @Override
     public void sendJobApprovalNotification(String email, String jobTitle, String message) {
@@ -793,7 +845,8 @@ public class EmailServiceImpl implements EmailService {
         } catch (Exception e) {
             log.error("❌ Failed to send job approval notification to {}: {}", email, e.getMessage());
             // Fallback to console logging
-            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending job approval notification to {} for job: {}", email, jobTitle);
+            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending job approval notification to {} for job: {}", email,
+                    jobTitle);
             log.info("📧 Subject: Your Job Has Been Approved - SkillVerse");
             log.info("📝 Message: {}", message);
             log.info("✉️  [SIMULATED] Job approval notification sent successfully to {}", email);
@@ -809,7 +862,8 @@ public class EmailServiceImpl implements EmailService {
         } catch (Exception e) {
             log.error("❌ Failed to send job rejection notification to {}: {}", email, e.getMessage());
             // Fallback to console logging
-            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending job rejection notification to {} for job: {}", email, jobTitle);
+            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending job rejection notification to {} for job: {}", email,
+                    jobTitle);
             log.info("📧 Subject: Your Job Has Been Rejected - SkillVerse");
             log.info("📝 Reason: {}", reason);
             log.info("✉️  [SIMULATED] Job rejection notification sent successfully to {}", email);
@@ -825,7 +879,8 @@ public class EmailServiceImpl implements EmailService {
         } catch (Exception e) {
             log.error("❌ Failed to send application rejection notification to {}: {}", email, e.getMessage());
             // Fallback to console logging
-            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending application rejection notification to {} for job: {}", email, jobTitle);
+            log.info("📧 [FALLBACK] EMAIL SERVICE: Sending application rejection notification to {} for job: {}", email,
+                    jobTitle);
             log.info("📧 Subject: Application Status Update - SkillVerse");
             log.info("📝 Reason: {}", reason);
             log.info("✉️  [SIMULATED] Application rejection notification sent successfully to {}", email);
@@ -888,10 +943,12 @@ public class EmailServiceImpl implements EmailService {
 
                 Best regards,
                 The SkillVerse Team
-                """.formatted(jobTitle, reason);
+                """
+                .formatted(jobTitle, reason);
     }
 
-    // ==================== HTML EMAIL BUILDERS FOR JOB APPLICATIONS ====================
+    // ==================== HTML EMAIL BUILDERS FOR JOB APPLICATIONS
+    // ====================
 
     private String buildJobApplicationReviewedHtmlContent(String name, String jobTitle) {
         String infoTable = buildCorporateInfoTable(
@@ -911,7 +968,8 @@ public class EmailServiceImpl implements EmailService {
                 "© 2026 SkillVerse. Cảm ơn bạn đã đồng hành cùng cộng đồng nghề nghiệp SkillVerse.");
     }
 
-    private String buildJobApplicationAcceptedHtmlContent(String name, String jobTitle, String acceptanceMessage, String contactEmail) {
+    private String buildJobApplicationAcceptedHtmlContent(String name, String jobTitle, String acceptanceMessage,
+            String contactEmail) {
         String infoTable = buildCorporateInfoTable(
                 buildCorporateInfoRow("Vị trí ứng tuyển", jobTitle)
                         + buildCorporateInfoRow("Kết quả", "Được chấp nhận"));
@@ -973,9 +1031,11 @@ public class EmailServiceImpl implements EmailService {
                 "© 2026 SkillVerse. Quyết định tuyển dụng không phản ánh toàn bộ năng lực của bạn.");
     }
 
-    // ==================== HTML EMAIL BUILDERS FOR SHORT-TERM JOBS ====================
+    // ==================== HTML EMAIL BUILDERS FOR SHORT-TERM JOBS
+    // ====================
 
-    private String buildShortTermApplicationSubmittedHtmlContent(String name, String jobTitle, String recruiterName, String deadline, String budget) {
+    private String buildShortTermApplicationSubmittedHtmlContent(String name, String jobTitle, String recruiterName,
+            String deadline, String budget) {
         String infoTable = buildCorporateInfoTable(
                 buildCorporateInfoRow("Công việc", jobTitle)
                         + buildCorporateInfoRow("Nhà tuyển dụng", recruiterName)
@@ -995,7 +1055,8 @@ public class EmailServiceImpl implements EmailService {
                 "© 2026 SkillVerse. Chúc bạn sớm nhận được phản hồi tích cực.");
     }
 
-    private String buildShortTermApplicationAcceptedHtmlContent(String name, String jobTitle, String recruiterName, String budget, String deadline) {
+    private String buildShortTermApplicationAcceptedHtmlContent(String name, String jobTitle, String recruiterName,
+            String budget, String deadline) {
         String infoTable = buildCorporateInfoTable(
                 buildCorporateInfoRow("Công việc", jobTitle)
                         + buildCorporateInfoRow("Nhà tuyển dụng", recruiterName)
@@ -1020,7 +1081,8 @@ public class EmailServiceImpl implements EmailService {
                 "© 2026 SkillVerse. Chúc bạn hoàn thành công việc xuất sắc.");
     }
 
-    private String buildShortTermApplicationRejectedHtmlContent(String name, String jobTitle, String recruiterName, String reason) {
+    private String buildShortTermApplicationRejectedHtmlContent(String name, String jobTitle, String recruiterName,
+            String reason) {
         String infoTable = buildCorporateInfoTable(
                 buildCorporateInfoRow("Công việc", jobTitle)
                         + buildCorporateInfoRow("Nhà tuyển dụng", recruiterName)
@@ -1123,10 +1185,12 @@ public class EmailServiceImpl implements EmailService {
                 : "Chưa xác định";
         String durationStr = durationMinutes != null ? durationMinutes + " phút" : "60 phút";
         String meetingLinkBlock = meetingLink != null && !meetingLink.isBlank()
-                ? "<div class=\"meeting-link\"><a href=\"" + meetingLink + "\" class=\"btn-meet\">Tham gia cuộc họp</a></div>"
+                ? "<div class=\"meeting-link\"><a href=\"" + meetingLink
+                        + "\" class=\"btn-meet\">Tham gia cuộc họp</a></div>"
                 : "";
         String roomBlock = skillverseRoomId != null && !skillverseRoomId.isBlank()
-                ? "<div class=\"room-info\"><strong>SkillVerse Room:</strong> <code>" + skillverseRoomId + "</code></div>"
+                ? "<div class=\"room-info\"><strong>SkillVerse Room:</strong> <code>" + skillverseRoomId
+                        + "</code></div>"
                 : "";
         String interviewerBlock = interviewerName != null && !interviewerName.isBlank()
                 ? "<div class=\"interviewer-info\"><strong>Người phỏng vấn:</strong> " + interviewerName + "</div>"
@@ -1198,7 +1262,8 @@ public class EmailServiceImpl implements EmailService {
                   </div>
                 </body>
                 </html>
-                """.formatted(fullName, jobTitle, dateTimeStr, durationStr,
+                """
+                .formatted(fullName, jobTitle, dateTimeStr, durationStr,
                         meetingType != null ? meetingType.replace("_", " ") : "Chưa xác định",
                         interviewerBlock, roomBlock, locationBlock, meetingLinkBlock);
     }

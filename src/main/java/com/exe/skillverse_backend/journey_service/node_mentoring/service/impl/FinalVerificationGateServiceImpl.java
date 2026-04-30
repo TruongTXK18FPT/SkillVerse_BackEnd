@@ -2,6 +2,8 @@ package com.exe.skillverse_backend.journey_service.node_mentoring.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
+import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
+import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
@@ -35,6 +37,7 @@ import com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill;
 import com.exe.skillverse_backend.portfolio_service.repository.UserVerifiedSkillRepository;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -82,6 +85,7 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
     private final VerificationEvidenceReportRepository evidenceReportRepo;
     private final UserVerifiedSkillRepository userVerifiedSkillRepo;
     private final RoadmapNodeSubmissionRepository submissionRepo;
+    private final UserRoadmapProgressRepository progressRepository;
     private final WalletService walletService;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
@@ -158,7 +162,7 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
     @Transactional
     public JourneyCompletionReportResponse submitCompletionReport(Long actingMentorId, Long journeyId,
                                                                   ConfirmJourneyCompletionRequest request) {
-        resolver.resolveJourneyWithRoadmap(journeyId);
+        Journey journey = resolver.resolveJourneyWithRoadmap(journeyId);
         requireAssignedJourneyMentor(actingMentorId, journeyId);
 
         if (completionReportRepo.existsByJourneyIdAndGateDecision(journeyId, GateDecision.PASS)) {
@@ -177,7 +181,15 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
         report.setCompletionNote(request.getCompletionNote());
         report.setBookingId(request.getBookingId());
 
-        return JourneyCompletionReportResponse.from(completionReportRepo.save(report));
+        JourneyCompletionReport saved = completionReportRepo.save(report);
+        if (request.getGateDecision() == GateDecision.PASS) {
+            completeJourneyIfGatePassed(journey, actingMentorId, saved.getBookingId(), saved.getCompletionNote());
+        } else if (request.getGateDecision() == GateDecision.FAIL) {
+            journey.setStatus(JourneyStatus.ACTIVE);
+            journeyRepository.save(journey);
+        }
+
+        return JourneyCompletionReportResponse.from(saved);
     }
 
     // ─── Output assessment ────────────────────────────────────────────────────
@@ -196,16 +208,23 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
                     "Output assessment requires an active mentor booking for this journey");
         }
 
-        JourneyOutputAssessment a = outputAssessmentRepo.findFirstByJourneyIdOrderBySubmittedAtDesc(journeyId)
-                .orElseGet(() -> JourneyOutputAssessment.builder()
-                        .journeyId(journeyId)
-                        .learnerId(learnerId)
-                        .build());
+        JourneyOutputAssessment latest = outputAssessmentRepo.findFirstByJourneyIdOrderBySubmittedAtDesc(journeyId)
+                .orElse(null);
 
-        if (a.getAssessmentStatus() == AssessmentStatus.APPROVED) {
+        if (latest != null && latest.getAssessmentStatus() == AssessmentStatus.PENDING) {
             throw new ApiException(ErrorCode.CONFLICT,
-                    "The journey output assessment has already been APPROVED");
+                    "Final assessment đã được nộp và đang chờ mentor đánh giá. "
+                            + "Bạn chỉ có thể nộp lại khi mentor yêu cầu làm lại.");
         }
+        if (latest != null && latest.getAssessmentStatus() == AssessmentStatus.APPROVED) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Final assessment đã được duyệt, không thể cập nhật thêm.");
+        }
+
+        JourneyOutputAssessment a = JourneyOutputAssessment.builder()
+                .journeyId(journeyId)
+                .learnerId(learnerId)
+                .build();
 
         a.setSubmissionText(request.getSubmissionText());
         a.setEvidenceUrl(request.getEvidenceUrl());
@@ -222,7 +241,7 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
     @Transactional
     public JourneyOutputAssessmentResponse assessOutput(Long actingMentorId, Long journeyId,
                                                         AssessJourneyOutputRequest request) {
-        resolver.resolveJourneyWithRoadmap(journeyId);
+        Journey journey = resolver.resolveJourneyWithRoadmap(journeyId);
         requireAssignedJourneyMentor(actingMentorId, journeyId);
 
         JourneyOutputAssessment a = outputAssessmentRepo.findFirstByJourneyIdOrderBySubmittedAtDesc(journeyId)
@@ -244,7 +263,15 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
         a.setScore(request.getScore());
         a.setAssessedAt(Instant.now());
 
-        return JourneyOutputAssessmentResponse.from(outputAssessmentRepo.save(a));
+        JourneyOutputAssessment saved = outputAssessmentRepo.save(a);
+        if (request.getAssessmentStatus() == AssessmentStatus.APPROVED) {
+            completeJourneyIfGatePassed(journey, actingMentorId, null, request.getFeedback());
+        } else if (request.getAssessmentStatus() == AssessmentStatus.REJECTED) {
+            journey.setStatus(JourneyStatus.ACTIVE);
+            journeyRepository.save(journey);
+        }
+
+        return JourneyOutputAssessmentResponse.from(saved);
     }
 
     @Override
@@ -343,7 +370,7 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
         if (request.getGateDecision() == GateDecision.PASS) {
             handleVerificationPass(journey, booking, mentorId, saved);
         } else if (request.getGateDecision() == GateDecision.FAIL) {
-            handleVerificationFail(journey, booking, currentAttempt, request.getWeakNodeIds());
+            handleVerificationFail(journey, booking, currentAttempt, request.getWeakNodeIds(), request.getFailReason());
         }
 
         return VerificationEvidenceReportResponse.from(saved);
@@ -365,34 +392,11 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
 
     private void handleVerificationPass(Journey journey, Booking booking, Long mentorId,
                                          VerificationEvidenceReport report) {
-        String skillName = journey.getSkillName() != null
-                ? journey.getSkillName().toUpperCase().replaceAll("[^A-Z0-9]+", "_")
-                : "UNKNOWN_SKILL";
-
-        UserVerifiedSkill existing = userVerifiedSkillRepo
-                .findByUserIdAndSkillName(journey.getUser().getId(), skillName)
-                .orElse(null);
-
-        if (existing != null) {
-            existing.setVerifiedByMentorId(mentorId);
-            existing.setJourneyId(journey.getId());
-            existing.setBookingId(booking.getId());
-            existing.setSkillLevel(journey.getCurrentLevel() != null ? journey.getCurrentLevel().name() : null);
-            existing.setVerificationNote(report.getSummaryReport());
-            existing.setVerifiedAt(Instant.now());
-            userVerifiedSkillRepo.save(existing);
-        } else {
-            UserVerifiedSkill skill = UserVerifiedSkill.builder()
-                    .userId(journey.getUser().getId())
-                    .skillName(skillName)
-                    .verifiedByMentorId(mentorId)
-                    .journeyId(journey.getId())
-                    .bookingId(booking.getId())
-                    .skillLevel(journey.getCurrentLevel() != null ? journey.getCurrentLevel().name() : null)
-                    .verificationNote(report.getSummaryReport())
-                    .build();
-            userVerifiedSkillRepo.save(skill);
-        }
+        String skillName = upsertVerifiedSkill(
+                journey,
+                mentorId,
+                booking.getId(),
+                report.getSummaryReport());
 
         JourneyCompletionReport gateReport = JourneyCompletionReport.builder()
                 .journeyId(journey.getId())
@@ -404,6 +408,7 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
         completionReportRepo.save(gateReport);
 
         journey.setStatus(JourneyStatus.COMPLETED_VERIFIED);
+        journey.setProgressPercentage(100);
         journey.setCompletedAt(Instant.now());
         journeyRepository.save(journey);
 
@@ -445,8 +450,59 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
 
     // ─── FAIL handler ─────────────────────────────────────────────────────────
 
+    private void completeJourneyIfGatePassed(Journey journey, Long mentorId, Long bookingId, String note) {
+        if (journey == null || journey.getId() == null) {
+            return;
+        }
+
+        JourneyCompletionGateResponse gate = buildGateResponse(journey);
+        if (gate.getFinalGateStatus() != FinalGateStatus.PASSED) {
+            return;
+        }
+
+        Long resolvedBookingId = bookingId != null
+                ? bookingId
+                : bookingRepository.findActiveRoadmapMentoringBooking(journey.getId())
+                        .map(Booking::getId)
+                        .orElse(null);
+
+        upsertVerifiedSkill(journey, mentorId, resolvedBookingId, note);
+        journey.setStatus(JourneyStatus.COMPLETED_VERIFIED);
+        journey.setProgressPercentage(100);
+        if (journey.getCompletedAt() == null) {
+            journey.setCompletedAt(Instant.now());
+        }
+        journeyRepository.save(journey);
+    }
+
+    private String upsertVerifiedSkill(Journey journey, Long mentorId, Long bookingId, String verificationNote) {
+        String normalizedSkillName = SkillNameUtils.normalize(journey.getSkillName());
+        if (normalizedSkillName == null || normalizedSkillName.isBlank()) {
+            normalizedSkillName = "UNKNOWN_SKILL";
+        }
+        final String skillName = normalizedSkillName;
+
+        UserVerifiedSkill skill = userVerifiedSkillRepo
+                .findByUserIdAndSkillName(journey.getUser().getId(), skillName)
+                .orElseGet(() -> UserVerifiedSkill.builder()
+                        .userId(journey.getUser().getId())
+                        .skillName(skillName)
+                        .build());
+
+        skill.setVerifiedByMentorId(mentorId);
+        skill.setJourneyId(journey.getId());
+        skill.setBookingId(bookingId);
+        skill.setSkillLevel(journey.getCurrentLevel() != null ? journey.getCurrentLevel().name() : null);
+        skill.setVerificationNote(verificationNote);
+        if (skill.getVerifiedAt() == null) {
+            skill.setVerifiedAt(Instant.now());
+        }
+        userVerifiedSkillRepo.save(skill);
+        return skillName;
+    }
+
     private void handleVerificationFail(Journey journey, Booking booking,
-                                         int currentAttempt, List<String> weakNodeIds) {
+                                         int currentAttempt, List<String> weakNodeIds, String failReason) {
         booking.setVerificationAttempts(currentAttempt);
 
         if (currentAttempt >= MAX_VERIFICATION_ATTEMPTS) {
@@ -489,7 +545,7 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
         booking.setNextVerifyAllowedAt(LocalDateTime.now().plusDays(REVERIFY_COOLDOWN_DAYS));
         bookingRepository.save(booking);
 
-        resetWeakNodes(journey.getId(), weakNodeIds);
+        resetWeakNodes(journey.getId(), weakNodeIds, failReason);
 
         journey.setStatus(JourneyStatus.ACTIVE);
         journeyRepository.save(journey);
@@ -507,16 +563,31 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
                 weakNodeIds.size(), booking.getNextVerifyAllowedAt());
     }
 
-    private void resetWeakNodes(Long journeyId, List<String> weakNodeIds) {
+    private void resetWeakNodes(Long journeyId, List<String> weakNodeIds, String failReason) {
         if (weakNodeIds == null || weakNodeIds.isEmpty()) return;
         for (String nodeId : weakNodeIds) {
             submissionRepo.findByJourneyIdAndNodeId(journeyId, nodeId).ifPresent(submission -> {
-                submission.setSubmissionStatus(RoadmapNodeSubmission.SubmissionStatus.DRAFT);
-                submission.setVerificationStatus(RoadmapNodeSubmission.VerificationStatus.PENDING);
+                submission.setSubmissionStatus(RoadmapNodeSubmission.SubmissionStatus.REWORK_REQUESTED);
+                submission.setVerificationStatus(RoadmapNodeSubmission.VerificationStatus.REJECTED);
+                submission.setMentorFeedback(failReason);
                 submissionRepo.save(submission);
-                log.debug("Reset node {} in journey {} to DRAFT/PENDING for re-learning.", nodeId, journeyId);
+                resetRoadmapProgress(submission);
+                log.debug("Reset node {} in journey {} to REWORK_REQUESTED/REJECTED for re-learning.", nodeId, journeyId);
             });
         }
+    }
+
+    private void resetRoadmapProgress(RoadmapNodeSubmission submission) {
+        if (submission.getRoadmapSessionId() == null || submission.getNodeId() == null) {
+            return;
+        }
+        progressRepository.findBySessionIdAndQuestId(submission.getRoadmapSessionId(), submission.getNodeId())
+                .ifPresent(progress -> {
+                    progress.setStatus(UserRoadmapProgress.ProgressStatus.NOT_STARTED);
+                    progress.setProgress(0);
+                    progress.setCompletedAt(null);
+                    progressRepository.save(progress);
+                });
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────

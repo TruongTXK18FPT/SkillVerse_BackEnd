@@ -41,6 +41,8 @@ import com.exe.skillverse_backend.question_bank_service.entity.QuestionBank;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankQuestionService;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
+import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.shared.util.SkillNameUtils;
@@ -121,6 +123,7 @@ public class JourneyServiceImpl implements JourneyService {
     private final QuestionBankQuestionService questionBankQuestionService;
     private final StudySessionRepository studySessionRepository;
     private final BookingRepository bookingRepository;
+    private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
     private final ObjectMapper objectMapper;
 
     private static final class QuestionEvaluation {
@@ -442,6 +445,7 @@ public class JourneyServiceImpl implements JourneyService {
         journey.setCompletedAt(Instant.now());
         journey.setLastActivityAt(Instant.now());
         journey = journeyRepository.save(journey);
+        syncCompletedJourneySkillToPortfolio(journey);
 
         // Create completion milestone
         JourneyProgress progress = JourneyProgress.builder()
@@ -2758,6 +2762,59 @@ public class JourneyServiceImpl implements JourneyService {
     }
 
     // ==================== Helper Methods ====================
+
+    private void syncCompletedJourneySkillToPortfolio(Journey journey) {
+        if (journey == null || journey.getUser() == null || journey.getSkillName() == null
+                || journey.getSkillName().isBlank()) {
+            return;
+        }
+
+        String skillName = SkillNameUtils.normalize(journey.getSkillName());
+        if (skillName == null || skillName.isBlank()) {
+            return;
+        }
+
+        try {
+            PortfolioExtendedProfile profile = portfolioExtendedProfileRepository
+                    .findByUserId(journey.getUser().getId())
+                    .orElseGet(() -> PortfolioExtendedProfile.builder()
+                            .user(journey.getUser())
+                            .fullName(journey.getUser().getFullName())
+                            .build());
+
+            List<String> skills = readStringList(profile.getTopSkills());
+            boolean exists = skills.stream().anyMatch(existing -> {
+                String normalizedExisting = SkillNameUtils.normalize(existing);
+                return skillName.equals(normalizedExisting);
+            });
+            if (!exists) {
+                skills.add(skillName);
+                profile.setTopSkills(objectMapper.writeValueAsString(skills));
+                portfolioExtendedProfileRepository.save(profile);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to sync completed journey skill {} to portfolio for user {}",
+                    skillName, journey.getUser().getId(), e);
+        }
+    }
+
+    private List<String> readStringList(String json) {
+        if (json == null || json.isBlank()) {
+            return new ArrayList<>();
+        }
+        try {
+            List<?> raw = objectMapper.readValue(json, List.class);
+            List<String> result = new ArrayList<>();
+            for (Object item : raw) {
+                if (item instanceof String value && !value.isBlank()) {
+                    result.add(value.trim());
+                }
+            }
+            return result;
+        } catch (Exception ignored) {
+            return new ArrayList<>();
+        }
+    }
 
     private JourneySummaryResponse mapToJourneySummary(Journey journey) {
         List<JourneyProgress> progressList = journeyProgressRepository.findByJourney(journey);

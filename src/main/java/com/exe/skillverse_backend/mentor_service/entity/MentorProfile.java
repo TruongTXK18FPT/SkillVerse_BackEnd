@@ -95,6 +95,28 @@ public class MentorProfile {
     @Column(name = "badges", columnDefinition = "TEXT")
     private String badges; // JSON array of awarded badges
 
+    // Identity Verification (CCCD)
+    @Column(name = "cccd_number", unique = true)
+    private String cccdNumber;           // Số CCCD
+
+    @Column(name = "cccd_full_name")
+    private String cccdFullName;         // Họ tên trên CCCD
+
+    @Column(name = "cccd_dob")
+    private String cccdDob;              // Ngày sinh trên CCCD
+
+    @Column(name = "cccd_front_url")
+    private String cccdFrontUrl;         // URL ảnh mặt trước
+
+    @Column(name = "cccd_back_url")
+    private String cccdBackUrl;          // URL ảnh mặt sau
+
+    @Column(name = "cccd_extracted_data", columnDefinition = "TEXT")
+    private String cccdExtractedData;    // JSON response từ FPT.AI (cho Admin review)
+
+    @Builder.Default
+    @Column(name = "identity_verified", nullable = false, columnDefinition = "boolean default false")
+    private Boolean identityVerified = false;  // Admin đã duyệt danh tính?
 
     // Application Status & Admin Fields
     @Builder.Default

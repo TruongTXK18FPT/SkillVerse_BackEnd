@@ -1,7 +1,10 @@
 package com.exe.skillverse_backend.portfolio_service.dto;
 
+import com.exe.skillverse_backend.portfolio_service.validator.*;
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.*;
 import java.time.LocalDateTime;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -27,22 +30,31 @@ public class UserProfileDTO {
     
     // ===== BASIC PROFILE INFO (from user_service.UserProfile) =====
     @JsonAlias({"displayName"})
-    private String fullName; // From basic profile
-    private String email; // From auth user account
-    private String basicBio; // Bio from basic profile
-    private String phone; // From basic profile
-    private String address; // From basic profile
-    private String region; // From basic profile
-    private Long avatarMediaId; // Media ID from basic profile
-    private String basicAvatarUrl; // Avatar URL from basic profile (via Media entity)
-    private Long companyId; // From basic profile
-    private String socialLinks; // JSON from basic profile
+    @NotBlank(message = "Họ và tên là bắt buộc.")
+    @Size(min = 2, max = 100, message = "Họ và tên phải từ 2 đến 100 ký tự.")
+    private String fullName;
+    private String email;
+    private String basicBio;
+    @VietnamesePhone
+    private String phone;
+    private String address;
+    private String region;
+    private Long avatarMediaId;
+    private String basicAvatarUrl;
+    private Long companyId;
+    private String socialLinks;
     
     // ===== EXTENDED PORTFOLIO INFO (from portfolio_service.PortfolioExtendedProfile) =====
-    private String professionalTitle; // e.g., "Full Stack Developer"
+    @NotBlank(message = "Chức danh là bắt buộc.")
+    @Size(min = 2, max = 100, message = "Chức danh phải từ 2 đến 100 ký tự.")
+    private String professionalTitle;
+    @Size(max = 500, message = "Mục tiêu nghề nghiệp không được quá 500 ký tự.")
     private String careerGoals;
+    @Min(value = 0, message = "Số năm kinh nghiệm không được âm.")
     private Integer yearsOfExperience;
+    @Valid
     private List<PortfolioWorkExperienceDTO> workExperiences;
+    @Valid
     private List<PortfolioEducationDTO> educationHistory;
     
     // Portfolio media (separate from basic profile avatar)
@@ -51,16 +63,24 @@ public class UserProfileDTO {
     private String coverImageUrl;
     
     // Professional links
+    @ValidLinkedInUrl
     private String linkedinUrl;
+    @ValidGitHubUrl
     private String githubUrl;
+    @ValidPortfolioUrl
     private String portfolioWebsiteUrl;
+    @ValidBehanceUrl
     private String behanceUrl;
+    @ValidDribbbleUrl
     private String dribbbleUrl;
-    
+
     // Additional portfolio info
+    @Size(max = 100, message = "Khẩu hiệu không được quá 100 ký tự.")
     private String tagline;
+    @Size(max = 100, message = "Địa điểm không được quá 100 ký tự.")
     private String location;
     private String availabilityStatus;
+    @Min(value = 0, message = "Mức giá theo giờ không được âm.")
     private Double hourlyRate;
     private Double roadmapMentoringPrice;
     private String preferredCurrency;
@@ -81,6 +101,7 @@ public class UserProfileDTO {
     private Integer totalCertificates;
     
     // SEO
+    @ValidSlug
     private String customUrlSlug;
     private String metaDescription;
     private String keywords; // JSON array

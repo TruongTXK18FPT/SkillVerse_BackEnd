@@ -218,18 +218,32 @@ public class CloudinaryServiceImpl implements CloudinaryService {
 
     @Override
     public String generateSignedUrl(String publicId, String resourceType) {
-        log.debug("Generating signed URL for public ID: {}", publicId);
+        return generateSignedUrl(publicId, resourceType, null);
+    }
+
+    @Override
+    public String generateSignedUrl(String publicId, String resourceType, String filename) {
+        log.debug("Generating signed URL for public ID: {} with filename: {}", publicId, filename);
 
         if (publicId == null || publicId.trim().isEmpty()) {
             throw new IllegalArgumentException("Public ID cannot be null or empty");
         }
 
-        // Generate a signed URL - Note: Basic signed URLs don't expire in Cloudinary
-        // For time-limited URLs, use the Advanced URL delivery with expiration tokens
-        return cloudinary.url()
+        // Generate a signed URL with optional filename for Content-Disposition header
+        // Using fl_attachment forces download with the specified filename
+        com.cloudinary.Url url = cloudinary.url()
                 .resourceType(resourceType)
-                .signed(true)
-                .generate(publicId);
+                .signed(true);
+
+        if (filename != null && !filename.trim().isEmpty()) {
+            // Use Cloudinary's attachment transformation to set Content-Disposition header
+            // This will force the browser to download with the original filename
+            url.transformation(new Transformation()
+                    .flags("attachment")
+                    .fetchFormat("auto"));
+        }
+
+        return url.generate(publicId);
     }
 
     /**

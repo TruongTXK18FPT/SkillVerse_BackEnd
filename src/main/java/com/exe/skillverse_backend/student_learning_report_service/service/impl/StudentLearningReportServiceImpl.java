@@ -25,6 +25,7 @@ import com.exe.skillverse_backend.student_learning_report_service.dto.response.S
 import com.exe.skillverse_backend.student_learning_report_service.entity.StudentLearningReport;
 import com.exe.skillverse_backend.student_learning_report_service.repository.StudentLearningReportRepository;
 import com.exe.skillverse_backend.student_learning_report_service.service.StudentLearningReportService;
+import com.exe.skillverse_backend.student_learning_report_service.service.recommendation.RecommendationEngine;
 import com.exe.skillverse_backend.study_service.entity.StudySession;
 import com.exe.skillverse_backend.study_service.entity.Task;
 import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
@@ -78,6 +79,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     private final ShortTermJobApplicationRepository jobApplicationRepository;
     private final JobReviewRepository jobReviewRepository;
     private final ObjectMapper objectMapper;
+    private final RecommendationEngine recommendationEngine;
 
     @Override
     @Transactional(readOnly = true)
@@ -259,7 +261,9 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                 jobComputation.stats.getTotalJobsApplied());
 
         String trend = computeLearningTrendV2(studentId, overallProgress, jobComputation.stats);
-        List<String> recommendations = buildEnhancedRecommendations(
+        List<StudentLearningReportResponse.Recommendation> recommendations = buildAlgorithmicRecommendations(
+                studentId,
+                generatedAt,
                 studyComputation.stats,
                 roadmapComputation.stats,
                 roadmapComputation.breakdown,
@@ -740,9 +744,14 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     }
 
     private StudentLearningReportResponse buildLegacySnapshotFallback(StudentLearningReport report) {
-        List<String> recommendations = report.getRecommendedFocus() == null || report.getRecommendedFocus().isBlank()
-                ? List.of("Snapshot cũ chưa có breakdown chi tiết.")
-                : List.of(report.getRecommendedFocus());
+        String focus = report.getRecommendedFocus();
+        StudentLearningReportResponse.Recommendation legacy = StudentLearningReportResponse.Recommendation.builder()
+                .id("legacy-snapshot")
+                .tier("IMPROVE")
+                .category("GROWTH")
+                .title(focus == null || focus.isBlank() ? "Snapshot cũ chưa có breakdown chi tiết." : focus)
+                .build();
+        List<StudentLearningReportResponse.Recommendation> recommendations = List.of(legacy);
 
         StudentLearningReportResponse response = StudentLearningReportResponse.builder()
                 .overview(StudentLearningReportResponse.Overview.builder()
@@ -816,7 +825,13 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
             response.setOverview(StudentLearningReportResponse.Overview.builder()
                     .overallProgress(0)
                     .learningTrend("stable")
-                    .recommendations(List.of("Chưa có dữ liệu để đưa ra khuyến nghị."))
+                    .recommendations(List.of(StudentLearningReportResponse.Recommendation.builder()
+                            .id("empty-data")
+                            .tier("IMPROVE")
+                            .category("GROWTH")
+                            .title("Chưa có dữ liệu để đưa ra khuyến nghị.")
+                            .action("Bắt đầu phiên học hoặc apply roadmap đầu tiên để hệ thống phân tích.")
+                            .build()))
                     .build());
         }
 
@@ -926,11 +941,16 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     }
 
     private String getRecommendedFocus(StudentLearningReportResponse response) {
-        return response.getOverview() != null
-                && response.getOverview().getRecommendations() != null
-                && !response.getOverview().getRecommendations().isEmpty()
-                ? response.getOverview().getRecommendations().get(0)
-                : null;
+        if (response.getOverview() == null
+                || response.getOverview().getRecommendations() == null
+                || response.getOverview().getRecommendations().isEmpty()) {
+            return null;
+        }
+        StudentLearningReportResponse.Recommendation first = response.getOverview().getRecommendations().get(0);
+        if (first == null) {
+            return null;
+        }
+        return first.getTitle() != null ? first.getTitle() : first.getAction();
     }
 
     private boolean isTaskCompleted(Task task) {
@@ -1247,7 +1267,56 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         return "stable";
     }
 
-    private List<String> buildEnhancedRecommendations(
+    private List<StudentLearningReportResponse.Recommendation> buildAlgorithmicRecommendations(
+            Long studentId,
+            LocalDateTime now,
+            StudentLearningReportResponse.StudyStats studyStats,
+            StudentLearningReportResponse.RoadmapStats roadmapStats,
+            List<StudentLearningReportResponse.RoadmapBreakdownItem> roadmapBreakdown,
+            StudentLearningReportResponse.TaskStats taskStats,
+            StudentLearningReportResponse.CourseStats courseStats,
+            List<StudentLearningReportResponse.CourseBreakdownItem> courseBreakdown,
+            StudentLearningReportResponse.ShortTermJobStats jobStats,
+            List<StudentLearningReportResponse.JobBreakdownItem> jobBreakdown) {
+        RecommendationEngine.EngineInput input = new RecommendationEngine.EngineInput();
+        input.studyStats = studyStats;
+        input.roadmapStats = roadmapStats;
+        input.roadmapBreakdown = roadmapBreakdown;
+        input.taskStats = taskStats;
+        input.courseStats = courseStats;
+        input.courseBreakdown = courseBreakdown;
+        input.jobStats = jobStats;
+        input.jobBreakdown = jobBreakdown;
+        input.now = now;
+        input.previousWeeklyStudyMinutes = readPreviousWeeklyStudyMinutes(studentId);
+        return recommendationEngine.generate(input);
+    }
+
+    private Integer readPreviousWeeklyStudyMinutes(Long studentId) {
+        if (studentId == null) {
+            return null;
+        }
+        return reportRepository.findFirstByStudentIdOrderByGeneratedAtDescIdDesc(studentId)
+                .map(StudentLearningReport::getSummarySnapshot)
+                .filter(json -> json != null && !json.isBlank())
+                .map(json -> {
+                    try {
+                        StudentLearningReportResponse prev = objectMapper.readValue(json, StudentLearningReportResponse.class);
+                        if (prev.getStudyStats() != null) {
+                            return prev.getStudyStats().getStudyMinutesWeek();
+                        }
+                    } catch (Exception ex) {
+                        log.warn("Failed to read previous weekly minutes: {}", ex.getMessage());
+                    }
+                    return null;
+                })
+                .orElse(null);
+    }
+
+    /** @deprecated replaced by {@link RecommendationEngine}. Retained for reference only. */
+    @Deprecated
+    @SuppressWarnings("unused")
+    private List<String> buildEnhancedRecommendationsLegacy(
             StudentLearningReportResponse.StudyStats studyStats,
             StudentLearningReportResponse.RoadmapStats roadmapStats,
             List<StudentLearningReportResponse.RoadmapBreakdownItem> roadmapBreakdown,

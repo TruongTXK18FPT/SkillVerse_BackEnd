@@ -19,8 +19,11 @@ import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.Validator;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -49,6 +52,7 @@ public class PortfolioController {
 
     private final PortfolioService portfolioService;
     private final MentorReviewRepository reviewRepository;
+    private final Validator validator;
 
     // ==================== USER PROFILE ====================
 
@@ -64,6 +68,17 @@ public class PortfolioController {
             @RequestPart(value = "coverImage", required = false) @Parameter(description = "Portfolio cover/banner image") MultipartFile coverImage,
             Authentication authentication) {
         try {
+            // Manual validation for @RequestPart
+            var violations = validator.validate(profileDTO);
+            if (!violations.isEmpty()) {
+                String errorMessage = violations.stream()
+                        .map(v -> v.getMessage())
+                        .collect(Collectors.joining(", "));
+                return ResponseEntity.badRequest().body(Map.of(
+                        "success", false,
+                        "message", "Validation failed: " + errorMessage));
+            }
+
             Long userId = Long.parseLong(authentication.getName());
             UserProfileDTO result = portfolioService.createExtendedProfile(userId, profileDTO, avatar, video,
                     coverImage);
@@ -87,6 +102,17 @@ public class PortfolioController {
             @RequestPart(value = "coverImage", required = false) @Parameter(description = "New portfolio cover image (optional)") MultipartFile coverImage,
             Authentication authentication) {
         try {
+            // Manual validation for @RequestPart
+            var violations = validator.validate(profileDTO);
+            if (!violations.isEmpty()) {
+                String errorMessage = violations.stream()
+                        .map(v -> v.getMessage())
+                        .collect(Collectors.joining(", "));
+                return ResponseEntity.badRequest().body(Map.of(
+                        "success", false,
+                        "message", "Validation failed: " + errorMessage));
+            }
+
             Long userId = Long.parseLong(authentication.getName());
             UserProfileDTO result = portfolioService.updateExtendedProfile(userId, profileDTO, avatar, video,
                     coverImage);
