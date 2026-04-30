@@ -812,9 +812,6 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         private PremiumPlanResponse convertToPremiumPlanResponse(PremiumPlan plan) {
-                // Use query instead of lazy-loading subscriptions to prevent N+1
-                Long currentSubscribers = premiumPlanRepository.countActiveSubscriptions(plan);
-                
                 return PremiumPlanResponse.builder()
                                 .id(plan.getId())
                                 .name(plan.getName())
@@ -831,10 +828,7 @@ public class PremiumServiceImpl implements PremiumService {
                                 .studentDiscountPercent(plan.getDiscountPercent())
                                 .features(parsePlanFeatures(plan.getFeatures()))
                                 .isActive(plan.getIsActive())
-                                .maxSubscribers(plan.getMaxSubscribers())
-                                .currentSubscribers(currentSubscribers)
-                                .availableForSubscription(plan.getMaxSubscribers() == null ||
-                                                currentSubscribers < plan.getMaxSubscribers())
+                                .availableForSubscription(true)
                                 .build();
         }
 
@@ -2166,9 +2160,6 @@ public class PremiumServiceImpl implements PremiumService {
                 }
                 if (!Boolean.TRUE.equals(plan.getIsActive())) {
                         throw new RuntimeException("Gói Premium hiện không khả dụng.");
-                }
-                if (!plan.isAvailableForSubscription()) {
-                        throw new RuntimeException("Gói Premium đã đạt giới hạn số lượng đăng ký.");
                 }
                 PremiumPlan.TargetRole recipientRole = resolveTargetRoleByPrimaryRole(recipient.getPrimaryRole());
                 if (!isPlanPurchasableForRole(plan, recipientRole)) {

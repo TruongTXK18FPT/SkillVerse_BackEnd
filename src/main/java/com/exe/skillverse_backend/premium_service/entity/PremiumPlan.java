@@ -102,12 +102,6 @@ public class PremiumPlan {
     @Builder.Default
     private Boolean isActive = true;
 
-    /**
-     * Maximum number of concurrent subscriptions (null = unlimited)
-     */
-    @Column(name = "max_subscribers")
-    private Integer maxSubscribers;
-
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -178,13 +172,5 @@ public class PremiumPlan {
      */
     public BigDecimal getStudentPrice() {
         return getDiscountedPrice();
-    }
-
-    /**
-     * Check if this plan is available for new subscriptions
-     */
-    public boolean isAvailableForSubscription() {
-        return isActive && (maxSubscribers == null ||
-                subscriptions.size() < maxSubscribers);
     }
 }

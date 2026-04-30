@@ -65,14 +65,8 @@ public class PremiumPlanResponse {
     @Schema(description = "Whether plan is active", example = "true")
     private Boolean isActive;
 
-    @Schema(description = "Maximum subscribers allowed")
-    private Integer maxSubscribers;
-
-    @Schema(description = "Current active subscribers count")
-    private Long currentSubscribers;
-
     @Schema(description = "Whether plan is available for new subscriptions")
-    private Boolean availableForSubscription;
+    private Boolean availableForSubscription = true;
 
     @Schema(description = "Plan creation timestamp")
     private LocalDateTime createdAt;

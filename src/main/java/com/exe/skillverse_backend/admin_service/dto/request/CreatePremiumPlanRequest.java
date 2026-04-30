@@ -77,9 +77,6 @@ public class CreatePremiumPlanRequest {
     @Schema(description = "JSON array of features", example = "[\"Feature 1\", \"Feature 2\"]")
     private String features;
 
-    @Schema(description = "Maximum number of subscribers (null = unlimited)", example = "1000")
-    private Integer maxSubscribers;
-
     @Schema(description = "Whether plan is active", example = "true")
     @Builder.Default
     private Boolean isActive = true;

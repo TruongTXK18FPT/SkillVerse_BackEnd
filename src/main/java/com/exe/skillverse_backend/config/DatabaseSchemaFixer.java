@@ -493,6 +493,11 @@ public class DatabaseSchemaFixer {
                     this::patchChatSessionDetectedDomain,
                     this::verifyChatSessionDetectedDomain);
 
+            applyPatch("drop-premium-plans-max-subscribers",
+                    "Drop max_subscribers column from premium_plans — no business case for subscriber limits",
+                    this::patchDropPremiumPlansMaxSubscribers,
+                    this::verifyDropPremiumPlansMaxSubscribers);
+
             log.info("Schema patch infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -3467,5 +3472,16 @@ public class DatabaseSchemaFixer {
                 && hasIndex("idx_sve_request")
                 && (!hasTable("student_skill_verification_requests")
                         || hasForeignKey("student_verification_evidences", "fk_sve_request"));
+    }
+
+    private void patchDropPremiumPlansMaxSubscribers() {
+        if (!hasTable("premium_plans") || !hasColumn("premium_plans", "max_subscribers")) {
+            return;
+        }
+        executeSql("ALTER TABLE premium_plans DROP COLUMN max_subscribers");
+    }
+
+    private boolean verifyDropPremiumPlansMaxSubscribers() {
+        return !hasTable("premium_plans") || !hasColumn("premium_plans", "max_subscribers");
     }
 }

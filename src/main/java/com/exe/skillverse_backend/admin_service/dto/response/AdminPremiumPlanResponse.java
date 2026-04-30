@@ -65,9 +65,6 @@ public class AdminPremiumPlanResponse {
     @Schema(description = "Whether plan is active", example = "true")
     private Boolean isActive;
 
-    @Schema(description = "Maximum subscribers allowed")
-    private Integer maxSubscribers;
-
     @Schema(description = "Current active subscribers count", example = "245")
     private Long currentSubscribers;
 

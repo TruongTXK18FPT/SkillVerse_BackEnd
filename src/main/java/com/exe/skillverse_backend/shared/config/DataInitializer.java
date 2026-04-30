@@ -341,7 +341,6 @@ public class DataInitializer implements CommandLineRunner {
                                         .studentDiscountPercent(studentDiscountPercent)
                                         .features(features)
                                         .isActive(true)
-                                        .maxSubscribers(null) // Unlimited subscribers
                                         .createdAt(LocalDateTime.now())
                                         .updatedAt(LocalDateTime.now())
                                         .build();
@@ -362,7 +361,6 @@ public class DataInitializer implements CommandLineRunner {
                         plan.setStudentDiscountPercent(studentDiscountPercent);
                         plan.setFeatures(features);
                         plan.setIsActive(true);
-                        plan.setMaxSubscribers(null);
                         plan.setUpdatedAt(LocalDateTime.now());
 
                         premiumPlanRepository.save(plan);

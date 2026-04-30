@@ -108,7 +108,6 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                         request.getStudentDiscountPercent()))
                 .features(request.getFeatures())
                 .isActive(request.getIsActive())
-                .maxSubscribers(request.getMaxSubscribers())
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -165,7 +164,6 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                 request.getDiscountPercent(),
                 request.getStudentDiscountPercent()));
         plan.setFeatures(request.getFeatures());
-        plan.setMaxSubscribers(request.getMaxSubscribers());
 
         // Update targetRole if provided
         if (request.getTargetRole() != null) {
@@ -273,10 +271,8 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
             log.warn("Failed to parse features JSON for plan {}: {}", plan.getName(), e.getMessage());
         }
 
-        // Calculate current active subscribers
-        long currentSubscribers = plan.getSubscriptions().stream()
-                .filter(sub -> sub.getStatus() == UserSubscription.SubscriptionStatus.ACTIVE)
-                .count();
+        // Calculate current active subscribers using query (not lazy collection)
+        long currentSubscribers = premiumPlanRepository.countActiveSubscriptions(plan);
 
         // Calculate total revenue (from all subscriptions that were paid)
         // Revenue = plan price * number of subscriptions (both active and expired)
@@ -306,10 +302,9 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
                 .studentPrice(plan.getDiscountedPrice())
                 .features(featuresList)
                 .isActive(plan.getIsActive())
-                .maxSubscribers(plan.getMaxSubscribers())
                 .currentSubscribers(currentSubscribers)
                 .totalRevenue(totalRevenue)
-                .availableForSubscription(plan.isAvailableForSubscription())
+                .availableForSubscription(true)
                 .isFreeTier(plan.getPlanType() == PremiumPlan.PlanType.FREE_TIER)
                 .createdAt(plan.getCreatedAt())
                 .updatedAt(plan.getUpdatedAt())

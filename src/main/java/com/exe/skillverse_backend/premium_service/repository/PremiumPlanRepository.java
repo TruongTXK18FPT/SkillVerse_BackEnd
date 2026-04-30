@@ -75,18 +75,10 @@ public interface PremiumPlanRepository extends JpaRepository<PremiumPlan, Long> 
         List<PremiumPlan.PlanType> getActivePlanTypes();
 
         /**
-         * Count active subscriptions for a plan
+         * Count active subscriptions for a plan (used in admin stats)
          */
         @Query("SELECT COUNT(s) FROM UserSubscription s WHERE s.plan = :plan AND s.isActive = true")
         Long countActiveSubscriptions(@Param("plan") PremiumPlan plan);
-
-        /**
-         * Find plans available for new subscriptions
-         */
-        @Query("SELECT p FROM PremiumPlan p WHERE p.isActive = true " +
-                        "AND (p.maxSubscribers IS NULL OR " +
-                        "     (SELECT COUNT(s) FROM UserSubscription s WHERE s.plan = p AND s.isActive = true) < p.maxSubscribers)")
-        List<PremiumPlan> findAvailablePlans();
 
         /**
          * Count plans excluding a specific plan type (for admin validation)
