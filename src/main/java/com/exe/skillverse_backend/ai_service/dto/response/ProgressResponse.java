@@ -53,8 +53,23 @@ public class ProgressResponse {
         private Integer completedQuests;
 
         /**
-         * Completion percentage (0-100)
+         * Completion percentage (0-100) — weighted by node importance
          */
         private Double completionPercentage;
+
+        /**
+         * Sum of weights of completed nodes
+         */
+        private Double completedWeight;
+
+        /**
+         * Sum of weights of all valid nodes
+         */
+        private Double totalWeight;
+
+        /**
+         * Scoring mode: WEIGHTED_IMPORTANCE or COUNT_FALLBACK
+         */
+        private String progressMode;
     }
 }

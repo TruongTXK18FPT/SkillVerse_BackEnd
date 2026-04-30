@@ -348,8 +348,8 @@ class AiRoadmapServiceImplTest {
     }
 
     @Test
-    @DisplayName("getUserRoadmaps should compute summary progress from derived partial node progress")
-    void getUserRoadmaps_ShouldUseDerivedPartialProgressForSummaryPercentage() {
+    @DisplayName("getUserRoadmaps should compute summary progress from completed nodes only")
+    void getUserRoadmaps_ShouldUseCompletedOnlyProgressForSummaryPercentage() {
         User user = User.builder().id(42L).build();
         RoadmapSession session = RoadmapSession.builder()
             .id(11L)
@@ -386,7 +386,7 @@ class AiRoadmapServiceImplTest {
 
         assertEquals(2, summary.getTotalQuests());
         assertEquals(1, summary.getCompletedQuests());
-        assertEquals(75, summary.getProgressPercentage());
+        assertEquals(50, summary.getProgressPercentage());
     }
 
     @Test

@@ -159,6 +159,11 @@ final class RoadmapGraphCanonicalizer {
                     .prerequisites(new ArrayList<>(safeList(node.getPrerequisites())))
                     .children(new ArrayList<>(safeList(node.getChildren())))
                     .estimatedCompletionRate(node.getEstimatedCompletionRate())
+                    .importanceScore(node.getImportanceScore())
+                    .confidenceScore(node.getConfidenceScore())
+                    .reason(node.getReason())
+                    .evidence(node.getEvidence() != null ? new ArrayList<>(node.getEvidence()) : null)
+                    .importanceValidationStatus(node.getImportanceValidationStatus())
                     .build());
         }
         return copies;

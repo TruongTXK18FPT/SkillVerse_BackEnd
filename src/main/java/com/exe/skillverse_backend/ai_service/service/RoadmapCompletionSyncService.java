@@ -294,6 +294,7 @@ public class RoadmapCompletionSyncService {
                         .suggestedModuleIds(parseStringArray(nodeJson.path("suggested_module_ids"), nodeJson.path("suggestedModuleIds")))
                         .prerequisites(parseStringArray(nodeJson.path("prerequisites")))
                         .children(parseStringArray(nodeJson.path("children")))
+                        .importanceScore(readDouble(nodeJson, "importance_score", "importanceScore"))
                         .build());
             }
             RoadmapGraphCanonicalizer.Result canonical = RoadmapGraphCanonicalizer.canonicalize(nodes);
@@ -482,6 +483,28 @@ public class RoadmapCompletionSyncService {
     private Boolean readBoolean(JsonNode node, Boolean fallback, String... keys) {
         JsonNode target = firstPresentNode(node, keys);
         return target == null ? fallback : target.asBoolean();
+    }
+
+    private Double readDouble(JsonNode node, String... keys) {
+        JsonNode target = firstPresentNode(node, keys);
+        if (target == null || target.isNull()) {
+            return null;
+        }
+        if (target.isNumber()) {
+            double v = target.asDouble();
+            if (!Double.isFinite(v)) return null;
+            return Math.max(0.0, Math.min(1.0, v));
+        }
+        if (target.isTextual()) {
+            try {
+                double v = Double.parseDouble(target.asText().trim());
+                if (!Double.isFinite(v)) return null;
+                return Math.max(0.0, Math.min(1.0, v));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private Integer readInteger(JsonNode node, String... keys) {

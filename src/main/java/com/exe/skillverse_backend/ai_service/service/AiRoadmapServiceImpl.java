@@ -370,6 +370,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 }
             }
 
+            // Step 4.5: Validate AI importance scores and backfill missing ones
+            RoadmapImportanceScorer.validateAndBackfill(parsed.nodes(), request);
+
+            // Step 4.6: Normalize orderIndex and apply importance-aware stable ordering
+            RoadmapNodeOrderNormalizer.normalize(parsed.nodes());
+
             // Inject mode-specific metadata from request for clarity
             try {
                 if (request.getRoadmapMode() != null) {
@@ -413,10 +419,9 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             // Keep timeline fields consistent by mode before validation/warning and persistence.
             alignTimelineMetadataWithRequest(parsed.metadata(), request);
 
-            // Step 5: Time budget validator vs total_estimated_hours
-            List<String> warnings = new ArrayList<>();
-            if (parsed.graphWarnings() != null) {
-                warnings.addAll(parsed.graphWarnings());
+            // Step 5: Time budget check (internal log only — not exposed to FE)
+            if (parsed.graphWarnings() != null && !parsed.graphWarnings().isEmpty()) {
+                log.debug("[RoadmapGen] Graph warnings (internal): {}", parsed.graphWarnings());
             }
             try {
                 if (parsed.statistics() != null && parsed.statistics().getTotalEstimatedHours() != null) {
@@ -427,22 +432,14 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     double diff = Math.abs(totalHoursGen - timeBudgetHours);
                     double rel = timeBudgetHours > 0 ? diff / timeBudgetHours : 0.0;
                     if (rel > 0.10) {
-                        String note = "Cảnh báo: Tổng thời gian lộ trình (" + String.format("%.1f", totalHoursGen)
-                                + "h) lệch hơn 10% so với ngân sách thời gian ("
-                                + String.format("%.1f", timeBudgetHours)
-                                + "h).";
-                        String existing = parsed.metadata().getValidationNotes();
-                        parsed.metadata().setValidationNotes(
-                                existing == null || existing.isBlank() ? note : existing + " " + note);
-                        warnings.add(note);
-                        String priority = request.getPriority();
-                        if (priority != null && priority.equalsIgnoreCase("Nhanh đi làm")) {
-                            warnings.add("Đề xuất: Giảm số node hoặc hạ độ khó để phù hợp ưu tiên nhanh đi làm");
-                        }
+                        log.debug("[RoadmapGen] Time budget deviation {}% ({}h vs {}h budget)",
+                                String.format("%.0f", rel * 100), String.format("%.1f", totalHoursGen),
+                                String.format("%.1f", timeBudgetHours));
                     }
                 }
             } catch (Exception ignored) {
             }
+            List<String> warnings = new ArrayList<>();
 
             // Step 6: Extract statistics for database
             Integer totalNodes = parsed.statistics() != null ? parsed.statistics().getTotalNodes()
@@ -1689,6 +1686,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                 7) Viết mô tả rõ ràng (2-4 câu ngắn), nêu bối cảnh + việc cần làm + kết quả mong đợi; mỗi list tối đa 3 items.
                                                 8) Không tạo field ngoài schema dưới đây.
                                                 10) description: cho phép **inline** Markdown (được: **bold**, *italic*, `code`). CẤM: ```, >, #, -, newlines trong chuỗi. Tối đa 240 ký tự.
+                                                11) `next_steps.jobs`: BẮT BUỘC 2-3 vị trí công việc thực tế sau khi hoàn thành lộ trình.
+                                                12) `next_steps.next_skills`: BẮT BUỘC 2-3 kỹ năng nên học tiếp theo sau lộ trình này.
                                                 9) CRITICAL BRACKET RULE: Trước khi dừng output, verify tất cả [ có ] đóng và { có } đóng. Nếu phải dừng giữa chừng: đóng node (}), đóng array (]), rồi dừng. KHÔNG bỏ dở mid-field.
 
                                                 BRANCHING POLICY:
@@ -1722,7 +1721,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                     "structure": [],
                                                     "thinking_progression": ["Bắt đầu từ khái niệm cơ bản", "Xây dựng nền tảng lý thuyết", "Thực hành qua bài tập", "Tổng hợp qua dự án thực tế"],
                                                     "projects_evidence": [],
-                                                    "next_steps": {"jobs": [], "next_skills": []},
+                                                    "next_steps": {"jobs": ["Vị trí công việc 1", "Vị trí công việc 2"], "next_skills": ["Kỹ năng tiếp theo 1", "Kỹ năng tiếp theo 2"]},
                                                     "learning_tips": [],
                                                     "skill_dependencies": [{"from": "", "to": ""}],
                                                     "roadmap": [
@@ -1741,7 +1740,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                             "suggested_resources": [],
                                                             "success_criteria": [],
                                                             "prerequisites": [],
-                                                            "children": []
+                                                            "children": [],
+                                                            "order_index": 1,
+                                                            "importance_score": 0.85,
+                                                            "confidence_score": 0.90,
+                                                            "reason": "Node nền tảng bắt buộc, mở khóa toàn bộ các bước tiếp theo trong lộ trình.",
+                                                            "evidence": ["Là node MAIN đầu tiên trong lộ trình học chính", "Skill gap: người học chưa có nền tảng theo đánh giá đầu vào"]
                                                         }
                                                     ],
                                                     "roadmap_statistics": {
@@ -1892,23 +1896,28 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         - `roadmap`: array nodes, mỗi node BẮT BUỘC có đủ các fields sau:
                           1. `id` (string)
                           2. `title` (string, 40-80 chars, bắt đầu bằng động từ)
-                          3. `description` (**inline** Markdown, tối đa 240 ký tự, được dùng: **bold**, *italic*, `code`; CẤM: ```, >, #, -, multiline). Ưu tiên nêu: vì sao node quan trọng + hành động chính + kết quả đầu ra.
+                          3. `description` (**inline** Markdown, tối đa 300 ký tự, được dùng: **bold**, *italic*, `code`; CẤM: ```, >, #, -, multiline). Nêu rõ: **những gì sẽ học được** + hành động thực hành chính + kết quả đầu ra cụ thể. KHÔNG giải thích tại sao quan trọng (đã có importance_score/reason).
                           4. `estimated_time_minutes` (int, > 0)
                           5. `type` (MAIN hoặc SIDE)
                           6. `parent_id` (string id HOẶC null cho root node)
                           7. `children` (array string id, LUÔN LÀ array — dùng [] nếu node lá)
                           8. `difficulty` (easy | medium | hard)
                           9. `prerequisites` (array string id, LUÔN LÀ array — dùng [] nếu không có)
-                          10. `learning_objectives` (array string 1-3 items)
+                          10. `learning_objectives` (array string 1-3 items — BẮT BUỘC, nêu cụ thể kỹ năng/kiến thức đạt được sau node)
                           11. `key_concepts` (array string 2-5 items — KHÔNG BẮT BUỘC, dùng [] nếu không cần)
                           12. `practical_exercises` (array string 1-3 items — KHÔNG BẮT BUỘC, dùng [] nếu không cần)
                           13. `success_criteria` (array string 1-3 items — KHÔNG BẮT BUỘC, dùng [] nếu không cần)
                           14. `suggested_resources` (array string 1-3 items — KHÔNG BẮT BUỘC, dùng [] nếu không cần)
+                          15. `order_index` (int, 1-based global position of this node in the roadmap)
+                          16. `importance_score` (float 0.0–1.0 — MAIN nodes >= 0.7, SIDE nodes 0.3–0.6; how critical relative to goal)
+                          17. `confidence_score` (float 0.0–1.0 — AI confidence this node belongs in the roadmap)
+                          18. `reason` (string, 1 câu: tại sao node này quan trọng với người học này cụ thể)
+                          19. `evidence` (array string 1-3 items — tín hiệu cụ thể từ đầu vào: skill gap, điểm test, nhu cầu thị trường)
                         - `roadmap_statistics`: total_nodes, main_nodes, total_estimated_hours
                         - `learning_tips`: array string 2-3 tips
 
                         **NGUYÊN TẮC QUAN TRỌNG:**
-                        - description: cho phép **inline** Markdown trong JSON (được: **bold**, *italic*, `code`). CẤM: ``` code fences, > blockquote, # heading, - list prefix, newlines trong chuỗi JSON. Mỗi description tối đa 240 ký tự, ưu tiên 2-4 câu ngắn theo nhịp bối cảnh -> hành động -> output.
+                        - description: cho phép **inline** Markdown trong JSON (được: **bold**, *italic*, `code`). CẤM: ``` code fences, > blockquote, # heading, - list prefix, newlines trong chuỗi JSON. Mỗi description tối đa 300 ký tự, tập trung vào nội dung học + hành động + output. KHÔNG lặp lại reason/importance_score.
                         - key_concepts, practical_exercises, success_criteria, suggested_resources: KHÔNG BẮT BUỘC nhưng NÊN có nếu node có nội dung phong phú. Mỗi array tối đa 5 items, mỗi item tối đa 80 ký tự.
                         - thinking_progression: 2-4 bước tư duy, mỗi bước tối đa 100 ký tự.
                         - projects_evidence: 1-3 dự án, mỗi project tối đa 120 ký tự.
@@ -1917,6 +1926,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         - Tất cả nodes (trừ root) phải có prerequisites (array), không được null — dùng [] nếu không có.
                         - Nếu gần hết output: đóng array hiện tại bằng ], đóng object cuối bằng }, rồi DỪNG. KHÔNG bỏ dở giữa field.
                         - Luôn verify: mỗi [ phải có ] đóng, mỗi { phải có } đóng TRƯỚC KHI kết thúc output.
+                        - importance_score và confidence_score: KHÔNG được gán cao nếu không có evidence. Căn cứ PHẢI từ ít nhất một trong: mục tiêu cụ thể của người học, skill gap từ đánh giá, vai trò prerequisite trong graph, context từ RAG/course, hoặc tính thực tiễn của dự án. confidence_score phải thấp hơn nếu evidence yếu hoặc chỉ có 1 tín hiệu.
 
                         ## QUY TẮC ROADMAP CONSTRUCTION
 
@@ -2727,6 +2737,31 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return null;
     }
 
+    // Scoring and ordering delegated to package-private utility classes.
+    // See RoadmapImportanceScorer and RoadmapNodeOrderNormalizer.
+
+    private Double readDouble(JsonNode node, String... keys) {
+        JsonNode target = firstPresentNode(node, keys);
+        if (target == null || target.isNull()) {
+            return null;
+        }
+        if (target.isNumber()) {
+            double v = target.asDouble();
+            if (!Double.isFinite(v)) return null;
+            return Math.max(0.0, Math.min(1.0, v));
+        }
+        if (target.isTextual()) {
+            try {
+                double v = Double.parseDouble(target.asText().trim());
+                if (!Double.isFinite(v)) return null;
+                return Math.max(0.0, Math.min(1.0, v));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     private String timelineTokenToVietnameseDuration(String value) {
         if (value == null || value.isBlank()) {
             return null;
@@ -2888,6 +2923,11 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .prerequisites(parseStringArray(nodeJson.path("prerequisites")))
                     .children(parseStringArray(nodeJson.path("children")))
                     .estimatedCompletionRate(readText(nodeJson, "estimated_completion_rate", "estimatedCompletionRate"))
+                    .importanceScore(readDouble(nodeJson, "importance_score", "importanceScore"))
+                    .confidenceScore(readDouble(nodeJson, "confidence_score", "confidenceScore"))
+                    .reason(readText(nodeJson, "reason"))
+                    .evidence(parseStringArray(nodeJson.path("evidence")))
+                    .importanceValidationStatus(readText(nodeJson, "importance_validation_status", "importanceValidationStatus"))
                     .build();
 
             nodes.add(node);
@@ -3466,20 +3506,15 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         .equals(progress.getStatus()))
                 .count();
 
-        int aggregateProgress = nodeIds.stream()
-                .map(resolvedProgressMap::get)
-                .filter(Objects::nonNull)
-                .map(RoadmapResponse.QuestProgress::getProgress)
-                .filter(Objects::nonNull)
-                .mapToInt(Integer::intValue)
-                .sum();
+        RoadmapProgressCalculator.ProgressCalculation calc =
+                RoadmapProgressCalculator.calculate(nodes, resolvedProgressMap);
+        double rawPercentage = calc.totalWeight() > 0.0
+                ? calc.completionPercentage()
+                : resolveFallbackSummaryProgressPercentage(totalQuests, completedQuests);
+        double progressPercentage = Math.round(Math.max(0.0, Math.min(100.0, rawPercentage)) * 10.0) / 10.0;
+        int responseTotalQuests = calc.totalQuests() > 0 ? calc.totalQuests() : totalQuests;
 
-        // Use nodeIds.size() as denominator — same set as numerator (aggregateProgress).
-        // This prevents blank/null-ID nodes from inflating totalQuests and diluting the average.
-        int progressPercentage = clampProgressPercentage(
-                (int) Math.round(aggregateProgress * 1.0 / nodeIds.size()));
-
-        return new SummaryProgressStats(totalQuests, completedQuests, progressPercentage);
+        return new SummaryProgressStats(responseTotalQuests, completedQuests, progressPercentage);
     }
 
     private int resolveFallbackSummaryProgressPercentage(int totalQuests, int completedQuests) {
@@ -3505,7 +3540,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             SummaryProgressStats progressStats = resolveSummaryProgressStats(session);
             int totalQuests = progressStats.totalQuests();
             int completed = progressStats.completedQuests();
-            int progressPercentage = progressStats.progressPercentage();
+            double progressPercentage = progressStats.progressPercentage();
 
             // Build summary with V2 fields (fallback to V1 for old data)
             @SuppressWarnings("deprecation") // Intentional V1 fallback for backward compatibility
@@ -3549,7 +3584,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             SummaryProgressStats progressStats = resolveSummaryProgressStats(session);
             int totalQuests = progressStats.totalQuests();
             int completed = progressStats.completedQuests();
-            int progressPercentage = progressStats.progressPercentage();
+            double progressPercentage = progressStats.progressPercentage();
 
             // Build summary with V2 fields (fallback to V1 for old data)
             @SuppressWarnings("deprecation") // Intentional V1 fallback for backward compatibility
@@ -3588,7 +3623,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             SummaryProgressStats progressStats = resolveSummaryProgressStats(session);
             int totalQuests = progressStats.totalQuests();
             int completed = progressStats.completedQuests();
-            int progressPercentage = progressStats.progressPercentage();
+            double progressPercentage = progressStats.progressPercentage();
 
             @SuppressWarnings("deprecation")
             RoadmapSessionSummary summary = RoadmapSessionSummary.builder()
@@ -3848,72 +3883,63 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
         Integer schemaVersion = session.getSchemaVersion() != null ? session.getSchemaVersion() : 1;
 
-        // Calculate progress statistics (support V1 and V2)
-        int totalQuests = 0;
-        Set<String> validNodeIds = null;
+        // Parse nodes once — reused for resolveProgressData and weighted calculator.
+        List<RoadmapResponse.RoadmapNode> parsedNodes = null;
+        int totalQuests;
+        boolean weightedMode = true;
         try {
             if (schemaVersion >= 2) {
-                // V2: Parse or use cached totalNodes from DB
-                if (session.getTotalNodes() != null) {
-                    totalQuests = session.getTotalNodes();
-                } else {
-                    ParsedRoadmap parsed = validateAndParseRoadmapV2(session.getRoadmapJson());
-                    totalQuests = parsed.nodes().size();
-                    validNodeIds = parsed.nodes().stream()
-                            .map(RoadmapResponse.RoadmapNode::getId)
-                            .filter(id -> id != null && !id.isBlank())
-                            .collect(Collectors.toSet());
-                }
+                parsedNodes = validateAndParseRoadmapV2(session.getRoadmapJson()).nodes();
             } else {
-                // V1: Parse nodes
-                List<RoadmapResponse.RoadmapNode> nodes = parseNodesFromV1Json(session.getRoadmapJson());
-                totalQuests = nodes.size();
-                validNodeIds = nodes.stream()
-                        .map(RoadmapResponse.RoadmapNode::getId)
-                        .filter(id -> id != null && !id.isBlank())
-                        .collect(Collectors.toSet());
+                parsedNodes = parseNodesFromV1Json(session.getRoadmapJson());
             }
+            totalQuests = parsedNodes.size();
         } catch (Exception e) {
-            log.warn("Failed to determine totalQuests for session {}, using progress entries count", session.getId());
+            log.warn("Failed to parse roadmap for session {}, falling back to count-based progress", session.getId());
             List<UserRoadmapProgress> allProgress = progressRepository.findBySessionId(sessionId);
-            totalQuests = allProgress.size(); // Fallback: count all progress entries
-            validNodeIds = null;
+            totalQuests = session.getTotalNodes() != null ? session.getTotalNodes() : allProgress.size();
+            parsedNodes = List.of();
+            weightedMode = false;
         }
 
-        Map<String, RoadmapResponse.QuestProgress> resolvedProgressMap = resolveProgressData(
-                session,
-                schemaVersion >= 2 ? validateAndParseRoadmapV2(session.getRoadmapJson()).nodes() : parseNodesFromV1Json(session.getRoadmapJson()));
+        Map<String, RoadmapResponse.QuestProgress> resolvedProgressMap =
+                resolveProgressData(session, parsedNodes);
 
-        // Count completed quests only from valid node IDs to keep numerator/denominator consistent
-        int completedQuests;
-        if (validNodeIds != null) {
-            completedQuests = (int) validNodeIds.stream()
-                    .map(resolvedProgressMap::get)
-                    .filter(Objects::nonNull)
-                    .filter(p -> UserRoadmapProgress.ProgressStatus.COMPLETED.name().equals(p.getStatus()))
-                    .count();
-        } else {
-            completedQuests = (int) resolvedProgressMap.values().stream()
-                    .filter(p -> UserRoadmapProgress.ProgressStatus.COMPLETED.name().equals(p.getStatus()))
-                    .count();
-        }
+        // Weighted progress via RoadmapProgressCalculator
+        RoadmapProgressCalculator.ProgressCalculation calc =
+                RoadmapProgressCalculator.calculate(parsedNodes, resolvedProgressMap);
 
-        int denominator = validNodeIds != null ? validNodeIds.size() : totalQuests;
-        double completionPercentage = denominator > 0
-                ? (completedQuests * 100.0 / denominator)
-                : 0.0;
+        // Count-based fallback when nodes could not be parsed
+        int completedQuests = calc.totalQuests() > 0
+                ? calc.completedQuests()
+                : (int) resolvedProgressMap.values().stream()
+                        .filter(p -> UserRoadmapProgress.ProgressStatus.COMPLETED.name().equals(p.getStatus()))
+                        .count();
+        double completionPercentage = weightedMode
+                ? calc.completionPercentage()
+                : (totalQuests > 0 ? completedQuests * 100.0 / totalQuests : 0.0);
+        String progressMode = weightedMode ? "WEIGHTED_IMPORTANCE" : "COUNT_FALLBACK";
+        // Use calc.totalQuests() when weighted so totalQuests excludes blank-ID nodes,
+        // keeping it consistent with completedQuests and completionPercentage denominators.
+        int responseTotalQuests = weightedMode && calc.totalQuests() > 0
+                ? calc.totalQuests()
+                : totalQuests;
 
-        log.info("Progress updated - {}/{} quests completed ({}%)",
-                completedQuests, denominator, String.format("%.1f", completionPercentage));
+        log.info("Progress updated - {}/{} quests completed ({}%, mode={})",
+                completedQuests, responseTotalQuests,
+                String.format("%.1f", completionPercentage), progressMode);
 
         return ProgressResponse.builder()
                 .sessionId(sessionId)
                 .questId(request.getQuestId())
                 .completed(request.getCompleted())
                 .stats(ProgressResponse.ProgressStats.builder()
-                        .totalQuests(totalQuests)
+                        .totalQuests(responseTotalQuests)
                         .completedQuests(completedQuests)
                         .completionPercentage(completionPercentage)
+                        .completedWeight(calc.completedWeight())
+                        .totalWeight(calc.totalWeight())
+                        .progressMode(progressMode)
                         .build())
                 .build();
     }
@@ -4885,7 +4911,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return cleaned.isEmpty() ? null : cleaned;
     }
 
-    private record SummaryProgressStats(int totalQuests, int completedQuests, int progressPercentage) {
+    private record SummaryProgressStats(int totalQuests, int completedQuests, double progressPercentage) {
     }
 
     private Long safeParseLong(String value) {

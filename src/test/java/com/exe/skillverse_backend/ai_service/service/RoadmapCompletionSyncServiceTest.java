@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -263,6 +264,40 @@ class RoadmapCompletionSyncServiceTest {
                 Map.of()
             )
         );
+    }
+
+    @Test
+    void extractNodes_preservesImportanceScore_soWeightedProgressIsNotSilentlyCountBased() {
+        String json = """
+                {"roadmap":[
+                  {"id":"n1","importance_score":1.0},
+                  {"id":"n2","importanceScore":0.2},
+                  {"id":"n3"}
+                ]}
+                """;
+        RoadmapSession session = RoadmapSession.builder()
+                .id(1L)
+                .user(User.builder().id(1L).build())
+                .roadmapJson(json)
+                .build();
+
+        List<RoadmapResponse.RoadmapNode> nodes = service.extractNodes(session);
+
+        assertFalse(nodes.isEmpty());
+        // All 3 nodes must be present
+        assertEquals(3, nodes.size());
+
+        RoadmapResponse.RoadmapNode n1 = nodes.stream().filter(n -> "n1".equals(n.getId())).findFirst().orElseThrow();
+        RoadmapResponse.RoadmapNode n2 = nodes.stream().filter(n -> "n2".equals(n.getId())).findFirst().orElseThrow();
+        RoadmapResponse.RoadmapNode n3 = nodes.stream().filter(n -> "n3".equals(n.getId())).findFirst().orElseThrow();
+
+        // snake_case key
+        assertEquals(1.0, n1.getImportanceScore(), 0.001);
+        // camelCase key
+        assertEquals(0.2, n2.getImportanceScore(), 0.001);
+        // missing -> null (falls back to 0.5 weight in RoadmapProgressCalculator)
+        assertNotNull(n3);
+        assertNull(n3.getImportanceScore());
     }
 
     private RoadmapSession buildSession(Long sessionId, Long userId) {

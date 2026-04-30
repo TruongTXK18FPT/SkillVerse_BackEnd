@@ -134,9 +134,24 @@ public class RoadmapResponse {
         // Metadata
         private String estimatedCompletionRate; // e.g., "90%", "70%", "50%"
 
+        // Importance scoring (AI-native or heuristic backfill)
+        private Double importanceScore;   // 0.0–1.0, how critical this node is relative to goal
+        private Double confidenceScore;   // 0.0–1.0, confidence in the score (0.5 if heuristic)
+        private String reason;            // 1-sentence explanation why this node matters
+        private List<String> evidence;    // signals: skill gap, job market, prereq chain
+        private String importanceValidationStatus; // see ImportanceValidationStatus enum
+
         public enum NodeType {
             MAIN, // Main path quest - required for core learning
             SIDE // Optional side quest - supplementary/advanced
+        }
+
+        public enum ImportanceValidationStatus {
+            ACCEPTED,       // AI provided valid score + reason + evidence — used as-is
+            ADJUSTED,       // AI score diverges from backend heuristic by > 0.20
+                            // blended: AI×0.4 + BE×0.6
+            LOW_CONFIDENCE, // AI score present but evidence is missing or empty
+            FALLBACK        // AI omitted score entirely — heuristic used
         }
     }
 

@@ -30,7 +30,7 @@ public class RoadmapSessionSummary {
     // Progress tracking
     private Integer totalQuests;
     private Integer completedQuests;
-    private Integer progressPercentage;
+    private Double progressPercentage;
 
     // Metadata
     private String difficultyLevel;

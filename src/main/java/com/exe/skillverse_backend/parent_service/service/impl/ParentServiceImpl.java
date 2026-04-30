@@ -250,7 +250,7 @@ public class ParentServiceImpl implements ParentService {
                 s.getProgressList().stream()
                     .filter(p -> p.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
                     .count() : 0;
-            int progressPercentage = totalQuests > 0 ? (int) ((completedQuests * 100) / totalQuests) : 0;
+            double progressPercentage = totalQuests > 0 ? (completedQuests * 100.0) / totalQuests : 0.0;
 
             return RoadmapSessionSummary.builder()
                 .sessionId(s.getId())
