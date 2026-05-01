@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 public interface AiRoadmapService {
-        List<ValidationResult> preValidateRequest(GenerateRoadmapRequest request);
+        List<ValidationResult> preValidateRequest(GenerateRoadmapRequest request, Long userId);
 
         RoadmapResponse generateRoadmap(GenerateRoadmapRequest request, User user);
 

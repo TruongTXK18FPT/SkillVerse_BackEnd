@@ -512,6 +512,14 @@ public class DatabaseSchemaFixer {
                     this::verifyMentorProfilesCccdNumberDropUniqueV2);
 
             // ═══════════════════════════════════════════════════════════════════
+            // AI Token Usage Tracking
+            // ═══════════════════════════════════════════════════════════════════
+            applyPatch("ai-token-usage-create-logs-table",
+                    "Create ai_token_usage_logs table for tracking AI token consumption across all AI flows",
+                    this::patchAiTokenUsageLogsTable,
+                    this::verifyAiTokenUsageLogsTable);
+
+            // ═══════════════════════════════════════════════════════════════════
             // Media — Cloudinary metadata columns (defensive backfill)
             // ═══════════════════════════════════════════════════════════════════
             applyPatch("add-media-cloudinary-columns",
@@ -3288,6 +3296,65 @@ public class DatabaseSchemaFixer {
                 && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_skill_slug")
                 && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_course_module_assignment")
                 && hasIndex("ai_knowledge_documents", "idx_ai_knowledge_archived_at");
+    }
+
+    // ─── AI Token Usage Tracking ────────────────────────────────────────────────
+
+    private void patchAiTokenUsageLogsTable() {
+        if (!hasTable("ai_token_usage_logs")) {
+            executeSql("""
+                CREATE TABLE ai_token_usage_logs (
+                    id BIGSERIAL PRIMARY KEY,
+                    flow_type VARCHAR(30) NOT NULL,
+                    provider_type VARCHAR(20) NOT NULL,
+                    model_name VARCHAR(50),
+                    user_id BIGINT,
+                    related_entity_type VARCHAR(30),
+                    related_entity_id BIGINT,
+                    prompt_tokens BIGINT,
+                    completion_tokens BIGINT,
+                    total_tokens BIGINT,
+                    latency_ms BIGINT,
+                    status VARCHAR(20) NOT NULL,
+                    estimated BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+                )
+                """);
+        }
+
+        // Create indexes for common query patterns (idempotent with IF NOT EXISTS)
+        executeSql("CREATE INDEX IF NOT EXISTS idx_created_at ON ai_token_usage_logs(created_at)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_flow_type_created ON ai_token_usage_logs(flow_type, created_at)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_provider_type_created ON ai_token_usage_logs(provider_type, created_at)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_user_id_created ON ai_token_usage_logs(user_id, created_at)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_status_created ON ai_token_usage_logs(status, created_at)");
+
+        log.info("ai_token_usage_logs table and indexes are up to date.");
+    }
+
+    private boolean verifyAiTokenUsageLogsTable() {
+        if (!hasTable("ai_token_usage_logs")) {
+            return false;
+        }
+        return hasColumn("ai_token_usage_logs", "id")
+                && hasColumn("ai_token_usage_logs", "flow_type")
+                && hasColumn("ai_token_usage_logs", "provider_type")
+                && hasColumn("ai_token_usage_logs", "model_name")
+                && hasColumn("ai_token_usage_logs", "user_id")
+                && hasColumn("ai_token_usage_logs", "related_entity_type")
+                && hasColumn("ai_token_usage_logs", "related_entity_id")
+                && hasColumn("ai_token_usage_logs", "prompt_tokens")
+                && hasColumn("ai_token_usage_logs", "completion_tokens")
+                && hasColumn("ai_token_usage_logs", "total_tokens")
+                && hasColumn("ai_token_usage_logs", "latency_ms")
+                && hasColumn("ai_token_usage_logs", "status")
+                && hasColumn("ai_token_usage_logs", "estimated")
+                && hasColumn("ai_token_usage_logs", "created_at")
+                && hasIndex("ai_token_usage_logs", "idx_created_at")
+                && hasIndex("ai_token_usage_logs", "idx_flow_type_created")
+                && hasIndex("ai_token_usage_logs", "idx_provider_type_created")
+                && hasIndex("ai_token_usage_logs", "idx_user_id_created")
+                && hasIndex("ai_token_usage_logs", "idx_status_created");
     }
 
     // ─── AI Chatbot — Smart Domain Persistence ─────────────────────────────────

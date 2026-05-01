@@ -58,7 +58,8 @@ class AiStudySupportServiceImplTest {
                 userSubscriptionRepository,
                 moduleRepository,
                 lessonRepository,
-                new ObjectMapper());
+                new ObjectMapper(),
+                null);
     }
 
     @Test

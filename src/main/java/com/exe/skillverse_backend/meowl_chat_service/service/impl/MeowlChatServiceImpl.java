@@ -1,5 +1,11 @@
 package com.exe.skillverse_backend.meowl_chat_service.service.impl;
 
+import com.exe.skillverse_backend.ai_usage_service.dto.AiTokenUsageRecordCommand;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiFlowType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiProviderType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiUsageStatus;
+import com.exe.skillverse_backend.ai_usage_service.service.AiTokenUsageRecorder;
+import com.exe.skillverse_backend.ai_usage_service.util.TokenCounterUtil;
 import com.exe.skillverse_backend.meowl_chat_service.config.MeowlConfig;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatRequest;
 import com.exe.skillverse_backend.meowl_chat_service.dto.MeowlChatResponse;
@@ -54,6 +60,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
     private final MistralAiChatModel mistralAiChatModel;
     private final MeowlChatMessageRepository chatMessageRepository;
     private final MeowlRoleGuidanceService roleGuidanceService;
+    private final AiTokenUsageRecorder tokenUsageRecorder;
 
     private static final String CONTEXT_START_TOKEN = "[SKILLVERSE_CONTEXT]";
     private static final String CONTEXT_END_TOKEN = "[END_SKILLVERSE_CONTEXT]";
@@ -405,6 +412,12 @@ public class MeowlChatServiceImpl implements MeowlChatService {
     @Transactional
     @CacheEvict(value = "chatHistory", key = "#request.userId", condition = "#request.userId != null")
     public MeowlChatResponse chat(MeowlChatRequest request) {
+        long startTime = System.currentTimeMillis();
+        String fullPrompt = null;
+        String aiResponse = null;
+        String aiProvider = "Gemini";
+        boolean success = false;
+
         try {
             String language = request.getLanguage() != null ? request.getLanguage() : "en";
             Long userId = request.getUserId();
@@ -420,11 +433,7 @@ public class MeowlChatServiceImpl implements MeowlChatService {
             }
 
             // Build the prompt with system context
-            String fullPrompt = buildPrompt(request, language, guidanceContext.getPromptSection(), envelopeMetadata);
-
-            // Try Gemini API first
-            String aiResponse;
-            String aiProvider = "Gemini";
+            fullPrompt = buildPrompt(request, language, guidanceContext.getPromptSection(), envelopeMetadata);
 
             try {
                 log.info("Attempting to call Gemini API for Meowl chat");
@@ -492,9 +501,19 @@ public class MeowlChatServiceImpl implements MeowlChatService {
                 determineAction(cuteResponse, language, guidanceContext, responseBuilder);
             }
 
+            success = true;
+            long latencyMs = System.currentTimeMillis() - startTime;
+            AiProviderType providerType = "Mistral".equals(aiProvider) ? AiProviderType.MISTRAL : AiProviderType.GEMINI;
+            recordMeowlSuccess(providerType, aiProvider.toLowerCase(), request.getUserId(),
+                    fullPrompt, aiResponse, null, latencyMs);
+
             return responseBuilder.build();
 
         } catch (Exception e) {
+            long latencyMs = System.currentTimeMillis() - startTime;
+            AiProviderType providerType = "Mistral".equals(aiProvider) ? AiProviderType.MISTRAL : AiProviderType.GEMINI;
+            recordMeowlFailure(providerType, aiProvider.toLowerCase(), request.getUserId(),
+                    fullPrompt, e.getMessage(), latencyMs);
             log.error("Error in Meowl chat: ", e);
             String errorMessage = request.getLanguage() != null && request.getLanguage().equals("vi")
                     ? "Meo ơi! 🐱 Mình đang gặp chút trục trặc. Thử lại sau nhé! ✨"
@@ -1274,6 +1293,54 @@ public class MeowlChatServiceImpl implements MeowlChatService {
             return "playful";
         }
         return "friendly";
+    }
+
+    // ========== Token Usage Recording Methods ==========
+
+    private void recordMeowlSuccess(AiProviderType provider, String modelName, Long userId,
+                                     String promptText, String responseText, Long sessionId, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        TokenCounterUtil.TokenCounts counts = TokenCounterUtil.estimateFromText(promptText, responseText);
+        AiTokenUsageRecordCommand command = AiTokenUsageRecordCommand.builder()
+                .flowType(AiFlowType.MEOWL_CHAT)
+                .providerType(provider)
+                .modelName(modelName)
+                .userId(userId)
+                .relatedEntityType("CHAT_SESSION")
+                .relatedEntityId(sessionId)
+                .promptTokens(counts.promptTokens())
+                .completionTokens(counts.completionTokens())
+                .totalTokens(counts.totalTokens())
+                .estimated(counts.estimated())
+                .latencyMs(latencyMs)
+                .status(AiUsageStatus.SUCCESS)
+                .build();
+        tokenUsageRecorder.recordSuccess(command);
+    }
+
+    private void recordMeowlFailure(AiProviderType provider, String modelName, Long userId,
+                                     String promptText, String errorCode, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        long promptTokens = TokenCounterUtil.estimateTokens(promptText);
+        AiTokenUsageRecordCommand command = AiTokenUsageRecordCommand.builder()
+                .flowType(AiFlowType.MEOWL_CHAT)
+                .providerType(provider)
+                .modelName(modelName)
+                .userId(userId)
+                .relatedEntityType("CHAT_SESSION")
+                .promptTokens(promptTokens)
+                .completionTokens(0L)
+                .totalTokens(promptTokens)
+                .estimated(true)
+                .latencyMs(latencyMs)
+                .errorCode(errorCode != null ? errorCode.substring(0, Math.min(errorCode.length(), 50)) : null)
+                .status(AiUsageStatus.FAILED)
+                .build();
+        tokenUsageRecorder.recordFailure(command);
     }
 }
 

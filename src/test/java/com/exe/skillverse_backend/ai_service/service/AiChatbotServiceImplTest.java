@@ -72,6 +72,7 @@ class AiChatbotServiceImplTest {
                 usageLimitService,
                 expertPromptService,
                 premiumService,
+                null,
                 null);
     }
 
@@ -87,6 +88,7 @@ class AiChatbotServiceImplTest {
                 usageLimitService,
                 expertPromptService,
                 premiumService,
+                null,
                 null);
 
         Mockito.verifyNoInteractions(localAiGateway);

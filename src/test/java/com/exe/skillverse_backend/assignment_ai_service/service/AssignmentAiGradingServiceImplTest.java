@@ -114,7 +114,8 @@ class AssignmentAiGradingServiceImplTest {
                 courseLearningProgressService,
                 null,
                 lessonRepository,
-                revisionPinnedContentResolver
+                revisionPinnedContentResolver,
+                null
         );
 
         User mentor = User.builder().id(7L).firstName("Mentor").lastName("One").build();
@@ -349,13 +350,12 @@ class AssignmentAiGradingServiceImplTest {
                 assignmentRepository, submissionRepository, criteriaRepository, criteriaScoreRepository,
                 mediaRepository, gradingPromptService, fileExtractor, notificationService,
                 null, courseLearningProgressService, localAiGateway, lessonRepository,
-                revisionPinnedContentResolver);
+                revisionPinnedContentResolver, null);
 
         when(revisionPinnedContentResolver.resolveModulesWithContent(any(), anyLong()))
                 .thenReturn(Optional.empty());
         when(localAiGateway.isAvailable()).thenReturn(true);
         when(localAiGateway.call(anyString(), anyString())).thenReturn("not-valid-json");
-        when(localAiGateway.fetchRagContext(anyString(), any(), anyInt())).thenReturn("");
         when(submissionRepository.findByIdWithFullChain(100L)).thenReturn(Optional.of(submission));
         when(gradingPromptService.buildGradingPrompt(any(), anyString(), anyString(), any()))
                 .thenReturn("grade this");
@@ -376,7 +376,7 @@ class AssignmentAiGradingServiceImplTest {
                 assignmentRepository, submissionRepository, criteriaRepository, criteriaScoreRepository,
                 mediaRepository, gradingPromptService, fileExtractor, notificationService,
                 null, courseLearningProgressService, localAiGateway, lessonRepository,
-                revisionPinnedContentResolver);
+                revisionPinnedContentResolver, null);
 
         when(revisionPinnedContentResolver.resolveModulesWithContent(any(), anyLong()))
                 .thenReturn(Optional.empty());
@@ -402,7 +402,7 @@ class AssignmentAiGradingServiceImplTest {
                 assignmentRepository, submissionRepository, criteriaRepository, criteriaScoreRepository,
                 mediaRepository, gradingPromptService, fileExtractor, notificationService,
                 null, courseLearningProgressService, localAiGateway, lessonRepository,
-                revisionPinnedContentResolver);
+                revisionPinnedContentResolver, null);
 
         // Build a pinned ModuleDetailDTO containing the assignment and one READING lesson
         AssignmentSummaryDTO pinnedAssignment = new AssignmentSummaryDTO(

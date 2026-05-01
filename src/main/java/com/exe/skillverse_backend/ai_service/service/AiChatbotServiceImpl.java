@@ -2,6 +2,12 @@ package com.exe.skillverse_backend.ai_service.service;
 
 import com.exe.skillverse_backend.ai_service.dto.ChatMessageResponse;
 import com.exe.skillverse_backend.ai_service.dto.ChatSessionSummary;
+import com.exe.skillverse_backend.ai_usage_service.dto.AiTokenUsageRecordCommand;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiFlowType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiProviderType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiUsageStatus;
+import com.exe.skillverse_backend.ai_usage_service.service.AiTokenUsageRecorder;
+import com.exe.skillverse_backend.ai_usage_service.util.TokenCounterUtil;
 import com.exe.skillverse_backend.ai_service.dto.gemini.GeminiDTO;
 import com.exe.skillverse_backend.ai_service.dto.request.ChatRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ChatResponse;
@@ -54,6 +60,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   private final ExpertPromptServiceImpl expertPromptService;
   private final PremiumService premiumService;
   private final LocalAiGateway localAiGateway;
+  private final AiTokenUsageRecorder tokenUsageRecorder;
   
   @Value("${spring.ai.openai.api-key}")
   private String geminiApiKey;
@@ -142,7 +149,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       UsageLimitService usageLimitService,
       ExpertPromptServiceImpl expertPromptService,
       PremiumService premiumService,
-      @Autowired(required = false) LocalAiGateway localAiGateway) {
+      @Autowired(required = false) LocalAiGateway localAiGateway,
+      @Autowired(required = false) AiTokenUsageRecorder tokenUsageRecorder) {
     this.mistralChatModel = mistralChatModel;
     this.chatSessionRepository = chatSessionRepository;
     this.chatMessageRepository = chatMessageRepository;
@@ -152,6 +160,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     this.expertPromptService = expertPromptService;
     this.premiumService = premiumService;
     this.localAiGateway = localAiGateway;
+    this.tokenUsageRecorder = tokenUsageRecorder;
   }
 
   // MEOWL AI CAREER ADVISOR - OPTIMIZED VERSION 2026
@@ -588,14 +597,29 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       }
       // Normal mode: try Local AI first, fallback to Mistral
       if (localAiGateway != null && localAiGateway.isAvailable()) {
+        long startTime = System.currentTimeMillis();
         try {
           String ragContext = localAiGateway.fetchRagContext(userMessage, Map.of("doc_type", "guide", "domain", "chatbot_global"), 5);
           String localSystemPrompt = resolveSystemPromptForLocal(request, previousMessages, agentSuffix, ragContext, sessionDomain);
           log.info("Using Local AI for normal chat mode");
-          return localAiGateway.call(localSystemPrompt, buildConversationHistoryText(userMessage, previousMessages));
+          String conversationText = buildConversationHistoryText(userMessage, previousMessages);
+          String response = localAiGateway.call(localSystemPrompt, conversationText);
+
+          long latencyMs = System.currentTimeMillis() - startTime;
+          String fullPrompt = localSystemPrompt + "\n\n" + conversationText;
+          recordChatbotSuccess(AiProviderType.LOCAL_AI, "local-ai", null,
+                  fullPrompt, response, request.getSessionId(), latencyMs);
+
+          return response;
         } catch (LocalAiGateway.LocalAiQueueFullException qfe) {
           log.warn("Local AI queue full, falling back to Mistral: {}", qfe.getMessage());
         } catch (Exception localEx) {
+          long latencyMs = System.currentTimeMillis() - startTime;
+          String conversationText = buildConversationHistoryText(userMessage, previousMessages);
+          String fullPrompt = resolveSystemPromptForLocal(request, previousMessages, agentSuffix, "", sessionDomain)
+                  + "\n\n" + conversationText;
+          recordChatbotFailure(AiProviderType.LOCAL_AI, "local-ai", null,
+                  fullPrompt, localEx.getMessage(), latencyMs);
           log.warn("Local AI failed, falling back to Mistral: {}", localEx.getMessage());
         }
       }
@@ -621,6 +645,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
    */
   private String callMistralForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request,
       String agentSuffix, String sessionDomain) {
+    long startTime = System.currentTimeMillis();
+    String modelName = "mistral-large-latest";
     try {
       // Build conversation history
       StringBuilder contextBuilder = new StringBuilder();
@@ -655,7 +681,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       }
 
       // Use Spring AI ChatClient for Mistral
-      return ChatClient.builder(mistralChatModel)
+      String response = ChatClient.builder(mistralChatModel)
           .build()
           .prompt()
           .system(finalSystemPrompt)
@@ -663,7 +689,18 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           .call()
           .content();
 
+      long latencyMs = System.currentTimeMillis() - startTime;
+      String fullPrompt = finalSystemPrompt + "\n\n" + conversationHistory;
+      recordChatbotSuccess(AiProviderType.MISTRAL, modelName, null,
+              fullPrompt, response, request.getSessionId(), latencyMs);
+
+      return response;
+
     } catch (Exception e) {
+      long latencyMs = System.currentTimeMillis() - startTime;
+      String fullPrompt = agentSuffix != null ? agentSuffix : "";
+      recordChatbotFailure(AiProviderType.MISTRAL, modelName, null,
+              fullPrompt, e.getMessage(), latencyMs);
       log.error("Mistral chat error: {}", e.getMessage());
       throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE,
           "Mistral AI service unavailable: " + e.getMessage());
@@ -759,14 +796,15 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     // Combine system prompt and conversation history
     String fullPrompt = finalSystemPrompt + "\n\n" + conversationHistory;
     
-    return callGeminiDirectly(fullPrompt, modelName);
+    return callGeminiDirectly(fullPrompt, modelName, null, request.getSessionId());
   }
 
   /**
    * Call Gemini API directly via HTTP REST and return raw text response
    */
-  private String callGeminiDirectly(String prompt, String modelName) {
-      log.info("📡 Calling Gemini API directly (model: {})", modelName);
+  private String callGeminiDirectly(String prompt, String modelName, Long userId, Long sessionId) {
+      long startTime = System.currentTimeMillis();
+      log.info("Calling Gemini API directly (model: {})", modelName);
 
       try {
           // 1. Configure RestClient with 1-hour timeout
@@ -801,7 +839,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
           // 3. Execute Request
           String url = GEMINI_API_BASE_URL + modelName + ":generateContent?key=" + geminiApiKey;
-          
+
           GeminiDTO.Response response = restClient.post()
                   .uri(url)
                   .contentType(MediaType.APPLICATION_JSON)
@@ -812,12 +850,15 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           // 4. Process Response
           if (response != null && response.getCandidates() != null && !response.getCandidates().isEmpty()) {
               GeminiDTO.Candidate candidate = response.getCandidates().get(0);
-              if (candidate.getContent() != null && candidate.getContent().getParts() != null 
+              if (candidate.getContent() != null && candidate.getContent().getParts() != null
                       && !candidate.getContent().getParts().isEmpty()) {
-                  
+
                   String rawText = candidate.getContent().getParts().get(0).getText();
                   log.debug("Raw Gemini response length: {}", rawText.length());
-                  
+
+                  long latencyMs = System.currentTimeMillis() - startTime;
+                  recordChatbotSuccess(AiProviderType.GEMINI, modelName, userId, prompt, rawText, sessionId, latencyMs);
+
                   return rawText;
               }
           }
@@ -825,7 +866,9 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           throw new ApiException(ErrorCode.INTERNAL_ERROR, "Empty response from Gemini API");
 
       } catch (Exception e) {
-          log.error("❌ Failed to call Gemini API directly: {}", e.getMessage());
+          long latencyMs = System.currentTimeMillis() - startTime;
+          recordChatbotFailure(AiProviderType.GEMINI, modelName, userId, prompt, e.getMessage(), latencyMs);
+          log.error("Failed to call Gemini API directly: {}", e.getMessage());
           throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "AI generation failed: " + e.getMessage());
       }
   }
@@ -1621,5 +1664,53 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     }
     sb.append("User: ").append(userMessage);
     return sb.toString();
+  }
+
+  // ========== Token Usage Recording Methods ==========
+
+  private void recordChatbotSuccess(AiProviderType provider, String modelName, Long userId,
+                                    String promptText, String responseText, Long sessionId, long latencyMs) {
+    if (tokenUsageRecorder == null) {
+      return;
+    }
+    TokenCounterUtil.TokenCounts counts = TokenCounterUtil.estimateFromText(promptText, responseText);
+    AiTokenUsageRecordCommand command = AiTokenUsageRecordCommand.builder()
+            .flowType(AiFlowType.CHATBOT)
+            .providerType(provider)
+            .modelName(modelName)
+            .userId(userId)
+            .relatedEntityType("CHAT_SESSION")
+            .relatedEntityId(sessionId)
+            .promptTokens(counts.promptTokens())
+            .completionTokens(counts.completionTokens())
+            .totalTokens(counts.totalTokens())
+            .estimated(counts.estimated())
+            .latencyMs(latencyMs)
+            .status(AiUsageStatus.SUCCESS)
+            .build();
+    tokenUsageRecorder.recordSuccess(command);
+  }
+
+  private void recordChatbotFailure(AiProviderType provider, String modelName, Long userId,
+                                    String promptText, String errorCode, long latencyMs) {
+    if (tokenUsageRecorder == null) {
+      return;
+    }
+    long promptTokens = TokenCounterUtil.estimateTokens(promptText);
+    AiTokenUsageRecordCommand command = AiTokenUsageRecordCommand.builder()
+            .flowType(AiFlowType.CHATBOT)
+            .providerType(provider)
+            .modelName(modelName)
+            .userId(userId)
+            .relatedEntityType("CHAT_SESSION")
+            .promptTokens(promptTokens)
+            .completionTokens(0L)
+            .totalTokens(promptTokens)
+            .estimated(true)
+            .latencyMs(latencyMs)
+            .errorCode(errorCode != null ? errorCode.substring(0, Math.min(errorCode.length(), 50)) : null)
+            .status(AiUsageStatus.FAILED)
+            .build();
+    tokenUsageRecorder.recordFailure(command);
   }
 }

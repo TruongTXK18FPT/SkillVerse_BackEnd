@@ -19,6 +19,12 @@ import com.exe.skillverse_backend.course_service.repository.AssignmentSubmission
 import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.repository.SubmissionCriteriaScoreRepository;
 import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
+import com.exe.skillverse_backend.ai_usage_service.dto.AiTokenUsageRecordCommand;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiFlowType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiProviderType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiUsageStatus;
+import com.exe.skillverse_backend.ai_usage_service.service.AiTokenUsageRecorder;
+import com.exe.skillverse_backend.ai_usage_service.util.TokenCounterUtil;
 import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
@@ -33,8 +39,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+import lombok.Builder;
+import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ai.chat.model.ChatModel;
@@ -63,6 +73,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
     private final LocalAiGateway localAiGateway;
     private final LessonRepository lessonRepository;
     private final RevisionPinnedContentResolver revisionPinnedContentResolver;
+    private final AiTokenUsageRecorder tokenUsageRecorder;
 
     public AssignmentAiGradingServiceImpl(
             AssignmentRepository assignmentRepository,
@@ -77,7 +88,8 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
             @Autowired(required = false) CourseLearningProgressService courseLearningProgressService,
             @Autowired(required = false) LocalAiGateway localAiGateway,
             LessonRepository lessonRepository,
-            RevisionPinnedContentResolver revisionPinnedContentResolver) {
+            RevisionPinnedContentResolver revisionPinnedContentResolver,
+            @Autowired(required = false) AiTokenUsageRecorder tokenUsageRecorder) {
         this.assignmentRepository = assignmentRepository;
         this.submissionRepository = submissionRepository;
         this.criteriaRepository = criteriaRepository;
@@ -91,23 +103,36 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         this.localAiGateway = localAiGateway;
         this.lessonRepository = lessonRepository;
         this.revisionPinnedContentResolver = revisionPinnedContentResolver;
+        this.tokenUsageRecorder = tokenUsageRecorder;
         this.objectMapper = new ObjectMapper();
     }
 
     @Override
     @Transactional
     public AiGradingResultDTO generateAiGrade(Long submissionId, Long mentorId) {
+        long startTime = System.currentTimeMillis();
+        String userPrompt = null;
+        String aiResponse = null;
+        String modelName = "local-ai";
+        boolean usedLocalAi = false;
+        Long studentId = null;
+        AiGradingResultDTO result = null;
+        // Track which provider was actually attempted for accurate failure recording
+        AtomicReference<AiProviderType> providerTracker = new AtomicReference<>(AiProviderType.LOCAL_AI);
+        AtomicReference<String> modelTracker = new AtomicReference<>("local-ai");
+
         AssignmentSubmission submission = submissionRepository.findByIdWithFullChain(submissionId)
                 .orElseThrow(() -> new NotFoundException("SUBMISSION_NOT_FOUND"));
 
         Assignment assignment = submission.getAssignment();
         Module module = assignment.getModule();
         Course course = module.getCourse();
+        studentId = submission.getUser() != null ? submission.getUser().getId() : null;
 
         if (mentorId != null) {
             Long authorId = course.getAuthor() != null ? course.getAuthor().getId() : null;
             if (authorId == null || !mentorId.equals(authorId)) {
-                throw new org.springframework.security.access.AccessDeniedException(
+                throw new AccessDeniedException(
                         "You can only AI-grade submissions for your own course");
             }
         }
@@ -165,7 +190,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         // Build prompt
         String gradingStyle = assignment.getGradingStyle() != null
                 ? assignment.getGradingStyle() : "STANDARD";
-        String userPrompt = gradingPromptService.buildGradingPrompt(
+        userPrompt = gradingPromptService.buildGradingPrompt(
                 assignment,
                 submissionText,
                 gradingStyle,
@@ -176,7 +201,30 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         }
 
         // Call AI with 1 retry
-        AiGradingResultDTO result = callAiWithRetry(userPrompt);
+        GradingAttemptResult attemptResult;
+        try {
+            attemptResult = callAiWithRetryTracked(userPrompt, providerTracker, modelTracker);
+            result = attemptResult.getResult();
+            // Extract AI response as JSON for recording
+            try {
+                aiResponse = objectMapper.writeValueAsString(result);
+            } catch (JsonProcessingException e) {
+                aiResponse = result.toString();
+            }
+            // Use actual provider from tracking
+            usedLocalAi = attemptResult.getProviderType() == AiProviderType.LOCAL_AI;
+            modelName = attemptResult.getModelName();
+
+            long latencyMs = System.currentTimeMillis() - startTime;
+            recordAiGradingSuccess(attemptResult.getProviderType(),
+                    modelName, studentId, submissionId, userPrompt, aiResponse, latencyMs);
+        } catch (Exception e) {
+            long latencyMs = System.currentTimeMillis() - startTime;
+            // Use tracked provider from actual attempt (not guessing by isAvailable)
+            recordAiGradingFailure(providerTracker.get(), modelTracker.get(),
+                    studentId, submissionId, userPrompt, e.getMessage(), latencyMs);
+            throw e;
+        }
 
         // Save AI results to submission
         submission.setIsAiGraded(true);
@@ -246,10 +294,10 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
             // Recalculate course progress so the student's learning progress is updated
             if (courseLearningProgressService != null) {
                 Long courseId = course.getId();
-                Long studentId = submission.getUser().getId();
-                courseLearningProgressService.recalculateCourseProgress(courseId, studentId);
+                Long progressStudentId = submission.getUser().getId();
+                courseLearningProgressService.recalculateCourseProgress(courseId, progressStudentId);
                 log.info("Course progress recalculated for student {} in course {} after AI auto-pass",
-                        studentId, courseId);
+                        progressStudentId, courseId);
             }
 
             // Notify student of their result
@@ -260,7 +308,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                         "Bài tập đã được chấm điểm",
                         "Bài tập '" + assignment.getTitle() + "' đã được AI chấm: "
                                 + result.getTotalScore() + "/" + assignment.getMaxScore() + " - " + passStatus,
-                        com.exe.skillverse_backend.notification_service.entity.NotificationType.ASSIGNMENT_GRADED,
+                        NotificationType.ASSIGNMENT_GRADED,
                         submissionId.toString(),
                         null
                 );
@@ -287,7 +335,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                 .orElseThrow(() -> new NotFoundException("SUBMISSION_NOT_FOUND"));
 
         if (!submission.getUser().getId().equals(studentId)) {
-            throw new org.springframework.security.access.AccessDeniedException(
+            throw new AccessDeniedException(
                     "You can only dispute your own submission");
         }
 
@@ -522,6 +570,83 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
     }
 
     /**
+     * Result wrapper that includes which provider was actually used for the AI call.
+     * This is needed because the call may fallback from local to cloud.
+     */
+    @Value
+    @Builder
+    private static class GradingAttemptResult {
+        AiGradingResultDTO result;
+        AiProviderType providerType;
+        String modelName;
+    }
+
+    /**
+     * Call AI with retry and track which provider was actually used.
+     * This is important because local AI may fail and fallback to cloud.
+     */
+    private GradingAttemptResult callAiWithRetryTracked(String userPrompt,
+            AtomicReference<AiProviderType> providerTracker,
+            AtomicReference<String> modelTracker) {
+        try {
+            return callAiTracked(userPrompt, providerTracker, modelTracker);
+        } catch (Exception e) {
+            log.warn("AI grading attempt 1 failed: {}", e.getMessage());
+            try {
+                return callAiTracked(userPrompt, providerTracker, modelTracker);
+            } catch (Exception retryEx) {
+                log.error("AI grading attempt 2 also failed", retryEx);
+                throw new RuntimeException(
+                    "AI grading failed after 2 attempts. Error: " + retryEx.getMessage(), retryEx);
+            }
+        }
+    }
+
+    /**
+     * Call AI and return result with provider tracking.
+     * Tracks whether local or cloud provider was actually used.
+     */
+    private GradingAttemptResult callAiTracked(String userPrompt,
+            AtomicReference<AiProviderType> providerTracker,
+            AtomicReference<String> modelTracker) {
+        // Try local first — transport fail OR schema fail both fall through to cloud
+        if (localAiGateway != null && localAiGateway.isAvailable()) {
+            providerTracker.set(AiProviderType.LOCAL_AI);
+            modelTracker.set("local-ai");
+            try {
+                String localResponse = localAiGateway.call("", userPrompt);
+                AiGradingResultDTO result = parseGradingResponse(localResponse);
+                return GradingAttemptResult.builder()
+                        .result(result)
+                        .providerType(AiProviderType.LOCAL_AI)
+                        .modelName("local-ai")
+                        .build();
+            } catch (Exception localEx) {
+                log.warn("Local AI grading failed (transport or schema), falling back to cloud: {}",
+                        localEx.getMessage());
+            }
+        }
+
+        if (chatModel == null) {
+            throw new IllegalStateException(
+                "AI grading is not available — ASSIGNMENT_AI_API_KEY is not configured. "
+                + "Please configure assignment_ai.api-key in your environment.");
+        }
+        providerTracker.set(AiProviderType.MISTRAL);
+        modelTracker.set("mistral-large-latest");
+        String cloudResponse = ChatClient.create(chatModel).prompt()
+                .user(userPrompt)
+                .call()
+                .content();
+        AiGradingResultDTO result = parseGradingResponse(cloudResponse);
+        return GradingAttemptResult.builder()
+                .result(result)
+                .providerType(AiProviderType.MISTRAL)
+                .modelName("mistral-large-latest")
+                .build();
+    }
+
+    /**
      * Compute isPassed from AI grading result.
      * Uses Coursera-style criteria logic: if required criteria with passingPoints
      * exist, every required criterion must individually meet its threshold.
@@ -559,5 +684,54 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
 
     private boolean hasMeaningfulPassingPoints(BigDecimal passingPoints) {
         return passingPoints != null && passingPoints.compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    // ========== Token Usage Recording Methods ==========
+
+    private void recordAiGradingSuccess(AiProviderType provider, String modelName, Long userId,
+                                        Long submissionId, String promptText, String responseText, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        TokenCounterUtil.TokenCounts counts = TokenCounterUtil.estimateFromText(promptText, responseText);
+        AiTokenUsageRecordCommand command = AiTokenUsageRecordCommand.builder()
+                .flowType(AiFlowType.AI_GRADING)
+                .providerType(provider)
+                .modelName(modelName)
+                .userId(userId)
+                .relatedEntityType("ASSIGNMENT_SUBMISSION")
+                .relatedEntityId(submissionId)
+                .promptTokens(counts.promptTokens())
+                .completionTokens(counts.completionTokens())
+                .totalTokens(counts.totalTokens())
+                .estimated(counts.estimated())
+                .latencyMs(latencyMs)
+                .status(AiUsageStatus.SUCCESS)
+                .build();
+        tokenUsageRecorder.recordSuccess(command);
+    }
+
+    private void recordAiGradingFailure(AiProviderType provider, String modelName, Long userId,
+                                         Long submissionId, String promptText, String errorCode, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        long promptTokens = TokenCounterUtil.estimateTokens(promptText);
+        AiTokenUsageRecordCommand command = AiTokenUsageRecordCommand.builder()
+                .flowType(AiFlowType.AI_GRADING)
+                .providerType(provider)
+                .modelName(modelName)
+                .userId(userId)
+                .relatedEntityType("ASSIGNMENT_SUBMISSION")
+                .relatedEntityId(submissionId)
+                .promptTokens(promptTokens)
+                .completionTokens(0L)
+                .totalTokens(promptTokens)
+                .estimated(true)
+                .latencyMs(latencyMs)
+                .errorCode(errorCode != null ? errorCode.substring(0, Math.min(errorCode.length(), 50)) : null)
+                .status(AiUsageStatus.FAILED)
+                .build();
+        tokenUsageRecorder.recordFailure(command);
     }
 }

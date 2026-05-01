@@ -989,6 +989,9 @@ public class PortfolioServiceImpl implements PortfolioService {
 
         log.info("User {} requesting AI enhancement for section: {}", userId, request.getSection());
 
+        // Set userId for token usage tracking
+        request.setUserId(userId);
+
         // Call AI service to enhance the section
         return cvGeneratorAIService.enhanceSection(request);
     }

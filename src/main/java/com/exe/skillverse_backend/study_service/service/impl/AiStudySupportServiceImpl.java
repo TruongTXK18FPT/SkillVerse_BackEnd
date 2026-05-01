@@ -19,6 +19,12 @@ import com.exe.skillverse_backend.study_service.entity.StudySession;
 import com.exe.skillverse_backend.study_service.entity.StudySessionStatus;
 import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
+import com.exe.skillverse_backend.ai_usage_service.dto.AiTokenUsageRecordCommand;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiFlowType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiProviderType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiUsageStatus;
+import com.exe.skillverse_backend.ai_usage_service.service.AiTokenUsageRecorder;
+import com.exe.skillverse_backend.ai_usage_service.util.TokenCounterUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -65,6 +71,7 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
     private final ModuleRepository moduleRepository;
     private final LessonRepository lessonRepository;
     private final ObjectMapper objectMapper;
+    private final AiTokenUsageRecorder tokenUsageRecorder;
 
     @Value("${spring.ai.planner.mistral.api-key:}")
     private String mistralApiKey;
@@ -348,9 +355,12 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         String modelToUse = getMistralModelForUser(userId);
 
         log.info("Generating schedule for user {} using model {}", userId, modelToUse);
-        
+
         String promptText = getPromptText(request);
         String response = "";
+        long startTime = System.currentTimeMillis();
+        boolean success = false;
+
         try {
             // Build request
             MistralRequest mistralRequest = MistralRequest.builder()
@@ -378,22 +388,43 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             if (apiResponse != null && apiResponse.getChoices() != null && !apiResponse.getChoices().isEmpty()) {
                 response = apiResponse.getChoices().get(0).getMessage().getContent();
             }
+
+            success = true;
         } catch (Exception e) {
+            long latencyMs = System.currentTimeMillis() - startTime;
             log.error("Error calling AI service", e);
+
+            // Record failure
+            recordStudyPlanFailure(AiProviderType.MISTRAL, modelToUse, userId, promptText,
+                    "Failed to call AI service: " + e.getMessage(), latencyMs);
+
             throw new RuntimeException("Failed to call AI service: " + e.getMessage());
         }
 
         if (response == null || response.isBlank()) {
-             throw new RuntimeException("AI service returned empty response");
+            long latencyMs = System.currentTimeMillis() - startTime;
+
+            // Record failure for empty response
+            recordStudyPlanFailure(AiProviderType.MISTRAL, modelToUse, userId, promptText,
+                    "AI service returned empty response", latencyMs);
+
+            throw new RuntimeException("AI service returned empty response");
         }
+
+        long latencyMs = System.currentTimeMillis() - startTime;
 
         log.debug("AI Raw Response: {}", response);
 
+        // Parse and normalize - if any step fails, the failure will be caught above
         List<StudySessionResponse> parsed = parseResponse(response);
         ZoneId zone = ZoneId.of(request.getTimezone() != null && !request.getTimezone().isBlank() ? request.getTimezone() : "Asia/Ho_Chi_Minh");
         parsed = normalizeSessions(parsed, request.getDurationMinutes(), zone, request);
         // OVL-3: resolve any overlapping sessions AI generated
         parsed = resolveOverlappingSessions(parsed, request);
+
+        // Record success only after parse/normalize/resolve all succeed
+        recordStudyPlanSuccess(AiProviderType.MISTRAL, modelToUse, userId, promptText, response, latencyMs);
+
         return parsed;
     }
 
@@ -406,9 +437,11 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         String modelToUse = getMistralModelForUser(userId);
         log.info("Refining schedule for user {} using model {}", userId, modelToUse);
 
+        long startTime = System.currentTimeMillis();
+
         try {
             String currentScheduleJson = objectMapper.writeValueAsString(request.getCurrentSchedule());
-            
+
             String promptText = String.format(
                 "Bạn là một Trợ lý Lập kế hoạch Học tập AI. Tôi có một lịch trình đã tạo, nhưng tôi muốn thay đổi.\n" +
                 "Mục tiêu ban đầu: %s\n" +
@@ -451,6 +484,8 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
                 response = apiResponse.getChoices().get(0).getMessage().getContent();
             }
 
+            long latencyMs = System.currentTimeMillis() - startTime;
+
             List<StudySessionResponse> parsed = parseResponse(response);
             int inferredDuration = inferDurationMinutes(parsed);
 
@@ -487,9 +522,20 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             parsed = normalizeSessions(parsed, inferredDuration, zone, fakeRequest);
             // OVL-3: resolve any overlapping sessions AI generated during refinement
             parsed = resolveOverlappingSessions(parsed, fakeRequest);
+
+            // Record success only after parse/normalize/resolve all succeed
+            recordStudyPlanSuccess(AiProviderType.MISTRAL, modelToUse, userId, promptText, response, latencyMs);
+
             return parsed;
-            
+
         } catch (JsonProcessingException e) {
+            long latencyMs = System.currentTimeMillis() - startTime;
+
+            // Record failure for JSON processing error
+            String promptText = "Error processing schedule for refinement";
+            recordStudyPlanFailure(AiProviderType.MISTRAL, modelToUse, userId, promptText,
+                    "Error processing schedule: " + e.getMessage(), latencyMs);
+
             throw new RuntimeException("Error processing schedule for refinement", e);
         }
     }
@@ -1315,5 +1361,60 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
             LocalDateTime startA, LocalDateTime endA,
             LocalDateTime startB, LocalDateTime endB) {
         return startA.isBefore(endB) && startB.isBefore(endA);
+    }
+
+    // ============== Token Usage Recording Methods ==============
+
+    private void recordStudyPlanSuccess(AiProviderType providerType, String modelName, Long userId,
+                                          String prompt, String response, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        try {
+            long promptTokens = TokenCounterUtil.estimateTokens(prompt);
+            long completionTokens = TokenCounterUtil.estimateTokens(response);
+            tokenUsageRecorder.recordSuccess(AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.STUDY_PLAN)
+                    .providerType(providerType)
+                    .modelName(modelName)
+                    .userId(userId)
+                    .relatedEntityType("STUDY_PLAN")
+                    .promptTokens(promptTokens)
+                    .completionTokens(completionTokens)
+                    .totalTokens(promptTokens + completionTokens)
+                    .estimated(true)
+                    .status(AiUsageStatus.SUCCESS)
+                    .latencyMs(latencyMs)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record study plan token usage: {}", e.getMessage());
+        }
+    }
+
+    private void recordStudyPlanFailure(AiProviderType providerType, String modelName, Long userId,
+                                        String prompt, String errorMessage, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        try {
+            long promptTokens = TokenCounterUtil.estimateTokens(prompt);
+            tokenUsageRecorder.recordFailure(AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.STUDY_PLAN)
+                    .providerType(providerType)
+                    .modelName(modelName)
+                    .userId(userId)
+                    .relatedEntityType("STUDY_PLAN")
+                    .promptTokens(promptTokens)
+                    .completionTokens(0L)
+                    .totalTokens(promptTokens)
+                    .estimated(true)
+                    .status(AiUsageStatus.FAILED)
+                    .latencyMs(latencyMs)
+                    .errorCode(errorMessage != null && errorMessage.length() > 50 ?
+                            errorMessage.substring(0, 50) : errorMessage)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record study plan failure token usage: {}", e.getMessage());
+        }
     }
 }

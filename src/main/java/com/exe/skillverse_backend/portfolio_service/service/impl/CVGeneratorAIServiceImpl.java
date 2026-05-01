@@ -3,6 +3,12 @@ package com.exe.skillverse_backend.portfolio_service.service.impl;
 import com.exe.skillverse_backend.portfolio_service.dto.AIEnhanceRequest;
 import com.exe.skillverse_backend.portfolio_service.dto.AIEnhanceResponse;
 import com.exe.skillverse_backend.portfolio_service.service.CVGeneratorAIService;
+import com.exe.skillverse_backend.ai_usage_service.dto.AiTokenUsageRecordCommand;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiFlowType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiProviderType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiUsageStatus;
+import com.exe.skillverse_backend.ai_usage_service.service.AiTokenUsageRecorder;
+import com.exe.skillverse_backend.ai_usage_service.util.TokenCounterUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -11,6 +17,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -51,6 +58,8 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
+    private final AiTokenUsageRecorder tokenUsageRecorder;
+
     /**
      * Generate CV content using Mistral AI based on user's portfolio data.
      * Now returns structured JSON instead of HTML - much less token usage.
@@ -62,8 +71,13 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
             List<MentorReviewDTO> reviews,
             List<CompletedMissionDTO> completedMissions,
             CVGenerationRequest request) {
+        long startTime = System.currentTimeMillis();
+        String prompt = null;
+        String cvContent = null;
+        String actualModelUsed = model; // Track which model actually succeeded
+
         try {
-            String prompt = buildCVPrompt(profile, projects, certificates, reviews, completedMissions, request);
+            prompt = buildCVPrompt(profile, projects, certificates, reviews, completedMissions, request);
             log.info("Generating CV JSON with Mistral AI for user: {}", profile.getUserId());
 
             HttpHeaders headers = new HttpHeaders();
@@ -84,6 +98,7 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
             String[] modelsToTry = new String[] { model, "mistral-small-latest" };
             for (int m = 0; m < modelsToTry.length; m++) {
                 String currentModel = modelsToTry[m];
+                actualModelUsed = currentModel; // Track current attempt model
                 requestBody.put("model", currentModel);
 
                 int maxAttempts = 3;
@@ -98,7 +113,7 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
 
                         if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                             JsonNode jsonResponse = objectMapper.readTree(response.getBody());
-                            String cvContent = jsonResponse.at("/choices/0/message/content").asText();
+                            cvContent = jsonResponse.at("/choices/0/message/content").asText();
 
                             // Clean any markdown fences that might slip through
                             cvContent = cvContent.trim();
@@ -109,8 +124,12 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
                             // Validate it's valid JSON
                             objectMapper.readTree(cvContent);
 
+                            long latencyMs = System.currentTimeMillis() - startTime;
                             log.info("CV JSON generated successfully for user: {} with model {}",
                                     profile.getUserId(), currentModel);
+
+                            // Record success with actual model used (including fallback)
+                            recordCvGenerationSuccess(profile.getUserId(), actualModelUsed, prompt, cvContent, latencyMs);
                             return cvContent;
                         }
 
@@ -148,7 +167,11 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
             throw new RuntimeException("Failed to generate CV after retries and fallback model");
 
         } catch (Exception e) {
+            long latencyMs = System.currentTimeMillis() - startTime;
             log.error("Error generating CV with Mistral AI", e);
+            // Record failure with the last model that was attempted
+            recordCvGenerationFailure(profile.getUserId(), actualModelUsed, prompt,
+                    e.getMessage(), latencyMs);
             throw new RuntimeException("Failed to generate CV: " + e.getMessage(), e);
         }
     }
@@ -448,7 +471,7 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
                             .append(mission.getDeliverables().stream()
                                     .map(CompletedMissionDTO.DeliverableInfo::getFileName)
                                     .filter(name -> name != null && !name.isBlank())
-                                    .collect(java.util.stream.Collectors.joining(", ")))
+                                    .collect(Collectors.joining(", ")))
                             .append("\n");
                 }
             });
@@ -490,15 +513,13 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
         }
     }
 
-    /**
-     * Enhance a specific CV section using AI.
-     * Generates improved content based on user's instruction while preserving
-     * factual information.
-     */
     @Override
     public AIEnhanceResponse enhanceSection(AIEnhanceRequest request) {
+        long startTime = System.currentTimeMillis();
+        String prompt = null;
+
         try {
-            String prompt = buildEnhancePrompt(request);
+            prompt = buildEnhancePrompt(request);
             log.info("Enhancing CV section: {} with instruction: {}",
                     request.getSection(), request.getInstruction());
 
@@ -531,7 +552,11 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
                 List<String> alternatives = parseAlternatives(content);
                 String primary = alternatives.isEmpty() ? content : alternatives.get(0);
 
+                long latencyMs = System.currentTimeMillis() - startTime;
                 log.info("Successfully enhanced section: {}", request.getSection());
+
+                // Record token usage for successful enhancement
+                recordCvEnhancementSuccess(request.getUserId(), model, prompt, content, latencyMs);
 
                 return AIEnhanceResponse.builder()
                         .enhancedContent(primary)
@@ -547,7 +572,9 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
             throw new RuntimeException("AI service returned non-OK status: " + response.getStatusCode());
 
         } catch (HttpClientErrorException e) {
+            long latencyMs = System.currentTimeMillis() - startTime;
             log.error("AI service error for section enhancement: {}", e.getMessage());
+            recordCvEnhancementFailure(request.getUserId(), model, prompt, e.getMessage(), latencyMs);
             return AIEnhanceResponse.builder()
                     .section(request.getSection())
                     .itemId(request.getItemId())
@@ -555,12 +582,14 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
                     .errorMessage("AI service error: " + e.getMessage())
                     .build();
         } catch (Exception e) {
+            long latencyMs = System.currentTimeMillis() - startTime;
             log.error("Error enhancing CV section", e);
+            recordCvEnhancementFailure(request.getUserId(), model, prompt, e.getMessage(), latencyMs);
             return AIEnhanceResponse.builder()
                     .section(request.getSection())
                     .itemId(request.getItemId())
                     .success(false)
-                    .errorMessage("Failed to enhance: " + e.getMessage())
+                    .errorMessage("Error: " + e.getMessage())
                     .build();
         }
     }
@@ -656,5 +685,109 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
         }
 
         return alternatives;
+    }
+
+    // ============== Token Usage Recording Methods ==============
+
+    private void recordCvGenerationSuccess(Long userId, String modelName, String prompt, String response, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        try {
+            long promptTokens = TokenCounterUtil.estimateTokens(prompt);
+            long completionTokens = TokenCounterUtil.estimateTokens(response);
+            tokenUsageRecorder.recordSuccess(AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.CV_GENERATION)
+                    .providerType(AiProviderType.MISTRAL)
+                    .modelName(modelName)
+                    .userId(userId)
+                    .relatedEntityType("CV_GENERATION")
+                    .promptTokens(promptTokens)
+                    .completionTokens(completionTokens)
+                    .totalTokens(promptTokens + completionTokens)
+                    .estimated(true)
+                    .status(AiUsageStatus.SUCCESS)
+                    .latencyMs(latencyMs)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record CV generation token usage: {}", e.getMessage());
+        }
+    }
+
+    private void recordCvGenerationFailure(Long userId, String modelName, String prompt, String errorMessage, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        try {
+            long promptTokens = TokenCounterUtil.estimateTokens(prompt);
+            tokenUsageRecorder.recordFailure(AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.CV_GENERATION)
+                    .providerType(AiProviderType.MISTRAL)
+                    .modelName(modelName)
+                    .userId(userId)
+                    .relatedEntityType("CV_GENERATION")
+                    .promptTokens(promptTokens)
+                    .completionTokens(0L)
+                    .totalTokens(promptTokens)
+                    .estimated(true)
+                    .status(AiUsageStatus.FAILED)
+                    .latencyMs(latencyMs)
+                    .errorCode(errorMessage != null && errorMessage.length() > 50 ?
+                            errorMessage.substring(0, 50) : errorMessage)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record CV generation failure token usage: {}", e.getMessage());
+        }
+    }
+
+    private void recordCvEnhancementSuccess(Long userId, String modelName, String prompt, String response, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        try {
+            long promptTokens = TokenCounterUtil.estimateTokens(prompt);
+            long completionTokens = TokenCounterUtil.estimateTokens(response);
+            tokenUsageRecorder.recordSuccess(AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.CV_GENERATION)
+                    .providerType(AiProviderType.MISTRAL)
+                    .modelName(modelName)
+                    .userId(userId)
+                    .relatedEntityType("CV_ENHANCEMENT")
+                    .promptTokens(promptTokens)
+                    .completionTokens(completionTokens)
+                    .totalTokens(promptTokens + completionTokens)
+                    .estimated(true)
+                    .status(AiUsageStatus.SUCCESS)
+                    .latencyMs(latencyMs)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record CV enhancement token usage: {}", e.getMessage());
+        }
+    }
+
+    private void recordCvEnhancementFailure(Long userId, String modelName, String prompt, String errorMessage, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        try {
+            long promptTokens = TokenCounterUtil.estimateTokens(prompt);
+            tokenUsageRecorder.recordFailure(AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.CV_GENERATION)
+                    .providerType(AiProviderType.MISTRAL)
+                    .modelName(modelName)
+                    .userId(userId)
+                    .relatedEntityType("CV_ENHANCEMENT")
+                    .promptTokens(promptTokens)
+                    .completionTokens(0L)
+                    .totalTokens(promptTokens)
+                    .estimated(true)
+                    .status(AiUsageStatus.FAILED)
+                    .latencyMs(latencyMs)
+                    .errorCode(errorMessage != null && errorMessage.length() > 50 ?
+                            errorMessage.substring(0, 50) : errorMessage)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record CV enhancement failure token usage: {}", e.getMessage());
+        }
     }
 }

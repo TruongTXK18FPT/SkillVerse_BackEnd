@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.portfolio_service.dto;
 
+import java.util.Map;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -43,5 +44,11 @@ public class AIEnhanceRequest {
      * Additional context data to help AI generate better content
      * e.g., job title, company name, technologies for experience section
      */
-    private java.util.Map<String, String> contextData;
+    private Map<String, String> contextData;
+
+    /**
+     * User ID for token usage tracking
+     * Optional - only needed when tracking AI token usage
+     */
+    private Long userId;
 }

@@ -3,6 +3,12 @@ package com.exe.skillverse_backend.ai_service.service;
 import com.exe.skillverse_backend.ai_knowledge_service.util.AiKnowledgeSlugUtils;
 import com.exe.skillverse_backend.ai_service.dto.gemini.GeminiDTO;
 import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
+import com.exe.skillverse_backend.ai_usage_service.dto.AiTokenUsageRecordCommand;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiFlowType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiProviderType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiUsageStatus;
+import com.exe.skillverse_backend.ai_usage_service.service.AiTokenUsageRecorder;
+import com.exe.skillverse_backend.ai_usage_service.util.TokenCounterUtil;
 import com.exe.skillverse_backend.ai_service.dto.request.UpdateProgressRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ClarificationQuestion;
 import com.exe.skillverse_backend.ai_service.dto.response.CompleteNodeResponse;
@@ -20,6 +26,7 @@ import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
+import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.study_service.entity.Task;
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
@@ -120,6 +127,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
     private final AiCourseCatalogService aiCourseCatalogService;
     private final MultiLevelCourseMatcher multiLevelCourseMatcher;
     private final LocalAiGateway localAiGateway;
+    private final AiTokenUsageRecorder tokenUsageRecorder;
 
     public AiRoadmapServiceImpl(
             RoadmapSessionRepository roadmapSessionRepository,
@@ -138,7 +146,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             TaskBoardService taskBoardService,
             AiCourseCatalogService aiCourseCatalogService,
             MultiLevelCourseMatcher multiLevelCourseMatcher,
-            @Autowired(required = false) LocalAiGateway localAiGateway) {
+            @Autowired(required = false) LocalAiGateway localAiGateway,
+            @Autowired(required = false) AiTokenUsageRecorder tokenUsageRecorder) {
         this.roadmapSessionRepository = roadmapSessionRepository;
         this.progressRepository = progressRepository;
         this.objectMapper = objectMapper;
@@ -156,6 +165,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         this.aiCourseCatalogService = aiCourseCatalogService;
         this.multiLevelCourseMatcher = multiLevelCourseMatcher;
         this.localAiGateway = localAiGateway;
+        this.tokenUsageRecorder = tokenUsageRecorder;
     }
 
     /**
@@ -164,14 +174,14 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
      * @param request User request to validate
      * @return List of validation results (INFO/WARNING/ERROR severity)
      */
-    public List<ValidationResult> preValidateRequest(GenerateRoadmapRequest request) {
+    public List<ValidationResult> preValidateRequest(GenerateRoadmapRequest request, Long userId) {
         log.info("🔍 Pre-validating request: goal='{}', duration='{}', experience='{}', style='{}'",
                 request.getGoal(), request.getDuration(), request.getExperience(), request.getStyle());
 
         List<ValidationResult> results = new ArrayList<>();
 
         // 🚨 STAGE 1: AI Goal Validation (lightweight ~100 tokens)
-        ValidationResult aiValidation = validateGoalWithAI(request.getGoal());
+        ValidationResult aiValidation = validateGoalWithAI(request.getGoal(), userId);
         results.add(aiValidation);
 
         // If goal is invalid, short-circuit to save tokens
@@ -210,6 +220,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         RoadmapGenerationTelemetry telemetry = new RoadmapGenerationTelemetry();
         String summaryOutcome = "failed";
         String summaryErrorCode = "n/a";
+        String generationPrompt = null; // Declared here for access in catch block
+        long generationStartTime = 0;
 
         log.info("🚀 [trace={}] Generating roadmap V2 for user {} with goal/target: {} (roadmapMode={}, aiAgentMode={})",
                 traceId,
@@ -255,7 +267,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             }
 
             // Step 1: AI Goal Validation (CRITICAL - blocks invalid/malicious goals)
-            ValidationResult aiValidation = validateGoalWithAI(request.getGoal());
+            ValidationResult aiValidation = validateGoalWithAI(request.getGoal(), user.getId());
 
             if (aiValidation.isError()) {
                 log.error("❌ BLOCKED: Invalid goal from user {} - '{}'", user.getId(), request.getGoal());
@@ -278,14 +290,15 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
             // Step 3: AI Generation — 4-tier cascade: Local → Mistral → Gemini → Mistral compact
             String roadmapJson = null;
+            generationPrompt = buildPrompt(request)
+                    + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Chỉ trả về JSON hợp lệ như yêu cầu.";
+            generationStartTime = System.currentTimeMillis();
 
             // Step 3A-pre: Local AI first (fast path)
             if (localAiGateway != null && localAiGateway.isAvailable()) {
                 try {
                     log.info("🧭 [trace={}] Trying Local AI first", traceId);
-                    String localPrompt = buildPrompt(request)
-                            + "\n\nCRITICAL: Trả lời bằng TIẾNG VIỆT. Chỉ trả về JSON hợp lệ như yêu cầu.";
-                    roadmapJson = localAiGateway.call("", localPrompt);
+                    roadmapJson = localAiGateway.call("", generationPrompt);
                     log.info("🧭 [trace={}] Local AI returned response", traceId);
                     telemetry.markModelPath("local");
                 } catch (LocalAiGateway.LocalAiQueueFullException qfe) {
@@ -335,6 +348,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 }
             }
             } // end if (roadmapJson == null) — cloud fallback chain
+
+            long generationLatencyMs = System.currentTimeMillis() - generationStartTime;
 
             // Step 4: Parse and validate JSON (Schema V2)
             // Retry up to 2 times if parse fails due to JSON truncation (unclosed brackets)
@@ -515,6 +530,30 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
             session = roadmapSessionRepository.save(session);
 
+            // Record token usage for successful generation AFTER all validations and save
+            String modelPath = telemetry.getModelPath();
+            AiProviderType providerType;
+            String modelName;
+            if ("local".equals(modelPath)) {
+                providerType = AiProviderType.LOCAL_AI;
+                modelName = "local-ai";
+            } else if ("mistral".equals(modelPath)) {
+                providerType = AiProviderType.MISTRAL;
+                modelName = "mistral-large-latest";
+            } else if ("gemini".equals(modelPath)) {
+                providerType = AiProviderType.GEMINI;
+                modelName = geminiModel;
+            } else if ("mistral-compact".equals(modelPath)) {
+                providerType = AiProviderType.MISTRAL;
+                modelName = "mistral-large-latest";
+            } else {
+                // Default fallback
+                providerType = AiProviderType.MISTRAL;
+                modelName = "mistral-large-latest";
+            }
+            recordRoadmapSuccess(providerType, modelName, user.getId(), session.getId(),
+                    generationPrompt, roadmapJson, generationLatencyMs);
+
             log.info("✅ Roadmap V2 session {} created: {} nodes, {}h, difficulty: {}",
                     session.getId(), totalNodes, String.format("%.1f", totalHours),
                     parsed.metadata().getDifficultyLevel());
@@ -572,12 +611,70 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     e.getMessage());
             summaryOutcome = "api-error";
             summaryErrorCode = errorCode;
+
+            // Only record failure if AI generation was actually attempted
+            // (not for business/precondition errors before AI call)
+            boolean aiAttempted = generationPrompt != null && generationStartTime > 0
+                    && !"unknown".equals(telemetry.getModelPath());
+            if (aiAttempted) {
+                long failureLatencyMs = System.currentTimeMillis() - generationStartTime;
+                String modelPath = telemetry.getModelPath();
+                AiProviderType failedProvider;
+                String failedModel;
+                if ("local".equals(modelPath)) {
+                    failedProvider = AiProviderType.LOCAL_AI;
+                    failedModel = "local-ai";
+                } else if ("gemini".equals(modelPath)) {
+                    failedProvider = AiProviderType.GEMINI;
+                    failedModel = geminiModel;
+                } else if ("mistral-compact".equals(modelPath)) {
+                    failedProvider = AiProviderType.MISTRAL;
+                    failedModel = "mistral-large-latest";
+                } else {
+                    // Default to Mistral if mistral or null
+                    failedProvider = AiProviderType.MISTRAL;
+                    failedModel = "mistral-large-latest";
+                }
+
+                recordRoadmapFailure(failedProvider, failedModel, user.getId(), null,
+                        generationPrompt, e.getMessage(), failureLatencyMs);
+            }
+
             throw e;
         } catch (Exception e) {
             long elapsedMs = (System.nanoTime() - requestStartedAt) / 1_000_000;
             log.error("❌ [trace={}] Failed to generate roadmap V2 after {}ms", traceId, elapsedMs, e);
             summaryOutcome = "unexpected-error";
             summaryErrorCode = e.getClass().getSimpleName();
+
+            // Only record failure if AI generation was actually attempted
+            // Use null for relatedEntityId since no session was saved on failure
+            boolean aiAttempted = generationPrompt != null && generationStartTime > 0
+                    && !"unknown".equals(telemetry.getModelPath());
+            if (aiAttempted) {
+                long failureLatencyMs = System.currentTimeMillis() - generationStartTime;
+                String modelPath = telemetry.getModelPath();
+                AiProviderType failedProvider;
+                String failedModel;
+                if ("local".equals(modelPath)) {
+                    failedProvider = AiProviderType.LOCAL_AI;
+                    failedModel = "local-ai";
+                } else if ("gemini".equals(modelPath)) {
+                    failedProvider = AiProviderType.GEMINI;
+                    failedModel = geminiModel;
+                } else if ("mistral-compact".equals(modelPath)) {
+                    failedProvider = AiProviderType.MISTRAL;
+                    failedModel = "mistral-large-latest";
+                } else {
+                    // Default to Mistral if mistral or null
+                    failedProvider = AiProviderType.MISTRAL;
+                    failedModel = "mistral-large-latest";
+                }
+
+                recordRoadmapFailure(failedProvider, failedModel, user.getId(), null,
+                        generationPrompt, e.getMessage(), failureLatencyMs);
+            }
+
             throw new ApiException(ErrorCode.INTERNAL_ERROR, "Failed to generate roadmap: " + e.getMessage());
         } finally {
             long elapsedMs = (System.nanoTime() - requestStartedAt) / 1_000_000;
@@ -3951,25 +4048,56 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
      * @param goal User's learning goal
      * @return ValidationResult with severity INFO/WARNING/ERROR
      */
-    private ValidationResult validateGoalWithAI(String goal) {
+    private ValidationResult validateGoalWithAI(String goal, Long userId) {
         log.info("🤖 AI Goal Validation Stage 1: Checking goal='{}'", goal);
 
         String validationPrompt = buildGoalValidationPrompt(goal);
+        long startTime = System.currentTimeMillis();
+        String aiResponse = null;
 
         try {
             // Use Gemini RestClient for validation
-            String aiResponse = callGeminiDirectly(validationPrompt, geminiModel);
+            aiResponse = callGeminiDirectly(validationPrompt, geminiModel);
+            long latencyMs = System.currentTimeMillis() - startTime;
 
             // Parse AI response
-            return parseAIValidationResponse(aiResponse, goal);
+            ValidationResult result = parseAIValidationResponse(aiResponse, goal);
+
+            // Record token usage for successful Gemini validation
+            recordValidationSuccess(AiProviderType.GEMINI, geminiModel, userId,
+                    validationPrompt, aiResponse, latencyMs);
+
+            return result;
 
         } catch (Exception e) {
+            long geminiLatencyMs = System.currentTimeMillis() - startTime;
             log.warn("⚠️ AI validation (Gemini) failed, attempting fallback to Mistral: {}", e.getMessage());
+
+            // Record Gemini failure
+            recordValidationFailure(AiProviderType.GEMINI, geminiModel, userId,
+                    validationPrompt, e.getMessage(), geminiLatencyMs);
+
+            // Try Mistral fallback
+            long mistralStartTime = System.currentTimeMillis();
             try {
-                String aiResponse = callMistralAPI(validationPrompt);
-                return parseAIValidationResponse(aiResponse, goal);
+                aiResponse = callMistralAPI(validationPrompt);
+                long mistralLatencyMs = System.currentTimeMillis() - mistralStartTime;
+
+                ValidationResult result = parseAIValidationResponse(aiResponse, goal);
+
+                // Record token usage for successful Mistral validation
+                recordValidationSuccess(AiProviderType.MISTRAL, "mistral-large-latest", userId,
+                        validationPrompt, aiResponse, mistralLatencyMs);
+
+                return result;
+
             } catch (Exception ex) {
+                long mistralLatencyMs = System.currentTimeMillis() - mistralStartTime;
                 log.warn("⚠️ AI validation (Mistral) failed, falling back to basic validation: {}", ex.getMessage());
+
+                // Record Mistral failure
+                recordValidationFailure(AiProviderType.MISTRAL, "mistral-large-latest", userId,
+                        validationPrompt, ex.getMessage(), mistralLatencyMs);
             }
 
             // Fallback: Basic validation if AI fails
@@ -4700,29 +4828,6 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             return;
         }
 
-        // V3 Phase 3: Block deletion if roadmap is linked to a non-terminal journey.
-        // User must complete or delete the journey first.
-        journeyRepository.findByRoadmapSessionId(sessionId).ifPresent(journey -> {
-            var terminalStatuses = java.util.Set.of(
-                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED,
-                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.CANCELLED,
-                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_UNVERIFIED,
-                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_VERIFIED
-            );
-            if (!terminalStatuses.contains(journey.getStatus())) {
-                throw new ApiException(ErrorCode.CONFLICT,
-                        "Không thể xóa roadmap đang liên kết với hành trình chưa hoàn thành. " +
-                                "Hãy hoàn thành hoặc xóa hành trình trước.");
-            }
-        });
-
-        session.setStatus(RoadmapStatus.DELETED);
-        // IMPORTANT: flush immediately so the UPDATE is sent to DB BEFORE any concurrent reads.
-        // Without flush(), save() only marks the entity dirty — the SQL UPDATE is deferred
-        // until transaction commit. A concurrent GET request (separate thread/connection) could
-        // read the DB before commit and see the stale non-DELETED status.
-        roadmapSessionRepository.saveAndFlush(session);
-
         // Archive tasks on soft-delete so board stays clean.
         int archived = taskBoardService.archiveTasksByRoadmapSession(userId, sessionId);
         log.info("🗑️ Soft-deleted roadmap {} for user {} (archived {} tasks)", sessionId, userId, archived);
@@ -4741,11 +4846,11 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
         // V3 Phase 3: Block permanent deletion if roadmap is still linked to a non-terminal journey.
         journeyRepository.findByRoadmapSessionId(sessionId).ifPresent(journey -> {
-            var terminalStatuses = java.util.Set.of(
-                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED,
-                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.CANCELLED,
-                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_UNVERIFIED,
-                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_VERIFIED
+            var terminalStatuses = Set.of(
+                    Journey.JourneyStatus.COMPLETED,
+                    Journey.JourneyStatus.CANCELLED,
+                    Journey.JourneyStatus.COMPLETED_UNVERIFIED,
+                    Journey.JourneyStatus.COMPLETED_VERIFIED
             );
             if (!terminalStatuses.contains(journey.getStatus())) {
                 throw new ApiException(ErrorCode.CONFLICT,
@@ -4927,6 +5032,116 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             return right == null;
         }
         return left.equals(right);
+    }
+
+    // ============== Token Usage Recording Methods ==============
+
+    private void recordRoadmapSuccess(AiProviderType providerType, String modelName, Long userId,
+                                      Long sessionId, String prompt, String response, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        try {
+            long promptTokens = TokenCounterUtil.estimateTokens(prompt);
+            long completionTokens = TokenCounterUtil.estimateTokens(response);
+            tokenUsageRecorder.recordSuccess(AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.ROADMAP_GENERATION)
+                    .providerType(providerType)
+                    .modelName(modelName)
+                    .userId(userId)
+                    .relatedEntityType("ROADMAP_SESSION")
+                    .relatedEntityId(sessionId)
+                    .promptTokens(promptTokens)
+                    .completionTokens(completionTokens)
+                    .totalTokens(promptTokens + completionTokens)
+                    .estimated(true)
+                    .status(AiUsageStatus.SUCCESS)
+                    .latencyMs(latencyMs)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record roadmap token usage: {}", e.getMessage());
+        }
+    }
+
+    private void recordRoadmapFailure(AiProviderType providerType, String modelName, Long userId,
+                                      Long sessionId, String prompt, String errorMessage, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        try {
+            long promptTokens = TokenCounterUtil.estimateTokens(prompt);
+            tokenUsageRecorder.recordFailure(AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.ROADMAP_GENERATION)
+                    .providerType(providerType)
+                    .modelName(modelName)
+                    .userId(userId)
+                    .relatedEntityType("ROADMAP_SESSION")
+                    .relatedEntityId(sessionId)
+                    .promptTokens(promptTokens)
+                    .completionTokens(0L)
+                    .totalTokens(promptTokens)
+                    .estimated(true)
+                    .status(AiUsageStatus.FAILED)
+                    .latencyMs(latencyMs)
+                    .errorCode(errorMessage != null && errorMessage.length() > 50 ?
+                            errorMessage.substring(0, 50) : errorMessage)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record roadmap failure token usage: {}", e.getMessage());
+        }
+    }
+
+    private void recordValidationSuccess(AiProviderType providerType, String modelName, Long userId,
+                                         String prompt, String response, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        try {
+            long promptTokens = TokenCounterUtil.estimateTokens(prompt);
+            long completionTokens = TokenCounterUtil.estimateTokens(response);
+            tokenUsageRecorder.recordSuccess(AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.ROADMAP_VALIDATION)
+                    .providerType(providerType)
+                    .modelName(modelName)
+                    .userId(userId)
+                    .relatedEntityType("VALIDATION")
+                    .promptTokens(promptTokens)
+                    .completionTokens(completionTokens)
+                    .totalTokens(promptTokens + completionTokens)
+                    .estimated(true)
+                    .status(AiUsageStatus.SUCCESS)
+                    .latencyMs(latencyMs)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record validation token usage: {}", e.getMessage());
+        }
+    }
+
+    private void recordValidationFailure(AiProviderType providerType, String modelName, Long userId,
+                                         String prompt, String errorMessage, long latencyMs) {
+        if (tokenUsageRecorder == null) {
+            return;
+        }
+        try {
+            long promptTokens = TokenCounterUtil.estimateTokens(prompt);
+            tokenUsageRecorder.recordFailure(AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.ROADMAP_VALIDATION)
+                    .providerType(providerType)
+                    .modelName(modelName)
+                    .userId(userId)
+                    .relatedEntityType("VALIDATION")
+                    .promptTokens(promptTokens)
+                    .completionTokens(0L)
+                    .totalTokens(promptTokens)
+                    .estimated(true)
+                    .status(AiUsageStatus.FAILED)
+                    .latencyMs(latencyMs)
+                    .errorCode(errorMessage != null && errorMessage.length() > 50 ?
+                            errorMessage.substring(0, 50) : errorMessage)
+                    .build());
+        } catch (Exception e) {
+            log.warn("Failed to record validation failure token usage: {}", e.getMessage());
+        }
     }
 
 }
