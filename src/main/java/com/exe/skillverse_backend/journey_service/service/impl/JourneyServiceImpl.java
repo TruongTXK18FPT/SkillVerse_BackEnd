@@ -424,6 +424,16 @@ public class JourneyServiceImpl implements JourneyService {
     @Override
     @Transactional
     public JourneySummaryResponse cancelJourney(User user, Long journeyId) {
+        Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
+                .orElseThrow(() -> new RuntimeException("Journey not found"));
+
+        // Block cancellation when journey has active mentor bookings.
+        // Learner must cancel bookings in the Booking tab first.
+        if (bookingRepository.hasActiveBookingsForJourney(journey.getId())) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Không thể hủy hành trình đã có lịch hẹn mentor. Vui lòng hủy các lịch hẹn trong tab Booking trước.");
+        }
+
         return updateJourneyStatus(user, journeyId, Journey.JourneyStatus.CANCELLED);
     }
 
