@@ -27,6 +27,8 @@ import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
+import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeSubmission.SubmissionStatus;
+import com.exe.skillverse_backend.journey_service.node_mentoring.repository.RoadmapNodeSubmissionRepository;
 import com.exe.skillverse_backend.study_service.entity.Task;
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
@@ -128,6 +130,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
     private final MultiLevelCourseMatcher multiLevelCourseMatcher;
     private final LocalAiGateway localAiGateway;
     private final AiTokenUsageRecorder tokenUsageRecorder;
+    private final RoadmapNodeSubmissionRepository nodeSubmissionRepository;
 
     public AiRoadmapServiceImpl(
             RoadmapSessionRepository roadmapSessionRepository,
@@ -147,7 +150,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             AiCourseCatalogService aiCourseCatalogService,
             MultiLevelCourseMatcher multiLevelCourseMatcher,
             @Autowired(required = false) LocalAiGateway localAiGateway,
-            @Autowired(required = false) AiTokenUsageRecorder tokenUsageRecorder) {
+            @Autowired(required = false) AiTokenUsageRecorder tokenUsageRecorder,
+            RoadmapNodeSubmissionRepository nodeSubmissionRepository) {
         this.roadmapSessionRepository = roadmapSessionRepository;
         this.progressRepository = progressRepository;
         this.objectMapper = objectMapper;
@@ -166,6 +170,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         this.multiLevelCourseMatcher = multiLevelCourseMatcher;
         this.localAiGateway = localAiGateway;
         this.tokenUsageRecorder = tokenUsageRecorder;
+        this.nodeSubmissionRepository = nodeSubmissionRepository;
     }
 
     /**
@@ -3956,6 +3961,25 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             enforceSequentialLocking(session, request.getQuestId());
         }
 
+        // Evidence gate + uncomplete guard — only for journey-linked sessions.
+        Journey gateJourney = journeyRepository.findByRoadmapSessionId(sessionId).orElse(null);
+        if (gateJourney != null) {
+            if (Boolean.TRUE.equals(request.getCompleted())) {
+                assertEvidenceGatePassed(gateJourney, request.getQuestId());
+            } else {
+                // Block un-completing a node that was already confirmed via evidence gate.
+                // Only internal flows (mentor review, rework) should reset completion.
+                UserRoadmapProgress existing = progressRepository
+                        .findBySessionIdAndQuestId(sessionId, request.getQuestId())
+                        .orElse(null);
+                if (existing != null
+                        && existing.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED) {
+                    throw new ApiException(ErrorCode.CONFLICT,
+                            "Node này đã được xác nhận hoàn thành và không thể bỏ chọn qua API này.");
+                }
+            }
+        }
+
         // Find or create progress record
         UserRoadmapProgress progress = progressRepository
                 .findBySessionIdAndQuestId(sessionId, request.getQuestId())
@@ -3977,6 +4001,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         }
 
         progressRepository.save(progress);
+
+        // Sync Journey.progressPercentage for journey-linked sessions so FE journey-complete
+        // button reflects reality even when completing via this older progress endpoint.
+        if (gateJourney != null) {
+            syncJourneyProgressPercentage(gateJourney, session);
+        }
 
         Integer schemaVersion = session.getSchemaVersion() != null ? session.getSchemaVersion() : 1;
 
@@ -4927,25 +4957,23 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         "Bạn cần mở node chính liên quan trước khi hoàn thành node phụ.");
             }
         } else {
-        RoadmapResponse.RoadmapNode nextPlayableNode = findFirstSequentialPlayableMainNode(nodes, progressSnapshot);
-        if (nextPlayableNode == null) {
-            throw new ApiException(ErrorCode.FORBIDDEN,
-                    "Bạn cần hoàn thành node trước đó trước khi mở node tiếp theo.");
-        }
-        if (!nodeId.equals(nextPlayableNode.getId())) {
-            throw new ApiException(ErrorCode.FORBIDDEN,
-                    String.format("Bạn cần hoàn thành node '%s' trước.", nextPlayableNode.getTitle()));
-        }
-
+            RoadmapResponse.RoadmapNode nextPlayableNode = findFirstSequentialPlayableMainNode(nodes, progressSnapshot);
+            if (nextPlayableNode == null) {
+                throw new ApiException(ErrorCode.FORBIDDEN,
+                        "Bạn cần hoàn thành node trước đó trước khi mở node tiếp theo.");
+            }
+            if (!nodeId.equals(nextPlayableNode.getId())) {
+                throw new ApiException(ErrorCode.FORBIDDEN,
+                        String.format("Bạn cần hoàn thành node '%s' trước.", nextPlayableNode.getTitle()));
+            }
         }
 
         // Step 1: Mark all linked tasks done (single batch sync after)
         var taskResult = taskBoardService.completeAllTasksForNode(userId, sessionId, nodeId);
 
-        // Step 2: Mark node complete — sequential locking enforced inside.
-        // If ApiException is thrown (prerequisites not met), it propagates up through
-        // the same @Transactional boundary, causing full rollback of task updates.
-        // If it succeeds, nodeCompleted=true and the transaction commits.
+        // Step 2: Mark node complete — evidence gate + journey progress sync run inside
+        // updateProgressInternal. If ApiException is thrown it propagates through the same
+        // @Transactional boundary, rolling back task updates from Step 1 as well.
         int totalTasks = taskResult.getDoneCount();
         boolean nodeCompleted = true;
         String message;
@@ -4955,6 +4983,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             message = String.format("%d task(s) marked done. Node marked as complete.", totalTasks);
         }
 
+        // updateProgressInternal enforces the evidence gate and syncs journey progress.
         updateProgressInternal(sessionId, userId,
             UpdateProgressRequest.builder().questId(nodeId).completed(true).build(), false);
 
@@ -4964,6 +4993,53 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 .nodeCompleted(nodeCompleted)
                 .message(message)
                 .build();
+    }
+
+    /**
+     * Throws ApiException if the learner has not submitted evidence for this node.
+     * Mentor coverage is intentionally NOT a blocker — it is an audit/display signal only.
+     * No-op when {@code journey} is null (standalone roadmap session, not journey-linked).
+     */
+    private void assertEvidenceGatePassed(Journey journey, String nodeId) {
+        if (journey == null) {
+            return;
+        }
+        var submission = nodeSubmissionRepository
+                .findByJourneyIdAndNodeId(journey.getId(), nodeId)
+                .orElse(null);
+        boolean hasEvidence = submission != null
+                && (submission.getSubmissionStatus() == SubmissionStatus.SUBMITTED
+                        || submission.getSubmissionStatus() == SubmissionStatus.RESUBMITTED);
+        if (!hasEvidence) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Bạn cần nộp minh chứng trước khi hoàn thành node này.");
+        }
+    }
+
+    private void syncJourneyProgressPercentage(Journey journey, RoadmapSession session) {
+        try {
+            List<RoadmapResponse.RoadmapNode> nodes;
+            if (session.getSchemaVersion() != null && session.getSchemaVersion() >= 2) {
+                nodes = validateAndParseRoadmapV2(session.getRoadmapJson()).nodes();
+            } else {
+                nodes = parseNodesFromV1Json(session.getRoadmapJson());
+            }
+            Map<String, RoadmapResponse.QuestProgress> progressMap = resolveProgressData(session, nodes);
+            RoadmapProgressCalculator.ProgressCalculation calc =
+                    RoadmapProgressCalculator.calculate(nodes, progressMap);
+            int roadmapPct = (int) Math.round(calc.completionPercentage());
+            // Map roadmap completion into lifecycle range [30, 90].
+            // 0% => 30, 100% => 90. Final verification (100%) is set elsewhere.
+            int mapped = Math.min(90, Math.max(30, (int) Math.round(30 + roadmapPct * 0.6)));
+            int current = journey.getProgressPercentage() != null ? journey.getProgressPercentage() : 0;
+            int next = Math.max(current, mapped);
+            if (!Objects.equals(current, next)) {
+                journey.setProgressPercentage(next);
+                journeyRepository.save(journey);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to sync journey {} progressPercentage: {}", journey.getId(), e.getMessage());
+        }
     }
 
     private int cleanupRoadmapLinksFromTasks(Long userId, Long roadmapSessionId) {

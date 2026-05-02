@@ -91,7 +91,7 @@ class RoadmapCompletionSyncServiceTest {
         }
 
     @Test
-    void overlayDerivedProgress_marksFallbackNodeCompletedWhenAllLinkedTasksDone() {
+    void overlayDerivedProgress_marksFallbackNodeAt99WhenAllLinkedTasksDone() {
         RoadmapSession session = buildSession(15L, 77L);
         RoadmapResponse.RoadmapNode node = RoadmapResponse.RoadmapNode.builder()
                 .id("node-fallback")
@@ -111,16 +111,16 @@ class RoadmapCompletionSyncServiceTest {
                 .build();
 
         when(taskRepository.findByUserIdAndUserNotesContaining(eq(77L), anyString())).thenReturn(List.of(doneTask, progressTask));
-        when(progressRepository.findBySessionIdAndQuestId(15L, "node-fallback")).thenReturn(Optional.empty());
 
         Map<String, RoadmapResponse.QuestProgress> result = service.overlayDerivedProgress(session, List.of(node), Map.of());
 
-        assertEquals("COMPLETED", result.get("node-fallback").getStatus());
-        verify(progressRepository).saveAll(any());
+        assertEquals("IN_PROGRESS", result.get("node-fallback").getStatus());
+        assertEquals(99, result.get("node-fallback").getProgress());
+        verify(progressRepository, never()).saveAll(any());
     }
 
     @Test
-    void overlayDerivedProgress_marksFallbackNodeCompletedForStandaloneMarkerWithoutJourney() {
+    void overlayDerivedProgress_marksFallbackNodeAt99ForStandaloneMarkerWithoutJourney() {
         RoadmapSession session = buildSession(15L, 77L);
         RoadmapResponse.RoadmapNode node = RoadmapResponse.RoadmapNode.builder()
                 .id("node-fallback")
@@ -134,12 +134,12 @@ class RoadmapCompletionSyncServiceTest {
                 .build();
 
         when(taskRepository.findByUserIdAndUserNotesContaining(eq(77L), anyString())).thenReturn(List.of(doneTask));
-        when(progressRepository.findBySessionIdAndQuestId(15L, "node-fallback")).thenReturn(Optional.empty());
 
         Map<String, RoadmapResponse.QuestProgress> result = service.overlayDerivedProgress(session, List.of(node), Map.of());
 
-        assertEquals("COMPLETED", result.get("node-fallback").getStatus());
-        verify(progressRepository).saveAll(any());
+        assertEquals("IN_PROGRESS", result.get("node-fallback").getStatus());
+        assertEquals(99, result.get("node-fallback").getProgress());
+        verify(progressRepository, never()).saveAll(any());
     }
 
     @Test
@@ -161,8 +161,9 @@ class RoadmapCompletionSyncServiceTest {
         Map<String, RoadmapResponse.QuestProgress> result = service.overlayDerivedProgressSnapshot(session, List.of(node), Map.of());
 
         // Course enrollment is no longer a source; node progress is task-derived.
-        assertEquals("COMPLETED", result.get("node-course-priority").getStatus());
-        assertEquals(100, result.get("node-course-priority").getProgress());
+        // Tasks alone cap at 99/IN_PROGRESS; evidence gate sets COMPLETED.
+        assertEquals("IN_PROGRESS", result.get("node-course-priority").getStatus());
+        assertEquals(99, result.get("node-course-priority").getProgress());
         verify(progressRepository, never()).saveAll(any());
     }
 

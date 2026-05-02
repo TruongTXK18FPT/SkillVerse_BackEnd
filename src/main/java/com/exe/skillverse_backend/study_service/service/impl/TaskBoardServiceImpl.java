@@ -421,11 +421,18 @@ public class TaskBoardServiceImpl implements TaskBoardService {
     @Transactional
     public void deleteTask(UUID taskId) {
         Task task = taskRepository.findById(taskId).orElse(null);
-        if (task != null) {
-            // Recalculate roadmap progress BEFORE deleting so the task is excluded from derivation
-            roadmapCompletionSyncService.syncTaskProgress(task);
+        if (task == null) {
+            return;
         }
+        // Capture the link metadata before deletion so we can trigger a recalculation
+        // after the row is gone — this way the deleted task is excluded from derivation.
+        User owner = task.getUser();
+        String notes = task.getUserNotes();
         taskRepository.deleteById(taskId);
+        if (notes != null && !notes.isBlank()) {
+            Task stub = Task.builder().user(owner).userNotes(notes).build();
+            roadmapCompletionSyncService.syncTaskProgress(stub);
+        }
     }
 
     @Override

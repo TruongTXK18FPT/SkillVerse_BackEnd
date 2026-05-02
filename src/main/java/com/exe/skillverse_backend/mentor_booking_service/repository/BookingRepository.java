@@ -140,4 +140,17 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
               )
             """)
     boolean hasActiveBookingsForJourney(@Param("journeyId") Long journeyId);
+
+    // Learner-side node coverage check: true if any active booking covers this node.
+    // Matches NODE_MENTORING (nodeId = :nodeId) AND ROADMAP_MENTORING (nodeId IS NULL, covers all nodes).
+    @Query("""
+            select case when count(b) > 0 then true else false end from Booking b
+            where b.journeyId = :journeyId
+              and (b.nodeId = :nodeId or b.nodeId is null)
+              and b.status in :statuses
+            """)
+    boolean existsActiveBookingCoveringNode(
+            @Param("journeyId") Long journeyId,
+            @Param("nodeId") String nodeId,
+            @Param("statuses") Collection<BookingStatus> statuses);
 }

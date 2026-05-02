@@ -593,24 +593,30 @@ public class RoadmapCompletionSyncService {
                 Integer progressPercent,
                 RoadmapResponse.QuestProgress existingProgress) {
             int normalizedProgress = clampProgress(progressPercent);
-            String status = normalizedProgress >= 100
-                    ? UserRoadmapProgress.ProgressStatus.COMPLETED.name()
-                    : normalizedProgress > 0
-                            ? UserRoadmapProgress.ProgressStatus.IN_PROGRESS.name()
-                            : UserRoadmapProgress.ProgressStatus.NOT_STARTED.name();
 
-            Instant completedAt = null;
-            if (UserRoadmapProgress.ProgressStatus.COMPLETED.name().equals(status)) {
-                completedAt = existingProgress != null && existingProgress.getCompletedAt() != null
-                        ? existingProgress.getCompletedAt()
-                        : Instant.now();
+            // If the node is already COMPLETED in DB (set by evidence gate), preserve it.
+            boolean alreadyCompleted = existingProgress != null
+                    && UserRoadmapProgress.ProgressStatus.COMPLETED.name().equals(existingProgress.getStatus());
+            if (alreadyCompleted) {
+                return RoadmapResponse.QuestProgress.builder()
+                        .questId(nodeId)
+                        .status(UserRoadmapProgress.ProgressStatus.COMPLETED.name())
+                        .progress(100)
+                        .completedAt(existingProgress.getCompletedAt())
+                        .build();
             }
+
+            // Tasks alone cannot push a node to COMPLETED — cap derived progress at 99.
+            int cappedProgress = Math.min(normalizedProgress, 99);
+            String status = cappedProgress > 0
+                    ? UserRoadmapProgress.ProgressStatus.IN_PROGRESS.name()
+                    : UserRoadmapProgress.ProgressStatus.NOT_STARTED.name();
 
             return RoadmapResponse.QuestProgress.builder()
                     .questId(nodeId)
                     .status(status)
-                    .progress(normalizedProgress)
-                    .completedAt(completedAt)
+                    .progress(cappedProgress)
+                    .completedAt(null)
                     .build();
         }
 

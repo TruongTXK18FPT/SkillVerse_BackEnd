@@ -41,6 +41,13 @@ public class NodeEvidenceRecordResponse {
     private Boolean learnerMarkedComplete;
     private String roadmapProgressStatus;
 
+    /**
+     * True when an active mentor booking (NODE_MENTORING or ROADMAP_MENTORING) covers this node.
+     * FE uses this to choose between "self-confirm" button and "awaiting mentor review" badge.
+     * Populated by the service layer — not stored in the submission row.
+     */
+    private Boolean hasMentorCoverage;
+
     /** Most recent review, if any. */
     private NodeReviewResponse latestReview;
 

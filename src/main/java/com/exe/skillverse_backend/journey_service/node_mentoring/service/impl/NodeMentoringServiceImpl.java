@@ -6,6 +6,7 @@ import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
+import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.ReviewNodeSubmissionRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitNodeEvidenceRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.UpsertNodeAssignmentRequest;
@@ -40,6 +41,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -64,6 +66,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
     private final BookingRepository bookingRepository;
     private final UserRoadmapProgressRepository progressRepository;
     private final RoadmapSessionRepository roadmapSessionRepository;
+    private final JourneyRepository journeyRepository;
 
     // ─── Assignment ───────────────────────────────────────────────────────────
 
@@ -149,7 +152,11 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         s.setVerificationStatus(VerificationStatus.PENDING);
 
         RoadmapNodeSubmission saved = submissionRepo.save(s);
-        return toEvidenceResponse(saved);
+        boolean hasMentorCoverage = bookingRepository.existsActiveBookingCoveringNode(
+                journeyId, nodeId, ASSIGNED_MENTOR_STATUSES);
+        NodeEvidenceRecordResponse response = toEvidenceResponse(saved);
+        response.setHasMentorCoverage(hasMentorCoverage);
+        return response;
     }
 
     private boolean canLearnerSubmitEvidence(RoadmapNodeSubmission submission) {
@@ -177,8 +184,14 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
             throw new ApiException(ErrorCode.FORBIDDEN,
                     "Access denied: you are not the journey owner or an assigned mentor for node " + nodeId);
         }
+        boolean hasMentorCoverage = bookingRepository.existsActiveBookingCoveringNode(
+                journeyId, nodeId, ASSIGNED_MENTOR_STATUSES);
         return submissionRepo.findByJourneyIdAndNodeId(journeyId, nodeId)
-                .map(this::toEvidenceResponse)
+                .map(s -> {
+                    NodeEvidenceRecordResponse r = toEvidenceResponse(s);
+                    r.setHasMentorCoverage(hasMentorCoverage);
+                    return r;
+                })
                 .orElse(null);
     }
 
@@ -218,6 +231,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                 s.setVerificationStatus(VerificationStatus.APPROVED);
                 s.setMentorFeedback(request.getFeedback());
                 syncNodeCompletionState(journey, nodeId, true);
+                recalculateAndSyncJourneyProgress(journey);
             }
             case REWORK_REQUESTED -> {
                 s.setSubmissionStatus(SubmissionStatus.REWORK_REQUESTED);
@@ -270,6 +284,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         if (request.getNodeVerificationStatus() == NodeVerificationStatus.VERIFIED) {
             s.setVerificationStatus(VerificationStatus.VERIFIED);
             syncNodeCompletionState(journey, nodeId, true);
+            recalculateAndSyncJourneyProgress(journey);
         } else {
             s.setSubmissionStatus(SubmissionStatus.REWORK_REQUESTED);
             s.setVerificationStatus(VerificationStatus.REJECTED);
@@ -278,6 +293,34 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         submissionRepo.save(s);
 
         return NodeVerificationResponse.from(savedVerification);
+    }
+
+    // ─── Self-confirm ────────────────────────────────────────────────────────
+
+    @Override
+    @Transactional
+    public NodeEvidenceRecordResponse selfConfirmNode(Long learnerId, Long journeyId, String nodeId) {
+        Journey journey = resolver.resolveJourneyWithRoadmap(journeyId);
+        resolver.ensureLearnerOwns(journey, learnerId);
+
+        RoadmapNodeSubmission s = submissionRepo.findByJourneyIdAndNodeId(journeyId, nodeId)
+                .orElseThrow(() -> new ApiException(ErrorCode.CONFLICT,
+                        "Bạn cần nộp minh chứng trước khi xác nhận hoàn thành node này."));
+
+        if (s.getSubmissionStatus() != SubmissionStatus.SUBMITTED
+                && s.getSubmissionStatus() != SubmissionStatus.RESUBMITTED) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Evidence phải ở trạng thái SUBMITTED hoặc RESUBMITTED trước khi tự xác nhận.");
+        }
+
+        // Mentor coverage is an audit/display signal only — it does not block self-confirmation.
+        syncNodeCompletionState(journey, nodeId, true);
+        recalculateAndSyncJourneyProgress(journey);
+        boolean hasMentorCoverage = bookingRepository.existsActiveBookingCoveringNode(
+                journeyId, nodeId, ASSIGNED_MENTOR_STATUSES);
+        NodeEvidenceRecordResponse response = toEvidenceResponse(s);
+        response.setHasMentorCoverage(hasMentorCoverage);
+        return response;
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -347,6 +390,41 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         }
 
         progressRepository.save(progress);
+    }
+
+    private void recalculateAndSyncJourneyProgress(Journey journey) {
+        if (journey == null || journey.getRoadmapSessionId() == null) {
+            return;
+        }
+        RoadmapSession session = roadmapSessionRepository
+                .findById(journey.getRoadmapSessionId())
+                .orElse(null);
+        if (session == null) {
+            return;
+        }
+        List<UserRoadmapProgress> allProgress =
+                progressRepository.findBySessionId(journey.getRoadmapSessionId());
+        long completedCount = allProgress.stream()
+                .filter(p -> p.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
+                .count();
+        // Use canonical totalNodes from the session so a single completed node in a
+        // 10-node roadmap reports 10% (not 100% from allProgress.size() == 1).
+        int totalNodes = (session.getTotalNodes() != null && session.getTotalNodes() > 0)
+                ? session.getTotalNodes()
+                : allProgress.size();
+        if (totalNodes == 0) {
+            return;
+        }
+        int roadmapPct = (int) Math.round(completedCount * 100.0 / totalNodes);
+        // Map roadmap completion into lifecycle range [30, 90].
+        // 0% => 30, 100% => 90. Final verification (100%) is set elsewhere.
+        int mapped = Math.min(90, Math.max(30, (int) Math.round(30 + roadmapPct * 0.6)));
+        int current = journey.getProgressPercentage() != null ? journey.getProgressPercentage() : 0;
+        int next = Math.max(current, mapped);
+        if (!Objects.equals(current, next)) {
+            journey.setProgressPercentage(next);
+            journeyRepository.save(journey);
+        }
     }
 
     /**

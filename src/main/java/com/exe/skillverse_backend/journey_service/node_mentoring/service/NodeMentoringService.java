@@ -54,6 +54,13 @@ public interface NodeMentoringService {
      */
     NodeEvidenceRecordResponse getNodeEvidence(Long callerId, Long journeyId, String nodeId);
 
+    /**
+     * Free-learner self-confirm: marks the node COMPLETED without mentor review.
+     * Requires an active SUBMITTED or RESUBMITTED evidence record.
+     * Throws FORBIDDEN if any active mentor booking covers this node (must use mentor review instead).
+     */
+    NodeEvidenceRecordResponse selfConfirmNode(Long learnerId, Long journeyId, String nodeId);
+
     // ─── Review ───────────────────────────────────────────────────────────────
 
     /**

@@ -619,6 +619,7 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
             root.put("roadmap_statistics", roadmap.getStatistics());
             root.put("learning_tips", roadmap.getLearningTips() != null ? roadmap.getLearningTips() : List.of());
             session.setRoadmapJson(snakeCaseMapper.writeValueAsString(root));
+            session.setTotalNodes(roadmap.getRoadmap() != null ? roadmap.getRoadmap().size() : 0);
             roadmapSessionRepository.save(session);
         } catch (JsonProcessingException ex) {
             throw new ApiException(ErrorCode.INTERNAL_ERROR, "Không thể lưu thay đổi roadmap");

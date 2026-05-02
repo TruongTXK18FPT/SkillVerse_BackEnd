@@ -87,6 +87,18 @@ public class NodeMentoringController {
         return ResponseEntity.ok(nodeMentoringService.submitEvidence(learnerId, journeyId, nodeId, request));
     }
 
+    // ─── Self-confirm (free learner) ──────────────────────────────────────────
+
+    @PostMapping("/self-confirm")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<NodeEvidenceRecordResponse> selfConfirmNode(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long journeyId,
+            @PathVariable String nodeId) {
+        Long learnerId = JwtUtils.extractUserId(jwt);
+        return ResponseEntity.ok(nodeMentoringService.selfConfirmNode(learnerId, journeyId, nodeId));
+    }
+
     // ─── Review ───────────────────────────────────────────────────────────────
 
     @PostMapping("/review")

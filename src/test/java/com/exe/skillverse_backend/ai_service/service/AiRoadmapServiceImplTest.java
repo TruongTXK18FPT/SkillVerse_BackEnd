@@ -18,6 +18,7 @@ import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
+import com.exe.skillverse_backend.journey_service.node_mentoring.repository.RoadmapNodeSubmissionRepository;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.exe.skillverse_backend.ai_service.service.AiCourseCatalogService;
 import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
@@ -99,6 +100,9 @@ class AiRoadmapServiceImplTest {
     @Mock
     private LocalAiGateway localAiGateway;
 
+    @Mock
+    private RoadmapNodeSubmissionRepository nodeSubmissionRepository;
+
     private AiRoadmapServiceImpl service;
 
     @BeforeEach
@@ -121,7 +125,8 @@ class AiRoadmapServiceImplTest {
                 aiCourseCatalogService,
                 multiLevelCourseMatcher,
                 localAiGateway,
-                null);
+                null,
+                nodeSubmissionRepository);
     }
 
     @Test
@@ -145,7 +150,8 @@ class AiRoadmapServiceImplTest {
                 aiCourseCatalogService,
                 multiLevelCourseMatcher,
                 null,
-                null);
+                null,
+                nodeSubmissionRepository);
 
         Mockito.verifyNoInteractions(localAiGateway);
     }
