@@ -42,8 +42,12 @@ import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepos
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -264,6 +268,265 @@ class JourneyServiceImplStudyPlanTest {
 
         assertEquals(ErrorCode.NOT_FOUND, ex.getErrorCode());
         assertEquals("Roadmap not found", ex.getMessage());
+    }
+
+    @Test
+    void flexibleScheduling_timezoneConversion_UTCtoHCM() {
+        User user = User.builder().id(9L).email("test@example.com").build();
+        RoadmapSession roadmapSession = RoadmapSession.builder()
+                .id(55L)
+                .user(user)
+                .title("Test roadmap")
+                .roadmapJson("{\"roadmap\":[]}")
+                .build();
+
+        when(roadmapSessionRepository.findByIdAndUserId(55L, 9L)).thenReturn(Optional.of(roadmapSession));
+        when(journeyRepository.findByRoadmapSessionId(55L)).thenReturn(Optional.empty());
+        when(aiRoadmapService.getRoadmapById(55L, 9L)).thenReturn(buildRoadmapResponse(55L, "node-1"));
+        when(taskBoardService.getBoard(9L)).thenReturn(List.of(TaskColumnResponse.builder()
+                .id(UUID.randomUUID())
+                .name("To Do")
+                .tasks(List.of())
+                .build()));
+
+        GenerateScheduleRequest request = new GenerateScheduleRequest();
+        request.setStartDate(LocalDateTime.of(2026, 4, 5, 0, 0).toLocalDate());
+        request.setTimezone("Asia/Ho_Chi_Minh");
+        request.setStudyPreference("flexible");
+        request.setDurationMinutes(90);
+        request.setMaxSessionsPerDay(1);
+
+        when(aiStudySupportService.generateProposedSchedule(anyLong(), any())).thenReturn(List.of());
+        when(taskBoardService.createTask(anyLong(), any(CreateTaskRequest.class))).thenAnswer(invocation -> {
+            CreateTaskRequest req = invocation.getArgument(1);
+            return TaskResponse.builder()
+                    .id(UUID.randomUUID())
+                    .title(req.getTitle())
+                    .description(req.getDescription())
+                    .userNotes(req.getUserNotes())
+                    .columnId(req.getColumnId())
+                    .priority(req.getPriority())
+                    .startDate(req.getStartDate())
+                    .endDate(req.getEndDate())
+                    .deadline(req.getDeadline())
+                    .status("todo")
+                    .userProgress(0)
+                    .build();
+        });
+
+        service.studyClock = Clock.fixed(Instant.parse("2026-04-05T12:00:00Z"), ZoneOffset.UTC);
+
+        Object result = service.createStudyPlanForRoadmapNode(user, 55L, "node-1", request);
+
+        Map<?, ?> payload = assertInstanceOf(Map.class, result);
+        assertEquals(Boolean.TRUE, payload.get("created"));
+
+        ArgumentCaptor<CreateTaskRequest> taskCaptor = ArgumentCaptor.forClass(CreateTaskRequest.class);
+        verify(taskBoardService, org.mockito.Mockito.atLeast(1)).createTask(anyLong(), taskCaptor.capture());
+
+        LocalDateTime taskStart = taskCaptor.getValue().getStartDate();
+        LocalDateTime expectedMinimum = LocalDateTime.of(2026, 4, 5, 19, 30);
+        assertTrue(taskStart.isEqual(expectedMinimum) || taskStart.isAfter(expectedMinimum),
+            "Task start should be >= 19:30 HCM (12:00 UTC + 7h + 30min buffer)");
+    }
+
+    @Test
+    void flexibleScheduling_nearFutureBuffer() {
+        User user = User.builder().id(9L).email("test@example.com").build();
+        RoadmapSession roadmapSession = RoadmapSession.builder()
+                .id(55L)
+                .user(user)
+                .title("Test roadmap")
+                .roadmapJson("{\"roadmap\":[]}")
+                .build();
+
+        when(roadmapSessionRepository.findByIdAndUserId(55L, 9L)).thenReturn(Optional.of(roadmapSession));
+        when(journeyRepository.findByRoadmapSessionId(55L)).thenReturn(Optional.empty());
+        when(aiRoadmapService.getRoadmapById(55L, 9L)).thenReturn(buildRoadmapResponse(55L, "node-1"));
+        when(taskBoardService.getBoard(9L)).thenReturn(List.of(TaskColumnResponse.builder()
+                .id(UUID.randomUUID())
+                .name("To Do")
+                .tasks(List.of())
+                .build()));
+
+        GenerateScheduleRequest request = new GenerateScheduleRequest();
+        request.setStartDate(LocalDateTime.of(2026, 4, 5, 0, 0).toLocalDate());
+        request.setTimezone("Asia/Ho_Chi_Minh");
+        request.setStudyPreference("flexible");
+        request.setDurationMinutes(90);
+        request.setMaxSessionsPerDay(1);
+
+        when(aiStudySupportService.generateProposedSchedule(anyLong(), any())).thenReturn(List.of(
+                StudySessionResponse.builder()
+                        .title("Session 1")
+                        .description("Practice node")
+                        .startTime(LocalDateTime.of(2026, 4, 5, 19, 10))
+                        .endTime(LocalDateTime.of(2026, 4, 5, 20, 40))
+                        .build()));
+        when(taskBoardService.createTask(anyLong(), any(CreateTaskRequest.class))).thenAnswer(invocation -> {
+            CreateTaskRequest req = invocation.getArgument(1);
+            return TaskResponse.builder()
+                    .id(UUID.randomUUID())
+                    .title(req.getTitle())
+                    .description(req.getDescription())
+                    .userNotes(req.getUserNotes())
+                    .columnId(req.getColumnId())
+                    .priority(req.getPriority())
+                    .startDate(req.getStartDate())
+                    .endDate(req.getEndDate())
+                    .deadline(req.getDeadline())
+                    .status("todo")
+                    .userProgress(0)
+                    .build();
+        });
+
+        service.studyClock = Clock.fixed(Instant.parse("2026-04-05T12:00:00Z"), ZoneOffset.UTC);
+
+        Object result = service.createStudyPlanForRoadmapNode(user, 55L, "node-1", request);
+
+        Map<?, ?> payload = assertInstanceOf(Map.class, result);
+        assertEquals(Boolean.TRUE, payload.get("created"));
+
+        ArgumentCaptor<CreateTaskRequest> taskCaptor = ArgumentCaptor.forClass(CreateTaskRequest.class);
+        verify(taskBoardService).createTask(anyLong(), taskCaptor.capture());
+
+        LocalDateTime taskStart = taskCaptor.getValue().getStartDate();
+        LocalDateTime expectedMinimum = LocalDateTime.of(2026, 4, 5, 19, 30);
+        assertTrue(taskStart.isEqual(expectedMinimum) || taskStart.isAfter(expectedMinimum),
+            "Task start should be >= 19:30 (12:00 UTC + 7h + 30min buffer), ignoring AI's 19:10");
+    }
+
+    @Test
+    void flexibleScheduling_quarterHourRounding() {
+        User user = User.builder().id(9L).email("test@example.com").build();
+        RoadmapSession roadmapSession = RoadmapSession.builder()
+                .id(55L)
+                .user(user)
+                .title("Test roadmap")
+                .roadmapJson("{\"roadmap\":[]}")
+                .build();
+
+        when(roadmapSessionRepository.findByIdAndUserId(55L, 9L)).thenReturn(Optional.of(roadmapSession));
+        when(journeyRepository.findByRoadmapSessionId(55L)).thenReturn(Optional.empty());
+        when(aiRoadmapService.getRoadmapById(55L, 9L)).thenReturn(buildRoadmapResponse(55L, "node-1"));
+        when(taskBoardService.getBoard(9L)).thenReturn(List.of(TaskColumnResponse.builder()
+                .id(UUID.randomUUID())
+                .name("To Do")
+                .tasks(List.of())
+                .build()));
+
+        GenerateScheduleRequest request = new GenerateScheduleRequest();
+        request.setStartDate(LocalDateTime.of(2026, 4, 5, 0, 0).toLocalDate());
+        request.setTimezone("Asia/Ho_Chi_Minh");
+        request.setStudyPreference("flexible");
+        request.setDurationMinutes(90);
+        request.setMaxSessionsPerDay(1);
+
+        when(aiStudySupportService.generateProposedSchedule(anyLong(), any())).thenReturn(List.of());
+        when(taskBoardService.createTask(anyLong(), any(CreateTaskRequest.class))).thenAnswer(invocation -> {
+            CreateTaskRequest req = invocation.getArgument(1);
+            return TaskResponse.builder()
+                    .id(UUID.randomUUID())
+                    .title(req.getTitle())
+                    .description(req.getDescription())
+                    .userNotes(req.getUserNotes())
+                    .columnId(req.getColumnId())
+                    .priority(req.getPriority())
+                    .startDate(req.getStartDate())
+                    .endDate(req.getEndDate())
+                    .deadline(req.getDeadline())
+                    .status("todo")
+                    .userProgress(0)
+                    .build();
+        });
+
+        service.studyClock = Clock.fixed(Instant.parse("2026-04-05T12:01:00Z"), ZoneOffset.UTC);
+
+        Object result = service.createStudyPlanForRoadmapNode(user, 55L, "node-1", request);
+
+        Map<?, ?> payload = assertInstanceOf(Map.class, result);
+        assertEquals(Boolean.TRUE, payload.get("created"));
+
+        ArgumentCaptor<CreateTaskRequest> taskCaptor = ArgumentCaptor.forClass(CreateTaskRequest.class);
+        verify(taskBoardService, org.mockito.Mockito.atLeast(1)).createTask(anyLong(), taskCaptor.capture());
+
+        LocalDateTime taskStart = taskCaptor.getValue().getStartDate();
+        int minute = taskStart.getMinute();
+        assertTrue(minute == 0 || minute == 15 || minute == 30 || minute == 45,
+            "Task start minute should be rounded to quarter-hour boundary (0, 15, 30, 45)");
+        LocalDateTime expectedMinimum = LocalDateTime.of(2026, 4, 5, 19, 45);
+        assertTrue(taskStart.isEqual(expectedMinimum) || taskStart.isAfter(expectedMinimum),
+            "Task start should be >= 19:45 (12:01 UTC + 7h + 30min buffer + rounded to 45)");
+    }
+
+    @Test
+    void flexibleScheduling_multipleWindowsDistribution() {
+        User user = User.builder().id(9L).email("test@example.com").build();
+        RoadmapSession roadmapSession = RoadmapSession.builder()
+                .id(55L)
+                .user(user)
+                .title("Test roadmap")
+                .roadmapJson("{\"roadmap\":[]}")
+                .build();
+
+        when(roadmapSessionRepository.findByIdAndUserId(55L, 9L)).thenReturn(Optional.of(roadmapSession));
+        when(journeyRepository.findByRoadmapSessionId(55L)).thenReturn(Optional.empty());
+        when(aiRoadmapService.getRoadmapById(55L, 9L)).thenReturn(buildRoadmapResponse(55L, "node-1"));
+        when(taskBoardService.getBoard(9L)).thenReturn(List.of(TaskColumnResponse.builder()
+                .id(UUID.randomUUID())
+                .name("To Do")
+                .tasks(List.of())
+                .build()));
+
+        GenerateScheduleRequest request = new GenerateScheduleRequest();
+        request.setStartDate(LocalDateTime.of(2026, 4, 5, 0, 0).toLocalDate());
+        request.setTimezone("Asia/Ho_Chi_Minh");
+        request.setStudyPreference("flexible");
+        request.setDurationMinutes(90);
+        request.setMaxSessionsPerDay(3);
+
+        when(aiStudySupportService.generateProposedSchedule(anyLong(), any())).thenReturn(List.of());
+        when(taskBoardService.createTask(anyLong(), any(CreateTaskRequest.class))).thenAnswer(invocation -> {
+            CreateTaskRequest req = invocation.getArgument(1);
+            return TaskResponse.builder()
+                    .id(UUID.randomUUID())
+                    .title(req.getTitle())
+                    .description(req.getDescription())
+                    .userNotes(req.getUserNotes())
+                    .columnId(req.getColumnId())
+                    .priority(req.getPriority())
+                    .startDate(req.getStartDate())
+                    .endDate(req.getEndDate())
+                    .deadline(req.getDeadline())
+                    .status("todo")
+                    .userProgress(0)
+                    .build();
+        });
+
+        service.studyClock = Clock.fixed(Instant.parse("2026-04-05T00:00:00Z"), ZoneOffset.UTC);
+        
+        Object result = service.createStudyPlanForRoadmapNode(user, 55L, "node-1", request);
+        
+        Map<?, ?> payload = assertInstanceOf(Map.class, result);
+        assertEquals(Boolean.TRUE, payload.get("created"));
+        
+        ArgumentCaptor<CreateTaskRequest> taskCaptor = ArgumentCaptor.forClass(CreateTaskRequest.class);
+        verify(taskBoardService, org.mockito.Mockito.atLeast(3)).createTask(anyLong(), taskCaptor.capture());
+        
+        List<CreateTaskRequest> capturedTasks = taskCaptor.getAllValues();
+        if (capturedTasks.size() >= 3) {
+            List<LocalTime> startTimes = capturedTasks.stream()
+                    .map(t -> t.getStartDate().toLocalTime())
+                    .toList();
+            
+            boolean usesMorning = startTimes.stream().anyMatch(t -> t.getHour() >= 8 && t.getHour() < 11);
+            boolean usesAfternoon = startTimes.stream().anyMatch(t -> t.getHour() >= 13 && t.getHour() < 18);
+            boolean usesEvening = startTimes.stream().anyMatch(t -> t.getHour() >= 19 && t.getHour() < 22);
+            
+            int windowsUsed = (usesMorning ? 1 : 0) + (usesAfternoon ? 1 : 0) + (usesEvening ? 1 : 0);
+            assertTrue(windowsUsed >= 2,
+                "Flexible scheduling should use at least 2 different time windows (morning/afternoon/evening)");
+        }
     }
 
     private RoadmapResponse buildRoadmapResponse(Long sessionId, String nodeId) {

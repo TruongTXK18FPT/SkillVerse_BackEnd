@@ -15,13 +15,15 @@ import java.util.List;
  * Each entry holds the minimal data needed for scoring and matching — no heavy
  * entity data is loaded into memory.
  *
- * <p>Scoring weights (used by {@link com.exe.skillverse_backend.ai_service.service.AiCourseCatalogService}):
+ * <p>Scoring weights (used by {@link com.exe.skillverse_backend.ai_service.service.impl.MultiLevelCourseMatcher}):
  * <ul>
- *   <li>title match       → ×3</li>
- *   <li>category match    → ×2</li>
- *   <li>level match       → ×2</li>
- *   <li>description match  → ×1</li>
- *   <li>enrollment count  → normalized ×1</li>
+ *   <li>skill tag match    → +5</li>
+ *   <li>title match        → +4</li>
+ *   <li>category match     → +2</li>
+ *   <li>level match        → +2</li>
+ *   <li>learning signal    → +2</li>
+ *   <li>description match  → +1</li>
+ *   <li>enrollment count   → normalized ×1</li>
  * </ul>
  *
  * @see com.exe.skillverse_backend.ai_service.service.AiCourseCatalogService
@@ -76,4 +78,10 @@ public class CourseCatalogEntry {
 
     @Builder.Default
     private List<ModuleEntry> modules = List.of();
+
+    /** Internal scoring field: skill tag text for keyword matching (not public API) */
+    private String skillTagText;
+
+    /** Internal scoring field: learning objectives + requirements + module titles (not public API) */
+    private String learningSignalText;
 }

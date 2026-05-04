@@ -20,6 +20,7 @@ import com.exe.skillverse_backend.course_service.entity.enums.SubmissionType;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
+import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -50,6 +51,7 @@ public class RevisionPinnedContentResolver {
     private final CourseEnrollmentRepository enrollmentRepository;
     private final CourseRevisionRepository courseRevisionRepository;
     private final ModuleRepository moduleRepository;
+    private final MediaRepository mediaRepository;
 
     public Optional<List<ModuleDetailDTO>> resolveModulesWithContent(Course course, Long actorId) {
         if (course == null || actorId == null) {
@@ -572,6 +574,22 @@ public class RevisionPinnedContentResolver {
             videoUrl = textOrNull(itemNode.path("youtubeUrl"));
         }
 
+        Long videoMediaId = parseLong(itemNode.path("videoMediaId"));
+
+        // If no videoUrl but has videoMediaId, resolve URL from Media entity
+        if (videoUrl == null && videoMediaId != null) {
+            try {
+                videoUrl = mediaRepository.findById(videoMediaId)
+                        .map(media -> media.getUrl())
+                        .orElse(null);
+                if (videoUrl != null) {
+                    log.debug("Resolved videoUrl from videoMediaId {} for lesson {}", videoMediaId, lessonId);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to resolve videoUrl from videoMediaId {}: {}", videoMediaId, e.getMessage());
+            }
+        }
+
         return new LessonBriefDTO(
                 lessonId,
                 textOrDefault(itemNode.path("title"), "Bài học"),
@@ -581,7 +599,7 @@ public class RevisionPinnedContentResolver {
                 textOrNull(itemNode.path("contentText")),
                 textOrNull(itemNode.path("resourceUrl")),
                 videoUrl,
-                parseLong(itemNode.path("videoMediaId"))
+                videoMediaId
         );
     }
 

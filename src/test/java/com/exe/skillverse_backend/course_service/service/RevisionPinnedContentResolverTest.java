@@ -18,6 +18,7 @@ import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
+import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.course_service.service.impl.RevisionPinnedContentResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
@@ -41,12 +42,15 @@ class RevisionPinnedContentResolverTest {
         @Mock
         private ModuleRepository moduleRepository;
 
+    @Mock
+    private MediaRepository mediaRepository;
+
     private RevisionPinnedContentResolver resolver;
     private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp() {
-                resolver = new RevisionPinnedContentResolver(enrollmentRepository, courseRevisionRepository, moduleRepository);
+                resolver = new RevisionPinnedContentResolver(enrollmentRepository, courseRevisionRepository, moduleRepository, mediaRepository);
         objectMapper = new ObjectMapper();
     }
 

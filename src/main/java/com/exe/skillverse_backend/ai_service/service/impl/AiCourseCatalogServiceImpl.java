@@ -13,8 +13,10 @@ import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
@@ -26,7 +28,9 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
@@ -145,6 +149,7 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
         }
     }
 
+    @Scheduled(fixedRate = 300_000)
     @Transactional(readOnly = true)
     public void scheduledRefresh() {
         log.info("[Catalog] Scheduled refresh starting...");
@@ -222,6 +227,7 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
                 .averageRating(0.0)
                 .moduleIds(new ArrayList<>())
                 .modules(new ArrayList<>())
+                .skillTagText(safe(courseSkillTags).toLowerCase(Locale.ROOT))
                 .build();
         courseIndex.put(id, entry);
 
@@ -232,7 +238,7 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
                 safe(category) + " " +
                 safe(learningObjectives) + " " +
                 safe(requirements) + " " +
-                safe(courseSkillTags)).toLowerCase();
+                safe(courseSkillTags)).toLowerCase(Locale.ROOT);
 
         // Add module titles from live modules table for searchable signals
         // Note: Module titles come from live DB, not content_snapshot_json. For full active
@@ -250,6 +256,15 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
                     .build());
             searchable += " " + safe(modTitle);
         }
+
+        // Set learningSignalText: learning objectives + requirements + module titles
+        StringBuilder moduleTitlesSb = new StringBuilder();
+        for (ModuleEntry m : entry.getModules()) {
+            moduleTitlesSb.append(" ").append(safe(m.getTitle()));
+        }
+        entry.setLearningSignalText(buildLearningSignalText(
+            learningObjectives, requirements, moduleTitlesSb.toString()
+        ));
 
         // Tokenize and update index structures
         List<String> terms = tokenizeWithBigrams(searchable);
@@ -304,7 +319,7 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
     /**
      * Event-driven: trigger immediate index update when a course revision is approved.
      */
-    @EventListener
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onCourseRevisionApproved(CourseRevisionApprovedEvent event) {
         log.info("[Catalog] Received CourseRevisionApprovedEvent — refreshing course {} (revision {})",
                 event.getCourseId(), event.getRevisionId());
@@ -494,6 +509,8 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
         Map<Long, List<Long>> newPrereqIndex = new ConcurrentHashMap<>(256);
         Map<Long, StringBuilder> moduleTitlesBuilder = new ConcurrentHashMap<>(256);
         Map<Long, String> courseSearchableText = new ConcurrentHashMap<>(256);
+        Map<Long, String> learningObjectivesMap = new ConcurrentHashMap<>(256);
+        Map<Long, String> requirementsMap = new ConcurrentHashMap<>(256);
         long newMaxEnrollment = 1;
         long newMinCreatedAt = Long.MAX_VALUE;
         long newMaxCreatedAt = Long.MIN_VALUE;
@@ -512,6 +529,9 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
             String learningObjectives = listToString(row.length > 8 ? row[8] : null);
             String requirements = listToString(row.length > 9 ? row[9] : null);
             String courseSkillTags = listToString(row.length > 10 ? row[10] : null);
+
+            learningObjectivesMap.put(id, learningObjectives);
+            requirementsMap.put(id, requirements);
 
             if (createdAt != null) {
                 long epoch = createdAt.toEpochMilli();
@@ -532,6 +552,7 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
                     .averageRating(0.0)
                     .moduleIds(new ArrayList<>())
                     .modules(new ArrayList<>())
+                    .skillTagText(safe(courseSkillTags).toLowerCase(Locale.ROOT))
                     .build());
             // Build searchable text from metadata fields for BM25 indexing
             courseSearchableText.put(id, (safe(title) + " " +
@@ -596,8 +617,14 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
             Long cid = course.getId();
             // Include module titles in searchable text so BM25 can match courses by module topic
             StringBuilder moduleTitles = moduleTitlesBuilder.get(cid);
+            String moduleTitlesStr = moduleTitles != null ? moduleTitles.toString() : "";
             String searchable = (courseSearchableText.getOrDefault(cid, "") + " " +
-                    (moduleTitles != null ? moduleTitles.toString() : "")).toLowerCase();
+                    moduleTitlesStr).toLowerCase(Locale.ROOT);
+
+            // Set learningSignalText: learning objectives + requirements + module titles
+            String loText = learningObjectivesMap.getOrDefault(cid, "");
+            String reqText = requirementsMap.getOrDefault(cid, "");
+            course.setLearningSignalText(buildLearningSignalText(loText, reqText, moduleTitlesStr));
 
             // Tokenize with bigrams for compound phrases
             List<String> terms = tokenizeWithBigrams(searchable);
@@ -680,6 +707,8 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
                 .createdAt(src.getCreatedAt())
                 .moduleIds(List.copyOf(src.getModuleIds()))
                 .modules(List.copyOf(src.getModules()))
+                .skillTagText(src.getSkillTagText())
+                .learningSignalText(src.getLearningSignalText())
                 .build();
         clone.setScore((int) Math.round(score));
         return clone;
@@ -936,16 +965,23 @@ public class AiCourseCatalogServiceImpl implements AiCourseCatalogService {
         return text.replaceAll("[^a-zA-Z0-9\\s]", " ").toLowerCase().trim();
     }
 
+    private String buildLearningSignalText(String learningObjectives, String requirements, String moduleTitles) {
+        return (safe(learningObjectives) + " " + safe(requirements) + " " + safe(moduleTitles))
+                .toLowerCase(Locale.ROOT);
+    }
+
     private String safe(String s) {
         return s != null ? s : "";
     }
 
     private String listToString(Object field) {
-        if (field == null) return "";
+        if (field == null) {
+            return "";
+        }
         if (field instanceof List<?> list) {
             return list.stream()
-                    .filter(v -> v != null)
-                    .map(v -> v.toString())
+                    .filter(Objects::nonNull)
+                    .map(Object::toString)
                     .collect(Collectors.joining(" "));
         }
         // Handle JSON string from PostgreSQL JSONB::TEXT (e.g. "[\"Java\",\"Spring\"]")

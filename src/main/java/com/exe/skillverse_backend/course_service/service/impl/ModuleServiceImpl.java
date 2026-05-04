@@ -8,11 +8,13 @@ import com.exe.skillverse_backend.course_service.entity.Quiz;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.mapper.ModuleMapper;
+import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonProgressRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 import com.exe.skillverse_backend.course_service.service.ModuleService;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
@@ -45,6 +47,8 @@ public class ModuleServiceImpl implements ModuleService {
   private final ModuleMapper moduleMapper;
   private final LessonRepository lessonRepository;
   private final LessonProgressRepository lessonProgressRepository;
+  private final AssignmentRepository assignmentRepository;
+  private final QuizRepository quizRepository;
   private final RevisionPinnedContentResolver revisionPinnedContentResolver;
 
   @Override
@@ -79,7 +83,35 @@ public class ModuleServiceImpl implements ModuleService {
   public void deleteModule(Long moduleId, Long actorId) {
     Module module = getModuleOrThrow(moduleId);
     ensureAuthorOrAdmin(actorId, module.getCourse().getAuthor().getId());
+
+    // Cascade delete: Delete all lessons, quizzes, assignments in this module first
+    // to avoid FK constraint violations
+    log.info("Cascade deleting content for module {} before deleting module", moduleId);
+
+    // Delete all assignments in module
+    List<Assignment> assignments = assignmentRepository.findByModuleId(moduleId);
+    if (!assignments.isEmpty()) {
+      assignmentRepository.deleteAll(assignments);
+      log.info("Deleted {} assignments from module {}", assignments.size(), moduleId);
+    }
+
+    // Delete all quizzes in module (with their questions and options)
+    List<Quiz> quizzes = quizRepository.findByModuleIdOrderByOrderIndexAsc(moduleId);
+    if (!quizzes.isEmpty()) {
+      quizRepository.deleteAll(quizzes);
+      log.info("Deleted {} quizzes from module {}", quizzes.size(), moduleId);
+    }
+
+    // Delete all lessons in module
+    List<Lesson> lessons = lessonRepository.findByModuleId(moduleId);
+    if (!lessons.isEmpty()) {
+      lessonRepository.deleteAll(lessons);
+      log.info("Deleted {} lessons from module {}", lessons.size(), moduleId);
+    }
+
+    // Finally delete the module
     moduleRepository.delete(module);
+    log.info("Module {} deleted by actor {}", moduleId, actorId);
   }
 
   @Override

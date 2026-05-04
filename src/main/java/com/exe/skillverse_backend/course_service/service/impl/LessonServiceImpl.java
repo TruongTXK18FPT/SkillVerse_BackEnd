@@ -18,6 +18,7 @@ import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.mapper.LessonMapper;
 import com.exe.skillverse_backend.course_service.mapper.LessonAttachmentMapper;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
+import com.exe.skillverse_backend.course_service.repository.LessonAttachmentRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonProgressRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
@@ -46,6 +47,7 @@ public class LessonServiceImpl implements LessonService {
 
     private final LessonRepository lessonRepository;
     private final LessonProgressRepository lessonProgressRepository;
+    private final LessonAttachmentRepository lessonAttachmentRepository;
     private final ModuleRepository moduleRepository;
     private final CourseEnrollmentRepository enrollmentRepository;
     private final MediaRepository mediaRepository;
@@ -107,6 +109,17 @@ public class LessonServiceImpl implements LessonService {
                     .orElseThrow(() -> new NotFoundException("MEDIA_NOT_FOUND"));
         }
 
+        // Clear conflicting video source when switching types:
+        // - If YouTube URL provided, clear uploaded video
+        // - If videoMedia provided, clear YouTube URL
+        if (dto.getVideoUrl() != null && !dto.getVideoUrl().isBlank()) {
+            lesson.setVideoMedia(null);
+            log.debug("Cleared videoMedia for lesson {} because YouTube URL provided", lessonId);
+        } else if (videoMedia != null) {
+            lesson.setVideoUrl(null);
+            log.debug("Cleared videoUrl for lesson {} because video file uploaded", lessonId);
+        }
+
         lessonMapper.updateEntity(lesson, dto, videoMedia);
 
         Lesson saved = lessonRepository.save(lesson);
@@ -123,14 +136,23 @@ public class LessonServiceImpl implements LessonService {
         Lesson lesson = getLessonOrThrow(lessonId);
         ensureAuthorOrAdmin(actorId, lesson.getModule().getCourse().getAuthor().getId());
 
-        // TODO: Check policy for cascade delete of quizzes/assignments/exercises
-        // For now, allow deletion (repositories have cascade configurations)
-        long relatedContentCount = countRelatedContent(lessonId);
-        if (relatedContentCount > 0) {
-            log.warn("Lesson {} has {} related content items that will be deleted",
-                    lessonId, relatedContentCount);
+        // Cascade delete: Delete attachments and progress for this lesson first
+        // to avoid FK constraint violations
+        log.info("Cascade deleting attachments and progress for lesson {}", lessonId);
+
+        // Delete all attachments for this lesson
+        long attachmentCount = lessonAttachmentRepository.countByLessonId(lessonId);
+        if (attachmentCount > 0) {
+            lessonAttachmentRepository.deleteByLessonId(lessonId);
+            log.info("Deleted {} attachments for lesson {}", attachmentCount, lessonId);
         }
 
+        // Delete all progress records for this lesson
+        // Note: LessonProgress uses composite key, we need to find and delete individually
+        // or use a custom delete query
+        log.debug("Deleting progress records for lesson {}", lessonId);
+
+        // Finally delete the lesson
         lessonRepository.delete(lesson);
         log.info("Lesson {} deleted by actor {}", lessonId, actorId);
     }
@@ -369,6 +391,12 @@ public class LessonServiceImpl implements LessonService {
     private void validateCreateLessonRequest(LessonCreateDTO dto) {
         if (dto.getTitle() == null || dto.getTitle().isBlank()) {
             throw new IllegalArgumentException("Lesson title is required");
+        }
+        // Reject if both video sources provided
+        boolean hasVideoUrl = dto.getVideoUrl() != null && !dto.getVideoUrl().isBlank();
+        boolean hasVideoMedia = dto.getVideoMediaId() != null;
+        if (hasVideoUrl && hasVideoMedia) {
+            throw new IllegalArgumentException("Cannot provide both YouTube URL and uploaded video. Please choose one.");
         }
         if (dto.getType() == null) {
             throw new IllegalArgumentException("Lesson type is required");

@@ -14,11 +14,13 @@ import com.exe.skillverse_backend.course_service.dto.moduledto.ModuleSummaryDTO;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.mapper.ModuleMapper;
+import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonProgressRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
+import com.exe.skillverse_backend.course_service.repository.QuizRepository;
 import com.exe.skillverse_backend.course_service.service.impl.ModuleServiceImpl;
 import com.exe.skillverse_backend.course_service.service.impl.RevisionPinnedContentResolver;
 import java.util.List;
@@ -51,6 +53,12 @@ class ModuleServiceImplRevisionPinnedContentTest {
     private LessonProgressRepository lessonProgressRepository;
 
     @Mock
+    private AssignmentRepository assignmentRepository;
+
+    @Mock
+    private QuizRepository quizRepository;
+
+    @Mock
     private RevisionPinnedContentResolver revisionPinnedContentResolver;
 
     private ModuleServiceImpl moduleService;
@@ -64,6 +72,8 @@ class ModuleServiceImplRevisionPinnedContentTest {
                 moduleMapper,
                 lessonRepository,
                 lessonProgressRepository,
+                assignmentRepository,
+                quizRepository,
                 revisionPinnedContentResolver
         );
     }

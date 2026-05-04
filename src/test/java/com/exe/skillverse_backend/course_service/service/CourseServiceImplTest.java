@@ -29,6 +29,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -87,6 +88,9 @@ class CourseServiceImplTest {
 
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private CourseServiceImpl courseService;
