@@ -46,6 +46,7 @@ public interface AssignmentSubmissionMapper {
     @Mapping(target = "isLate", source = "isLate")
     // AI Grading fields
     @Mapping(target = "isAiGraded", source = "isAiGraded")
+    @Mapping(target = "assignmentAiGradingEnabled", source = "assignment.aiGradingEnabled")
     @Mapping(target = "aiGradedAt", source = "aiGradedAt")
     @Mapping(target = "aiScore", source = "aiScore")
     @Mapping(target = "aiFeedback", source = "aiFeedback")

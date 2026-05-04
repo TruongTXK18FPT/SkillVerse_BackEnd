@@ -54,6 +54,12 @@ public class AssignmentSubmissionDetailDTO {
 
     // AI Grading fields
     private Boolean isAiGraded;
+    
+    /**
+     * Assignment's AI grading enabled flag — needed to compute status for pending submissions.
+     * Not mapped from entity; set by service layer.
+     */
+    private Boolean assignmentAiGradingEnabled;
     private Instant aiGradedAt;
     private BigDecimal aiScore;
     private String aiFeedback;
@@ -75,11 +81,16 @@ public class AssignmentSubmissionDetailDTO {
         if (Boolean.TRUE.equals(isAiGraded) && mentorConfirmed == null) {
             return "AI_PENDING";
         }
+        // AI_PENDING (pre-grading): assignment has AI grading enabled, submission is in AI queue, not yet graded
+        // This triggers FE polling to wait for AI grading completion
+        if (Boolean.TRUE.equals(assignmentAiGradingEnabled) && !Boolean.TRUE.equals(isAiGraded) && score == null) {
+            return "AI_PENDING";
+        }
         // LATE_PENDING: nộp muộn, chưa chấm
         if (Boolean.TRUE.equals(isLate)) {
             return "LATE_PENDING";
         }
-        // PENDING: mới nộp, chưa chấm
+        // PENDING: mới nộp, chưa chấm (mentor grading mode)
         return "PENDING";
     }
 }
