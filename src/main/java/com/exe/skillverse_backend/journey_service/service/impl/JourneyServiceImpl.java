@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.ai_service.dto.request.GenerateRoadmapRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
+import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.QuestionInfo;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.TestSubmissionInfo;
@@ -110,6 +111,7 @@ public class JourneyServiceImpl implements JourneyService {
     private final AssessmentTestRepository assessmentTestRepository;
     private final TestResultRepository testResultRepository;
     private final JourneyProgressRepository journeyProgressRepository;
+    private final UserRoadmapProgressRepository userRoadmapProgressRepository;
     private final FinalVerificationGateService finalVerificationGateService;
     private final EntityManager entityManager;
 
@@ -3938,7 +3940,12 @@ public class JourneyServiceImpl implements JourneyService {
     }
 
     private int calculateNodesCompleted(Journey journey) {
-        return journey.getProgressPercentage() / 10;
+        Long roadmapSessionId = journey.getRoadmapSessionId();
+        if (roadmapSessionId == null) {
+            return 0;
+        }
+        Long completedCount = userRoadmapProgressRepository.countCompletedBySessionId(roadmapSessionId);
+        return completedCount != null ? completedCount.intValue() : 0;
     }
 
     private String convertRequestToJson(StartJourneyRequest request) {

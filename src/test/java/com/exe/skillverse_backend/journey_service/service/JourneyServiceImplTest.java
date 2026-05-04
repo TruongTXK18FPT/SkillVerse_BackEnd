@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.journey_service.service;
 
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
+import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.QuestionInfo;
@@ -68,6 +69,9 @@ class JourneyServiceImplTest {
     private JourneyProgressRepository journeyProgressRepository;
 
     @Mock
+    private UserRoadmapProgressRepository userRoadmapProgressRepository;
+
+    @Mock
     private FinalVerificationGateService finalVerificationGateService;
 
     @Mock
@@ -111,6 +115,7 @@ class JourneyServiceImplTest {
                 assessmentTestRepository,
                 testResultRepository,
                 journeyProgressRepository,
+                userRoadmapProgressRepository,
                 finalVerificationGateService,
                 entityManager,
                 generateTestChatModel,

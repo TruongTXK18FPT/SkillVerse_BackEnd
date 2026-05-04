@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
+import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService;
 import com.exe.skillverse_backend.auth_service.entity.User;
@@ -70,6 +71,8 @@ class JourneyServiceImplStudyPlanTest {
     @Mock
     private JourneyProgressRepository journeyProgressRepository;
     @Mock
+    private UserRoadmapProgressRepository userRoadmapProgressRepository;
+    @Mock
     private FinalVerificationGateService finalVerificationGateService;
     @Mock
     private EntityManager entityManager;
@@ -105,6 +108,7 @@ class JourneyServiceImplStudyPlanTest {
                 assessmentTestRepository,
                 testResultRepository,
                 journeyProgressRepository,
+                userRoadmapProgressRepository,
                 finalVerificationGateService,
                 entityManager,
                 generateTestChatModel,
