@@ -7,6 +7,7 @@ import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
 import com.exe.skillverse_backend.business_service.repository.JobApplicationRepository;
+import com.exe.skillverse_backend.business_service.repository.JobContractRepository;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.business_service.service.impl.JobPostingServiceImpl;
@@ -539,6 +540,11 @@ public class JobPostingServiceTest {
 
         // Mock objectMapper for mapToResponse
         when(objectMapper.readValue(anyString(), eq(String[].class))).thenReturn(new String[] {});
+        // Mock jobApplicationRepository and jobContractRepository for changeStatus validation
+        when(jobApplicationRepository.findByJobPostingIdAndStatusIn(anyLong(), anyList()))
+                .thenReturn(java.util.Collections.emptyList());
+        when(jobContractRepository.findByApplicationJobPostingIdAndStatusIn(anyLong(), anyList()))
+                .thenReturn(java.util.Collections.emptyList());
 
         JobPostingResponse response = jobPostingService.changeStatus(100L, 1L, JobStatus.CLOSED);
 
@@ -671,11 +677,11 @@ public class JobPostingServiceTest {
         assertThrows(IllegalArgumentException.class, () -> jobPostingService.updateJob(100L, 1L, updateRequest));
     }
 
-    // 26. Case: Update CLOSED job (Now Allowed)
+    // 26. Case: Update CLOSED job (Not Allowed)
     // Input: Job CLOSED
-    // Expected: Success (No exception)
+    // Expected: IllegalStateException
     @Test
-    void updateJob_ClosedJobAllowed() throws Exception {
+    void updateJob_ClosedJobAllowed() {
         UpdateJobRequest updateRequest = new UpdateJobRequest();
         updateRequest.setTitle("New Title");
 
@@ -690,12 +696,10 @@ public class JobPostingServiceTest {
 
         when(jobPostingRepository.findByIdAndRecruiterProfileUserId(1L, 100L))
                 .thenReturn(Optional.of(existingJob));
-        when(jobPostingRepository.save(any(JobPosting.class))).thenReturn(existingJob);
-        when(objectMapper.readValue(anyString(), eq(String[].class))).thenReturn(new String[] {});
 
-        JobPostingResponse response = jobPostingService.updateJob(100L, 1L, updateRequest);
-
-        assertEquals("New Title", existingJob.getTitle());
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> jobPostingService.updateJob(100L, 1L, updateRequest));
+        assertTrue(exception.getMessage().contains("CLOSED"));
     }
 
     // 27. Case: Reopen job with Custom Deadline

@@ -188,11 +188,11 @@ public class JobPostingServiceImpl implements JobPostingService {
         JobPosting job = jobPostingRepository.findByIdAndRecruiterProfileUserId(jobId, userId)
                 .orElseThrow(() -> new NotFoundException("Job not found or you don't have permission to edit it"));
 
-        // Validate status - only allow edit if IN_PROGRESS or CLOSED
-        // UPDATE: Allow editing CLOSED jobs (User can edit then reopen for a fee)
-        if (job.getStatus() == JobStatus.OPEN) {
+        // Validate status - only allow edit if IN_PROGRESS
+        // CLOSED jobs must be reopened before editing
+        if (job.getStatus() == JobStatus.OPEN || job.getStatus() == JobStatus.CLOSED) {
             throw new IllegalStateException(
-                    "Không thể chỉnh sửa job đang OPEN. Hãy tạm đóng hoặc kết thúc để chỉnh sửa.");
+                    "Không thể chỉnh sửa job đang OPEN hoặc đã CLOSED. Hãy mở lại (reopen) để chỉnh sửa.");
         }
 
         // Update fields if provided

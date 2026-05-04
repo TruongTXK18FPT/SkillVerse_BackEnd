@@ -335,6 +335,7 @@ class JobApplicationServiceTest {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
         assertTrue(exception.getMessage().contains("schedule an interview via the interview API"));
+        assertTrue(exception.getMessage().contains("Direct transition"));
     }
 
     @Test
@@ -449,7 +450,7 @@ class JobApplicationServiceTest {
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
-        assertTrue(exception.getMessage().contains("reached a terminal/managed status"));
+        assertTrue(exception.getMessage().contains("OFFER_ACCEPTED"));
     }
 
     @Test
@@ -467,6 +468,7 @@ class JobApplicationServiceTest {
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
         assertTrue(exception.getMessage().contains("schedule an interview via the interview API"));
+        assertTrue(exception.getMessage().contains("Direct transition"));
     }
 
     // ==================== ONSITE JOB STATUS RESTRICTION TESTS ====================
@@ -509,7 +511,8 @@ class JobApplicationServiceTest {
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
-        assertTrue(exception.getMessage().contains("after INTERVIEWED, only HIRED or REJECTED transitions are allowed"));
+        assertTrue(exception.getMessage().contains("schedule an interview via the interview API"));
+        assertTrue(exception.getMessage().contains("Direct transition"));
     }
 
     @Test
@@ -524,8 +527,9 @@ class JobApplicationServiceTest {
 
         when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
 
-        assertThrows(IllegalArgumentException.class,
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
+        assertTrue(exception.getMessage().contains("schedule an interview via the interview API"));
     }
 
     @Test
@@ -576,6 +580,7 @@ class JobApplicationServiceTest {
         // Remote pipeline: after INTERVIEWED -> OFFER_SENT (if negotiable)
         jobPosting.setIsNegotiable(true);
         jobApplication.setStatus(JobApplicationStatus.INTERVIEWED);
+        jobApplication.setJobPosting(jobPosting); // Ensure the application has the updated jobPosting
 
         UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();
         request.setStatus(JobApplicationStatus.OFFER_SENT);
