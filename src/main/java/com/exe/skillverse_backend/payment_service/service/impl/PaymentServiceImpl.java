@@ -595,19 +595,20 @@ public class PaymentServiceImpl implements PaymentService {
                 <head>
                     <meta charset=\"UTF-8\" />
                     <style>
-                        body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;margin:0;padding:0}
-                        .container{max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(2,6,23,0.08);overflow:hidden}
-                        .header{background:linear-gradient(135deg,#4f46e5,#0ea5e9);padding:24px;display:flex;justify-content:center;align-items:center}
+                        body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f3f6fb;color:#132238;margin:0;padding:0}
+                        .container{max-width:640px;margin:24px auto;background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(15,59,99,0.08);overflow:hidden;border:1px solid #d9e4f1}
+                        .header{background:#061322;background-image:linear-gradient(120deg,#071321 0%%,#0a1f35 52%%,#0f3b63 100%%);padding:24px;display:flex;justify-content:center;align-items:center;border-bottom:1px solid #1c4d7a}
                         .logo{width:44px;height:44px;border-radius:10px;overflow:hidden}
-                        .content{padding:24px;color:#111827}
-                        .pill{display:inline-block;background:#ecfeff;color:#0ea5e9;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:600;margin-bottom:12px}
-                        .card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-top:12px}
-                        .row{display:flex;justify-content:space-between;margin:6px 0}
-                        .label{color:#6b7280}
-                        .value{font-weight:600}
+                        .content{padding:24px;color:#344a63}
+                        .content h2{color:#10263f;margin:6px 0 10px 0}
+                        .pill{display:inline-block;background:#0c2138;color:#6de9ff;border:1px solid #24c8f5;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:700;margin-bottom:12px;letter-spacing:0.3px}
+                        .card{border:1px solid #dbe6f3;background:#f9fcff;border-radius:12px;padding:16px;margin-top:12px}
+                        .row{display:flex;justify-content:space-between;margin:6px 0;color:#344a63}
+                        .label{color:#617991}
+                        .value{font-weight:700;color:#163352}
                         .cta{margin-top:20px}
-                        .button{background:#4f46e5;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700}
-                        .footer{padding:16px;text-align:center;color:#6b7280;font-size:12px}
+                        .button{background:#0f75bc;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;display:inline-block;box-shadow:0 4px 12px rgba(15,117,188,0.25)}
+                        .footer{padding:16px;text-align:center;color:#6c8098;font-size:12px;background:#fbfdff;border-top:1px solid #e6eef8}
                     </style>
                 </head>
                 <body>
@@ -624,7 +625,7 @@ public class PaymentServiceImpl implements PaymentService {
                             </div>
                             <div class=\"cta\"><a class=\"button\" href=\"https://skillverse.vn/dashboard\">Bắt đầu học</a></div>
                         </div>
-                        <div class=\"footer\">© 2025</div>
+                        <div class=\"footer\">© 2026</div>
                     </div>
                 </body>
                 </html>

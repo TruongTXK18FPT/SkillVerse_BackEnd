@@ -80,7 +80,7 @@ public interface QuestionBankQuestionRepository extends JpaRepository<QuestionBa
     void incrementUsedCount(@Param("ids") List<Long> ids);
 
     @Query("SELECT q.difficulty, COUNT(q) FROM QuestionBankQuestion q " +
-           "WHERE q.questionBank.id = :bankId AND q.isActive = true " +
+           "WHERE q.questionBank.id = :bankId AND q.isActive = true AND q.isVerified = true " +
            "GROUP BY q.difficulty")
     List<Object[]> countByDifficulty(@Param("bankId") Long bankId);
 
@@ -92,6 +92,7 @@ public interface QuestionBankQuestionRepository extends JpaRepository<QuestionBa
     @Query("SELECT q.skillArea, q.difficulty, COUNT(q) " +
            "FROM QuestionBankQuestion q " +
            "WHERE q.questionBank.id = :bankId AND q.isActive = true " +
+           "AND q.isVerified = true " +
            "AND q.skillArea IS NOT NULL " +
            "GROUP BY q.skillArea, q.difficulty")
     List<Object[]> countBySkillAreaAndDifficulty(@Param("bankId") Long bankId);

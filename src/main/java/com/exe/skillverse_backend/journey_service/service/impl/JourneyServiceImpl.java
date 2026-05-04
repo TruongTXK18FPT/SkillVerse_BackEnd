@@ -93,6 +93,14 @@ public class JourneyServiceImpl implements JourneyService {
     private static final String QUESTION_BANK_PROMPT_MARKER = "question bank id=";
     private static final String FULL_QB_PROMPT_PREFIX = "Full QB: " + QUESTION_BANK_PROMPT_MARKER;
     private static final String HYBRID_QB_PROMPT_PREFIX = "Hybrid QB: " + QUESTION_BANK_PROMPT_MARKER;
+    private static final String ASSESSMENT_PHASE_PLACEMENT = "PLACEMENT";
+    private static final String ASSESSMENT_PHASE_CHALLENGE_UP = "CHALLENGE_UP";
+    private static final String QUESTION_SOURCE_BANK = "QUESTION_BANK";
+    private static final String QUESTION_SOURCE_AI = "AI";
+    private static final int CHALLENGE_TRIGGER_SCORE = 85;
+    private static final int CHALLENGE_PASS_SCORE = 70;
+    private static final int EXPERT_CHALLENGE_PASS_SCORE = 80;
+    private static final double MIN_PROMOTION_ANSWER_COVERAGE = 0.80;
     private static final String STUDY_PLAN_LINK_MARKER_PREFIX = "[ROADMAP_NODE_LINK]";
     private static final int MAX_STUDY_TASKS_PER_NODE = 12;
     private static final String DEFAULT_STUDY_TIMEZONE = "Asia/Ho_Chi_Minh";
@@ -174,6 +182,14 @@ public class JourneyServiceImpl implements JourneyService {
     private record RoadmapNodeLinkRef(Long journeyId, Long roadmapSessionId, String nodeId) {
     }
 
+    private record AssessmentGenerationContext(
+            String phase,
+            Journey.SkillLevel baseLevel,
+            Journey.SkillLevel testedLevel,
+            Long parentTestId
+    ) {
+    }
+
     // Lazy ChatClient instance
     private ChatClient getChatClient() {
         return ChatClient.create(generateTestChatModel);
@@ -183,6 +199,7 @@ public class JourneyServiceImpl implements JourneyService {
     @Transactional
     public JourneySummaryResponse startJourney(User user, StartJourneyRequest request) {
         log.info("Starting new journey for user: {} with domain: {}", user.getEmail(), request.getDomain());
+        normalizeJourneyRequestDefaults(request);
 
         // V3 Phase 3: Enforce single-journey per user — must complete or delete old journey first.
         if (journeyRepository.hasNonTerminalJourney(user)) {
@@ -527,6 +544,7 @@ public class JourneyServiceImpl implements JourneyService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to parse assessment data", e);
         }
+        normalizeJourneyRequestDefaults(assessmentData);
 
         // Domain and goal are now directly in the request
         String domain = assessmentData.getDomain();
@@ -535,14 +553,17 @@ public class JourneyServiceImpl implements JourneyService {
         String industry = assessmentData.getIndustry();
         int requestedQuestionCount = resolveAssessmentQuestionCount(assessmentData);
         int requestedTimeLimitMinutes = resolveAssessmentTimeLimitMinutes(assessmentData);
-        String userLevel = assessmentData.getLevel();
+        TestResult latestResult = testResultRepository.findTopByJourneyOrderByCreatedAtDesc(journey).orElse(null);
+        AssessmentGenerationContext generationContext = resolveAssessmentGenerationContext(assessmentData, latestResult);
+        String userLevel = generationContext.testedLevel().name();
 
-        log.info("Using domain: {}, goal: {}, jobRole: {}, industry: {}, questionCount: {}, timeLimitMinutes: {}, level: {}",
-                domain, goal, jobRole, industry, requestedQuestionCount, requestedTimeLimitMinutes, userLevel);
+        log.info("Using domain: {}, goal: {}, jobRole: {}, industry: {}, questionCount: {}, timeLimitMinutes: {}, phase: {}, baseLevel: {}, testedLevel: {}",
+                domain, goal, jobRole, industry, requestedQuestionCount, requestedTimeLimitMinutes,
+                generationContext.phase(), generationContext.baseLevel(), generationContext.testedLevel());
 
         // === Bank-first test generation ===
         AssessmentTest test = tryGenerateFromQuestionBank(
-                journey, user, assessmentData, requestedQuestionCount, requestedTimeLimitMinutes, userLevel);
+                journey, user, assessmentData, requestedQuestionCount, requestedTimeLimitMinutes, generationContext);
 
         if (test != null) {
             // Bank was used (full or partial)
@@ -550,8 +571,19 @@ public class JourneyServiceImpl implements JourneyService {
                     "Đã tạo bài quiz đánh giá cho " + domain + " từ ngân hàng câu hỏi.");
         }
 
+        if (ASSESSMENT_PHASE_CHALLENGE_UP.equals(generationContext.phase())) {
+            log.info("Challenge-up for journey {} cannot use a ready question bank. Falling back to the original placement level.",
+                    journeyId);
+            generationContext = new AssessmentGenerationContext(
+                    ASSESSMENT_PHASE_PLACEMENT,
+                    generationContext.baseLevel(),
+                    generationContext.baseLevel(),
+                    null);
+            userLevel = generationContext.testedLevel().name();
+        }
+
         // === Fallback: AI generation (no bank or empty bank) ===
-        return generateTestFromAI(journey, user, domain, assessmentData, generatedTestCount);
+        return generateTestFromAI(journey, user, domain, assessmentData, generatedTestCount, generationContext);
     }
 
     /**
@@ -562,12 +594,12 @@ public class JourneyServiceImpl implements JourneyService {
      * @return AssessmentTest if bank was used, null if bank should not be used
      */
     private AssessmentTest tryGenerateFromQuestionBank(Journey journey, User user, StartJourneyRequest assessmentData,
-            int requestedQuestionCount, int requestedTimeLimitMinutes, String userLevel) {
+            int requestedQuestionCount, int requestedTimeLimitMinutes, AssessmentGenerationContext generationContext) {
 
         String domain = assessmentData.getDomain();
         String industry = assessmentData.getIndustry();
         String jobRole = assessmentData.getJobRole();
-        boolean skillJourney = isSkillJourney(journey);
+        String userLevel = generationContext.testedLevel().name();
 
         Optional<QuestionBankResponse> bankOpt = resolveQuestionBankForJourney(journey, domain, industry, jobRole);
         if (bankOpt.isEmpty()) {
@@ -579,64 +611,7 @@ public class JourneyServiceImpl implements JourneyService {
         QuestionBankResponse bank = bankOpt.get();
         Long bankId = bank.getId();
 
-        if (skillJourney) {
-            List<QuestionInfo> skillScopedQuestions = selectSkillScopedQuestions(
-                    bankId,
-                    assessmentData.getSkills(),
-                    requestedQuestionCount,
-                    userLevel);
-            List<QuestionInfo> bankQuestions = mergeUniqueQuestions(
-                    skillScopedQuestions,
-                    selectQuestionsFromBank(bank, requestedQuestionCount, userLevel),
-                    requestedQuestionCount);
-
-            int minimumSeedQuestions = minimumSkillJourneyBankCount(requestedQuestionCount);
-            if (bankQuestions.size() < minimumSeedQuestions) {
-                log.info("QB {} only yielded {} role/skill-aligned questions for skill journey (minimum seed: {}). Falling back to AI.",
-                        bankId, bankQuestions.size(), minimumSeedQuestions);
-                return null;
-            }
-
-            questionBankService.incrementUsedCount(bankQuestions);
-
-            List<QuestionInfo> finalQuestions = bankQuestions;
-            String generationPrompt = FULL_QB_PROMPT_PREFIX + bankId + " (total=" + requestedQuestionCount + ")";
-
-            if (bankQuestions.size() < requestedQuestionCount) {
-                int remainingQuestions = requestedQuestionCount - bankQuestions.size();
-                List<QuestionInfo> aiQuestions = generateAiQuestionsSupplement(
-                        domain,
-                        industry,
-                        jobRole,
-                        buildUserAssessmentInfo(assessmentData),
-                        remainingQuestions,
-                        getSkillAreasAlreadyCovered(bankQuestions));
-                finalQuestions = mergeUniqueQuestions(bankQuestions, aiQuestions, requestedQuestionCount);
-
-                if (finalQuestions.size() < requestedQuestionCount) {
-                    log.info("Hybrid QB {} could not reach {} questions after AI supplement (got {}). Falling back to full AI generation.",
-                            bankId, requestedQuestionCount, finalQuestions.size());
-                    return null;
-                }
-
-                generationPrompt = HYBRID_QB_PROMPT_PREFIX + bankId
-                        + " (bank=" + bankQuestions.size()
-                        + ", ai=" + Math.max(0, finalQuestions.size() - bankQuestions.size())
-                        + ", total=" + requestedQuestionCount + ")";
-            }
-
-            return saveQuestionBankAssessmentTest(
-                    journey,
-                    user,
-                    domain,
-                    bankId,
-                    finalQuestions,
-                    requestedTimeLimitMinutes,
-                    userLevel,
-                    generationPrompt);
-        }
-
-        // === Per-difficulty threshold: ALL 4 levels must be >= 50 ===
+        // === Per-difficulty threshold: ALL 4 bank difficulties must be ready ===
         if (!questionBankService.isBankReadyForAllLevels(bankId)) {
             Map<String, Long> breakdown = bank.getDifficultyBreakdown();
             String detail = (breakdown != null)
@@ -649,9 +624,10 @@ public class JourneyServiceImpl implements JourneyService {
             return null;
         }
 
-        List<QuestionInfo> bankQuestions = userLevel != null
-                ? questionBankService.selectRandomQuestionsByLevel(bankId, requestedQuestionCount, userLevel)
-                : questionBankService.selectRandomQuestions(bankId, requestedQuestionCount, bank.getDifficultyDistribution());
+        List<QuestionInfo> bankQuestions = questionBankService.selectRandomQuestionsByLevel(
+                bankId,
+                requestedQuestionCount,
+                userLevel);
 
         if (bankQuestions.size() < requestedQuestionCount) {
             log.info("QB {} returned only {} / {} questions. Falling back to AI.",
@@ -661,40 +637,15 @@ public class JourneyServiceImpl implements JourneyService {
 
         questionBankService.incrementUsedCount(bankQuestions);
 
-        // Build AssessmentTest from QB
-        AssessmentTest test = AssessmentTest.builder()
-                .journey(journey)
-                .questionBank(entityManager.getReference(QuestionBank.class, bankId))
-                .title("Bài đánh giá kỹ năng " + domain)
-                .description("Bài quiz đánh giá kỹ năng từ ngân hàng câu hỏi cho " + domain)
-                .targetField(domain)
-                .status(AssessmentTest.TestStatus.PENDING)
-                .questionCount(bankQuestions.size())
-                .timeLimitMinutes(requestedTimeLimitMinutes)
-                .difficultyLevel(userLevel != null ? userLevel : "MIXED")
-                .questionsJson(toQuestionsJson(bankQuestions))
-                .generationPrompt(FULL_QB_PROMPT_PREFIX + bankId + " (total=" + requestedQuestionCount + ")")
-                .build();
-
-        test = assessmentTestRepository.save(test);
-
-        // Update journey status
-        journey.setStatus(Journey.JourneyStatus.TEST_IN_PROGRESS);
-        journey.setLastActivityAt(Instant.now());
-        journeyRepository.save(journey);
-
-        // Create progress milestone
-        JourneyProgress progress = JourneyProgress.builder()
-                .journey(journey)
-                .user(user)
-                .milestone(JourneyProgress.Milestone.TEST_GENERATED)
-                .isCompleted(true)
-                .milestoneProgress(100)
-                .completedAt(Instant.now())
-                .build();
-        journeyProgressRepository.save(progress);
-
-        return test;
+        return saveQuestionBankAssessmentTest(
+                journey,
+                user,
+                domain,
+                bankId,
+                bankQuestions,
+                requestedTimeLimitMinutes,
+                generationContext,
+                FULL_QB_PROMPT_PREFIX + bankId + " (total=" + requestedQuestionCount + ")");
     }
 
     private AssessmentTest saveQuestionBankAssessmentTest(
@@ -704,7 +655,7 @@ public class JourneyServiceImpl implements JourneyService {
             Long bankId,
             List<QuestionInfo> questions,
             int requestedTimeLimitMinutes,
-            String userLevel,
+            AssessmentGenerationContext generationContext,
             String generationPrompt) {
         AssessmentTest test = AssessmentTest.builder()
                 .journey(journey)
@@ -715,7 +666,12 @@ public class JourneyServiceImpl implements JourneyService {
                 .status(AssessmentTest.TestStatus.PENDING)
                 .questionCount(questions.size())
                 .timeLimitMinutes(requestedTimeLimitMinutes)
-                .difficultyLevel(userLevel != null ? userLevel : "MIXED")
+                .difficultyLevel(generationContext.testedLevel().name())
+                .assessmentPhase(generationContext.phase())
+                .baseLevel(generationContext.baseLevel().name())
+                .testedLevel(generationContext.testedLevel().name())
+                .parentTestId(generationContext.parentTestId())
+                .questionSource(QUESTION_SOURCE_BANK)
                 .questionsJson(toQuestionsJson(questions))
                 .generationPrompt(generationPrompt)
                 .build();
@@ -756,21 +712,30 @@ public class JourneyServiceImpl implements JourneyService {
                     industry,
                     jobRole,
                     skillName);
-            if (scopedBank.isPresent()) {
+            if (scopedBank.isPresent() && matchesSkillScopedBank(scopedBank.get(), skillName)) {
                 log.info("Found exact skill-scoped question bank: {}", scopedBank.get().getId());
                 return scopedBank;
             }
             if ((industry == null || industry.isBlank()) && jobRole != null && !jobRole.isBlank()) {
                 log.info("Trying findActiveBankByJobRole fallback: domain={}, jobRole={}, skillName={}", domain, jobRole, skillName);
-                return questionBankService.findActiveBankByJobRole(
+                Optional<QuestionBankResponse> roleBank = questionBankService.findActiveBankByJobRole(
                         domain,
                         jobRole,
                         skillName);
+                if (roleBank.isPresent() && matchesSkillScopedBank(roleBank.get(), skillName)) {
+                    return roleBank;
+                }
             }
             log.info("No question bank found for skill journey with skillName={}", skillName);
             return Optional.empty();
         }
         return questionBankService.findActiveBank(domain, jobRole);
+    }
+
+    private boolean matchesSkillScopedBank(QuestionBankResponse bank, String requestedSkillName) {
+        String requested = SkillNameUtils.normalize(requestedSkillName);
+        String bankSkill = SkillNameUtils.normalize(bank != null ? bank.getSkillName() : null);
+        return requested != null && !requested.isBlank() && requested.equals(bankSkill);
     }
 
     private List<QuestionInfo> selectQuestionsFromBank(
@@ -931,8 +896,10 @@ public class JourneyServiceImpl implements JourneyService {
      * Fallback: Generate test entirely via AI (original behavior).
      */
     private GenerateTestResponse generateTestFromAI(Journey journey, User user, String domain,
-            StartJourneyRequest assessmentData, long generatedTestCount) {
+            StartJourneyRequest assessmentData, long generatedTestCount, AssessmentGenerationContext generationContext) {
 
+        normalizeJourneyRequestDefaults(assessmentData);
+        assessmentData.setLevel(generationContext.testedLevel().name());
         UserAssessmentInfo userInfo = buildUserAssessmentInfo(assessmentData);
 
         String prompt = assessmentPromptService.getTestGenerationPrompt(
@@ -997,7 +964,12 @@ public class JourneyServiceImpl implements JourneyService {
                 .status(AssessmentTest.TestStatus.PENDING)
                 .questionCount(finalQuestionCount)
                 .timeLimitMinutes(requestedTimeLimitMinutes)
-                .difficultyLevel((String) testData.get("difficultyLevel"))
+                .difficultyLevel(generationContext.testedLevel().name())
+                .assessmentPhase(generationContext.phase())
+                .baseLevel(generationContext.baseLevel().name())
+                .testedLevel(generationContext.testedLevel().name())
+                .parentTestId(generationContext.parentTestId())
+                .questionSource(QUESTION_SOURCE_AI)
                 .questionsJson(objectMapper.valueToTree(normalizedQuestions).toString())
                 .generationPrompt(prompt)
                 .build();
@@ -1194,6 +1166,56 @@ public class JourneyServiceImpl implements JourneyService {
         return (int) Math.max(0L, MAX_ASSESSMENT_ATTEMPTS - Math.max(1L, safeCount));
     }
 
+    private void normalizeJourneyRequestDefaults(StartJourneyRequest request) {
+        if (request == null) {
+            return;
+        }
+        request.setLanguage("VI");
+        if (request.getLevel() == null || request.getLevel().isBlank()) {
+            request.setLevel(Journey.SkillLevel.BEGINNER.name());
+        }
+    }
+
+    private StartJourneyRequest readAssessmentData(Journey journey) {
+        if (journey == null || journey.getAssessmentData() == null || journey.getAssessmentData().isBlank()) {
+            return null;
+        }
+        try {
+            StartJourneyRequest assessmentData = objectMapper.readValue(journey.getAssessmentData(), StartJourneyRequest.class);
+            normalizeJourneyRequestDefaults(assessmentData);
+            return assessmentData;
+        } catch (Exception e) {
+            log.warn("Failed to parse journey assessment data for journey {}", journey.getId(), e);
+            return null;
+        }
+    }
+
+    private AssessmentGenerationContext resolveAssessmentGenerationContext(
+            StartJourneyRequest assessmentData,
+            TestResult latestResult) {
+        Journey.SkillLevel baseLevel = resolveBaseLevel(assessmentData);
+        if (latestResult != null) {
+            EvaluationSnapshot snapshot = buildSnapshotFromStoredResult(latestResult, null);
+            if (shouldRecommendChallengeUp(latestResult, snapshot, assessmentData)) {
+                AssessmentTest latestTest = latestResult.getAssessmentTest();
+                Journey.SkillLevel latestTestedLevel = resolveTestedLevel(latestTest, assessmentData);
+                Journey.SkillLevel nextLevel = nextLevel(latestTestedLevel);
+                if (nextLevel != null) {
+                    return new AssessmentGenerationContext(
+                            ASSESSMENT_PHASE_CHALLENGE_UP,
+                            baseLevel,
+                            nextLevel,
+                            latestTest != null ? latestTest.getId() : null);
+                }
+            }
+        }
+        return new AssessmentGenerationContext(
+                ASSESSMENT_PHASE_PLACEMENT,
+                baseLevel,
+                baseLevel,
+                null);
+    }
+
     private GenerateTestResponse buildGenerateTestResponse(Journey journey, AssessmentTest test, String message) {
         return GenerateTestResponse.builder()
                 .journeyId(journey.getId())
@@ -1204,6 +1226,11 @@ public class JourneyServiceImpl implements JourneyService {
                 .questionCount(test.getQuestionCount())
                 .timeLimitMinutes(test.getTimeLimitMinutes())
                 .difficultyLevel(test.getDifficultyLevel())
+                .assessmentPhase(test.getAssessmentPhase())
+                .baseLevel(test.getBaseLevel())
+                .testedLevel(test.getTestedLevel())
+                .parentTestId(test.getParentTestId())
+                .questionSource(test.getQuestionSource())
                 .questionsJson(test.getQuestionsJson())
                 .message(message)
                 .build();
@@ -1374,6 +1401,11 @@ public class JourneyServiceImpl implements JourneyService {
                 .questionCount(test.getQuestionCount())
                 .timeLimitMinutes(test.getTimeLimitMinutes())
                 .difficultyLevel(test.getDifficultyLevel())
+                .assessmentPhase(test.getAssessmentPhase())
+                .baseLevel(test.getBaseLevel())
+                .testedLevel(test.getTestedLevel())
+                .parentTestId(test.getParentTestId())
+                .questionSource(test.getQuestionSource())
                 .questionsJson(test.getQuestionsJson())
                 .createdAt(test.getCreatedAt())
                 .showResults(test.getStatus() == AssessmentTest.TestStatus.COMPLETED)
@@ -1407,6 +1439,7 @@ public class JourneyServiceImpl implements JourneyService {
         } catch (Exception e) {
             assessmentData = null;
         }
+        normalizeJourneyRequestDefaults(assessmentData);
         String goal = assessmentData != null ? assessmentData.getGoal() : null;
         String industry = assessmentData != null ? assessmentData.getIndustry() : null;
         String jobRole = assessmentData != null ? assessmentData.getJobRole() : null;
@@ -1420,9 +1453,19 @@ public class JourneyServiceImpl implements JourneyService {
                 .filter(q -> q.userAnswer != null && !q.userAnswer.isBlank())
                 .count();
         int scorePercentage = calculateScorePercentage(correctAnswers, totalQuestions);
-        Journey.SkillLevel evaluatedLevel = determineSkillLevel(scorePercentage);
+        Journey.SkillLevel evaluatedLevel = determineEvaluatedLevel(
+                scorePercentage,
+                answeredQuestions,
+                totalQuestions,
+                test,
+                assessmentData);
 
-        EvaluationSnapshot snapshot = createEvaluationSnapshot(totalQuestions, answeredQuestions, correctAnswers, scorePercentage);
+        EvaluationSnapshot snapshot = createEvaluationSnapshot(
+                totalQuestions,
+                answeredQuestions,
+                correctAnswers,
+                scorePercentage,
+                evaluatedLevel);
 
         List<Map<String, Object>> derivedSkillGaps = buildSkillGaps(questionEvaluations, domain, snapshot.recommendationMode);
         List<Map<String, Object>> derivedStrengths = buildStrengths(questionEvaluations);
@@ -1602,6 +1645,13 @@ public class JourneyServiceImpl implements JourneyService {
 
         TestResult latestResult = testResultRepository.findTopByJourneyOrderByCreatedAtDesc(journey)
                 .orElseThrow(() -> new RuntimeException("No test result found. Please complete the assessment test first."));
+
+        StartJourneyRequest assessmentData = readAssessmentData(journey);
+        EvaluationSnapshot latestSnapshot = buildSnapshotFromStoredResult(latestResult, null);
+        if (canGenerateChallengeUp(latestResult, latestSnapshot, assessmentData)) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Bạn đủ điều kiện làm bài challenge-up trước khi tạo roadmap. Vui lòng hoàn thành bài challenge-up để công nhận level chính xác hơn.");
+        }
 
         // Get skill gaps and strengths for roadmap generation
         List<Map<String, Object>> skillGaps;
@@ -2851,10 +2901,18 @@ public class JourneyServiceImpl implements JourneyService {
                 if (latestResult.getStrengthsJson() != null) {
                     strengths = objectMapper.readValue(latestResult.getStrengthsJson(), List.class);
                 }
+                StartJourneyRequest assessmentData = readAssessmentData(journey);
+                EvaluationSnapshot snapshot = buildSnapshotFromStoredResult(latestResult, null);
+                boolean challengeRequired = shouldRecommendChallengeUp(latestResult, snapshot, assessmentData);
                 testResultSummary = JourneySummaryResponse.TestResultSummaryResponse.builder()
                         .resultId(latestResult.getId())
                         .scorePercentage(latestResult.getScorePercentage())
                         .evaluatedLevel(latestResult.getEvaluatedLevel())
+                        .baseLevel(resolveBaseLevel(assessmentData))
+                        .testedLevel(resolveTestedLevel(latestResult.getAssessmentTest(), assessmentData))
+                        .provisional(challengeRequired)
+                        .challengeRequired(challengeRequired)
+                        .challengeAvailable(canGenerateChallengeUp(latestResult, snapshot, assessmentData))
                         .skillGapsCount(skillGaps != null ? skillGaps.size() : 0)
                         .strengthsCount(strengths != null ? strengths.size() : 0)
                         .evaluatedAt(latestResult.getEvaluatedAt())
@@ -2904,6 +2962,10 @@ public class JourneyServiceImpl implements JourneyService {
 
     private TestResultResponse mapToTestResultResponse(TestResult result, Integer totalQuestions) {
         EvaluationSnapshot snapshot = buildSnapshotFromStoredResult(result, totalQuestions);
+        StartJourneyRequest assessmentData = readAssessmentData(result.getJourney());
+        boolean challengeRequired = shouldRecommendChallengeUp(result, snapshot, assessmentData);
+        Long challengeTestId = resolvePendingChallengeTestId(result);
+        boolean challengeAvailable = challengeTestId != null || canGenerateChallengeUp(result, snapshot, assessmentData);
         return TestResultResponse.builder()
                 .id(result.getId())
                 .journeyId(result.getJourney().getId())
@@ -2927,6 +2989,13 @@ public class JourneyServiceImpl implements JourneyService {
                 .recommendationMode(snapshot.recommendationMode)
                 .assessmentConfidence(snapshot.assessmentConfidence)
                 .reassessmentRecommended(snapshot.reassessmentRecommended)
+                .assessmentPhase(result.getAssessmentTest().getAssessmentPhase())
+                .baseLevel(resolveBaseLevel(assessmentData))
+                .testedLevel(resolveTestedLevel(result.getAssessmentTest(), assessmentData))
+                .provisional(challengeRequired)
+                .challengeRequired(challengeRequired)
+                .challengeAvailable(challengeAvailable)
+                .challengeTestId(challengeTestId)
                 .build();
     }
 
@@ -2985,6 +3054,15 @@ public class JourneyServiceImpl implements JourneyService {
     }
 
     private EvaluationSnapshot createEvaluationSnapshot(int totalQuestions, int answeredQuestions, int correctAnswers, int scorePercentage) {
+        return createEvaluationSnapshot(totalQuestions, answeredQuestions, correctAnswers, scorePercentage, null);
+    }
+
+    private EvaluationSnapshot createEvaluationSnapshot(
+            int totalQuestions,
+            int answeredQuestions,
+            int correctAnswers,
+            int scorePercentage,
+            Journey.SkillLevel evaluatedLevel) {
         int safeTotal = Math.max(0, totalQuestions);
         int safeAnswered = Math.max(0, Math.min(answeredQuestions, safeTotal));
         int safeCorrect = Math.max(0, Math.min(correctAnswers, safeTotal));
@@ -2992,7 +3070,9 @@ public class JourneyServiceImpl implements JourneyService {
         int safeScore = clampScore(scorePercentage);
 
         String scoreBand = determineScoreBand(safeScore);
-        String recommendationMode = determineRecommendationMode(safeScore, safeTotal, safeCorrect);
+        String recommendationMode = capRecommendationModeForRecognizedLevel(
+                determineRecommendationMode(safeScore, safeTotal, safeCorrect),
+                evaluatedLevel);
         int confidence = calculateAssessmentConfidence(safeTotal, safeAnswered, safeCorrect);
         boolean reassessmentRecommended = shouldRecommendReassessment(safeTotal, safeAnswered, safeCorrect);
 
@@ -3024,7 +3104,7 @@ public class JourneyServiceImpl implements JourneyService {
             int score = result.getScorePercentage() != null
                     ? clampScore(result.getScorePercentage())
                     : calculateScorePercentage(correct, total);
-            return createEvaluationSnapshot(total, answered, correct, score);
+            return createEvaluationSnapshot(total, answered, correct, score, result.getEvaluatedLevel());
         }
 
         int total = totalQuestionsOverride != null && totalQuestionsOverride > 0
@@ -3033,7 +3113,7 @@ public class JourneyServiceImpl implements JourneyService {
         int score = clampScore(result.getScorePercentage());
         int correct = total > 0 ? (int) Math.round((score / 100.0) * total) : 0;
         int answered = Math.min(total, storedAnswers.size());
-        return createEvaluationSnapshot(total, answered, correct, score);
+        return createEvaluationSnapshot(total, answered, correct, score, result.getEvaluatedLevel());
     }
 
     private List<Map<String, Object>> buildSkillGaps(List<QuestionEvaluation> evaluations, String domain, String recommendationMode) {
@@ -3720,6 +3800,178 @@ public class JourneyServiceImpl implements JourneyService {
         return Journey.SkillLevel.EXPERT;
     }
 
+    private Journey.SkillLevel determineEvaluatedLevel(
+            int scorePercentage,
+            int answeredQuestions,
+            int totalQuestions,
+            AssessmentTest test,
+            StartJourneyRequest assessmentData) {
+        Journey.SkillLevel baseLevel = resolveBaseLevel(assessmentData);
+        Journey.SkillLevel testedLevel = resolveTestedLevel(test, assessmentData);
+        int score = clampScore(scorePercentage);
+        boolean enoughAnswersForPromotion = hasPromotionCoverage(answeredQuestions, totalQuestions);
+
+        if (isChallengePhase(test)) {
+            int passScore = testedLevel == Journey.SkillLevel.EXPERT
+                    ? EXPERT_CHALLENGE_PASS_SCORE
+                    : CHALLENGE_PASS_SCORE;
+            if (score >= passScore && enoughAnswersForPromotion) {
+                return testedLevel;
+            }
+            return previousLevel(testedLevel).orElse(baseLevel);
+        }
+
+        if (!enoughAnswersForPromotion || score < 45) {
+            return previousLevel(testedLevel).orElse(testedLevel);
+        }
+
+        return testedLevel;
+    }
+
+    private boolean shouldRecommendChallengeUp(
+            TestResult result,
+            EvaluationSnapshot snapshot,
+            StartJourneyRequest assessmentData) {
+        if (result == null || snapshot == null || result.getAssessmentTest() == null) {
+            return false;
+        }
+        AssessmentTest test = result.getAssessmentTest();
+        Journey.SkillLevel testedLevel = resolveTestedLevel(test, assessmentData);
+        if (isChallengePhase(test) || testedLevel == Journey.SkillLevel.EXPERT) {
+            return false;
+        }
+        if (!isQuestionBankTest(test)) {
+            return false;
+        }
+        return clampScore(result.getScorePercentage()) >= CHALLENGE_TRIGGER_SCORE
+                && hasPromotionCoverage(snapshot.answeredQuestions, snapshot.totalQuestions);
+    }
+
+    private boolean canGenerateChallengeUp(
+            TestResult result,
+            EvaluationSnapshot snapshot,
+            StartJourneyRequest assessmentData) {
+        Long pendingChallengeTestId = resolvePendingChallengeTestId(result);
+        if (pendingChallengeTestId != null) {
+            return true;
+        }
+        if (!shouldRecommendChallengeUp(result, snapshot, assessmentData)) {
+            return false;
+        }
+        if (assessmentTestRepository.countByJourney(result.getJourney()) >= MAX_ASSESSMENT_ATTEMPTS) {
+            return false;
+        }
+        Long bankId = resolveQuestionBankId(result.getAssessmentTest());
+        return bankId != null && questionBankService.isBankReadyForAllLevels(bankId);
+    }
+
+    private Long resolvePendingChallengeTestId(TestResult result) {
+        if (result == null || result.getJourney() == null || result.getAssessmentTest() == null) {
+            return null;
+        }
+        AssessmentTest latestTest = assessmentTestRepository.findTopByJourneyOrderByCreatedAtDesc(result.getJourney()).orElse(null);
+        if (latestTest == null || !isChallengePhase(latestTest)) {
+            return null;
+        }
+        if (!Objects.equals(latestTest.getParentTestId(), result.getAssessmentTest().getId())) {
+            return null;
+        }
+        AssessmentTest.TestStatus status = latestTest.getStatus();
+        if (status == AssessmentTest.TestStatus.PENDING || status == AssessmentTest.TestStatus.IN_PROGRESS) {
+            return latestTest.getId();
+        }
+        return null;
+    }
+
+    private boolean isChallengePhase(AssessmentTest test) {
+        return test != null && ASSESSMENT_PHASE_CHALLENGE_UP.equalsIgnoreCase(
+                Optional.ofNullable(test.getAssessmentPhase()).orElse(""));
+    }
+
+    private boolean isQuestionBankTest(AssessmentTest test) {
+        if (test == null) {
+            return false;
+        }
+        if (QUESTION_SOURCE_BANK.equalsIgnoreCase(Optional.ofNullable(test.getQuestionSource()).orElse(""))) {
+            return true;
+        }
+        return test.getQuestionBank() != null
+                || Optional.ofNullable(test.getGenerationPrompt()).orElse("").startsWith(FULL_QB_PROMPT_PREFIX);
+    }
+
+    private Journey.SkillLevel resolveBaseLevel(StartJourneyRequest assessmentData) {
+        return normalizeSkillLevelValue(
+                assessmentData != null ? assessmentData.getLevel() : null,
+                Journey.SkillLevel.BEGINNER);
+    }
+
+    private Journey.SkillLevel resolveTestedLevel(AssessmentTest test, StartJourneyRequest assessmentData) {
+        Journey.SkillLevel fallback = resolveBaseLevel(assessmentData);
+        if (test == null) {
+            return fallback;
+        }
+        Journey.SkillLevel fromTestedLevel = normalizeSkillLevelValue(test.getTestedLevel(), null);
+        if (fromTestedLevel != null) {
+            return fromTestedLevel;
+        }
+        return normalizeSkillLevelValue(test.getDifficultyLevel(), fallback);
+    }
+
+    private Journey.SkillLevel normalizeSkillLevelValue(String value, Journey.SkillLevel fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        if ("MIXED".equals(normalized)) {
+            return fallback;
+        }
+        if ("BASIC".equals(normalized)) {
+            return Journey.SkillLevel.BEGINNER;
+        }
+        if ("UPPER_INTERMEDIATE".equals(normalized)) {
+            return Journey.SkillLevel.INTERMEDIATE;
+        }
+        try {
+            return Journey.SkillLevel.valueOf(normalized);
+        } catch (IllegalArgumentException ignored) {
+            return fallback;
+        }
+    }
+
+    private Journey.SkillLevel nextLevel(Journey.SkillLevel level) {
+        if (level == null) {
+            return Journey.SkillLevel.BEGINNER;
+        }
+        return switch (level) {
+            case BEGINNER -> Journey.SkillLevel.ELEMENTARY;
+            case ELEMENTARY -> Journey.SkillLevel.INTERMEDIATE;
+            case INTERMEDIATE -> Journey.SkillLevel.ADVANCED;
+            case ADVANCED -> Journey.SkillLevel.EXPERT;
+            case EXPERT -> null;
+        };
+    }
+
+    private Optional<Journey.SkillLevel> previousLevel(Journey.SkillLevel level) {
+        if (level == null) {
+            return Optional.empty();
+        }
+        return switch (level) {
+            case BEGINNER -> Optional.empty();
+            case ELEMENTARY -> Optional.of(Journey.SkillLevel.BEGINNER);
+            case INTERMEDIATE -> Optional.of(Journey.SkillLevel.ELEMENTARY);
+            case ADVANCED -> Optional.of(Journey.SkillLevel.INTERMEDIATE);
+            case EXPERT -> Optional.of(Journey.SkillLevel.ADVANCED);
+        };
+    }
+
+    private boolean hasPromotionCoverage(int answeredQuestions, int totalQuestions) {
+        if (totalQuestions <= 0) {
+            return false;
+        }
+        int requiredAnswers = (int) Math.ceil(totalQuestions * MIN_PROMOTION_ANSWER_COVERAGE);
+        return answeredQuestions >= requiredAnswers;
+    }
+
     private String determineScoreBand(int scorePercentage) {
         int score = clampScore(scorePercentage);
         if (score <= 20) {
@@ -3751,6 +4003,36 @@ public class JourneyServiceImpl implements JourneyService {
             return "ADVANCED";
         }
         return "FAST_TRACK";
+    }
+
+    private String capRecommendationModeForRecognizedLevel(String recommendationMode, Journey.SkillLevel evaluatedLevel) {
+        if (recommendationMode == null || recommendationMode.isBlank() || evaluatedLevel == null) {
+            return recommendationMode;
+        }
+
+        String maxRecommendation = switch (evaluatedLevel) {
+            case BEGINNER, ELEMENTARY, INTERMEDIATE -> "STANDARD";
+            case ADVANCED -> "ADVANCED";
+            case EXPERT -> "FAST_TRACK";
+        };
+
+        return recommendationRank(recommendationMode) > recommendationRank(maxRecommendation)
+                ? maxRecommendation
+                : recommendationMode;
+    }
+
+    private int recommendationRank(String recommendationMode) {
+        if (recommendationMode == null) {
+            return 0;
+        }
+        return switch (recommendationMode) {
+            case "FROM_ZERO" -> 0;
+            case "FOUNDATION" -> 1;
+            case "STANDARD" -> 2;
+            case "ADVANCED" -> 3;
+            case "FAST_TRACK" -> 4;
+            default -> 2;
+        };
     }
 
     private boolean shouldRecommendReassessment(int totalQuestions, int answeredQuestions, int correctAnswers) {

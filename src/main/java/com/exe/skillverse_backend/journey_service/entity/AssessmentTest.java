@@ -105,6 +105,36 @@ public class AssessmentTest {
     private String difficultyLevel;
 
     /**
+     * Assessment phase: PLACEMENT or CHALLENGE_UP.
+     */
+    @Column(name = "assessment_phase", length = 30)
+    private String assessmentPhase;
+
+    /**
+     * User-selected baseline level when the journey was created.
+     */
+    @Column(name = "base_level", length = 20)
+    private String baseLevel;
+
+    /**
+     * Level this concrete test is intended to verify.
+     */
+    @Column(name = "tested_level", length = 20)
+    private String testedLevel;
+
+    /**
+     * Parent assessment test for adaptive challenge-up rounds.
+     */
+    @Column(name = "parent_test_id")
+    private Long parentTestId;
+
+    /**
+     * Source of questions: QUESTION_BANK or AI.
+     */
+    @Column(name = "question_source", length = 30)
+    private String questionSource;
+
+    /**
      * JSON array of questions
      */
     @Column(name = "questions_json", columnDefinition = "jsonb")

@@ -517,9 +517,9 @@ public class StudentVerificationServiceImpl implements StudentVerificationServic
                                         body { margin:0; padding:0; background:#f3f6fb; font-family:Arial, Helvetica, sans-serif; color:#132238; }
                                         .wrapper { width:100%%; background:#f3f6fb; }
                                         .container { width:640px; max-width:640px; border:1px solid #d9e4f1; border-radius:16px; overflow:hidden; background:#ffffff; }
-                                        .header { padding:22px 18px; background:#1f9ed7; background-image:linear-gradient(90deg,#f5a623 0%%,#1f9ed7 100%%); text-align:center; }
+                                        .header { padding:22px 18px; background:#061322; background-image:linear-gradient(120deg,#071321 0%%,#0a1f35 52%%,#0f3b63 100%%); border-bottom:1px solid #1c4d7a; text-align:center; }
                                         .logo { width:138px; max-width:138px; height:auto; display:block; margin:0 auto; }
-                                        .badge { display:inline-block; margin-top:12px; padding:6px 12px; border-radius:999px; background:#ffffff; color:#0f75bc; font-size:11px; font-weight:700; letter-spacing:0.4px; }
+                                        .badge { display:inline-block; margin-top:12px; padding:6px 12px; border-radius:999px; background:#0c2138; color:#6de9ff; border:1px solid #24c8f5; font-size:11px; font-weight:700; letter-spacing:0.4px; }
                                         .content { padding:24px; }
                                         h1 { margin:0 0 12px 0; font-size:24px; line-height:1.3; color:#10263f; }
                                         p { margin:0 0 10px 0; font-size:14px; line-height:1.7; color:#344a63; }

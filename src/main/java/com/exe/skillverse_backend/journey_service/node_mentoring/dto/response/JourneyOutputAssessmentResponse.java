@@ -21,7 +21,11 @@ public class JourneyOutputAssessmentResponse {
     private Long mentorId;
     private String submissionText;
     private String evidenceUrl;
+    private String evidencePublicId;
+    private String evidenceResourceType;
     private String attachmentUrl;
+    private String attachmentPublicId;
+    private String attachmentResourceType;
     private Integer score;
     private String feedback;
     private AssessmentStatus assessmentStatus;
@@ -36,7 +40,11 @@ public class JourneyOutputAssessmentResponse {
                 .mentorId(a.getMentorId())
                 .submissionText(a.getSubmissionText())
                 .evidenceUrl(a.getEvidenceUrl())
+                .evidencePublicId(a.getEvidencePublicId())
+                .evidenceResourceType(a.getEvidenceResourceType())
                 .attachmentUrl(a.getAttachmentUrl())
+                .attachmentPublicId(a.getAttachmentPublicId())
+                .attachmentResourceType(a.getAttachmentResourceType())
                 .score(a.getScore())
                 .feedback(a.getFeedback())
                 .assessmentStatus(a.getAssessmentStatus())

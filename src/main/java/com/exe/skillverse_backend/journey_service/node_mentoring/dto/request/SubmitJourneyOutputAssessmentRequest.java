@@ -23,6 +23,12 @@ public class SubmitJourneyOutputAssessmentRequest {
     @Size(max = 1000)
     private String evidenceUrl;
 
+    private String evidencePublicId;
+    private String evidenceResourceType;
+
     @Size(max = 1000)
     private String attachmentUrl;
+
+    private String attachmentPublicId;
+    private String attachmentResourceType;
 }

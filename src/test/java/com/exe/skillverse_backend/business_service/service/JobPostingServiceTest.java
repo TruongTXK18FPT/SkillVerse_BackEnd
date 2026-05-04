@@ -97,6 +97,9 @@ public class JobPostingServiceTest {
     private JobApplicationRepository jobApplicationRepository;
 
     @Mock
+    private JobContractRepository jobContractRepository;
+
+    @Mock
     private WalletService walletService;
 
     @Mock

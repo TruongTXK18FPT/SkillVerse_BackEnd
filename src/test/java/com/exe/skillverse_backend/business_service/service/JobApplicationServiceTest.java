@@ -334,7 +334,7 @@ class JobApplicationServiceTest {
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
-        assertTrue(exception.getMessage().contains("After ACCEPTED, schedule an interview first"));
+        assertTrue(exception.getMessage().contains("schedule an interview via the interview API"));
     }
 
     @Test
@@ -449,7 +449,7 @@ class JobApplicationServiceTest {
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
-        assertTrue(exception.getMessage().contains("terminal status"));
+        assertTrue(exception.getMessage().contains("reached a terminal/managed status"));
     }
 
     @Test
@@ -466,7 +466,7 @@ class JobApplicationServiceTest {
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
-        assertTrue(exception.getMessage().contains("After ACCEPTED, schedule an interview first"));
+        assertTrue(exception.getMessage().contains("schedule an interview via the interview API"));
     }
 
     // ==================== ONSITE JOB STATUS RESTRICTION TESTS ====================
@@ -509,13 +509,13 @@ class JobApplicationServiceTest {
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
-        assertTrue(exception.getMessage().contains("ONSITE jobs only support"));
+        assertTrue(exception.getMessage().contains("after INTERVIEWED, only HIRED or REJECTED transitions are allowed"));
     }
 
     @Test
-    void updateApplicationStatus_Onsite_AcceptedToInterviewScheduled_Success() {
-        // ONSITE: ACCEPTED -> INTERVIEW_SCHEDULED is allowed (via InterviewScheduleService)
-        // After interview is completed -> INTERVIEWED, then contract can be created
+    void updateApplicationStatus_Onsite_AcceptedToInterviewScheduled_Fail() {
+        // ONSITE: ACCEPTED -> INTERVIEW_SCHEDULED is NOT allowed via updateApplicationStatus
+        // Must schedule an interview via the interview API.
         jobPosting.setIsRemote(false);
         jobApplication.setStatus(JobApplicationStatus.ACCEPTED);
 
@@ -523,13 +523,9 @@ class JobApplicationServiceTest {
         request.setStatus(JobApplicationStatus.INTERVIEW_SCHEDULED);
 
         when(jobApplicationRepository.findById(500L)).thenReturn(Optional.of(jobApplication));
-        when(jobApplicationRepository.save(any(JobApplication.class))).thenReturn(jobApplication);
-        when(usageLimitService.canUseFeature(any(), any()))
-                .thenReturn(UsageCheckResult.builder().allowed(false).build());
 
-        JobApplicationResponse response = jobApplicationService.updateApplicationStatus(2L, 500L, request);
-
-        assertEquals(JobApplicationStatus.INTERVIEW_SCHEDULED, response.getStatus());
+        assertThrows(IllegalArgumentException.class,
+                () -> jobApplicationService.updateApplicationStatus(2L, 500L, request));
     }
 
     @Test
@@ -577,7 +573,8 @@ class JobApplicationServiceTest {
 
     @Test
     void updateApplicationStatus_OfferSent_SetsOfferDetails() {
-        // Remote pipeline: after INTERVIEWED -> OFFER_SENT
+        // Remote pipeline: after INTERVIEWED -> OFFER_SENT (if negotiable)
+        jobPosting.setIsNegotiable(true);
         jobApplication.setStatus(JobApplicationStatus.INTERVIEWED);
 
         UpdateApplicationStatusRequest request = new UpdateApplicationStatusRequest();

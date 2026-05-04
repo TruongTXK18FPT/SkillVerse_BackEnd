@@ -40,4 +40,11 @@ public class TestResultResponse {
     private String recommendationMode;
     private Integer assessmentConfidence;
     private Boolean reassessmentRecommended;
+    private String assessmentPhase;
+    private Journey.SkillLevel baseLevel;
+    private Journey.SkillLevel testedLevel;
+    private Boolean provisional;
+    private Boolean challengeRequired;
+    private Boolean challengeAvailable;
+    private Long challengeTestId;
 }

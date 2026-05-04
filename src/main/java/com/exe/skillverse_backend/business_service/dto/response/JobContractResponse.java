@@ -92,6 +92,15 @@ public class JobContractResponse {
     private LocalDate candidateDateOfBirth;
     private String candidateIdCardNumber;
     private String candidateIdCardPlace;
+    private LocalDate candidateIdCardDate;
+
+    // ==================== BANK INFO ====================
+    private String candidateBankAccountNumber;
+    private String candidateBankName;
+    private String candidateBankAccountHolder;
+
+    // ==================== CUSTOM CONTRACT PDF ====================
+    private String customContractPdfUrl;
 
     // ==================== SIGNATURES ====================
     private ContractSignatureResponse employerSignature;
@@ -99,6 +108,7 @@ public class JobContractResponse {
 
     // ==================== PDF ====================
     private String signedPdfUrl;
+    private String pdfUrl; // Alias — either customContractPdfUrl or signedPdfUrl
     private LocalDateTime signedAt;
 
     // ==================== APPLICATION SNAPSHOT ====================

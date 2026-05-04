@@ -62,6 +62,11 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
             throw new ForbiddenException("You don't have permission to schedule interview for this application");
         }
 
+        // 2.5 Guard: Check if job is CLOSED
+        if (job.getStatus() == com.exe.skillverse_backend.business_service.entity.enums.JobStatus.CLOSED) {
+            throw new BadRequestException("Job đã đóng, không thể tạo lịch phỏng vấn.");
+        }
+
         // 3. Validate current status
         if (application.getStatus() != JobApplicationStatus.ACCEPTED) {
             throw new BadRequestException("Interview can only be scheduled for applications with ACCEPTED status. " +

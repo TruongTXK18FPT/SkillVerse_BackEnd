@@ -160,6 +160,7 @@ public class MediaUploadController {
             response.put("message", "File uploaded successfully");
             response.put("url", result.get("secure_url"));
             response.put("publicId", result.get("public_id"));
+            response.put("resourceType", result.get("resource_type"));
             response.put("format", result.get("format"));
             response.put("bytes", result.get("bytes"));
 

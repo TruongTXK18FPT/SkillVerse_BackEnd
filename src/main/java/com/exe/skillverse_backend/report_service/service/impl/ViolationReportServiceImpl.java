@@ -22,6 +22,7 @@ import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.EmailService;
+import com.exe.skillverse_backend.shared.util.EmailThemeStyles;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -605,21 +606,7 @@ public class ViolationReportServiceImpl implements ViolationReportService {
             <html>
             <head>
                 <meta charset="UTF-8">
-                <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
-                    .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                    .header { background: linear-gradient(135deg, #22c55e 0%%, #16a34a 100%%); color: white; padding: 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 24px; }
-                    .content { padding: 30px; }
-                    .info-box { background: #f8fafc; border-left: 4px solid #22c55e; padding: 15px; margin: 20px 0; border-radius: 6px; }
-                    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
-                    .info-row:last-child { border-bottom: none; }
-                    .label { font-weight: 600; color: #475569; }
-                    .value { color: #1e293b; }
-                    .notes { background: #fefce8; border-left: 4px solid #eab308; padding: 15px; margin: 20px 0; border-radius: 6px; }
-                    .footer { background: #f8fafc; padding: 20px; text-align: center; color: #64748b; font-size: 14px; }
-                    .button { display: inline-block; background: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; margin-top: 20px; }
-                </style>
+                <style>%s</style>
             </head>
             <body>
                 <div class="container">
@@ -663,7 +650,7 @@ public class ViolationReportServiceImpl implements ViolationReportService {
                 </div>
             </body>
             </html>
-            """, userName, reportCode, reportTitle, action, resolvedDate, adminNotes);
+            """, EmailThemeStyles.CSS_BLOCK, userName, reportCode, reportTitle, action, resolvedDate, adminNotes);
     }
 
     /**
@@ -676,20 +663,12 @@ public class ViolationReportServiceImpl implements ViolationReportService {
             <html>
             <head>
                 <meta charset="UTF-8">
-                <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
-                    .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                    .header { background: linear-gradient(135deg, #eab308 0%%, #ca8a04 100%%); color: white; padding: 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 24px; }
-                    .content { padding: 30px; }
-                    .warning-box { background: #fef3c7; border-left: 4px solid #eab308; padding: 20px; margin: 20px 0; border-radius: 6px; }
-                    .info-box { background: #f8fafc; padding: 15px; margin: 20px 0; border-radius: 6px; }
-                    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
-                    .info-row:last-child { border-bottom: none; }
-                    .label { font-weight: 600; color: #475569; }
-                    .value { color: #1e293b; }
-                    .important { background: #fee2e2; border-left: 4px solid #ef4444; padding: 15px; margin: 20px 0; border-radius: 6px; color: #991b1b; }
-                    .footer { background: #f8fafc; padding: 20px; text-align: center; color: #64748b; font-size: 14px; }
+                <style>%s
+                    .warning-box { background:#3b2a0c; border:1px solid #f59e0b; color:#fcd34d; padding:18px; margin:18px 0; border-radius:10px; }
+                    .warning-box .info-row .label { color:#fde68a; }
+                    .warning-box .info-row .value { color:#fef3c7; }
+                    .important { background:#3b0c0c; border:1px solid #ef4444; color:#fecaca; padding:14px 16px; margin:16px 0; border-radius:10px; }
+                    .important strong { color:#fee2e2; }
                 </style>
             </head>
             <body>
@@ -746,7 +725,7 @@ public class ViolationReportServiceImpl implements ViolationReportService {
                 </div>
             </body>
             </html>
-            """, userName, reportCode, reportType, reportTitle, date, warningMessage);
+            """, EmailThemeStyles.CSS_BLOCK, userName, reportCode, reportType, reportTitle, date, warningMessage);
     }
 
     /**
@@ -759,19 +738,8 @@ public class ViolationReportServiceImpl implements ViolationReportService {
             <html>
             <head>
                 <meta charset="UTF-8">
-                <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
-                    .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                    .header { background: linear-gradient(135deg, #64748b 0%%, #475569 100%%); color: white; padding: 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 24px; }
-                    .content { padding: 30px; }
-                    .info-box { background: #f8fafc; border-left: 4px solid #64748b; padding: 15px; margin: 20px 0; border-radius: 6px; }
-                    .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
-                    .info-row:last-child { border-bottom: none; }
-                    .label { font-weight: 600; color: #475569; }
-                    .value { color: #1e293b; }
-                    .reason { background: #fef3c7; border-left: 4px solid #eab308; padding: 15px; margin: 20px 0; border-radius: 6px; }
-                    .footer { background: #f8fafc; padding: 20px; text-align: center; color: #64748b; font-size: 14px; }
+                <style>%s
+                    .reason { background:#3b2a0c; border:1px solid #f59e0b; color:#fcd34d; padding:14px 16px; margin:16px 0; border-radius:10px; }
                 </style>
             </head>
             <body>
@@ -814,7 +782,7 @@ public class ViolationReportServiceImpl implements ViolationReportService {
                 </div>
             </body>
             </html>
-            """, userName, reportCode, reportTitle, dismissedDate, reason);
+            """, EmailThemeStyles.CSS_BLOCK, userName, reportCode, reportTitle, dismissedDate, reason);
     }
 
     private String getResolutionActionText(ResolutionAction action) {

@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.shared.service.impl;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.shared.service.EmailService.EmailSendingResult;
 import com.exe.skillverse_backend.shared.service.EmailService;
+import com.exe.skillverse_backend.shared.util.EmailThemeStyles;
 import jakarta.mail.internet.MimeMessage;
 import java.io.File;
 import java.io.UnsupportedEncodingException;
@@ -188,9 +189,9 @@ public class EmailServiceImpl implements EmailService {
                         body { margin:0; padding:0; background:#f3f6fb; font-family:Arial, Helvetica, sans-serif; color:#132238; }
                         .wrapper { width:100%%; background:#f3f6fb; }
                         .container { width:640px; max-width:640px; border:1px solid #d9e4f1; border-radius:16px; overflow:hidden; background:#ffffff; }
-                        .header { padding:22px 18px; background:#1f9ed7; background-image:linear-gradient(90deg,#f5a623 0%%,#1f9ed7 100%%); text-align:center; }
+                        .header { padding:22px 18px; background:#061322; background-image:linear-gradient(120deg,#071321 0%%,#0a1f35 52%%,#0f3b63 100%%); border-bottom:1px solid #1c4d7a; text-align:center; }
                         .logo { width:138px; max-width:138px; height:auto; display:block; margin:0 auto; }
-                        .badge { display:inline-block; margin-top:12px; padding:6px 12px; border-radius:999px; background:#ffffff; color:#0f75bc; font-size:11px; font-weight:700; letter-spacing:0.4px; }
+                        .badge { display:inline-block; margin-top:12px; padding:6px 12px; border-radius:999px; background:#0c2138; color:#6de9ff; border:1px solid #24c8f5; font-size:11px; font-weight:700; letter-spacing:0.4px; }
                         .content { padding:24px; }
                         h1 { margin:0 0 12px 0; font-size:24px; line-height:1.3; color:#10263f; }
                         p { margin:0 0 10px 0; font-size:14px; line-height:1.7; color:#344a63; }
@@ -316,61 +317,49 @@ public class EmailServiceImpl implements EmailService {
      * Build modern Vietnamese HTML for Welcome email
      */
     private String buildWelcomeEmailHtmlContent(String name) {
-        return """
+        return String.format(
+                """
                         <!DOCTYPE html>
                         <html lang=\"vi\">
                         <head>
                             <meta charset=\"UTF-8\" />
                             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
                             <title>Chào mừng đến với SkillVerse</title>
-                            <style>
-                                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background-color: #f5f5f7; margin: 0; padding: 20px; color:#111827; }
-                                .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 24px rgba(17,24,39,0.08); }
-                                .header { background: linear-gradient(135deg, #4f46e5 0%%, #6366f1 100%%); padding: 36px 30px; color: #ffffff; text-align: center; }
-                                .header h1 { margin: 0; font-size: 28px; }
-                                .brand { font-weight: 600; opacity: 0.92; margin-top: 6px; }
-                                .content { padding: 26px 30px; }
-                                p { line-height: 1.7; margin: 10px 0; color:#1f2937; }
-                                .highlight { background: #eef2ff; border-left: 4px solid #4f46e5; padding: 14px; border-radius: 8px; margin: 16px 0; }
-                                .features { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 18px; }
-                                .features ul { margin: 0; padding-left: 18px; }
-                                .cta { text-align: center; margin: 24px 0; }
-                                .button { display: inline-block; background: #4f46e5; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; }
-                                .footer { background: #f9fafb; padding: 18px 22px; text-align: center; color: #6b7280; font-size: 13px; }
-                            </style>
+                            <style>%s</style>
                         </head>
                         <body>
+                            <div class=\"wrapper\">
                             <div class=\"container\">
                                 <div class=\"header\">
                                     <img src=\"cid:skillverse-logo\" alt=\"SkillVerse\" style=\"height:40px; display:block; margin:0 auto 10px;\" />
                                     <h1>🎉 Chào mừng, %s!</h1>
+                                    <div class=\"badge\">TÀI KHOẢN ĐÃ KÍCH HOẠT</div>
                                 </div>
                                 <div class=\"content\">
                                     <p>Cảm ơn bạn đã xác thực email thành công. Tài khoản của bạn đã sẵn sàng để bắt đầu hành trình học tập và phát triển sự nghiệp.</p>
-                                    <div class=\"highlight\">
-                                        <strong>Bạn có thể:</strong>
-                                        <div class=\"features\">
-                                            <ul>
-                                                <li>Hoàn thiện hồ sơ cá nhân</li>
-                                                <li>Khám phá khóa học và mentor</li>
-                                                <li>Ứng tuyển trở thành Mentor hoặc Recruiter</li>
-                                                <li>Bắt đầu lộ trình học tập phù hợp</li>
-                                            </ul>
-                                        </div>
+                                    <div class=\"features-box\">
+                                        <h3>Bạn có thể:</h3>
+                                        <ul class=\"features-list\">
+                                            <li>Hoàn thiện hồ sơ cá nhân</li>
+                                            <li>Khám phá khóa học và mentor</li>
+                                            <li>Ứng tuyển trở thành Mentor hoặc Recruiter</li>
+                                            <li>Bắt đầu lộ trình học tập phù hợp</li>
+                                        </ul>
                                     </div>
                                     <div class=\"cta\">
                                         <a class=\"button\" href=\"https://skillverse.vn\">Khám phá SkillVerse</a>
                                     </div>
-                                    <p style=\"font-size:13px; color:#6b7280\">Nếu bạn không thực hiện hành động này, hãy bỏ qua email.</p>
+                                    <p class=\"muted\" style=\"font-size:13px\">Nếu bạn không thực hiện hành động này, hãy bỏ qua email.</p>
                                 </div>
                                 <div class=\"footer\">
-                                    © SkillVerse — Cộng đồng học tập và nghề nghiệp.
+                                    © 2026 SkillVerse — Cộng đồng học tập và nghề nghiệp.
                                 </div>
+                            </div>
                             </div>
                         </body>
                         </html>
-                """
-                .formatted(name);
+                        """,
+                EmailThemeStyles.CSS_BLOCK, name);
     }
 
     private String buildApprovalEmailHtmlContent(String name, String role) {
@@ -397,19 +386,7 @@ public class EmailServiceImpl implements EmailService {
                             <meta charset=\"UTF-8\" />
                             <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
                             <title>Phê duyệt thành công</title>
-                            <style>
-                                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background-color: #f5f5f7; margin: 0; padding: 20px; color:#111827; }
-                                .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 24px rgba(17,24,39,0.08); }
-                                .header { background: linear-gradient(135deg, #10b981 0%%, #22c55e 100%%); padding: 32px 30px; color: #ffffff; text-align: center; }
-                                .header h1 { margin: 0; font-size: 26px; }
-                                .badge { display:inline-block; margin-top:10px; background: rgba(255,255,255,0.18); border:1px solid rgba(255,255,255,0.35); border-radius:999px; padding:6px 12px; font-size:13px; }
-                                .content { padding: 26px 30px; }
-                                p { line-height: 1.7; margin: 10px 0; color:#1f2937; }
-                                .highlight { background: #ecfeff; border-left: 4px solid #06b6d4; padding: 14px; border-radius: 8px; margin: 16px 0; }
-                                .cta { text-align: center; margin: 24px 0; }
-                                .button { display: inline-block; background: #10b981; color: #ffffff; padding: 12px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; }
-                                .footer { background: #f9fafb; padding: 18px 22px; text-align: center; color: #6b7280; font-size: 13px; }
-                            </style>
+                            <style>%s</style>
                         </head>
                         <body>
                             <div class=\"container\">
@@ -420,20 +397,20 @@ public class EmailServiceImpl implements EmailService {
                                 </div>
                                 <div class=\"content\">
                                     <p>%s</p>
-                                    <div class=\"highlight\">
+                                    <div class=\"info-box\">
                                         %s
                                     </div>
                                     <div class=\"cta\">
                                         <a class=\"button\" href=\"https://skillverse.vn\">Đăng nhập và bắt đầu</a>
                                     </div>
-                                    <p style=\"font-size:13px; color:#6b7280\">Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
+                                    <p class=\"muted\" style=\"font-size:13px\">Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
                                 </div>
-                                <div class=\"footer\">© SkillVerse — Cộng đồng học tập và nghề nghiệp.</div>
+                                <div class=\"footer\">© 2026 SkillVerse — Cộng đồng học tập và nghề nghiệp.</div>
                             </div>
                         </body>
                         </html>
                         """,
-                name, roleTitle, intro, nextSteps);
+                EmailThemeStyles.CSS_BLOCK, name, roleTitle, intro, nextSteps);
     }
 
     private String buildApprovalEmailContent(String name, String role) {
@@ -534,6 +511,40 @@ public class EmailServiceImpl implements EmailService {
             log.error("❌ Failed to send application rejected email to {}: {}", email, e.getMessage());
             log.info("📧 [FALLBACK] EMAIL SERVICE: Application rejected email to {}", email);
         }
+    }
+
+    // ==================== ONBOARDING EMAILS ====================
+
+    @Override
+    public void sendOnboardingReminderEmail(String email, String fullName, String jobTitle) {
+        try {
+            String htmlContent = buildOnboardingReminderHtmlContent(fullName, jobTitle);
+            sendHtmlEmail(email, "Yêu cầu bổ sung thông tin pháp lý — SkillVerse", htmlContent);
+            log.info("📧 EMAIL SERVICE: Onboarding reminder HTML email sent successfully to {} for job: {}", email, jobTitle);
+        } catch (Exception e) {
+            log.error("❌ Failed to send onboarding reminder email to {}: {}", email, e.getMessage());
+            log.info("📧 [FALLBACK] EMAIL SERVICE: Onboarding reminder email to {}", email);
+        }
+    }
+
+    private String buildOnboardingReminderHtmlContent(String fullName, String jobTitle) {
+        String content = "<p>Kính gửi <strong>" + fullName + "</strong>,</p>"
+                + "<p>Nhà tuyển dụng cho vị trí <strong>" + jobTitle + "</strong> đang chờ bạn cung cấp thông tin pháp lý (CCCD/CMND và tài khoản ngân hàng) để tiến hành làm hợp đồng.</p>"
+                + "<div class=\"section-card\" style=\"border-left: 4px solid #0f75bc; background: #f8fbff;\">"
+                + "<p style=\"margin:0 0 8px 0; color: #0a5288;\"><strong>Vui lòng thực hiện các bước sau:</strong></p>"
+                + "<table style=\"width:100%; border-collapse:collapse;\">"
+                + "<tr><td style=\"padding:4px 0; color:#0f75bc; width: 24px;\">1.</td><td style=\"padding:4px 0; color:#163352;\">Truy cập vào ứng dụng SkillVerse</td></tr>"
+                + "<tr><td style=\"padding:4px 0; color:#0f75bc;\">2.</td><td style=\"padding:4px 0; color:#163352;\">Vào trang chi tiết của vị trí ứng tuyển</td></tr>"
+                + "<tr><td style=\"padding:4px 0; color:#0f75bc;\">3.</td><td style=\"padding:4px 0; color:#163352;\">Cập nhật thông tin định danh và tài khoản ngân hàng chính xác</td></tr>"
+                + "</table></div>"
+                + "<div class=\"cta\"><a class=\"button\" href=\"https://skillverse.vn\">Cập nhật thông tin ngay</a></div>"
+                + "<p style=\"font-size:13px; color:#6b7280; margin-top: 16px;\">Thông tin của bạn sẽ được bảo mật tuyệt đối theo chính sách của SkillVerse.</p>";
+
+        return buildCorporateEmailLayout(
+                "THÔNG BÁO TỪ NHÀ TUYỂN DỤNG",
+                "Yêu cầu bổ sung thông tin pháp lý",
+                content,
+                "© 2026 SkillVerse. Bảo mật thông tin cá nhân là ưu tiên hàng đầu.");
     }
 
     // ==================== SHORT-TERM JOB EMAIL NOTIFICATIONS ====================
@@ -1206,29 +1217,29 @@ public class EmailServiceImpl implements EmailService {
                   <meta name="viewport" content="width=device-width, initial-scale=1"/>
                   <title>Lịch phỏng vấn đã được xếp — SkillVerse</title>
                   <style>
-                    body{margin:0;padding:0;background:#f0f4ff;font-family:Inter,Roboto,Helvetica,Arial,sans-serif;color:#1f2937}
-                    .container{max-width:600px;margin:24px auto;padding:0 16px}
-                    .card{background:#ffffff;border-radius:16px;box-shadow:0 8px 24px rgba(31,41,55,0.08);overflow:hidden}
-                    .header{background:linear-gradient(135deg,#0066ff,#00c6ff);padding:32px 28px;text-align:center;color:#fff}
+                    body{margin:0;padding:0;background:#f3f6fb;font-family:Inter,Roboto,Helvetica,Arial,sans-serif;color:#132238}
+                    .container{max-width:640px;margin:24px auto;padding:0 16px}
+                    .card{background:#ffffff;border-radius:16px;box-shadow:0 10px 25px rgba(15,59,99,0.08);overflow:hidden;border:1px solid #d9e4f1}
+                    .header{background:#061322;background-image:linear-gradient(120deg,#071321 0%,#0a1f35 52%,#0f3b63 100%);padding:32px 28px;text-align:center;color:#ffffff;border-bottom:1px solid #1c4d7a}
                     .header img{display:block;margin:0 auto 12px;height:44px}
-                    .header h1{font-size:22px;font-weight:700;margin:0 0 6px}
-                    .emoji{font-size:48px;margin-bottom:8px}
-                    .badge{display:inline-block;margin-top:8px;padding:5px 14px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);border-radius:999px;font-size:13px}
+                    .header h1{font-size:22px;font-weight:700;margin:0 0 6px;color:#ffffff}
+                    .emoji{font-size:48px;margin-bottom:8px;color:#6de9ff}
+                    .badge{display:inline-block;margin-top:8px;padding:6px 12px;background:#0c2138;border:1px solid #24c8f5;color:#6de9ff;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:0.4px}
                     .body{padding:28px 28px}
-                    .greeting{font-size:16px;font-weight:600;color:#111827;margin:0 0 12px}
-                    p{line-height:1.7;margin:10px 0;color:#374151;font-size:14px}
-                    .info-grid{background:#f0f7ff;border:1px solid #cce4ff;border-radius:12px;padding:18px;margin:18px 0}
-                    .info-row{display:flex;align-items:center;margin:8px 0;font-size:14px;color:#1e40af}
+                    .greeting{font-size:16px;font-weight:600;color:#10263f;margin:0 0 12px}
+                    p{line-height:1.7;margin:10px 0;color:#344a63;font-size:14px}
+                    .info-grid{background:#eaf6ff;border:1px solid #cae8ff;border-left:4px solid #24c8f5;border-radius:12px;padding:18px;margin:18px 0}
+                    .info-row{display:flex;align-items:center;margin:8px 0;font-size:14px;color:#1f5f92}
                     .info-row .icon{margin-right:10px;font-size:18px}
-                    .info-row strong{min-width:140px;color:#1e3a8a}
+                    .info-row strong{min-width:140px;color:#10263f}
                     .meeting-link{text-align:center;margin:20px 0}
-                    .btn-meet{display:inline-block;background:linear-gradient(135deg,#0066ff,#00c6ff);color:#fff;padding:14px 32px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px}
-                    .room-info{background:#f5f0ff;border:1px solid #e0c8ff;border-radius:8px;padding:12px 16px;margin:12px 0;font-size:14px;text-align:center}
-                    .room-info code{background:#f5f0ff;color:#7c3aed;font-weight:700;font-size:15px;padding:4px 12px;border-radius:6px;font-family:monospace}
-                    .interviewer-info,.location-info{background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:10px 14px;margin:8px 0;font-size:14px}
-                    .divider{border:none;border-top:1px solid #e5e7eb;margin:20px 0}
-                    .footer{padding:18px 28px 22px;background:#f9fafb;border-top:1px solid #e5e7eb;text-align:center}
-                    .footer-text{font-size:12px;color:#6b7280;margin:0}
+                    .btn-meet{display:inline-block;background:#0f75bc;color:#ffffff;padding:14px 32px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;box-shadow:0 4px 12px rgba(15,117,188,0.25)}
+                    .room-info{background:#0c2138;border:1px solid #24c8f5;color:#cfe5f7;border-radius:10px;padding:12px 16px;margin:12px 0;font-size:14px;text-align:center}
+                    .room-info code{background:#061322;color:#6de9ff;font-weight:700;font-size:15px;padding:4px 12px;border-radius:6px;font-family:monospace}
+                    .interviewer-info,.location-info{background:#f8fbff;border:1px solid #dbe6f3;border-radius:10px;padding:10px 14px;margin:8px 0;font-size:14px;color:#163352}
+                    .divider{border:none;border-top:1px solid #e6eef8;margin:20px 0}
+                    .footer{padding:18px 28px 22px;background:#fbfdff;border-top:1px solid #e6eef8;text-align:center}
+                    .footer-text{font-size:12px;color:#6c8098;margin:0}
                   </style>
                 </head>
                 <body>

@@ -3,10 +3,12 @@ package com.exe.skillverse_backend.business_service.service.impl;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.business_service.dto.request.CreateContractRequest;
+import com.exe.skillverse_backend.business_service.dto.request.OnboardingInfoRequest;
 import com.exe.skillverse_backend.business_service.dto.request.SignContractRequest;
 import com.exe.skillverse_backend.business_service.dto.request.UpdateContractRequest;
 import com.exe.skillverse_backend.business_service.dto.response.ContractSignatureResponse;
 import com.exe.skillverse_backend.business_service.dto.response.JobContractResponse;
+import com.exe.skillverse_backend.business_service.dto.response.OnboardingInfoResponse;
 import com.exe.skillverse_backend.business_service.entity.ContractSignature;
 import com.exe.skillverse_backend.business_service.entity.JobApplication;
 import com.exe.skillverse_backend.business_service.entity.JobContract;
@@ -21,22 +23,33 @@ import com.exe.skillverse_backend.business_service.repository.JobContractReposit
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.business_service.service.JobContractService;
+import com.exe.skillverse_backend.identity_verification_service.dto.IdCardExtractionResult;
+import com.exe.skillverse_backend.identity_verification_service.service.FptAiEkycService;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.exe.skillverse_backend.shared.service.EmailService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class JobContractServiceImpl implements JobContractService {
 
     private final JobContractRepository contractRepository;
@@ -45,6 +58,9 @@ public class JobContractServiceImpl implements JobContractService {
     private final UserRepository userRepository;
     private final RecruiterProfileRepository recruiterProfileRepository;
     private final NotificationService notificationService;
+    private final FptAiEkycService fptAiEkycService;
+    private final CloudinaryService cloudinaryService;
+    private final EmailService emailService;
 
     private static final ZoneId VN_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final String ROLE_EMPLOYER = "EMPLOYER";
@@ -64,6 +80,10 @@ public class JobContractServiceImpl implements JobContractService {
             throw new IllegalStateException(
                 "Can only create contract for ACCEPTED, INTERVIEWED, or OFFER_ACCEPTED application. Current: "
                     + application.getStatus());
+        }
+
+        if (application.getJobPosting() != null && application.getJobPosting().getStatus() == JobStatus.CLOSED) {
+            throw new IllegalStateException("Job đã đóng, không thể tạo hợp đồng mới.");
         }
 
         if (application.getJobPosting() == null ||
@@ -537,7 +557,56 @@ public class JobContractServiceImpl implements JobContractService {
                 .collect(Collectors.toList());
     }
 
-    // ==================== Helper methods ====================
+    @Override
+    @Transactional(readOnly = true)
+    public void remindOnboardingInfo(Long applicationId, Long recruiterUserId) {
+        JobApplication application = applicationRepository.findById(applicationId)
+                .orElseThrow(() -> new IllegalArgumentException("Application not found"));
+
+        if (application.getJobPosting() == null ||
+            application.getJobPosting().getRecruiterProfile() == null ||
+            application.getJobPosting().getRecruiterProfile().getUser() == null) {
+            throw new IllegalArgumentException("Recruiter profile not found");
+        }
+
+        Long employerUserId = application.getJobPosting().getRecruiterProfile().getUser().getId();
+        if (!employerUserId.equals(recruiterUserId)) {
+            throw new IllegalStateException("Only the recruiter who posted this job can send reminders");
+        }
+
+        // Must be in a valid status to send onboarding reminder
+        JobApplicationStatus status = application.getStatus();
+        if (status != JobApplicationStatus.ACCEPTED &&
+            status != JobApplicationStatus.INTERVIEWED &&
+            status != JobApplicationStatus.OFFER_ACCEPTED &&
+            status != JobApplicationStatus.AWAITING_ONBOARDING_INFO &&
+            status != JobApplicationStatus.CONTRACT_SIGNED &&
+            status != JobApplicationStatus.HIRED) {
+            throw new IllegalStateException("Ứng viên chưa đến giai đoạn có thể nhắc nhở thông tin onboarding.");
+        }
+
+        User candidate = application.getUser();
+        if (candidate == null) {
+            throw new IllegalArgumentException("Candidate not found");
+        }
+
+        String jobTitle = application.getJobPosting().getTitle();
+
+        // 1. Send in-app notification
+        notificationService.createNotification(
+                candidate.getId(),
+                "Yêu cầu bổ sung thông tin",
+                "Nhà tuyển dụng cho vị trí '" + jobTitle + "' đang chờ bạn cung cấp thông tin pháp lý để tiến hành làm hợp đồng.",
+                NotificationType.APPLICATION_STATUS_UPDATE,
+                application.getId().toString(),
+                employerUserId
+        );
+
+        // 2. Send email
+        emailService.sendOnboardingReminderEmail(candidate.getEmail(), getFullName(candidate), jobTitle);
+    }
+
+    // ==================== ONBOARDING INFO ====================
 
     private JobContract findOrThrow(Long contractId) {
         return contractRepository.findById(contractId)
@@ -736,10 +805,20 @@ public class JobContractServiceImpl implements JobContractService {
                 .candidateDateOfBirth(contract.getCandidateDateOfBirth())
                 .candidateIdCardNumber(contract.getCandidateIdCardNumber())
                 .candidateIdCardPlace(contract.getCandidateIdCardPlace())
+                .candidateIdCardDate(contract.getCandidateIdCardDate())
+                // Bank info
+                .candidateBankAccountNumber(contract.getCandidateBankAccountNumber())
+                .candidateBankName(contract.getCandidateBankName())
+                .candidateBankAccountHolder(contract.getCandidateBankAccountHolder())
+                // Custom contract PDF
+                .customContractPdfUrl(contract.getCustomContractPdfUrl())
                 // Signatures & PDF
                 .employerSignature(employerSigResp)
                 .candidateSignature(candidateSigResp)
                 .signedPdfUrl(contract.getSignedPdfUrl())
+                .pdfUrl(contract.getCustomContractPdfUrl() != null
+                        ? contract.getCustomContractPdfUrl()
+                        : contract.getSignedPdfUrl())
                 .signedAt(contract.getSignedAt())
                 // Application snapshot
                 .jobId(jobId)
@@ -751,5 +830,244 @@ public class JobContractServiceImpl implements JobContractService {
                 .createdAt(contract.getCreatedAt())
                 .updatedAt(contract.getUpdatedAt())
                 .build();
+    }
+
+    // ==================== ONBOARDING & OCR IMPLEMENTATIONS ====================
+
+    @Override
+    public IdCardExtractionResult extractIdCardForApplication(Long applicationId, MultipartFile image, Long userId) {
+        // Validate that user is the candidate of this application
+        JobApplication application = applicationRepository.findById(applicationId)
+                .orElseThrow(() -> new IllegalArgumentException("Application not found"));
+
+        if (!application.getUser().getId().equals(userId)) {
+            throw new IllegalStateException("Only the applicant can upload CCCD for verification");
+        }
+
+        // Call FPT AI OCR — image bytes are sent and then DISCARDED (not stored)
+        log.info("Processing OCR for application {} by user {}", applicationId, userId);
+        IdCardExtractionResult result = fptAiEkycService.extractIdCardInfo(image);
+
+        if (!result.isSuccess()) {
+            log.warn("OCR failed for application {}: {}", applicationId, result.getErrorMessage());
+        }
+
+        // Discard raw JSON from response to avoid leaking internal FPT AI data to frontend
+        result.setRawJson(null);
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public OnboardingInfoResponse submitOnboardingInfo(Long applicationId, OnboardingInfoRequest request, Long userId) {
+        JobApplication application = applicationRepository.findById(applicationId)
+                .orElseThrow(() -> new IllegalArgumentException("Application not found"));
+
+        if (!application.getUser().getId().equals(userId)) {
+            throw new IllegalStateException("Only the applicant can submit onboarding info");
+        }
+
+        JobApplicationStatus currentStatus = application.getStatus();
+        if (currentStatus != JobApplicationStatus.OFFER_ACCEPTED
+                && currentStatus != JobApplicationStatus.INTERVIEWED
+                && currentStatus != JobApplicationStatus.AWAITING_ONBOARDING_INFO) {
+            throw new IllegalStateException(
+                    "Onboarding info can only be submitted when status is OFFER_ACCEPTED, INTERVIEWED, or AWAITING_ONBOARDING_INFO. Current: " + currentStatus);
+        }
+
+        // Find or create the contract to store onboarding data
+        JobContract contract = contractRepository.findByApplicationId(applicationId).orElse(null);
+        if (contract == null) {
+            // Create a minimal contract shell to store onboarding data
+            User candidate = application.getUser();
+            JobPosting job = application.getJobPosting();
+            RecruiterProfile recruiterProfile = job.getRecruiterProfile();
+            User employer = recruiterProfile.getUser();
+
+            contract = JobContract.builder()
+                    .application(application)
+                    .status(ContractStatus.DRAFT)
+                    .contractType(com.exe.skillverse_backend.business_service.enums.ContractType.FULL_TIME)
+                    .jobTitle(job.getTitle())
+                    .startDate(LocalDate.now().plusDays(30)) // Default, recruiter will update
+                    .employerId(employer.getId())
+                    .employerName(getFullName(employer))
+                    .employerCompanyName(recruiterProfile.getCompanyName())
+                    .employerEmail(employer.getEmail())
+                    .candidateId(candidate.getId())
+                    .candidateName(getFullName(candidate))
+                    .candidateEmail(candidate.getEmail())
+                    .build();
+        }
+
+        // Fill onboarding data
+        contract.setCandidateIdCardNumber(request.getIdCardNumber());
+        contract.setCandidateIdCardPlace(request.getIdCardPlace());
+        contract.setCandidateIdCardDate(request.getIdCardDate());
+        contract.setCandidateName(request.getFullName());
+        contract.setCandidateAddress(request.getAddress());
+        contract.setCandidateBankAccountNumber(request.getBankAccountNumber());
+        contract.setCandidateBankName(request.getBankName());
+        contract.setCandidateBankAccountHolder(request.getBankAccountHolder());
+
+        // Parse DOB from OCR format (dd/MM/yyyy) if provided
+        if (request.getDateOfBirth() != null && !request.getDateOfBirth().isBlank()) {
+            try {
+                DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+                contract.setCandidateDateOfBirth(LocalDate.parse(request.getDateOfBirth(), fmt));
+            } catch (Exception e) {
+                log.warn("Could not parse DOB '{}': {}", request.getDateOfBirth(), e.getMessage());
+            }
+        }
+
+        contractRepository.save(contract);
+
+        // Update application status
+        application.setStatus(JobApplicationStatus.AWAITING_ONBOARDING_INFO);
+        applicationRepository.save(application);
+
+        log.info("Onboarding info submitted for application {} by user {}", applicationId, userId);
+
+        return OnboardingInfoResponse.builder()
+                .applicationId(applicationId)
+                .status(JobApplicationStatus.AWAITING_ONBOARDING_INFO.name())
+                .idCardNumber(request.getIdCardNumber())
+                .fullName(request.getFullName())
+                .dateOfBirth(request.getDateOfBirth())
+                .idCardDate(request.getIdCardDate())
+                .idCardPlace(request.getIdCardPlace())
+                .address(request.getAddress())
+                .bankAccountNumber(request.getBankAccountNumber())
+                .bankName(request.getBankName())
+                .bankAccountHolder(request.getBankAccountHolder())
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public OnboardingInfoResponse getOnboardingInfo(Long applicationId, Long userId) {
+        JobApplication application = applicationRepository.findById(applicationId)
+                .orElseThrow(() -> new IllegalArgumentException("Application not found"));
+
+        boolean isCandidate = application.getUser().getId().equals(userId);
+        boolean isRecruiter = application.getJobPosting().getRecruiterProfile().getUser().getId().equals(userId);
+        if (!isCandidate && !isRecruiter) {
+            throw new IllegalStateException("You don't have permission to view onboarding info");
+        }
+
+        JobContract contract = contractRepository.findByApplicationId(applicationId)
+                .orElseThrow(() -> new IllegalArgumentException("No onboarding data found for this application"));
+
+        return OnboardingInfoResponse.builder()
+                .applicationId(applicationId)
+                .status(application.getStatus().name())
+                .idCardNumber(contract.getCandidateIdCardNumber())
+                .fullName(contract.getCandidateName())
+                .dateOfBirth(contract.getCandidateDateOfBirth() != null
+                        ? contract.getCandidateDateOfBirth().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                        : null)
+                .idCardDate(contract.getCandidateIdCardDate())
+                .idCardPlace(contract.getCandidateIdCardPlace())
+                .address(contract.getCandidateAddress())
+                .bankAccountNumber(contract.getCandidateBankAccountNumber())
+                .bankName(contract.getCandidateBankName())
+                .bankAccountHolder(contract.getCandidateBankAccountHolder())
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public OnboardingInfoResponse getLatestOnboardingInfo(Long userId) {
+        List<JobContract> userContracts = contractRepository.findByCandidateIdOrderByCreatedAtDesc(userId);
+        if (userContracts.isEmpty()) {
+            return null; // No previous contracts
+        }
+
+        // Find the first contract that has onboarding info (candidateIdCardNumber is not null)
+        JobContract latestContractWithOnboarding = userContracts.stream()
+                .filter(c -> c.getCandidateIdCardNumber() != null && !c.getCandidateIdCardNumber().isBlank())
+                .findFirst()
+                .orElse(null);
+
+        if (latestContractWithOnboarding == null) {
+            return null;
+        }
+
+        return OnboardingInfoResponse.builder()
+                .applicationId(latestContractWithOnboarding.getApplication().getId())
+                .status("PREVIOUSLY_SAVED")
+                .idCardNumber(latestContractWithOnboarding.getCandidateIdCardNumber())
+                .fullName(latestContractWithOnboarding.getCandidateName())
+                .dateOfBirth(latestContractWithOnboarding.getCandidateDateOfBirth() != null
+                        ? latestContractWithOnboarding.getCandidateDateOfBirth().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+                        : null)
+                .idCardDate(latestContractWithOnboarding.getCandidateIdCardDate())
+                .idCardPlace(latestContractWithOnboarding.getCandidateIdCardPlace())
+                .address(latestContractWithOnboarding.getCandidateAddress())
+                .bankAccountNumber(latestContractWithOnboarding.getCandidateBankAccountNumber())
+                .bankName(latestContractWithOnboarding.getCandidateBankName())
+                .bankAccountHolder(latestContractWithOnboarding.getCandidateBankAccountHolder())
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public JobContractResponse uploadContractPdf(Long contractId, MultipartFile file, LocalDate startDate, LocalDate endDate, Long userId) {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("File is required");
+        }
+        if (endDate == null) {
+            throw new IllegalArgumentException("Ngày kết thúc hợp đồng (endDate) là bắt buộc");
+        }
+
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.equals("application/pdf")) {
+            throw new IllegalArgumentException("Only PDF files are accepted");
+        }
+
+        JobContract contract = findOrThrow(contractId);
+
+        if (!contract.getEmployerId().equals(userId)) {
+            throw new IllegalStateException("Only the employer can upload contract PDF");
+        }
+
+        if (contract.getStatus() != ContractStatus.DRAFT) {
+            throw new IllegalStateException("Contract PDF can only be uploaded in DRAFT status");
+        }
+
+        try {
+            // Delete old PDF if exists
+            if (contract.getCustomContractPdfPublicId() != null) {
+                try {
+                    String resourceType = contract.getCustomContractPdfResourceType() != null
+                            ? contract.getCustomContractPdfResourceType()
+                            : "raw";
+                    cloudinaryService.deleteFile(contract.getCustomContractPdfPublicId(), resourceType);
+                } catch (Exception e) {
+                    log.warn("Failed to delete old contract PDF: {}", e.getMessage());
+                }
+            }
+
+            // Upload new PDF to Cloudinary
+            Map<String, Object> uploadResult = cloudinaryService.uploadFile(file, "contracts");
+            String url = (String) uploadResult.get("secure_url");
+            String publicId = (String) uploadResult.get("public_id");
+            String resourceType = (String) uploadResult.get("resource_type");
+
+            contract.setCustomContractPdfUrl(url);
+            contract.setCustomContractPdfPublicId(publicId);
+            contract.setCustomContractPdfResourceType(resourceType);
+            if (startDate != null) {
+                contract.setStartDate(startDate);
+            }
+            contract.setEndDate(endDate);
+
+            JobContract saved = contractRepository.save(contract);
+            log.info("Contract PDF uploaded for contract {} by user {}", contractId, userId);
+
+            return mapToResponse(saved);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to upload contract PDF: " + e.getMessage());
+        }
     }
 }

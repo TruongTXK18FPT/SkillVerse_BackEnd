@@ -75,6 +75,11 @@ public class JourneySummaryResponse {
         private Long resultId;
         private Integer scorePercentage;
         private Journey.SkillLevel evaluatedLevel;
+        private Journey.SkillLevel baseLevel;
+        private Journey.SkillLevel testedLevel;
+        private Boolean provisional;
+        private Boolean challengeRequired;
+        private Boolean challengeAvailable;
         private Integer skillGapsCount;
         private Integer strengthsCount;
         private Instant evaluatedAt;

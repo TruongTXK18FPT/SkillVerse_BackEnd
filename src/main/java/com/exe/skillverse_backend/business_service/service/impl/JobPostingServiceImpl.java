@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
 import com.exe.skillverse_backend.business_service.repository.CandidateMatchScoreRepository;
 import com.exe.skillverse_backend.business_service.repository.JobApplicationRepository;
 import com.exe.skillverse_backend.business_service.repository.JobBoostRepository;
+import com.exe.skillverse_backend.business_service.repository.JobContractRepository;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterShortlistRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
@@ -43,6 +44,7 @@ public class JobPostingServiceImpl implements JobPostingService {
     private final JobPostingRepository jobPostingRepository;
     private final RecruiterProfileRepository recruiterProfileRepository;
     private final JobApplicationRepository jobApplicationRepository;
+    private final JobContractRepository jobContractRepository;
     private final JobBoostRepository jobBoostRepository;
     private final CandidateMatchScoreRepository candidateMatchScoreRepository;
     private final RecruiterShortlistRepository recruiterShortlistRepository;
@@ -190,7 +192,7 @@ public class JobPostingServiceImpl implements JobPostingService {
         // UPDATE: Allow editing CLOSED jobs (User can edit then reopen for a fee)
         if (job.getStatus() == JobStatus.OPEN) {
             throw new IllegalStateException(
-                    "Cannot edit job while it is OPEN. Close it first or change only the status.");
+                    "Không thể chỉnh sửa job đang OPEN. Hãy tạm đóng hoặc kết thúc để chỉnh sửa.");
         }
 
         // Update fields if provided
@@ -277,6 +279,91 @@ public class JobPostingServiceImpl implements JobPostingService {
         JobStatus currentStatus = job.getStatus();
         if (currentStatus == JobStatus.CLOSED && newStatus != JobStatus.CLOSED) {
             throw new IllegalStateException("Cannot change status of a CLOSED job. Use reopen instead.");
+        }
+
+        // --- Guard đóng job khi còn applicant đang trong flow ---
+        if (newStatus == JobStatus.CLOSED && currentStatus == JobStatus.OPEN) {
+            List<com.exe.skillverse_backend.business_service.exception.JobFlowBlockingItem> blockingItems = new java.util.ArrayList<>();
+
+            // Check applications
+            List<com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus> unresolvedStatuses = List.of(
+                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.PENDING,
+                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.REVIEWED,
+                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.ACCEPTED,
+                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.INTERVIEW_SCHEDULED,
+                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.INTERVIEWED,
+                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.OFFER_SENT,
+                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.OFFER_REJECTED,
+                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.OFFER_ACCEPTED,
+                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.AWAITING_ONBOARDING_INFO
+            );
+
+            List<com.exe.skillverse_backend.business_service.entity.JobApplication> unresolvedApplications = jobApplicationRepository.findByJobPostingIdAndStatusIn(jobId, unresolvedStatuses);
+            for (com.exe.skillverse_backend.business_service.entity.JobApplication app : unresolvedApplications) {
+                String requiredAction = "";
+                switch (app.getStatus()) {
+                    case PENDING:
+                    case REVIEWED:
+                    case INTERVIEWED:
+                        requiredAction = "Từ chối ứng viên";
+                        break;
+                    case ACCEPTED:
+                        requiredAction = "Từ chối hoặc schedule interview & hoàn tất rồi từ chối";
+                        break;
+                    case INTERVIEW_SCHEDULED:
+                        requiredAction = "Hoàn thành phỏng vấn rồi từ chối, hoặc cancel interview + reject";
+                        break;
+                    case OFFER_SENT:
+                        requiredAction = "Chờ ứng viên phản hồi rồi từ chối, hoặc đợi 2 rounds auto-reject";
+                        break;
+                    case OFFER_REJECTED:
+                        requiredAction = "Gửi lại offer (nếu round<2) hoặc đánh REJECTED (nếu round>=2 hệ thống đã tự động)";
+                        break;
+                    case OFFER_ACCEPTED:
+                    case AWAITING_ONBOARDING_INFO:
+                        requiredAction = "Tạo & hoàn tất hợp đồng, hoặc reject";
+                        break;
+                    default:
+                        requiredAction = "Cần xử lý dứt điểm ứng viên này";
+                }
+
+                String displayName = app.getUser().getFirstName() + " " + app.getUser().getLastName();
+                blockingItems.add(com.exe.skillverse_backend.business_service.exception.JobFlowBlockingItem.builder()
+                        .scope("APPLICATION")
+                        .applicationId(app.getId())
+                        .applicantName(displayName)
+                        .applicantEmail(app.getUser().getEmail())
+                        .currentStatus(app.getStatus().name())
+                        .requiredAction(requiredAction)
+                        .build());
+            }
+
+            // Check contracts
+            List<com.exe.skillverse_backend.business_service.enums.ContractStatus> pendingContractStatuses = List.of(
+                    com.exe.skillverse_backend.business_service.enums.ContractStatus.DRAFT,
+                    com.exe.skillverse_backend.business_service.enums.ContractStatus.PENDING_SIGNER,
+                    com.exe.skillverse_backend.business_service.enums.ContractStatus.PENDING_EMPLOYER
+            );
+
+            List<com.exe.skillverse_backend.business_service.entity.JobContract> pendingContracts = jobContractRepository.findByApplicationJobPostingIdAndStatusIn(jobId, pendingContractStatuses);
+            for (com.exe.skillverse_backend.business_service.entity.JobContract contract : pendingContracts) {
+                blockingItems.add(com.exe.skillverse_backend.business_service.exception.JobFlowBlockingItem.builder()
+                        .scope("CONTRACT")
+                        .applicationId(contract.getApplication().getId())
+                        .contractId(contract.getId())
+                        .applicantName(contract.getCandidateName())
+                        .applicantEmail(contract.getCandidateEmail())
+                        .currentStatus(contract.getStatus().name())
+                        .requiredAction("Hoàn tất ký hoặc cancel contract")
+                        .build());
+            }
+
+            if (!blockingItems.isEmpty()) {
+                throw new com.exe.skillverse_backend.business_service.exception.JobCloseBlockedException(
+                        "Không thể đóng job vì còn " + blockingItems.size() + " ứng viên chưa hoàn tất flow",
+                        blockingItems
+                );
+            }
         }
 
         // Update closedAt if status is changing to CLOSED

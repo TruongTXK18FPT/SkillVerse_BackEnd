@@ -22,6 +22,11 @@ public class GenerateTestResponse {
     private Integer questionCount;
     private Integer timeLimitMinutes;
     private String difficultyLevel;
+    private String assessmentPhase;
+    private String baseLevel;
+    private String testedLevel;
+    private Long parentTestId;
+    private String questionSource;
     private String questionsJson;
     private String message;
 }

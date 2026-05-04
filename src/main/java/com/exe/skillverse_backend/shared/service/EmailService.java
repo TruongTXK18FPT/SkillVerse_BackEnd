@@ -55,6 +55,9 @@ public interface EmailService {
         // Application auto-rejection notification (to candidate)
         void sendApplicationRejectionNotification(String email, String jobTitle, String reason);
 
+        // Onboarding info reminder notification (to candidate)
+        void sendOnboardingReminderEmail(String email, String fullName, String jobTitle);
+
         void sendHtmlEmail(String to, String subject, String htmlContent);
 
         void sendHtmlEmailWithAttachment(String to, String subject, String htmlContent,

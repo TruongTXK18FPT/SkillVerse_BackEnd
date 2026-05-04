@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.business_service.repository;
 
 import com.exe.skillverse_backend.business_service.entity.JobApplication;
 import com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -71,4 +72,20 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
      * Find applications by job posting ID and status (for auto-reject scheduler)
      */
     List<JobApplication> findByJobPostingIdAndStatus(Long jobPostingId, JobApplicationStatus status);
+
+    /**
+     * Find applications by job posting and a set of statuses — used to block close-job when
+     * applicants are still mid-flow.
+     */
+    @Query("SELECT ja FROM JobApplication ja "
+            + "JOIN FETCH ja.user u "
+            + "WHERE ja.jobPosting.id = :jobId AND ja.status IN :statuses "
+            + "ORDER BY ja.appliedAt DESC")
+    List<JobApplication> findByJobPostingIdAndStatusIn(@Param("jobId") Long jobId,
+                                                       @Param("statuses") Collection<JobApplicationStatus> statuses);
+
+    /**
+     * Find applications for a candidate having the given status (e.g. HIRED for ONSITE offline flow).
+     */
+    List<JobApplication> findByUserIdAndStatus(Long userId, JobApplicationStatus status);
 }

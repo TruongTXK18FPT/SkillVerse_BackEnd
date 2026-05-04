@@ -132,7 +132,11 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
 
         s.setSubmissionText(request.getSubmissionText());
         s.setEvidenceUrl(request.getEvidenceUrl());
+        s.setEvidencePublicId(request.getEvidencePublicId());
+        s.setEvidenceResourceType(request.getEvidenceResourceType());
         s.setAttachmentUrl(request.getAttachmentUrl());
+        s.setAttachmentPublicId(request.getAttachmentPublicId());
+        s.setAttachmentResourceType(request.getAttachmentResourceType());
 
         // Ensure assignment exists - auto-create SYSTEM_GENERATED for free learners
         // or use existing assignment (mentor-refined or previously created)
@@ -150,6 +154,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         // mentor can review again. VERIFIED + unlocked journey shouldn't happen
         // because locked-journey case was rejected above.
         s.setVerificationStatus(VerificationStatus.PENDING);
+        s.setLearnerMarkedComplete(false);
 
         RoadmapNodeSubmission saved = submissionRepo.save(s);
         boolean hasMentorCoverage = bookingRepository.existsActiveBookingCoveringNode(
@@ -213,7 +218,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                     "Submission already verified; review not allowed");
         }
 
-        requireLearnerMarkedNodeCompleted(journey, nodeId);
+        // requireLearnerMarkedNodeCompleted(journey, nodeId);
 
         RoadmapNodeReview review = RoadmapNodeReview.builder()
                 .submissionId(s.getId())
@@ -230,19 +235,19 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
             case APPROVED -> {
                 s.setVerificationStatus(VerificationStatus.APPROVED);
                 s.setMentorFeedback(request.getFeedback());
-                syncNodeCompletionState(journey, nodeId, true);
-                recalculateAndSyncJourneyProgress(journey);
             }
             case REWORK_REQUESTED -> {
                 s.setSubmissionStatus(SubmissionStatus.REWORK_REQUESTED);
                 s.setVerificationStatus(VerificationStatus.UNDER_REVIEW);
                 s.setMentorFeedback(request.getFeedback());
+                s.setLearnerMarkedComplete(false);
                 syncNodeCompletionState(journey, nodeId, false);
             }
             case REJECTED -> {
                 s.setSubmissionStatus(SubmissionStatus.REWORK_REQUESTED);
                 s.setVerificationStatus(VerificationStatus.REJECTED);
                 s.setMentorFeedback(request.getFeedback());
+                s.setLearnerMarkedComplete(false);
                 syncNodeCompletionState(journey, nodeId, false);
             }
         }
@@ -288,6 +293,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         } else {
             s.setSubmissionStatus(SubmissionStatus.REWORK_REQUESTED);
             s.setVerificationStatus(VerificationStatus.REJECTED);
+            s.setLearnerMarkedComplete(false);
             syncNodeCompletionState(journey, nodeId, false);
         }
         submissionRepo.save(s);
@@ -314,11 +320,15 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         }
 
         // Mentor coverage is an audit/display signal only — it does not block self-confirmation.
-        syncNodeCompletionState(journey, nodeId, true);
-        recalculateAndSyncJourneyProgress(journey);
         boolean hasMentorCoverage = bookingRepository.existsActiveBookingCoveringNode(
                 journeyId, nodeId, ASSIGNED_MENTOR_STATUSES);
-        NodeEvidenceRecordResponse response = toEvidenceResponse(s);
+        s.setLearnerMarkedComplete(true);
+        if (!hasMentorCoverage) {
+            syncNodeCompletionState(journey, nodeId, true);
+            recalculateAndSyncJourneyProgress(journey);
+        }
+        RoadmapNodeSubmission saved = submissionRepo.save(s);
+        NodeEvidenceRecordResponse response = toEvidenceResponse(saved);
         response.setHasMentorCoverage(hasMentorCoverage);
         return response;
     }
@@ -341,20 +351,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         }
     }
 
-    private void requireLearnerMarkedNodeCompleted(Journey journey, String nodeId) {
-        if (journey == null || journey.getRoadmapSessionId() == null) {
-            throw new ApiException(ErrorCode.CONFLICT,
-                    "Journey has no roadmap session to validate node completion");
-        }
 
-        UserRoadmapProgress progress = progressRepository
-                .findBySessionIdAndQuestId(journey.getRoadmapSessionId(), nodeId)
-                .orElse(null);
-        if (progress == null || progress.getStatus() != UserRoadmapProgress.ProgressStatus.COMPLETED) {
-            throw new ApiException(ErrorCode.CONFLICT,
-                    "Learner must mark this node as completed before mentor review");
-        }
-    }
 
     private void syncNodeCompletionState(Journey journey, String nodeId, boolean completed) {
         if (journey == null || journey.getRoadmapSessionId() == null || nodeId == null || nodeId.isBlank()) {

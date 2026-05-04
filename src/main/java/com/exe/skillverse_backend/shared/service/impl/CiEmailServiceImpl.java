@@ -104,6 +104,11 @@ public class CiEmailServiceImpl implements EmailService {
     }
 
     @Override
+    public void sendOnboardingReminderEmail(String email, String fullName, String jobTitle) {
+        logSkip("sendOnboardingReminderEmail", email);
+    }
+
+    @Override
     public void sendHtmlEmail(String to, String subject, String htmlContent) {
         logSkip("sendHtmlEmail", to);
     }

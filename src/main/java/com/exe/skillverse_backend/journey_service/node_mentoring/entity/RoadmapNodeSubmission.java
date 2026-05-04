@@ -78,8 +78,20 @@ public class RoadmapNodeSubmission {
     @Column(name = "evidence_url", length = 1000)
     private String evidenceUrl;
 
+    @Column(name = "evidence_public_id", length = 255)
+    private String evidencePublicId;
+
+    @Column(name = "evidence_resource_type", length = 50)
+    private String evidenceResourceType;
+
     @Column(name = "attachment_url", length = 1000)
     private String attachmentUrl;
+
+    @Column(name = "attachment_public_id", length = 255)
+    private String attachmentPublicId;
+
+    @Column(name = "attachment_resource_type", length = 50)
+    private String attachmentResourceType;
 
     @Builder.Default
     @Enumerated(EnumType.STRING)
@@ -93,6 +105,10 @@ public class RoadmapNodeSubmission {
 
     @Column(name = "mentor_feedback", columnDefinition = "TEXT")
     private String mentorFeedback;
+
+    @Builder.Default
+    @Column(name = "learner_marked_complete", nullable = false)
+    private Boolean learnerMarkedComplete = false;
 
     @CreationTimestamp
     @Column(name = "submitted_at", nullable = false, updatable = false)

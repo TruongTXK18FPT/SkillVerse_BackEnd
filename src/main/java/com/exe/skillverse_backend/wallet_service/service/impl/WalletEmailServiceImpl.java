@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.wallet_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.shared.util.EmailThemeStyles;
 import com.exe.skillverse_backend.wallet_service.entity.WithdrawalRequest;
 import com.exe.skillverse_backend.wallet_service.service.WalletEmailService;
 import jakarta.mail.internet.MimeMessage;
@@ -227,44 +228,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         <head>
                             <meta charset="UTF-8">
                             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                            <style>
-                                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; margin: 0; padding: 0; line-height: 1.6; }
-                                .container { max-width: 600px; margin: 20px auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
-                                
-                                /* Header */
-                                .header { background: linear-gradient(135deg, #8b5cf6 0%%, #3b82f6 100%%); padding: 40px 20px; text-align: center; color: white; }
-                                .header-icon { font-size: 48px; margin-bottom: 10px; display: block; }
-                                .header h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 0.5px; }
-                                
-                                /* Content */
-                                .content { padding: 40px 30px; color: #374151; }
-                                .greeting { font-size: 18px; margin-bottom: 15px; }
-                                .message { color: #6b7280; font-size: 16px; margin-bottom: 30px; }
-                                
-                                /* Gift Card */
-                                .gift-card { background: #fdf2f8; border: 2px dashed #ec4899; border-radius: 16px; padding: 25px; text-align: center; margin: 0 auto 30px; position: relative; }
-                                .gift-title { color: #db2777; font-size: 14px; text-transform: uppercase; font-weight: 700; letter-spacing: 1px; margin-bottom: 15px; }
-                                .gift-items { display: flex; flex-direction: column; gap: 10px; align-items: center; }
-                                .gift-item { font-size: 28px; font-weight: 800; color: #111827; display: flex; align-items: center; gap: 10px; }
-                                .gift-item.cash { color: #059669; }
-                                .gift-item.coin { color: #d97706; }
-                                
-                                /* Reason */
-                                .reason-container { background-color: #f9fafb; border-left: 4px solid #8b5cf6; padding: 15px 20px; border-radius: 0 8px 8px 0; margin-bottom: 30px; }
-                                .reason-label { font-size: 12px; color: #6b7280; text-transform: uppercase; font-weight: 600; display: block; margin-bottom: 5px; }
-                                .reason-text { color: #1f2937; font-style: italic; font-weight: 500; }
-                                
-                                /* Button */
-                                .btn-container { text-align: center; margin-top: 10px; }
-                                .btn { display: inline-block; background: linear-gradient(135deg, #8b5cf6 0%%, #6366f1 100%%); color: white; text-decoration: none; padding: 16px 40px; border-radius: 50px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3); transition: all 0.3s ease; }
-                                .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4); }
-                                
-                                /* Footer */
-                                .footer { background-color: #f9fafb; padding: 25px; text-align: center; border-top: 1px solid #e5e7eb; }
-                                .footer p { margin: 5px 0; font-size: 13px; color: #9ca3af; }
-                                .social-links { margin-top: 15px; }
-                                .social-link { color: #6b7280; text-decoration: none; margin: 0 10px; font-size: 12px; }
-                            </style>
+                            <style>%s</style>
                         </head>
                         <body>
                             <div class="container">
@@ -307,7 +271,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         </body>
                         </html>
                         """,
-                userName, giftContent.toString(), reason);
+                EmailThemeStyles.CSS_BLOCK, userName, giftContent.toString(), reason);
     }
 
     private String buildDepositSuccessHtml(String userName, String amount, String transactionId,
@@ -318,19 +282,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         <html>
                         <head>
                             <meta charset="UTF-8">
-                            <style>
-                                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background-color: #f5f5f5; margin: 0; padding: 20px; }
-                                .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                                .header { background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); padding: 30px; text-align: center; color: white; }
-                                .header h1 { margin: 0; font-size: 28px; }
-                                .content { padding: 30px; }
-                                .amount { font-size: 36px; color: #10b981; font-weight: bold; text-align: center; margin: 20px 0; }
-                                .info-box { background: #f9fafb; border-left: 4px solid #667eea; padding: 15px; margin: 20px 0; border-radius: 4px; }
-                                .info-label { font-weight: 600; color: #374151; margin-bottom: 5px; }
-                                .info-value { color: #6b7280; }
-                                .button { display: inline-block; background: #667eea; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; margin: 20px 0; }
-                                .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
-                            </style>
+                            <style>%s</style>
                         </head>
                         <body>
                             <div class="container">
@@ -369,7 +321,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         </body>
                         </html>
                         """,
-                userName, amount, transactionId, currentBalance);
+                EmailThemeStyles.CSS_BLOCK, userName, amount, transactionId, currentBalance);
     }
 
     private String buildCoinPurchaseHtml(String userName, String totalCoins, String bonusBadge, String paidAmount,
@@ -380,18 +332,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         <html>
                         <head>
                             <meta charset="UTF-8">
-                            <style>
-                                body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background-color: #f5f5f5; margin: 0; padding: 20px; }
-                                .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                                .header { background: linear-gradient(135deg, #f59e0b 0%%, #d97706 100%%); padding: 30px; text-align: center; color: white; }
-                                .header h1 { margin: 0; font-size: 28px; }
-                                .content { padding: 30px; }
-                                .coin-amount { font-size: 48px; text-align: center; margin: 20px 0; }
-                                .coin-icon { color: #f59e0b; }
-                                .info-box { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px; }
-                                .bonus-badge { background: #10b981; color: white; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: bold; display: inline-block; margin-left: 10px; }
-                                .footer { background: #f9fafb; padding: 20px; text-align: center; color: #6b7280; font-size: 14px; }
-                            </style>
+                            <style>%s</style>
                         </head>
                         <body>
                             <div class="container">
@@ -414,7 +355,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                                     </div>
 
                                     <p style="text-align: center; margin-top: 30px;">
-                                        <a href="http://localhost:5173/my-wallet" style="display: inline-block; background: #f59e0b; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px;">
+                                        <a href="http://localhost:5173/my-wallet" class="button">
                                             Sử Dụng SkillCoin
                                         </a>
                                     </p>
@@ -426,7 +367,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         </body>
                         </html>
                         """,
-                userName, totalCoins, bonusBadge, paidAmount, paymentMethod);
+                EmailThemeStyles.CSS_BLOCK, userName, totalCoins, bonusBadge, paidAmount, paymentMethod);
     }
 
     private String buildWithdrawalRequestHtml(String userName, String requestCode, String amount, String fee,
@@ -436,14 +377,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         <!DOCTYPE html>
                         <html>
                         <head><meta charset="UTF-8">
-                        <style>
-                            body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
-                            .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                            .header { background: linear-gradient(135deg, #3b82f6, #2563eb); padding: 30px; text-align: center; color: white; }
-                            .content { padding: 30px; }
-                            .status-badge { background: #fbbf24; color: #78350f; padding: 6px 16px; border-radius: 20px; font-weight: bold; display: inline-block; margin: 15px 0; }
-                            .info-box { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 15px; margin: 15px 0; border-radius: 4px; }
-                        </style>
+                        <style>%s</style>
                         </head>
                         <body>
                             <div class="container">
@@ -467,7 +401,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         </body>
                         </html>
                         """,
-                userName, requestCode, amount, fee, netAmount, bankName, accountNumber, createdAt);
+                EmailThemeStyles.CSS_BLOCK, userName, requestCode, amount, fee, netAmount, bankName, accountNumber, createdAt);
     }
 
     private String buildWithdrawalApprovedHtml(String userName, String requestCode, String netAmount, String bankName,
@@ -477,14 +411,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         <!DOCTYPE html>
                         <html>
                         <head><meta charset="UTF-8">
-                        <style>
-                            body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
-                            .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                            .header { background: linear-gradient(135deg, #10b981, #059669); padding: 30px; text-align: center; color: white; }
-                            .content { padding: 30px; }
-                            .status-badge { background: #10b981; color: white; padding: 6px 16px; border-radius: 20px; font-weight: bold; display: inline-block; }
-                            .info-box { background: #f0fdf4; border-left: 4px solid #10b981; padding: 15px; margin: 15px 0; border-radius: 4px; }
-                        </style>
+                        <style>%s</style>
                         </head>
                         <body>
                             <div class="container">
@@ -492,9 +419,9 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                                 <div class="content">
                                     <p>Xin chào <strong>%s</strong>,</p>
                                     <p>Yêu cầu rút tiền <strong>%s</strong> đã được quản trị viên phê duyệt!</p>
-                                    <span class="status-badge">✅ Đã duyệt</span>
+                                    <span class="success-badge">✅ Đã duyệt</span>
                                     <div class="info-box">
-                                        <p><strong>Số tiền nhận:</strong> <strong style="color: #10b981; font-size: 24px;">%s</strong></p>
+                                        <p><strong>Số tiền nhận:</strong> <strong style="color: #0f75bc; font-size: 24px;">%s</strong></p>
                                         <p><strong>Chuyển đến:</strong> %s - %s</p>
                                         <p><strong>Ghi chú:</strong> %s</p>
                                     </div>
@@ -504,7 +431,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         </body>
                         </html>
                         """,
-                userName, requestCode, netAmount, bankName, accountNumber, adminNotes);
+                EmailThemeStyles.CSS_BLOCK, userName, requestCode, netAmount, bankName, accountNumber, adminNotes);
     }
 
     private String buildWithdrawalRejectedHtml(String userName, String requestCode, String amount, String reason) {
@@ -513,14 +440,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         <!DOCTYPE html>
                         <html>
                         <head><meta charset="UTF-8">
-                        <style>
-                            body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
-                            .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                            .header { background: linear-gradient(135deg, #ef4444, #dc2626); padding: 30px; text-align: center; color: white; }
-                            .content { padding: 30px; }
-                            .status-badge { background: #ef4444; color: white; padding: 6px 16px; border-radius: 20px; font-weight: bold; display: inline-block; }
-                            .info-box { background: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin: 15px 0; border-radius: 4px; }
-                        </style>
+                        <style>%s</style>
                         </head>
                         <body>
                             <div class="container">
@@ -528,7 +448,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                                 <div class="content">
                                     <p>Xin chào <strong>%s</strong>,</p>
                                     <p>Rất tiếc, yêu cầu rút tiền <strong>%s</strong> của bạn đã bị từ chối.</p>
-                                    <span class="status-badge">❌ Từ chối</span>
+                                    <span class="danger-badge">❌ Từ chối</span>
                                     <div class="info-box">
                                         <p><strong>Số tiền:</strong> %s</p>
                                         <p><strong>Lý do từ chối:</strong> %s</p>
@@ -539,7 +459,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         </body>
                         </html>
                         """,
-                userName, requestCode, amount, reason);
+                EmailThemeStyles.CSS_BLOCK, userName, requestCode, amount, reason);
     }
 
     private String buildWithdrawalCompletedHtml(String userName, String requestCode, String netAmount, String bankName,
@@ -549,14 +469,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         <!DOCTYPE html>
                         <html>
                         <head><meta charset="UTF-8">
-                        <style>
-                            body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
-                            .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                            .header { background: linear-gradient(135deg, #8b5cf6, #7c3aed); padding: 30px; text-align: center; color: white; }
-                            .content { padding: 30px; }
-                            .success-icon { font-size: 64px; text-align: center; margin: 20px 0; }
-                            .info-box { background: #f5f3ff; border-left: 4px solid #8b5cf6; padding: 15px; margin: 15px 0; border-radius: 4px; }
-                        </style>
+                        <style>%s</style>
                         </head>
                         <body>
                             <div class="container">
@@ -566,7 +479,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                                     <p style="text-align: center; font-size: 18px;">Xin chào <strong>%s</strong>,</p>
                                     <p style="text-align: center;">Giao dịch rút tiền <strong>%s</strong> đã hoàn tất!</p>
                                     <div class="info-box">
-                                        <p><strong>Số tiền:</strong> <strong style="color: #8b5cf6; font-size: 24px;">%s</strong></p>
+                                        <p><strong>Số tiền:</strong> <strong style="color: #0f75bc; font-size: 24px;">%s</strong></p>
                                         <p><strong>Chuyển đến:</strong> %s - %s</p>
                                         <p><strong>Mã giao dịch ngân hàng:</strong> <code>%s</code></p>
                                     </div>
@@ -576,7 +489,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         </body>
                         </html>
                         """,
-                userName, requestCode, netAmount, bankName, accountNumber, bankTxId);
+                EmailThemeStyles.CSS_BLOCK, userName, requestCode, netAmount, bankName, accountNumber, bankTxId);
     }
 
     private String buildAdminWithdrawalNotificationHtml(String requestCode, String userName, String userEmail,
@@ -587,14 +500,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         <!DOCTYPE html>
                         <html>
                         <head><meta charset="UTF-8">
-                        <style>
-                            body { font-family: 'Inter', 'Roboto', 'Arial', sans-serif; background: #f5f5f5; margin: 0; padding: 20px; }
-                            .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                            .header { background: linear-gradient(135deg, #f59e0b, #d97706); padding: 30px; text-align: center; color: white; }
-                            .content { padding: 30px; }
-                            .priority-badge { background: #ef4444; color: white; padding: 6px 16px; border-radius: 20px; font-weight: bold; display: inline-block; }
-                            .info-box { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 15px 0; border-radius: 4px; }
-                        </style>
+                        <style>%s</style>
                         </head>
                         <body>
                             <div class="container">
@@ -614,7 +520,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                                         <p><strong>Chủ TK:</strong> %s</p>
                                     </div>
                                     <p style="text-align: center;">
-                                        <a href="http://localhost:8080/swagger-ui.html" style="display: inline-block; background: #f59e0b; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px;">
+                                        <a href="http://localhost:8080/swagger-ui.html" class="button">
                                             Xem Chi Tiết & Duyệt
                                         </a>
                                     </p>
@@ -623,7 +529,7 @@ public class WalletEmailServiceImpl implements WalletEmailService {
                         </body>
                         </html>
                         """,
-                priority, requestCode, userName, userEmail, amount, netAmount, bankName, accountNumber, accountName);
+                EmailThemeStyles.CSS_BLOCK, priority, requestCode, userName, userEmail, amount, netAmount, bankName, accountNumber, accountName);
     }
 
     // ==================== HELPER METHODS ====================

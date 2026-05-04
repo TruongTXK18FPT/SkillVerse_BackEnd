@@ -1,24 +1,30 @@
 package com.exe.skillverse_backend.business_service.controller;
 
 import com.exe.skillverse_backend.business_service.dto.request.CreateContractRequest;
+import com.exe.skillverse_backend.business_service.dto.request.OnboardingInfoRequest;
 import com.exe.skillverse_backend.business_service.dto.request.SignContractRequest;
 import com.exe.skillverse_backend.business_service.dto.request.UpdateContractRequest;
 import com.exe.skillverse_backend.business_service.dto.response.JobContractResponse;
+import com.exe.skillverse_backend.business_service.dto.response.OnboardingInfoResponse;
 import com.exe.skillverse_backend.business_service.service.JobContractService;
+import com.exe.skillverse_backend.identity_verification_service.dto.IdCardExtractionResult;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/contracts")
@@ -105,9 +111,92 @@ public class JobContractController {
         return ResponseEntity.ok(contractService.getContractByApplication(appId));
     }
 
+    // ==================== ONBOARDING & OCR ENDPOINTS ====================
+
+    /**
+     * OCR: Extract CCCD info from an uploaded image via FPT AI.
+     * The image is NOT stored — only text data is returned.
+     */
+    @PostMapping(value = "/applications/{appId}/ocr-id-card", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<IdCardExtractionResult> ocrIdCard(
+            @PathVariable Long appId,
+            @RequestParam("image") MultipartFile image,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = JwtUtils.extractUserId(jwt);
+        return ResponseEntity.ok(contractService.extractIdCardForApplication(appId, image, userId));
+    }
+
+    /**
+     * Submit onboarding info (CCCD text + Bank account).
+     * Transitions application to AWAITING_ONBOARDING_INFO → ready for contract.
+     */
+    @PostMapping("/applications/{appId}/onboarding")
+    public ResponseEntity<OnboardingInfoResponse> submitOnboardingInfo(
+            @PathVariable Long appId,
+            @Valid @RequestBody OnboardingInfoRequest request,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = JwtUtils.extractUserId(jwt);
+        return ResponseEntity.ok(contractService.submitOnboardingInfo(appId, request, userId));
+    }
+
+    /**
+     * Get onboarding info that was previously submitted for an application.
+     */
+    @GetMapping("/applications/{appId}/onboarding")
+    public ResponseEntity<OnboardingInfoResponse> getOnboardingInfo(
+            @PathVariable Long appId,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = JwtUtils.extractUserId(jwt);
+        return ResponseEntity.ok(contractService.getOnboardingInfo(appId, userId));
+    }
+
+    /**
+     * Send a reminder email and notification to candidate to submit their onboarding info.
+     */
+    @PostMapping("/applications/{appId}/onboarding/remind")
+    @PreAuthorize("hasRole('RECRUITER') or hasRole('ADMIN')")
+    public ResponseEntity<Void> remindOnboardingInfo(
+            @PathVariable Long appId,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = JwtUtils.extractUserId(jwt);
+        contractService.remindOnboardingInfo(appId, userId);
+        return ResponseEntity.ok().build();
+    }
+
+    /**
+     * Get the most recently submitted onboarding info for the candidate to reuse.
+     */
+    @GetMapping("/onboarding-info/me")
+    public ResponseEntity<OnboardingInfoResponse> getLatestOnboardingInfo(
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = JwtUtils.extractUserId(jwt);
+        OnboardingInfoResponse info = contractService.getLatestOnboardingInfo(userId);
+        if (info == null) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(info);
+    }
+
+    /**
+     * Upload a custom contract PDF (Cloudinary) for an application.
+     * Recruiter uploads their company's contract template.
+     */
+    @PostMapping(value = "/{id}/upload-pdf", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasRole('RECRUITER') or hasRole('ADMIN')")
+    public ResponseEntity<JobContractResponse> uploadContractPdf(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "startDate", required = false) java.time.LocalDate startDate,
+            @RequestParam("endDate") java.time.LocalDate endDate,
+            @AuthenticationPrincipal Jwt jwt) {
+        Long userId = JwtUtils.extractUserId(jwt);
+        return ResponseEntity.ok(contractService.uploadContractPdf(id, file, startDate, endDate, userId));
+    }
+
     private String getClientIp(HttpServletRequest request) {
         String xfHeader = request.getHeader("X-Forwarded-For");
         if (xfHeader == null) return request.getRemoteAddr();
         return xfHeader.split(",")[0];
     }
 }
+

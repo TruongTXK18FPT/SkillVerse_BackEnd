@@ -51,7 +51,7 @@ public class JobApplication {
     private LocalDateTime appliedAt;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 30)
     private JobApplicationStatus status = JobApplicationStatus.PENDING; // Default to PENDING
 
     @Column(name = "acceptance_message", columnDefinition = "TEXT")

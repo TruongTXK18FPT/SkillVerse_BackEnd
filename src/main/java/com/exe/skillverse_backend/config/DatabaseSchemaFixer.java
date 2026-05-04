@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.config;
 
+import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import jakarta.annotation.PostConstruct;
@@ -382,6 +383,21 @@ public class DatabaseSchemaFixer {
                     this::patchJourneysSkillName,
                     this::verifyJourneysSkillName);
 
+            applyPatch("journey-assessment-adaptive-metadata",
+                    "Add adaptive assessment metadata columns to assessment_tests",
+                    this::patchAssessmentTestsAdaptiveMetadata,
+                    this::verifyAssessmentTestsAdaptiveMetadata);
+
+            applyPatch("sync-test-results-evaluated-level-constraint",
+                    "Sync test_results.evaluated_level check constraint with Journey.SkillLevel enum values",
+                    this::patchTestResultsEvaluatedLevelConstraint,
+                    this::verifyTestResultsEvaluatedLevelConstraint);
+
+            applyPatch("sync-journeys-current-level-constraint",
+                    "Sync journeys.current_level check constraint with Journey.SkillLevel enum values",
+                    this::patchJourneysCurrentLevelConstraint,
+                    this::verifyJourneysCurrentLevelConstraint);
+
             applyPatch("v3-add-question-banks-skill-name",
                     "Add skill_name column to question_banks for skill-specific question bank lookup",
                     this::patchQuestionBanksSkillName,
@@ -395,6 +411,11 @@ public class DatabaseSchemaFixer {
                     "Create node mentoring core tables: assignments, submissions, reviews, verifications, output assessments, completion reports",
                     this::patchNodeMentoringCoreTables,
                     this::verifyNodeMentoringCoreTables);
+
+            applyPatch("add-roadmap-node-submissions-learner-marked-complete",
+                    "Add missing learner_marked_complete column to roadmap_node_submissions",
+                    this::patchRoadmapNodeSubmissionsLearnerMarkedComplete,
+                    this::verifyRoadmapNodeSubmissionsLearnerMarkedComplete);
 
             applyPatch("v3-mentor-bookings-node-context",
                     "Add optional node/journey context columns to mentor_bookings",
@@ -531,6 +552,29 @@ public class DatabaseSchemaFixer {
                     "Drop max_subscribers column from premium_plans — no business case for subscriber limits",
                     this::patchDropPremiumPlansMaxSubscribers,
                     this::verifyDropPremiumPlansMaxSubscribers);
+
+            // ═══════════════════════════════════════════════════════════════════
+            // Job Contracts — Onboarding + Cloudinary PDF columns
+            // ═══════════════════════════════════════════════════════════════════
+            applyPatch("add-job-contracts-onboarding-columns",
+                    "Add candidate bank info, id_card_date, and custom contract PDF columns to job_contracts",
+                    this::patchJobContractsOnboardingColumns,
+                    this::verifyJobContractsOnboardingColumns);
+
+            applyPatch("sync-job-applications-status-onboarding-hired",
+                    "Add AWAITING_ONBOARDING_INFO and HIRED to job_applications status check constraint",
+                    this::patchJobApplicationsStatusOnboardingHired,
+                    this::verifyJobApplicationsStatusOnboardingHired);
+
+            applyPatch("fix-job-applications-status-width",
+                    "Widen job_applications.status to VARCHAR(30) for AWAITING_ONBOARDING_INFO",
+                    this::patchJobApplicationsStatusWidth,
+                    this::verifyJobApplicationsStatusWidth);
+
+            applyPatch("backfill-jobcontract-end-date",
+                    "Backfill end_date for existing job_contracts and set NOT NULL",
+                    this::patchJobContractsEndDate,
+                    this::verifyJobContractsEndDate);
 
             log.info("Schema patch infrastructure ready.");
         } finally {
@@ -2501,6 +2545,111 @@ public class DatabaseSchemaFixer {
         return hasColumn("journeys", "skill_name");
     }
 
+    private void patchAssessmentTestsAdaptiveMetadata() {
+        if (!hasTable("assessment_tests")) {
+            log.debug("Table assessment_tests does not exist yet, skipping.");
+            return;
+        }
+        executeSql("""
+            ALTER TABLE assessment_tests
+                ADD COLUMN IF NOT EXISTS assessment_phase VARCHAR(30),
+                ADD COLUMN IF NOT EXISTS base_level VARCHAR(20),
+                ADD COLUMN IF NOT EXISTS tested_level VARCHAR(20),
+                ADD COLUMN IF NOT EXISTS parent_test_id BIGINT,
+                ADD COLUMN IF NOT EXISTS question_source VARCHAR(30)
+        """);
+        log.info("Added adaptive assessment metadata columns to assessment_tests.");
+    }
+
+    private boolean verifyAssessmentTestsAdaptiveMetadata() {
+        if (!hasTable("assessment_tests")) return true;
+        return hasColumn("assessment_tests", "assessment_phase")
+                && hasColumn("assessment_tests", "base_level")
+                && hasColumn("assessment_tests", "tested_level")
+                && hasColumn("assessment_tests", "parent_test_id")
+                && hasColumn("assessment_tests", "question_source");
+    }
+
+    private void patchTestResultsEvaluatedLevelConstraint() {
+        if (!hasTable("test_results")) {
+            log.debug("Table test_results does not exist yet, skipping.");
+            return;
+        }
+
+        String allowedLevels = Arrays.stream(Journey.SkillLevel.values())
+                .map(Journey.SkillLevel::name)
+                .map(this::toSqlLiteral)
+                .collect(Collectors.joining(","));
+
+        executeSql("ALTER TABLE test_results DROP CONSTRAINT IF EXISTS test_results_evaluated_level_check");
+        executeSql("ALTER TABLE test_results ADD CONSTRAINT test_results_evaluated_level_check "
+                + "CHECK (evaluated_level IS NULL OR evaluated_level IN (" + allowedLevels + "))");
+        log.info("Synced test_results.evaluated_level check constraint.");
+    }
+
+    private boolean verifyTestResultsEvaluatedLevelConstraint() {
+        if (!hasTable("test_results")) return true;
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) AS constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'test_results'
+              AND c.conname = 'test_results_evaluated_level_check'
+        """);
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) {
+            return false;
+        }
+        String constraintDef = results.get(0).get("constraint_def").toString();
+        for (Journey.SkillLevel skillLevel : Journey.SkillLevel.values()) {
+            if (!constraintDef.contains(toSqlLiteral(skillLevel.name()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void patchJourneysCurrentLevelConstraint() {
+        if (!hasTable("journeys")) {
+            log.debug("Table journeys does not exist yet, skipping.");
+            return;
+        }
+
+        String allowedLevels = Arrays.stream(Journey.SkillLevel.values())
+                .map(Journey.SkillLevel::name)
+                .map(this::toSqlLiteral)
+                .collect(Collectors.joining(","));
+
+        executeSql("ALTER TABLE journeys DROP CONSTRAINT IF EXISTS journeys_current_level_check");
+        executeSql("ALTER TABLE journeys ADD CONSTRAINT journeys_current_level_check "
+                + "CHECK (current_level IS NULL OR current_level IN (" + allowedLevels + "))");
+        log.info("Synced journeys.current_level check constraint.");
+    }
+
+    private boolean verifyJourneysCurrentLevelConstraint() {
+        if (!hasTable("journeys")) return true;
+        var results = jdbcTemplate.queryForList("""
+            SELECT pg_get_constraintdef(c.oid) AS constraint_def
+            FROM pg_constraint c
+            JOIN pg_class t ON t.oid = c.conrelid
+            JOIN pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public'
+              AND t.relname = 'journeys'
+              AND c.conname = 'journeys_current_level_check'
+        """);
+        if (results.isEmpty() || results.get(0).get("constraint_def") == null) {
+            return false;
+        }
+        String constraintDef = results.get(0).get("constraint_def").toString();
+        for (Journey.SkillLevel skillLevel : Journey.SkillLevel.values()) {
+            if (!constraintDef.contains(toSqlLiteral(skillLevel.name()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void patchQuestionBanksSkillName() {
         if (!hasTable("question_banks")) {
             log.debug("Table question_banks does not exist yet, skipping.");
@@ -2559,6 +2708,7 @@ public class DatabaseSchemaFixer {
                     submission_status VARCHAR(30) NOT NULL DEFAULT 'SUBMITTED',
                     verification_status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
                     mentor_feedback TEXT,
+                    learner_marked_complete BOOLEAN NOT NULL DEFAULT FALSE,
                     submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ,
                     CONSTRAINT fk_rns_journey FOREIGN KEY (journey_id) REFERENCES journeys(id) ON DELETE CASCADE,
@@ -2571,6 +2721,9 @@ public class DatabaseSchemaFixer {
             """);
             executeSql("CREATE INDEX IF NOT EXISTS idx_rns_learner_status ON roadmap_node_submissions(learner_id, verification_status)");
             log.info("Created roadmap_node_submissions table.");
+        }
+        if (hasTable("roadmap_node_submissions")) {
+            executeSql("ALTER TABLE roadmap_node_submissions ADD COLUMN IF NOT EXISTS learner_marked_complete BOOLEAN NOT NULL DEFAULT FALSE");
         }
 
         // roadmap_node_reviews — mentor review record
@@ -2665,6 +2818,17 @@ public class DatabaseSchemaFixer {
         }
     }
 
+    private void patchRoadmapNodeSubmissionsLearnerMarkedComplete() {
+        if (hasTable("roadmap_node_submissions")) {
+            executeSql("ALTER TABLE roadmap_node_submissions ADD COLUMN IF NOT EXISTS learner_marked_complete BOOLEAN NOT NULL DEFAULT FALSE");
+        }
+    }
+
+    private boolean verifyRoadmapNodeSubmissionsLearnerMarkedComplete() {
+        if (!hasTable("roadmap_node_submissions")) return true;
+        return hasColumn("roadmap_node_submissions", "learner_marked_complete");
+    }
+
     private boolean verifyNodeMentoringCoreTables() {
         return hasTable("roadmap_node_assignments")
                 && hasTable("roadmap_node_submissions")
@@ -2674,6 +2838,7 @@ public class DatabaseSchemaFixer {
                 && hasTable("journey_completion_reports")
                 && hasColumn("roadmap_node_submissions", "submission_text")
                 && hasColumn("roadmap_node_submissions", "verification_status")
+                && hasColumn("roadmap_node_submissions", "learner_marked_complete")
                 && hasColumn("journey_completion_reports", "gate_decision");
     }
 
@@ -3705,5 +3870,129 @@ public class DatabaseSchemaFixer {
             Integer.class
         );
         return count != null && count == 0;
+    }
+
+    // ─── job_contracts: onboarding + Cloudinary PDF columns ────────────────────
+
+    private void patchJobContractsOnboardingColumns() {
+        if (!hasTable("job_contracts")) {
+            log.debug("Table job_contracts does not exist yet, skipping patch.");
+            return;
+        }
+
+        executeSql("""
+            ALTER TABLE job_contracts
+                ADD COLUMN IF NOT EXISTS candidate_id_card_date DATE,
+                ADD COLUMN IF NOT EXISTS candidate_bank_account_number VARCHAR(50),
+                ADD COLUMN IF NOT EXISTS candidate_bank_name VARCHAR(200),
+                ADD COLUMN IF NOT EXISTS candidate_bank_account_holder VARCHAR(200),
+                ADD COLUMN IF NOT EXISTS custom_contract_pdf_url VARCHAR(500),
+                ADD COLUMN IF NOT EXISTS custom_contract_pdf_public_id VARCHAR(300)
+        """);
+    }
+
+    private boolean verifyJobContractsOnboardingColumns() {
+        if (!hasTable("job_contracts")) return true;
+        return hasColumn("job_contracts", "candidate_id_card_date")
+                && hasColumn("job_contracts", "candidate_bank_account_number")
+                && hasColumn("job_contracts", "candidate_bank_name")
+                && hasColumn("job_contracts", "candidate_bank_account_holder")
+                && hasColumn("job_contracts", "custom_contract_pdf_url")
+                && hasColumn("job_contracts", "custom_contract_pdf_public_id");
+    }
+
+    // ─── job_applications: sync status check constraint for AWAITING_ONBOARDING_INFO + HIRED ──
+
+    private void patchJobApplicationsStatusOnboardingHired() {
+        if (!hasTable("job_applications")) {
+            log.debug("Table job_applications does not exist yet, skipping patch.");
+            return;
+        }
+
+        // Drop existing constraint(s) on status
+        executeSql("""
+            DO $$
+            DECLARE r RECORD;
+            BEGIN
+                FOR r IN (
+                    SELECT conname FROM pg_constraint
+                    WHERE conrelid = 'job_applications'::regclass
+                    AND contype = 'c'
+                    AND conname LIKE '%status%'
+                ) LOOP
+                    EXECUTE 'ALTER TABLE job_applications DROP CONSTRAINT IF EXISTS ' || r.conname;
+                END LOOP;
+            END $$
+        """);
+
+        // Recreate with all statuses including AWAITING_ONBOARDING_INFO and HIRED
+        executeSql("""
+            ALTER TABLE job_applications
+            ADD CONSTRAINT job_applications_status_check
+            CHECK (status IN (
+                'PENDING', 'REVIEWED', 'ACCEPTED',
+                'INTERVIEW_SCHEDULED', 'INTERVIEWED',
+                'OFFER_SENT', 'OFFER_ACCEPTED', 'OFFER_REJECTED',
+                'AWAITING_ONBOARDING_INFO', 'HIRED',
+                'REJECTED', 'CONTRACT_SIGNED'
+            ))
+        """);
+    }
+
+    private boolean verifyJobApplicationsStatusOnboardingHired() {
+        if (!hasTable("job_applications")) return true;
+        // Check that the constraint source includes AWAITING_ONBOARDING_INFO
+        Integer count = jdbcTemplate.queryForObject("""
+            SELECT count(*) FROM pg_constraint
+            WHERE conrelid = 'job_applications'::regclass
+            AND contype = 'c'
+            AND pg_get_constraintdef(oid) LIKE '%AWAITING_ONBOARDING_INFO%'
+        """, Integer.class);
+        return count != null && count > 0;
+    }
+
+    // ─── job_contracts: backfill end_date and set NOT NULL ──
+
+    private void patchJobContractsEndDate() {
+        if (!hasTable("job_contracts")) {
+            log.debug("Table job_contracts does not exist yet, skipping patch.");
+            return;
+        }
+
+        // Backfill for existing rows where end_date is null
+        executeSql("""
+            UPDATE job_contracts
+            SET end_date = CASE
+                WHEN status IN ('REJECTED', 'CANCELLED') THEN COALESCE(start_date, CURRENT_DATE)
+                ELSE COALESCE(start_date + INTERVAL '1 year', CURRENT_DATE + INTERVAL '1 year')
+            END
+            WHERE end_date IS NULL
+        """);
+
+        // Set NOT NULL
+        executeSql("ALTER TABLE job_contracts ALTER COLUMN end_date SET NOT NULL");
+    }
+
+    private boolean verifyJobContractsEndDate() {
+        if (!hasTable("job_contracts")) return true;
+        Integer nullCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM job_contracts WHERE end_date IS NULL",
+                Integer.class);
+        return nullCount != null && nullCount == 0;
+    }
+
+    private void patchJobApplicationsStatusWidth() {
+        if (!hasTable("job_applications")) return;
+        executeSql("ALTER TABLE job_applications ALTER COLUMN status TYPE VARCHAR(30)");
+    }
+
+    private boolean verifyJobApplicationsStatusWidth() {
+        if (!hasTable("job_applications")) return true;
+        var cols = jdbcTemplate.queryForList(
+            "SELECT character_maximum_length FROM information_schema.columns WHERE table_name = 'job_applications' AND column_name = 'status'"
+        );
+        if (cols.isEmpty()) return true;
+        Integer length = (Integer) cols.get(0).get("character_maximum_length");
+        return length != null && length >= 30;
     }
 }

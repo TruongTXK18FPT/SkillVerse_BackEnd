@@ -24,7 +24,9 @@ import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.user_service.entity.UserProfile;
 import com.exe.skillverse_backend.user_service.repository.UserProfileRepository;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -48,6 +50,8 @@ public class JobApplicationServiceImpl implements JobApplicationService {
     private final UsageLimitService usageLimitService;
     private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
     private final UserProfileRepository userProfileRepository;
+
+    private static final DateTimeFormatter CONTRACT_DATE_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     /**
      * Apply to a job (duplicate prevention, increment applicant count)
@@ -79,6 +83,11 @@ public class JobApplicationServiceImpl implements JobApplicationService {
         if (!hasPortfolio) {
             throw new IllegalStateException("You must create a portfolio before applying to jobs. Please create your portfolio first.");
         }
+
+        // Enforce "1 active employment contract per candidate" rule.
+        // A candidate cannot apply to another fulltime job while a SIGNED contract is still in force,
+        // or while they are in an ONSITE HIRED state (offline contract — no digital endDate).
+        ensureNoActiveEmployment(userId);
 
         // Find user
         User user = userRepository.findById(userId)
@@ -153,6 +162,10 @@ public class JobApplicationServiceImpl implements JobApplicationService {
         JobPosting job = application.getJobPosting();
         JobApplicationStatus newStatus = request.getStatus();
 
+        if (job.getStatus() == JobStatus.CLOSED) {
+            throw new IllegalStateException("Job đã đóng, không thể thao tác trên ứng viên.");
+        }
+
         // Permission: recruiter owns the job for most transitions
         // Candidate can respond to OFFER_SENT (OFFER_ACCEPTED / OFFER_REJECTED)
         boolean isRecruiter = job.getRecruiterProfile().getUser().getId().equals(userId);
@@ -178,20 +191,12 @@ public class JobApplicationServiceImpl implements JobApplicationService {
             }
         }
 
-        // Validate status transitions (for REMOTE jobs only)
+        // Validate status transitions
         JobApplicationStatus currentStatus = application.getStatus();
         if (Boolean.TRUE.equals(job.getIsRemote())) {
-            validateRemoteStatusTransition(currentStatus, newStatus);
+            validateRemoteStatusTransition(currentStatus, newStatus, job);
         } else {
-            // ONSITE jobs: only allow REVIEWED, ACCEPTED, INTERVIEW_SCHEDULED, INTERVIEWED transitions
-            // After INTERVIEWED, recruiter creates contract directly (no OFFER_SENT step)
-            if (newStatus != JobApplicationStatus.REVIEWED
-                    && newStatus != JobApplicationStatus.ACCEPTED
-                    && newStatus != JobApplicationStatus.INTERVIEW_SCHEDULED
-                    && newStatus != JobApplicationStatus.INTERVIEWED
-                    && newStatus != JobApplicationStatus.REJECTED) {
-                throw new IllegalArgumentException("ONSITE jobs only support REVIEWED, ACCEPTED, INTERVIEW_SCHEDULED, INTERVIEWED, and REJECTED transitions.");
-            }
+            validateOnsiteStatusTransition(currentStatus, newStatus);
         }
 
         // Update status
@@ -268,6 +273,12 @@ public class JobApplicationServiceImpl implements JobApplicationService {
                 application.setCandidateOfferResponse(request.getCandidateOfferResponse());
             }
             application.setProcessedAt(LocalDateTime.now());
+        } else if (newStatus == JobApplicationStatus.AWAITING_ONBOARDING_INFO) {
+            // Transition to onboarding — candidate needs to submit CCCD + bank info
+            application.setProcessedAt(LocalDateTime.now());
+        } else if (newStatus == JobApplicationStatus.HIRED) {
+            // ONSITE final status — candidate hired, offline contract process
+            application.setProcessedAt(LocalDateTime.now());
         }
 
         JobApplication updatedApplication = jobApplicationRepository.save(application);
@@ -281,6 +292,23 @@ public class JobApplicationServiceImpl implements JobApplicationService {
     }
 
     // ==================== HELPER METHODS ====================
+
+    private void ensureNoActiveEmployment(Long userId) {
+        LocalDate today = LocalDate.now();
+        List<JobContract> activeContracts = jobContractRepository.findActiveContractsForCandidate(userId, today);
+        if (!activeContracts.isEmpty()) {
+            JobContract activeContract = activeContracts.get(0);
+            throw new IllegalStateException("Bạn đang có hợp đồng '" + activeContract.getJobTitle() + "' còn hiệu lực. "
+                    + "Chỉ được ứng tuyển việc làm toàn thời gian mới khi hợp đồng hiện tại kết thúc.");
+        }
+
+        List<JobApplication> hiredApplications = jobApplicationRepository.findByUserIdAndStatus(userId, JobApplicationStatus.HIRED);
+        if (!hiredApplications.isEmpty()) {
+            JobPosting hiredJob = hiredApplications.get(0).getJobPosting();
+            throw new IllegalStateException("Bạn đang làm việc cho vị trí '" + hiredJob.getTitle() + "' (Onsite). "
+                    + "Vui lòng liên hệ nhà tuyển dụng để đóng trạng thái trước khi ứng tuyển công việc mới.");
+        }
+    }
 
     private void sendStatusEmail(JobApplication application, JobApplicationStatus status,
             UpdateApplicationStatusRequest request) {
@@ -426,69 +454,116 @@ public class JobApplicationServiceImpl implements JobApplicationService {
     // ==================== STATUS TRANSITION VALIDATION ====================
 
     /**
-     * Validate status transitions for REMOTE jobs.
-     * Full pipeline (round 1): INTERVIEWED → OFFER_SENT → OFFER_ACCEPTED | OFFER_REJECTED
-     * Round 2: OFFER_REJECTED → OFFER_SENT → OFFER_ACCEPTED | OFFER_REJECTED → REJECTED (terminal)
+     * Validate status transitions for ONSITE jobs.
+     * Flow: PENDING → REVIEWED → ACCEPTED → (interview via separate service) → INTERVIEWED → HIRED
+     * ONSITE jobs do NOT go through OFFER or CONTRACT flow — those are handled offline.
      */
-    private void validateRemoteStatusTransition(JobApplicationStatus current, JobApplicationStatus target) {
+    private void validateOnsiteStatusTransition(JobApplicationStatus current, JobApplicationStatus target) {
         switch (current) {
             case PENDING:
                 if (target != JobApplicationStatus.REVIEWED && target != JobApplicationStatus.REJECTED) {
-                    throw new IllegalArgumentException(
-                            "From PENDING, only REVIEWED or REJECTED transitions are allowed");
+                    throw new IllegalArgumentException("From PENDING, only REVIEWED or REJECTED transitions are allowed");
                 }
                 break;
             case REVIEWED:
                 if (target != JobApplicationStatus.ACCEPTED && target != JobApplicationStatus.REJECTED) {
-                    throw new IllegalArgumentException(
-                            "From REVIEWED, only ACCEPTED or REJECTED transitions are allowed");
+                    throw new IllegalArgumentException("From REVIEWED, only ACCEPTED or REJECTED transitions are allowed");
                 }
                 break;
             case ACCEPTED:
                 if (target != JobApplicationStatus.REJECTED) {
                     throw new IllegalArgumentException(
-                            "After ACCEPTED, schedule an interview first. "
-                                    + "Direct transition to " + target + " is not allowed here.");
+                            "After ACCEPTED, schedule an interview via the interview API. Direct transition to " + target + " is not allowed.");
                 }
                 break;
             case INTERVIEW_SCHEDULED:
                 if (target != JobApplicationStatus.INTERVIEWED && target != JobApplicationStatus.REJECTED) {
-                    throw new IllegalArgumentException(
-                            "From INTERVIEW_SCHEDULED, only INTERVIEWED or REJECTED transitions are allowed");
+                    throw new IllegalArgumentException("From INTERVIEW_SCHEDULED, only INTERVIEWED or REJECTED transitions are allowed");
                 }
                 break;
             case INTERVIEWED:
-                if (target != JobApplicationStatus.OFFER_SENT
-                        && target != JobApplicationStatus.ACCEPTED
-                        && target != JobApplicationStatus.REJECTED) {
+                if (target != JobApplicationStatus.HIRED && target != JobApplicationStatus.REJECTED) {
+                    throw new IllegalArgumentException("ONSITE jobs: after INTERVIEWED, only HIRED or REJECTED transitions are allowed.");
+                }
+                break;
+            case HIRED:
+            case CONTRACT_SIGNED:
+                throw new IllegalArgumentException("Application has reached a terminal status. No further transitions allowed.");
+            case REJECTED:
+                throw new IllegalArgumentException("Application has been rejected. No further transitions allowed.");
+            default:
+                throw new IllegalArgumentException("Unknown status: " + current);
+        }
+    }
+
+    /**
+     * Validate status transitions for REMOTE jobs.
+     * Flow depends on is_negotiable:
+     * - Negotiable: INTERVIEWED → OFFER_SENT ↔ OFFER_REJECTED → OFFER_ACCEPTED → AWAITING_ONBOARDING_INFO → (contract)
+     * - Non-negotiable: INTERVIEWED → AWAITING_ONBOARDING_INFO → (contract)
+     */
+    private void validateRemoteStatusTransition(JobApplicationStatus current, JobApplicationStatus target, JobPosting job) {
+        boolean isNegotiable = Boolean.TRUE.equals(job.getIsNegotiable());
+        switch (current) {
+            case PENDING:
+                if (target != JobApplicationStatus.REVIEWED && target != JobApplicationStatus.REJECTED) {
+                    throw new IllegalArgumentException("From PENDING, only REVIEWED or REJECTED transitions are allowed");
+                }
+                break;
+            case REVIEWED:
+                if (target != JobApplicationStatus.ACCEPTED && target != JobApplicationStatus.REJECTED) {
+                    throw new IllegalArgumentException("From REVIEWED, only ACCEPTED or REJECTED transitions are allowed");
+                }
+                break;
+            case ACCEPTED:
+                if (target != JobApplicationStatus.REJECTED) {
                     throw new IllegalArgumentException(
-                            "After INTERVIEWED, only OFFER_SENT, ACCEPTED (non-negotiable), or REJECTED transitions are allowed");
+                            "After ACCEPTED, schedule an interview via the interview API. Direct transition to " + target + " is not allowed.");
+                }
+                break;
+            case INTERVIEW_SCHEDULED:
+                if (target != JobApplicationStatus.INTERVIEWED && target != JobApplicationStatus.REJECTED) {
+                    throw new IllegalArgumentException("From INTERVIEW_SCHEDULED, only INTERVIEWED or REJECTED transitions are allowed");
+                }
+                break;
+            case INTERVIEWED:
+                if (isNegotiable) {
+                    // Negotiable: must go through OFFER flow
+                    if (target != JobApplicationStatus.OFFER_SENT && target != JobApplicationStatus.REJECTED) {
+                        throw new IllegalArgumentException(
+                                "REMOTE negotiable job: after INTERVIEWED, only OFFER_SENT or REJECTED transitions are allowed.");
+                    }
+                } else {
+                    // Non-negotiable: skip offer, go directly to onboarding
+                    if (target != JobApplicationStatus.AWAITING_ONBOARDING_INFO && target != JobApplicationStatus.REJECTED) {
+                        throw new IllegalArgumentException(
+                                "REMOTE non-negotiable job: after INTERVIEWED, only AWAITING_ONBOARDING_INFO or REJECTED transitions are allowed.");
+                    }
                 }
                 break;
             case OFFER_SENT:
-                if (target != JobApplicationStatus.OFFER_ACCEPTED
-                        && target != JobApplicationStatus.OFFER_REJECTED) {
-                    throw new IllegalArgumentException(
-                            "From OFFER_SENT, only OFFER_ACCEPTED or OFFER_REJECTED transitions are allowed");
+                if (target != JobApplicationStatus.OFFER_ACCEPTED && target != JobApplicationStatus.OFFER_REJECTED) {
+                    throw new IllegalArgumentException("From OFFER_SENT, only OFFER_ACCEPTED or OFFER_REJECTED transitions are allowed");
                 }
                 break;
             case OFFER_REJECTED:
-                // Round 2 re-offer: recruiter can send OFFER_SENT again (only once — offerRound < 2)
-                // Validation for max rounds is done in updateApplicationStatus, not here
                 if (target != JobApplicationStatus.OFFER_SENT) {
                     throw new IllegalArgumentException(
-                            "After OFFER_REJECTED (round 1), only OFFER_SENT (round 2) is allowed. "
-                                    + "The application will be permanently rejected after round 2 rejection.");
+                            "After OFFER_REJECTED, only OFFER_SENT (re-offer) is allowed.");
                 }
                 break;
-            // Terminal statuses — no further transitions allowed
             case OFFER_ACCEPTED:
+                if (target != JobApplicationStatus.AWAITING_ONBOARDING_INFO) {
+                    throw new IllegalArgumentException(
+                            "After OFFER_ACCEPTED, only AWAITING_ONBOARDING_INFO transition is allowed.");
+                }
+                break;
+            case AWAITING_ONBOARDING_INFO:
+            case HIRED:
             case CONTRACT_SIGNED:
-                throw new IllegalArgumentException(
-                        "Application has reached a terminal status. No further transitions allowed.");
+                throw new IllegalArgumentException("Application has reached a terminal/managed status. No manual transitions allowed.");
             case REJECTED:
-                throw new IllegalArgumentException(
-                        "Application has been rejected. No further transitions allowed.");
+                throw new IllegalArgumentException("Application has been rejected. No further transitions allowed.");
             default:
                 throw new IllegalArgumentException("Unknown status: " + current);
         }

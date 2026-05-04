@@ -13,7 +13,7 @@ import java.util.Optional;
 
 public interface QuestionBankService {
 
-    int MIN_READY_QUESTION_COUNT_PER_LEVEL = 50;
+    int MIN_READY_QUESTION_COUNT_PER_LEVEL = 25;
 
     QuestionBankResponse createBank(CreateQuestionBankRequest request);
 

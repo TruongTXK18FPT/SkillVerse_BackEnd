@@ -190,7 +190,7 @@ public class CloudinaryServiceImpl implements CloudinaryService {
                     String.format("Invalid file type: %s. Allowed: %s", contentType, ALLOWED_RAW_TYPES));
         }
 
-        Map<String, Object> params = buildUploadParams(folder, "raw");
+        Map<String, Object> params = buildUploadParams(folder, "auto");
 
         Map<String, Object> result = cloudinary.uploader().upload(file.getBytes(), params);
 
@@ -239,8 +239,7 @@ public class CloudinaryServiceImpl implements CloudinaryService {
             // Use Cloudinary's attachment transformation to set Content-Disposition header
             // This will force the browser to download with the original filename
             url.transformation(new Transformation()
-                    .flags("attachment")
-                    .fetchFormat("auto"));
+                    .flags("attachment:" + filename));
         }
 
         return url.generate(publicId);

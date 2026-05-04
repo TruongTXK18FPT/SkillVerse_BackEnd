@@ -183,6 +183,9 @@ public class QuestionBankQuestionServiceImpl implements QuestionBankQuestionServ
                             .source("AI_GENERATED")
                             .isActive(true)
                             .usedCount(0)
+                            .isVerified(true)
+                            .verifiedAt(LocalDateTime.now())
+                            .verificationSource("AI_DRAFT_APPROVED")
                             .build();
                 })
                 .collect(java.util.stream.Collectors.toList());

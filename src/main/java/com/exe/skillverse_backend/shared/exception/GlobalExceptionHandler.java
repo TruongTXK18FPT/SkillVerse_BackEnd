@@ -404,4 +404,24 @@ public class GlobalExceptionHandler {
                 }
                 return Map.of("info", details);
         }
+
+        /**
+         * Handles JobCloseBlockedException when closing a job is blocked by pending applicants.
+         */
+        @ExceptionHandler(com.exe.skillverse_backend.business_service.exception.JobCloseBlockedException.class)
+        public ResponseEntity<ErrorResponse> handleJobCloseBlockedException(
+                        com.exe.skillverse_backend.business_service.exception.JobCloseBlockedException ex,
+                        HttpServletRequest req) {
+                Map<String, Object> details = new HashMap<>();
+                details.put("blockingItems", ex.getBlockingItems());
+                var body = ErrorResponse.builder()
+                                .code("JOB_CLOSE_BLOCKED")
+                                .message(ex.getMessage())
+                                .status(HttpStatus.CONFLICT.value())
+                                .timestamp(Instant.now())
+                                .path(req.getRequestURI())
+                                .details(details)
+                                .build();
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+        }
 }

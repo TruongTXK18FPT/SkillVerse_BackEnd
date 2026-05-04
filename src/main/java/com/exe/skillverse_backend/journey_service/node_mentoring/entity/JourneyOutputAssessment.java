@@ -56,8 +56,20 @@ public class JourneyOutputAssessment {
     @Column(name = "evidence_url", length = 1000)
     private String evidenceUrl;
 
+    @Column(name = "evidence_public_id", length = 255)
+    private String evidencePublicId;
+
+    @Column(name = "evidence_resource_type", length = 50)
+    private String evidenceResourceType;
+
     @Column(name = "attachment_url", length = 1000)
     private String attachmentUrl;
+
+    @Column(name = "attachment_public_id", length = 255)
+    private String attachmentPublicId;
+
+    @Column(name = "attachment_resource_type", length = 50)
+    private String attachmentResourceType;
 
     @Column(name = "score")
     private Integer score;

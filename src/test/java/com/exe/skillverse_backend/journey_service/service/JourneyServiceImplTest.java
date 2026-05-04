@@ -7,10 +7,12 @@ import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.QuestionInfo;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.journey_service.dto.request.StartJourneyRequest;
+import com.exe.skillverse_backend.journey_service.dto.request.SubmitTestRequest;
 import com.exe.skillverse_backend.journey_service.dto.response.JourneySummaryResponse;
 import com.exe.skillverse_backend.journey_service.entity.AssessmentTest;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.journey_service.entity.JourneyProgress;
+import com.exe.skillverse_backend.journey_service.entity.TestResult;
 import com.exe.skillverse_backend.journey_service.node_mentoring.service.FinalVerificationGateService;
 import com.exe.skillverse_backend.journey_service.repository.AssessmentTestRepository;
 import com.exe.skillverse_backend.journey_service.repository.JourneyProgressRepository;
@@ -42,7 +44,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.model.ChatModel;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -141,6 +145,13 @@ class JourneyServiceImplTest {
         lenient().when(journeyProgressRepository.save(any(JourneyProgress.class))).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(journeyProgressRepository.findByJourney(any(Journey.class))).thenReturn(List.of());
         lenient().when(testResultRepository.findTopByJourneyOrderByCreatedAtDesc(any(Journey.class))).thenReturn(Optional.empty());
+        lenient().when(testResultRepository.save(any(TestResult.class))).thenAnswer(invocation -> {
+            TestResult result = invocation.getArgument(0);
+            if (result.getId() == null) {
+                result.setId(501L);
+            }
+            return result;
+        });
         lenient().when(assessmentTestRepository.findTopByJourneyOrderByCreatedAtDesc(any(Journey.class))).thenReturn(Optional.empty());
         lenient().when(assessmentTestRepository.countByJourney(any(Journey.class))).thenReturn(0L);
         lenient().when(assessmentTestRepository.save(any(AssessmentTest.class))).thenAnswer(invocation -> {
@@ -298,6 +309,7 @@ class JourneyServiceImplTest {
                 .industry("CUSTOMER_SERVICE")
                 .subCategory("CUSTOMER_SERVICE")
                 .jobRole("CUSTOMER_SERVICE")
+                .skillName("COMMUNICATION_SKILLS")
                 .goal("Improve support workflow")
                 .assessmentData(objectMapper.writeValueAsString(request))
                 .status(Journey.JourneyStatus.ASSESSMENT_PENDING)
@@ -308,21 +320,15 @@ class JourneyServiceImplTest {
                 .domain("SERVICE")
                 .industry("CUSTOMER_SERVICE")
                 .jobRole("CUSTOMER_SERVICE")
+                .skillName("COMMUNICATION_SKILLS")
                 .difficultyDistribution("{\"BEGINNER\":1.0}")
                 .difficultyBreakdown(new LinkedHashMap<>())
                 .build();
 
         when(journeyRepository.findByIdAndUser(21L, user)).thenReturn(Optional.of(journey));
-        when(questionBankService.findActiveBank("SERVICE", "CUSTOMER_SERVICE", "CUSTOMER_SERVICE", null))
+        when(questionBankService.findActiveBank("SERVICE", "CUSTOMER_SERVICE", "CUSTOMER_SERVICE", "COMMUNICATION_SKILLS"))
                 .thenReturn(Optional.of(bank));
-        when(questionBankService.countBySkillAreaAndDifficulty(200L)).thenReturn(List.of(
-                new Object[]{"Communication Skills", "BEGINNER", 8L},
-                new Object[]{"Complaint Resolution", "BEGINNER", 8L}
-        ));
-        when(questionBankService.selectRandomQuestionsBySkillAreaAndDifficulty(200L, "Communication Skills", "BEGINNER", 8))
-                .thenReturn(buildQuestions(1, 8, "Communication Skills", "BEGINNER"));
-        when(questionBankService.selectRandomQuestionsBySkillAreaAndDifficulty(200L, "Complaint Resolution", "BEGINNER", 8))
-                .thenReturn(buildQuestions(50, 8, "Complaint Resolution", "BEGINNER"));
+        when(questionBankService.isBankReadyForAllLevels(200L)).thenReturn(true);
         when(questionBankService.selectRandomQuestionsByLevel(200L, 15, "BEGINNER"))
                 .thenReturn(buildQuestions(100, 15, "Customer Support", "BEGINNER"));
 
@@ -330,7 +336,7 @@ class JourneyServiceImplTest {
 
         assertEquals(101L, response.getTestId());
         assertEquals(15, response.getQuestionCount());
-        verify(questionBankService).findActiveBank("SERVICE", "CUSTOMER_SERVICE", "CUSTOMER_SERVICE", null);
+        verify(questionBankService).findActiveBank("SERVICE", "CUSTOMER_SERVICE", "CUSTOMER_SERVICE", "COMMUNICATION_SKILLS");
         verify(questionBankService, never()).findActiveBank("SERVICE", "CUSTOMER_SERVICE");
     }
 
@@ -383,6 +389,110 @@ class JourneyServiceImplTest {
         verify(questionBankService, never()).findActiveBank("IT", "WEB_DEV", "BACKEND");
     }
 
+    @Test
+    @DisplayName("submitTest should not promote beginner placement directly to expert")
+    void submitTest_ShouldKeepBeginnerPlacementProvisionalWhenScoreIsHigh() throws Exception {
+        User user = user();
+        StartJourneyRequest request = StartJourneyRequest.builder()
+                .type("SKILL")
+                .domain("IT")
+                .goal("Learn backend")
+                .level("BEGINNER")
+                .skills(List.of("Java"))
+                .build();
+        Journey journey = Journey.builder()
+                .id(31L)
+                .user(user)
+                .type("SKILL")
+                .domain("IT")
+                .goal("Learn backend")
+                .assessmentData(objectMapper.writeValueAsString(request))
+                .status(Journey.JourneyStatus.TEST_IN_PROGRESS)
+                .build();
+        AssessmentTest test = AssessmentTest.builder()
+                .id(701L)
+                .journey(journey)
+                .questionBank(QuestionBank.builder().id(200L).build())
+                .title("Beginner placement")
+                .targetField("IT")
+                .status(AssessmentTest.TestStatus.PENDING)
+                .questionCount(10)
+                .difficultyLevel("BEGINNER")
+                .assessmentPhase("PLACEMENT")
+                .baseLevel("BEGINNER")
+                .testedLevel("BEGINNER")
+                .questionSource("QUESTION_BANK")
+                .questionsJson(questionsJson(10, "BEGINNER"))
+                .build();
+
+        when(journeyRepository.findByIdAndUser(31L, user)).thenReturn(Optional.of(journey));
+        when(assessmentTestRepository.findByIdAndJourney(701L, journey)).thenReturn(Optional.of(test));
+        when(questionBankService.isBankReadyForAllLevels(200L)).thenReturn(true);
+
+        var response = service.submitTest(user, 31L, SubmitTestRequest.builder()
+                .testId(701L)
+                .answers(answers(10, "A"))
+                .build());
+
+        assertEquals(100, response.getScorePercentage());
+        assertEquals(Journey.SkillLevel.BEGINNER, response.getEvaluatedLevel());
+        assertEquals(Journey.SkillLevel.BEGINNER, response.getTestedLevel());
+        assertEquals("STANDARD", response.getRecommendationMode());
+        assertTrue(response.getChallengeRequired());
+        assertTrue(response.getChallengeAvailable());
+    }
+
+    @Test
+    @DisplayName("submitTest should not create challenge-up for expert placement")
+    void submitTest_ShouldNotCreateChallengeForExpertPlacement() throws Exception {
+        User user = user();
+        StartJourneyRequest request = StartJourneyRequest.builder()
+                .type("SKILL")
+                .domain("IT")
+                .goal("Validate senior backend")
+                .level("EXPERT")
+                .skills(List.of("Java"))
+                .build();
+        Journey journey = Journey.builder()
+                .id(32L)
+                .user(user)
+                .type("SKILL")
+                .domain("IT")
+                .goal("Validate senior backend")
+                .assessmentData(objectMapper.writeValueAsString(request))
+                .status(Journey.JourneyStatus.TEST_IN_PROGRESS)
+                .build();
+        AssessmentTest test = AssessmentTest.builder()
+                .id(702L)
+                .journey(journey)
+                .questionBank(QuestionBank.builder().id(201L).build())
+                .title("Expert placement")
+                .targetField("IT")
+                .status(AssessmentTest.TestStatus.PENDING)
+                .questionCount(10)
+                .difficultyLevel("EXPERT")
+                .assessmentPhase("PLACEMENT")
+                .baseLevel("EXPERT")
+                .testedLevel("EXPERT")
+                .questionSource("QUESTION_BANK")
+                .questionsJson(questionsJson(10, "EXPERT"))
+                .build();
+
+        when(journeyRepository.findByIdAndUser(32L, user)).thenReturn(Optional.of(journey));
+        when(assessmentTestRepository.findByIdAndJourney(702L, journey)).thenReturn(Optional.of(test));
+
+        var response = service.submitTest(user, 32L, SubmitTestRequest.builder()
+                .testId(702L)
+                .answers(answers(10, "A"))
+                .build());
+
+        assertEquals(100, response.getScorePercentage());
+        assertEquals(Journey.SkillLevel.EXPERT, response.getEvaluatedLevel());
+        assertEquals("FAST_TRACK", response.getRecommendationMode());
+        assertFalse(response.getChallengeRequired());
+        assertFalse(response.getChallengeAvailable());
+    }
+
     private User user() {
         return User.builder()
                 .id(1L)
@@ -407,5 +517,29 @@ class JourneyServiceImplTest {
             ));
         }
         return questions;
+    }
+
+    private String questionsJson(int count, String difficulty) throws Exception {
+        List<LinkedHashMap<String, Object>> questions = new ArrayList<>();
+        for (int i = 1; i <= count; i++) {
+            LinkedHashMap<String, Object> question = new LinkedHashMap<>();
+            question.put("questionId", (long) i);
+            question.put("question", "Question " + i);
+            question.put("options", List.of("A", "B", "C", "D"));
+            question.put("correctAnswer", "A");
+            question.put("explanation", "Explanation " + i);
+            question.put("difficulty", difficulty);
+            question.put("skillArea", "Backend");
+            questions.add(question);
+        }
+        return objectMapper.writeValueAsString(questions);
+    }
+
+    private LinkedHashMap<Long, Object> answers(int count, String answer) {
+        LinkedHashMap<Long, Object> answers = new LinkedHashMap<>();
+        for (long i = 1; i <= count; i++) {
+            answers.put(i, answer);
+        }
+        return answers;
     }
 }

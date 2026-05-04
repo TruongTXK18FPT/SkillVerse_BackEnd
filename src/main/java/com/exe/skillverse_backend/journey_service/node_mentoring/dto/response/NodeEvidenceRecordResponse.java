@@ -30,7 +30,11 @@ public class NodeEvidenceRecordResponse {
 
     private String submissionText;
     private String evidenceUrl;
+    private String evidencePublicId;
+    private String evidenceResourceType;
     private String attachmentUrl;
+    private String attachmentPublicId;
+    private String attachmentResourceType;
 
     private SubmissionStatus submissionStatus;
     private VerificationStatus verificationStatus;
@@ -68,15 +72,18 @@ public class NodeEvidenceRecordResponse {
                 .learnerId(s.getLearnerId())
                 .submissionText(s.getSubmissionText())
                 .evidenceUrl(s.getEvidenceUrl())
+                .evidencePublicId(s.getEvidencePublicId())
+                .evidenceResourceType(s.getEvidenceResourceType())
                 .attachmentUrl(s.getAttachmentUrl())
+                .attachmentPublicId(s.getAttachmentPublicId())
+                .attachmentResourceType(s.getAttachmentResourceType())
                 .submissionStatus(s.getSubmissionStatus())
                 .verificationStatus(s.getVerificationStatus())
                 .mentorFeedback(s.getMentorFeedback())
                 .submittedAt(s.getSubmittedAt())
                 .updatedAt(s.getUpdatedAt())
                 .learnerMarkedComplete(
-                        roadmapProgress != null
-                                && roadmapProgress.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
+                        Boolean.TRUE.equals(s.getLearnerMarkedComplete()))
                 .roadmapProgressStatus(
                         roadmapProgress != null && roadmapProgress.getStatus() != null
                                 ? roadmapProgress.getStatus().name()

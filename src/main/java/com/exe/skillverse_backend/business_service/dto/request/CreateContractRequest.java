@@ -133,7 +133,8 @@ public class CreateContractRequest {
     @NotNull(message = "Ngày bắt đầu là bắt buộc")
     private LocalDate startDate;
 
-    private LocalDate endDate; // Nullable for FULL_TIME indefinite
+    @NotNull(message = "Ngày kết thúc hợp đồng là bắt buộc")
+    private LocalDate endDate;
 
     // ==================== CANDIDATE INFO (for contract) ====================
     private String candidateAddress;

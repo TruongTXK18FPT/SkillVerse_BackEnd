@@ -490,7 +490,7 @@ public class MediaServiceImpl implements MediaService {
                 .fileSize(file.getSize())
                 .uploadedBy(userId)
                 .cloudinaryPublicId((String) result.get("public_id"))
-                .cloudinaryResourceType("raw")
+                .cloudinaryResourceType((String) result.get("resource_type"))
                 .uploadedAt(LocalDateTime.now(clock))
                 .build();
 

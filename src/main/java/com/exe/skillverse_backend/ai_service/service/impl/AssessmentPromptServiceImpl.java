@@ -510,9 +510,11 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
         return "## YEU CAU TAO BAI KIEM TRA:\n\n" +
             "### So luong va Cau truc:\n" +
             "- Tao DUNG " + requestedQuestionCount + " cau hoi, khong thieu, khong du\n" +
+            "- Do kho uu tien theo cap do nguoi dung da chon: " + normalizePromptLevel(userInfo.level()) + "\n" +
             "- Phan bo theo do kho (theo cap do nguoi dung - " + (userInfo.level() != null ? userInfo.level() : "MIXED") + "):\n" +
             difficultyDistribution + "\n\n" +
             "### Noi dung cau hoi (phan bo deu):\n" +
+            buildGoalSpecificAssessmentGuidance(userInfo) +
             "1. Kien thuc nen tang (20%): Danh gia hieu biet co ban ve nganh\n" +
             "2. Ky nang chuyen mon (30%): Danh gia ky nang thuc hanh can thiet\n" +
             "3. Xu ly tinh huong (30%): Scenario-based questions, danh gia kha nang ap dung\n" +
@@ -579,6 +581,26 @@ public class AssessmentPromptServiceImpl implements AssessmentPromptService {
                         "  - Advanced (Kho): 30%\n" +
                         "  - Expert (Rat kho): 15%";
         };
+    }
+
+    private String buildGoalSpecificAssessmentGuidance(UserAssessmentInfo userInfo) {
+        String goal = userInfo.goal() != null ? userInfo.goal().trim().toUpperCase() : "";
+        if (!"REVIEW".equals(goal)) {
+            return "";
+        }
+
+        return "### Dieu chinh rieng cho muc tieu REVIEW / On lai kien thuc:\n" +
+            "- Day la bai review dung cap do hien tai, khong phai bai thu thach len level cao hon\n" +
+            "- Uu tien cau hoi giup phat hien lo hong kien thuc, nham lan thuong gap va cach ap dung dung\n" +
+            "- Moi cau hoi nen co giai thich ro de nguoi hoc on lai sau khi nop bai\n" +
+            "- Khong tao cau hoi meo qua nang, khong dua kien thuc vuot cap do da chon\n\n";
+    }
+
+    private String normalizePromptLevel(String level) {
+        if (level == null || level.isBlank()) {
+            return "MIXED";
+        }
+        return level.trim().toUpperCase();
     }
 
     private String getOutputFormatSection(String domain, String role, UserAssessmentInfo userInfo) {

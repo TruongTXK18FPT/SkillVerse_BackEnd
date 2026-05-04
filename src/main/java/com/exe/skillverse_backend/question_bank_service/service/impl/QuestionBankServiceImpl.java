@@ -335,7 +335,8 @@ public class QuestionBankServiceImpl implements QuestionBankService {
                 "BEGINNER", new Double[]{0.80, 0.20, 0.00, 0.00},
                 "ELEMENTARY", new Double[]{0.60, 0.30, 0.10, 0.00},
                 "INTERMEDIATE", new Double[]{0.00, 0.80, 0.20, 0.00},
-                "ADVANCED", new Double[]{0.00, 0.00, 0.80, 0.20}
+                "ADVANCED", new Double[]{0.00, 0.00, 0.80, 0.20},
+                "EXPERT", new Double[]{0.00, 0.00, 0.20, 0.80}
         );
         Double[] distribution = levelDistribution.getOrDefault(
                 userLevel != null ? userLevel.toUpperCase() : "",

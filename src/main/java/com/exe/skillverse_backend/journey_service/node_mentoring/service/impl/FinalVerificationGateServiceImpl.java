@@ -46,6 +46,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -59,6 +60,7 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
 
     private static final int MAX_VERIFICATION_ATTEMPTS = 3;
     private static final int REVERIFY_COOLDOWN_DAYS = 7;
+    private static final BigDecimal MENTOR_BOOKING_SHARE_RATE = new BigDecimal("0.80");
 
     private static final List<BookingStatus> ASSIGNED_MENTOR_STATUSES = List.of(
             BookingStatus.CONFIRMED,
@@ -228,7 +230,11 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
 
         a.setSubmissionText(request.getSubmissionText());
         a.setEvidenceUrl(request.getEvidenceUrl());
+        a.setEvidencePublicId(request.getEvidencePublicId());
+        a.setEvidenceResourceType(request.getEvidenceResourceType());
         a.setAttachmentUrl(request.getAttachmentUrl());
+        a.setAttachmentPublicId(request.getAttachmentPublicId());
+        a.setAttachmentResourceType(request.getAttachmentResourceType());
         a.setAssessmentStatus(AssessmentStatus.PENDING);
         a.setAssessedAt(null);
         a.setScore(null);
@@ -407,6 +413,7 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
                 .build();
         completionReportRepo.save(gateReport);
 
+        markAllNodesCompleted(journey);
         journey.setStatus(JourneyStatus.COMPLETED_VERIFIED);
         journey.setProgressPercentage(100);
         journey.setCompletedAt(Instant.now());
@@ -417,10 +424,13 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
                 (booking.getVerificationAttempts() != null ? booking.getVerificationAttempts() : 0) + 1);
         bookingRepository.save(booking);
 
-        // 5. Release frozen funds: unfreeze learner's escrow, then pay mentor
+        // 5. Capture learner escrow, then pay 80% to mentor. The remaining 20%
+        // is retained by the platform.
         try {
-            walletService.unfreezeForBooking(booking.getLearner().getId(), booking.getPriceVnd(), booking.getId());
-            walletService.payMentorForBooking(booking.getMentor().getId(), booking.getPriceVnd(), booking.getId());
+            BigDecimal bookingAmount = booking.getPriceVnd();
+            BigDecimal mentorPayout = bookingAmount.multiply(MENTOR_BOOKING_SHARE_RATE);
+            walletService.chargeFrozenForBooking(booking.getLearner().getId(), bookingAmount, booking.getId());
+            walletService.payMentorForBooking(booking.getMentor().getId(), mentorPayout, booking.getId());
         } catch (Exception e) {
             log.error("Failed to process escrow release for booking {}: {}", booking.getId(), e.getMessage());
         }
@@ -467,12 +477,41 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
                         .orElse(null);
 
         upsertVerifiedSkill(journey, mentorId, resolvedBookingId, note);
+        markAllNodesCompleted(journey);
         journey.setStatus(JourneyStatus.COMPLETED_VERIFIED);
         journey.setProgressPercentage(100);
         if (journey.getCompletedAt() == null) {
             journey.setCompletedAt(Instant.now());
         }
         journeyRepository.save(journey);
+
+        // Release escrow + pay mentor 80%. Without this, mentors who confirm
+        // completion via the Completion Report PASS path (instead of the final
+        // meeting verdict) never receive their booking earnings.
+        if (resolvedBookingId != null) {
+            bookingRepository.findById(resolvedBookingId).ifPresent(booking -> {
+                if (booking.getStatus() != BookingStatus.COMPLETED) {
+                    booking.setStatus(BookingStatus.COMPLETED);
+                    bookingRepository.save(booking);
+                }
+                try {
+                    BigDecimal bookingAmount = booking.getPriceVnd();
+                    if (bookingAmount != null && bookingAmount.compareTo(BigDecimal.ZERO) > 0
+                            && booking.getLearner() != null && booking.getMentor() != null) {
+                        BigDecimal mentorPayout = bookingAmount.multiply(MENTOR_BOOKING_SHARE_RATE);
+                        walletService.chargeFrozenForBooking(
+                                booking.getLearner().getId(), bookingAmount, booking.getId());
+                        walletService.payMentorForBooking(
+                                booking.getMentor().getId(), mentorPayout, booking.getId());
+                        log.info("Released escrow for booking {}: mentor {} received {} VND (80% of {}).",
+                                booking.getId(), booking.getMentor().getId(), mentorPayout, bookingAmount);
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to process escrow release for booking {} during completion-report PASS: {}",
+                            booking.getId(), e.getMessage(), e);
+                }
+            });
+        }
     }
 
     private String upsertVerifiedSkill(Journey journey, Long mentorId, Long bookingId, String verificationNote) {
@@ -574,6 +613,47 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
                 resetRoadmapProgress(submission);
                 log.debug("Reset node {} in journey {} to REWORK_REQUESTED/REJECTED for re-learning.", nodeId, journeyId);
             });
+        }
+    }
+
+    /**
+     * When the gate passes, force every roadmap node tracked for this journey to
+     * COMPLETED. Without this, students who completed all tasks but lacked
+     * mentor verification per node would see the journey stuck below 100% (the
+     * task-driven progress derivation caps at 99% per node).
+     */
+    private void markAllNodesCompleted(Journey journey) {
+        if (journey == null || journey.getRoadmapSessionId() == null) {
+            return;
+        }
+        Long sessionId = journey.getRoadmapSessionId();
+        try {
+            List<UserRoadmapProgress> entries = progressRepository.findBySessionId(sessionId);
+            if (entries == null || entries.isEmpty()) {
+                return;
+            }
+            Instant now = Instant.now();
+            List<UserRoadmapProgress> dirty = new ArrayList<>();
+            for (UserRoadmapProgress p : entries) {
+                if (p.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED
+                        && p.getProgress() != null && p.getProgress() == 100) {
+                    continue;
+                }
+                p.setStatus(UserRoadmapProgress.ProgressStatus.COMPLETED);
+                p.setProgress(100);
+                if (p.getCompletedAt() == null) {
+                    p.setCompletedAt(now);
+                }
+                dirty.add(p);
+            }
+            if (!dirty.isEmpty()) {
+                progressRepository.saveAll(dirty);
+                log.info("Marked {} node(s) of journey {} (session {}) as COMPLETED after gate PASS.",
+                        dirty.size(), journey.getId(), sessionId);
+            }
+        } catch (Exception e) {
+            log.error("Failed to bulk-complete nodes for journey {} (session {}): {}",
+                    journey.getId(), sessionId, e.getMessage(), e);
         }
     }
 

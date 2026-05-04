@@ -211,13 +211,40 @@ public class JobContract {
     @Column(name = "candidate_id_card_place", length = 200)
     private String candidateIdCardPlace;
 
+    @Column(name = "candidate_id_card_date")
+    private LocalDate candidateIdCardDate;
+
+    // =====================================================
+    // CANDIDATE BANK INFO (for salary payment)
+    // =====================================================
+    @Column(name = "candidate_bank_account_number", length = 50)
+    private String candidateBankAccountNumber;
+
+    @Column(name = "candidate_bank_name", length = 200)
+    private String candidateBankName;
+
+    @Column(name = "candidate_bank_account_holder", length = 200)
+    private String candidateBankAccountHolder;
+
+    // =====================================================
+    // CUSTOM CONTRACT PDF (uploaded by recruiter via Cloudinary)
+    // =====================================================
+    @Column(name = "custom_contract_pdf_url", length = 500)
+    private String customContractPdfUrl;
+
+    @Column(name = "custom_contract_pdf_public_id", length = 300)
+    private String customContractPdfPublicId;
+
+    @Column(name = "custom_contract_pdf_resource_type", length = 50)
+    private String customContractPdfResourceType;
+
     // =====================================================
     // DATES
     // =====================================================
     @Column(name = "start_date", nullable = false)
     private LocalDate startDate;
 
-    @Column(name = "end_date")
+    @Column(name = "end_date", nullable = false)
     private LocalDate endDate;
 
     // =====================================================
