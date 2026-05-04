@@ -214,7 +214,7 @@ public class EnrollmentController {
      * Admin only.
      */
     @GetMapping("/recent")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('CONTENT_ADMIN')")
     @Operation(summary = "Get recent enrollments (admin only)")
     public ResponseEntity<PageResponse<EnrollmentDetailDTO>> getRecentEnrollments(
             @AuthenticationPrincipal Jwt jwt,

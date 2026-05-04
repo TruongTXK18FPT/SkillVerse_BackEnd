@@ -149,7 +149,7 @@ public class PaymentController {
     }
 
     @PutMapping("/status/{internalReference}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
     @Operation(summary = "Update payment status", description = "Update the status of a payment transaction")
     public ResponseEntity<PaymentTransaction> updatePaymentStatus(
             @PathVariable String internalReference,

@@ -50,10 +50,13 @@ public interface CourseEnrollmentRepository extends JpaRepository<CourseEnrollme
         );
 
         /**
-         * Find enrollments by user ID with pagination
+         * Find enrollments by user ID with pagination.
+         * Excludes ARCHIVED and SUSPENDED courses — they must not appear on the user dashboard.
          */
         @Transactional(readOnly = true)
-        @Query("SELECT ce FROM CourseEnrollment ce WHERE ce.user.id = :userId")
+        @Query("SELECT ce FROM CourseEnrollment ce WHERE ce.user.id = :userId" +
+               " AND ce.course.status NOT IN (com.exe.skillverse_backend.course_service.entity.enums.CourseStatus.ARCHIVED," +
+               " com.exe.skillverse_backend.course_service.entity.enums.CourseStatus.SUSPENDED)")
         Page<CourseEnrollment> findByUserId(@Param("userId") Long userId, Pageable pageable);
 
         /**

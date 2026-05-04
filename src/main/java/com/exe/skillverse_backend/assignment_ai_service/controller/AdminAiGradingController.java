@@ -54,7 +54,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/admin/ai-grading")
 @RequiredArgsConstructor
 @Slf4j
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
 public class AdminAiGradingController {
     private static final double LOW_CONFIDENCE_THRESHOLD = 0.6d;
 

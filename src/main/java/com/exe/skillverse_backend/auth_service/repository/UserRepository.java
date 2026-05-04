@@ -34,8 +34,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findByPrimaryRoleAndStatus(PrimaryRole primaryRole, UserStatus status);
     
     Long countByPrimaryRole(PrimaryRole primaryRole);
-    
-     Long countByStatus(UserStatus status);
+
+    Long countByStatus(UserStatus status);
+
+    /**
+     * Count users with specific primary role and status.
+     * Used for safety checks (e.g., preventing deletion of last active admin).
+     */
+    Long countByPrimaryRoleAndStatus(PrimaryRole primaryRole, UserStatus status);
 
     /**
      * Find oldest users (longest active on platform)

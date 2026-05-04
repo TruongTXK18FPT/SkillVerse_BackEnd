@@ -33,7 +33,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Admin Premium Management", description = "Admin endpoints for managing premium plans")
-@PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasRole('PREMIUM_ADMIN')")
 public class AdminPremiumController {
 
     private final AdminPremiumService adminPremiumService;

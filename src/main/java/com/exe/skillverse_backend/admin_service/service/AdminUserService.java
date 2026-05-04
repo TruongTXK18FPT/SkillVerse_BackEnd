@@ -54,11 +54,11 @@ public interface AdminUserService {
     AdminUserResponse updateUserRole(UpdateUserRoleRequest request);
 
     /**
-     * Add additional roles to user
-     * @param request AddRoleRequest
+     * Set (replace) sub-admin roles for user. Replaces existing sub-admin roles with the provided list.
+     * @param request AddRoleRequest containing userId and list of sub-admin roles
      * @return Updated AdminUserResponse
      */
-    AdminUserResponse addRolesToUser(AddRoleRequest request);
+    AdminUserResponse setSubAdminRoles(AddRoleRequest request);
     
     /**
      * Update user profile information

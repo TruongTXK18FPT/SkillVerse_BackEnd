@@ -596,7 +596,7 @@ public class PortfolioController {
     }
 
     @PutMapping("/reviews/{id}/verify")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     @Operation(summary = "Verify mentor review (Admin)")
     public ResponseEntity<?> verifyReview(@PathVariable Long id, @RequestParam boolean verified) {
         try {

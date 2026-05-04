@@ -7,6 +7,11 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * Request DTO for setting (replacing) sub-admin roles for a user.
+ * The provided roles will REPLACE all existing sub-admin roles of the user.
+ * Only sub-admin roles (USER_ADMIN, CONTENT_ADMIN, etc.) are allowed via this endpoint.
+ */
 @Data
 @Builder
 @NoArgsConstructor

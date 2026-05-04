@@ -97,7 +97,7 @@ public class ViolationReportController {
      * Get all reports with filters (Admin)
      */
     @GetMapping("/admin/all")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Get all reports (Admin)", description = "Get all violation reports with optional filters")
     public ResponseEntity<Page<ViolationReportResponse>> getAllReports(
             @RequestParam(required = false) String status,
@@ -114,7 +114,7 @@ public class ViolationReportController {
      * Get report by ID (Admin - no ownership check)
      */
     @GetMapping("/admin/{reportId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Get report by ID (Admin)", description = "Get detailed report information")
     public ResponseEntity<ViolationReportResponse> getReportByIdAdmin(@PathVariable Long reportId) {
         ViolationReportResponse report = reportService.getReportByIdAdmin(reportId);
@@ -125,7 +125,7 @@ public class ViolationReportController {
      * Get reports assigned to admin
      */
     @GetMapping("/admin/assigned/{adminId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Get assigned reports", description = "Get reports assigned to a specific admin")
     public ResponseEntity<Page<ViolationReportResponse>> getAssignedReports(
             @PathVariable Long adminId,
@@ -140,7 +140,7 @@ public class ViolationReportController {
      * Get pending critical reports
      */
     @GetMapping("/admin/critical")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Get critical reports", description = "Get all pending high-severity reports")
     public ResponseEntity<List<ViolationReportResponse>> getCriticalReports() {
         List<ViolationReportResponse> reports = reportService.getPendingCriticalReports();
@@ -151,7 +151,7 @@ public class ViolationReportController {
      * Get reports against a specific user
      */
     @GetMapping("/admin/against/{userId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Get reports against user", description = "Get all reports filed against a specific user")
     public ResponseEntity<List<ViolationReportResponse>> getReportsAgainstUser(@PathVariable Long userId) {
         List<ViolationReportResponse> reports = reportService.getReportsAgainstUser(userId);
@@ -162,7 +162,7 @@ public class ViolationReportController {
      * Update a report (Admin)
      */
     @PutMapping("/admin/{reportId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Update report (Admin)", description = "Update report status, severity, notes, or assignment")
     public ResponseEntity<ViolationReportResponse> updateReport(
             @PathVariable Long reportId,
@@ -175,7 +175,7 @@ public class ViolationReportController {
      * Start investigating a report
      */
     @PostMapping("/admin/{reportId}/investigate")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Investigate report", description = "Mark a report as under investigation and assign to admin")
     public ResponseEntity<ViolationReportResponse> investigateReport(
             @PathVariable Long reportId,
@@ -188,7 +188,7 @@ public class ViolationReportController {
      * Resolve a report
      */
     @PostMapping("/admin/{reportId}/resolve")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Resolve report", description = "Resolve a report with a specific action")
     public ResponseEntity<ViolationReportResponse> resolveReport(
             @PathVariable Long reportId,
@@ -203,7 +203,7 @@ public class ViolationReportController {
      * Dismiss a report
      */
     @PostMapping("/admin/{reportId}/dismiss")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Dismiss report", description = "Dismiss a report as invalid or unfounded")
     public ResponseEntity<ViolationReportResponse> dismissReport(
             @PathVariable Long reportId,
@@ -217,7 +217,7 @@ public class ViolationReportController {
      * Escalate a report
      */
     @PostMapping("/admin/{reportId}/escalate")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Escalate report", description = "Escalate a report to higher authority")
     public ResponseEntity<ViolationReportResponse> escalateReport(
             @PathVariable Long reportId,
@@ -231,7 +231,7 @@ public class ViolationReportController {
      * Get report statistics (Admin dashboard)
      */
     @GetMapping("/admin/stats")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Get report statistics", description = "Get violation report statistics for admin dashboard")
     public ResponseEntity<ViolationReportStatsResponse> getReportStats() {
         ViolationReportStatsResponse stats = reportService.getReportStats();
@@ -242,7 +242,7 @@ public class ViolationReportController {
      * Delete a report (Admin)
      */
     @DeleteMapping("/admin/{reportId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('COMMUNITY_ADMIN')")
     @Operation(summary = "Delete report (Admin)", description = "Delete a resolved or dismissed report")
     public ResponseEntity<Void> deleteReport(@PathVariable Long reportId) {
         reportService.deleteReport(reportId);

@@ -116,7 +116,7 @@ public class MentorProfileController {
 
     @PutMapping("/{mentorId}/profile")
     @Operation(summary = "Update mentor profile by ID (Admin)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<MentorProfileResponse> updateMentorProfile(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
             @Parameter(description = "Profile update data") @Valid @RequestBody MentorProfileUpdateRequest request) {
@@ -154,7 +154,7 @@ public class MentorProfileController {
 
     @PostMapping(value = "/{mentorId}/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "Upload mentor avatar by ID (Admin)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<AvatarUploadResponse> uploadMentorAvatar(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
             @Parameter(description = "Avatar file") @RequestParam("file") MultipartFile file) {
@@ -188,7 +188,7 @@ public class MentorProfileController {
 
     @PostMapping(value = "/{mentorId}/signature", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "Upload mentor signature by ID (Admin)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<SignatureUploadResponse> uploadMentorSignature(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
             @Parameter(description = "Signature image file") @RequestParam("file") MultipartFile file) {
@@ -209,7 +209,7 @@ public class MentorProfileController {
 
     @PostMapping(value = "/{mentorId}/signature/system", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Create mentor signature from system drawing strokes by ID (Admin)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<SignatureUploadResponse> createMentorSignatureFromDrawing(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
             @Valid @RequestBody MentorSignatureDrawRequest request) {
@@ -232,7 +232,7 @@ public class MentorProfileController {
 
     @DeleteMapping("/{mentorId}/signature")
     @Operation(summary = "Remove mentor signature by ID (Admin)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<Void> removeMentorSignature(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId) {
 
@@ -256,7 +256,7 @@ public class MentorProfileController {
 
     @PutMapping("/{mentorId}/prechat-enabled")
     @Operation(summary = "Bật/tắt pre-chat cho mentor (Admin)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<Void> setPreChatEnabledAdmin(
             @Parameter(description = "Mentor user ID") @PathVariable Long mentorId,
             @RequestParam("enabled") boolean enabled) {

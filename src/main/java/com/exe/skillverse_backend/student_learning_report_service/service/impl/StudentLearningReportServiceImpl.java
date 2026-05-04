@@ -458,6 +458,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                         .orElse(0));
 
         List<StudentLearningReportResponse.CourseBreakdownItem> breakdown = enrollments.stream()
+                .filter(enrollment -> enrollment.getStatus() != EnrollmentStatus.DROPPED)
                 .map(enrollment -> StudentLearningReportResponse.CourseBreakdownItem.builder()
                         .courseId(enrollment.getCourse() != null ? enrollment.getCourse().getId() : null)
                         .courseTitle(enrollment.getCourse() != null ? enrollment.getCourse().getTitle() : "Course")

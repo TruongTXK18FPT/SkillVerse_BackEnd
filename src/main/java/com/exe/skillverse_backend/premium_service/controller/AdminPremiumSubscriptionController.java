@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/admin/premium")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasRole('PREMIUM_ADMIN')")
 @Tag(name = "Admin - Premium Subscriptions", description = "Admin premium subscription management")
 public class AdminPremiumSubscriptionController {
     

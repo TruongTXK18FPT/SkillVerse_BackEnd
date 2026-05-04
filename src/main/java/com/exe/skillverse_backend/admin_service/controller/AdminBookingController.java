@@ -25,7 +25,7 @@ import java.util.List;
 @Slf4j
 @RequiredArgsConstructor
 @Tag(name = "Admin Booking Dispute", description = "Admin management for booking disputes")
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
 public class AdminBookingController {
 
     private final BookingDisputeService disputeService;

@@ -91,7 +91,7 @@ public class MentorVerificationController {
 
     @GetMapping("/admin/mentor-verifications/pending")
     @Operation(summary = "Admin: lấy danh sách yêu cầu chờ duyệt")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<Page<MentorVerificationResponse>> getPendingVerifications(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -102,7 +102,7 @@ public class MentorVerificationController {
 
     @GetMapping("/admin/mentor-verifications")
     @Operation(summary = "Admin: lấy tất cả yêu cầu (có filter status)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<Page<MentorVerificationResponse>> getAllVerifications(
             @RequestParam(required = false) List<String> statuses,
             @RequestParam(defaultValue = "0") int page,
@@ -114,7 +114,7 @@ public class MentorVerificationController {
 
     @GetMapping("/admin/mentor-verifications/{requestId}")
     @Operation(summary = "Admin: xem chi tiết 1 yêu cầu")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<MentorVerificationResponse> getVerificationById(
             @PathVariable Long requestId) {
 
@@ -123,7 +123,7 @@ public class MentorVerificationController {
 
     @PostMapping("/admin/mentor-verifications/{requestId}/review")
     @Operation(summary = "Admin: duyệt hoặc reject yêu cầu xác thực skill")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<MentorVerificationResponse> reviewVerification(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long requestId,
@@ -137,7 +137,7 @@ public class MentorVerificationController {
 
     @GetMapping("/admin/mentor-verifications/count-pending")
     @Operation(summary = "Admin: đếm số request pending (cho badge)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<Map<String, Long>> countPending() {
         return ResponseEntity.ok(Map.of("count", verificationService.countPending()));
     }

@@ -92,7 +92,7 @@ public class StudentSkillVerificationController {
 
     @GetMapping("/admin/student-verifications/pending")
     @Operation(summary = "Admin: lấy danh sách yêu cầu student chờ duyệt")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<Page<StudentVerificationResponse>> getPendingVerifications(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -103,7 +103,7 @@ public class StudentSkillVerificationController {
 
     @GetMapping("/admin/student-verifications")
     @Operation(summary = "Admin: lấy tất cả yêu cầu student (có filter status)")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<Page<StudentVerificationResponse>> getAllVerifications(
             @RequestParam(required = false) List<String> statuses,
             @RequestParam(defaultValue = "0") int page,
@@ -115,7 +115,7 @@ public class StudentSkillVerificationController {
 
     @GetMapping("/admin/student-verifications/{requestId}")
     @Operation(summary = "Admin: xem chi tiết 1 yêu cầu student")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<StudentVerificationResponse> getVerificationById(
             @PathVariable Long requestId) {
 
@@ -124,7 +124,7 @@ public class StudentSkillVerificationController {
 
     @PostMapping("/admin/student-verifications/{requestId}/review")
     @Operation(summary = "Admin: duyệt hoặc reject yêu cầu xác thực skill student")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<StudentVerificationResponse> reviewVerification(
             @Parameter(hidden = true) @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long requestId,
@@ -138,7 +138,7 @@ public class StudentSkillVerificationController {
 
     @GetMapping("/admin/student-verifications/count-pending")
     @Operation(summary = "Admin: đếm số request student pending")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<Map<String, Long>> countPending() {
         return ResponseEntity.ok(Map.of("count", verificationService.countPending()));
     }

@@ -13,6 +13,7 @@ import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
 import com.exe.skillverse_backend.auth_service.entity.Role;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.entity.UserStatus;
+import com.exe.skillverse_backend.auth_service.repository.RefreshTokenRepository;
 import com.exe.skillverse_backend.auth_service.repository.RoleRepository;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.course_service.entity.Certificate;
@@ -29,7 +30,13 @@ import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
+import com.exe.skillverse_backend.shared.exception.BadRequestException;
+import com.exe.skillverse_backend.shared.exception.ForbiddenException;
+import com.exe.skillverse_backend.shared.exception.NotFoundException;
+import com.exe.skillverse_backend.shared.util.JwtUtils;
 import jakarta.persistence.EntityManager;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -56,6 +63,7 @@ public class AdminUserServiceImpl implements AdminUserService {
 
         private final UserRepository userRepository;
         private final RoleRepository roleRepository;
+        private final RefreshTokenRepository refreshTokenRepository;
         private final PasswordEncoder passwordEncoder;
         private final UserProfileService userProfileService;
         private final EntityManager entityManager;
@@ -74,6 +82,10 @@ public class AdminUserServiceImpl implements AdminUserService {
         public AdminUserListResponse getAllUsers(PrimaryRole role, UserStatus status, String search) {
                 log.info("Fetching users with filters - role: {}, status: {}, search: {}", role, status, search);
 
+                // Check if current user is USER_ADMIN (not full ADMIN)
+                // USER_ADMIN should never see ADMIN accounts regardless of filter
+                boolean isUserAdminOnly = isUserAdminOnly();
+
                 List<User> users;
 
                 // Apply filters
@@ -89,8 +101,10 @@ public class AdminUserServiceImpl implements AdminUserService {
                         users = userRepository.findAll();
                 }
 
-                // Hide ADMIN accounts by default when no explicit role filter is provided
-                if (role == null) {
+                // Hide ADMIN accounts:
+                // 1. When no explicit role filter is provided (default behavior)
+                // 2. Always for USER_ADMIN (cannot see super admin accounts even with filter)
+                if (role == null || isUserAdminOnly) {
                         users = users.stream()
                                         .filter(u -> u.getPrimaryRole() != PrimaryRole.ADMIN)
                                         .collect(Collectors.toList());
@@ -127,7 +141,12 @@ public class AdminUserServiceImpl implements AdminUserService {
 
                 // ✅ Use findByIdWithRoles since response includes roles
                 User user = userRepository.findByIdWithRoles(userId)
-                                .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
+                                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng với ID: " + userId));
+
+                // USER_ADMIN không thể xem tài khoản ADMIN
+                if (isUserAdminOnly() && user.getPrimaryRole() == PrimaryRole.ADMIN) {
+                        throw new ForbiddenException("Từ chối truy cập: Không thể xem tài khoản quản trị viên cấp cao");
+                }
 
                 return convertToAdminUserResponse(user);
         }
@@ -137,9 +156,28 @@ public class AdminUserServiceImpl implements AdminUserService {
         public AdminUserResponse updateUserStatus(UpdateUserStatusRequest request) {
                 log.info("Updating user status - userId: {}, newStatus: {}", request.getUserId(), request.getStatus());
 
+                // Self-change guard: Prevent user from changing their own status
+                Long currentUserId = getCurrentUserId();
+                if (currentUserId.equals(request.getUserId())) {
+                        throw new ForbiddenException("Không thể tự thay đổi trạng thái tài khoản của chính mình");
+                }
+
                 User user = userRepository.findById(request.getUserId())
-                                .orElseThrow(() -> new RuntimeException(
-                                                "User not found with id: " + request.getUserId()));
+                                .orElseThrow(() -> new NotFoundException(
+                                                "Không tìm thấy người dùng với ID: " + request.getUserId()));
+
+                // ADMIN protection: Cannot ban/delete another ADMIN
+                if (user.getPrimaryRole() == PrimaryRole.ADMIN && !currentUserId.equals(request.getUserId())) {
+                        throw new ForbiddenException("Không thể thay đổi trạng thái của quản trị viên cấp cao");
+                }
+
+                // Defense-in-depth; strict ADMIN target guards normally prevent this path
+                if (request.getStatus() == UserStatus.INACTIVE && user.getPrimaryRole() == PrimaryRole.ADMIN) {
+                        Long activeAdminCount = userRepository.countByPrimaryRoleAndStatus(PrimaryRole.ADMIN, UserStatus.ACTIVE);
+                        if (activeAdminCount <= 1) {
+                                throw new BadRequestException("Không thể khóa tài khoản quản trị viên cuối cùng đang hoạt động");
+                        }
+                }
 
                 user.setStatus(request.getStatus());
                 user.setUpdatedAt(LocalDateTime.now());
@@ -214,78 +252,151 @@ public class AdminUserServiceImpl implements AdminUserService {
         public AdminUserResponse updateUserRole(UpdateUserRoleRequest request) {
                 log.info("Updating user role - userId: {}, newRole: {}", request.getUserId(), request.getPrimaryRole());
 
-                // ✅ Use findByIdWithRoles to ensure roles are loaded for synchronization
-                User user = userRepository.findByIdWithRoles(request.getUserId())
-                                .orElseThrow(() -> new RuntimeException(
-                                                "User not found with id: " + request.getUserId()));
+                // Self-change guard: Prevent user from changing their own role
+                Long currentUserId = getCurrentUserId();
+                if (currentUserId.equals(request.getUserId())) {
+                        throw new ForbiddenException("Không thể tự thay đổi vai trò của chính mình");
+                }
 
                 PrimaryRole newPrimaryRole = request.getPrimaryRole();
+
+                // Null safety guard
+                if (newPrimaryRole == null) {
+                        throw new BadRequestException("Vai trò chính là bắt buộc");
+                }
+
+                // Validate: Chỉ cho phép main roles (USER, MENTOR, RECRUITER, PARENT, ADMIN)
+                // Sub-admin roles phải được gán qua setSubAdminRoles
+                if (!newPrimaryRole.isMainRole()) {
+                        throw new BadRequestException("Vai trò không hợp lệ: " + newPrimaryRole + 
+                                ". Chỉ các vai trò chính (USER, MENTOR, RECRUITER, PARENT, ADMIN) được phép. " +
+                                "Các vai trò phụ trợ phải được gán qua endpoint vai trò phụ trợ.");
+                }
+
+                // ✅ Use findByIdWithRoles to ensure roles are loaded for synchronization
+                User user = userRepository.findByIdWithRoles(request.getUserId())
+                                .orElseThrow(() -> new NotFoundException(
+                                                "Không tìm thấy người dùng với ID: " + request.getUserId()));
+
+                // ADMIN protection: Cannot modify another ADMIN's role (unless self, which is already blocked)
+                if (user.getPrimaryRole() == PrimaryRole.ADMIN && !currentUserId.equals(request.getUserId())) {
+                        throw new ForbiddenException("Không thể thay đổi vai trò của quản trị viên cấp cao");
+                }
+
                 PrimaryRole oldPrimaryRole = user.getPrimaryRole();
                 
-                // ✅ SYNC: Update roles entity FIRST to ensure consistency
-                // Only sync for main roles (USER, MENTOR, RECRUITER, ADMIN, PARENT)
-                // Sub-admin roles are managed separately via addRolesToUser
-                if (isMainRole(newPrimaryRole)) {
-                        // Validate new role exists BEFORE making any changes
-                        Role newRole = roleRepository.findByName(newPrimaryRole.name())
-                                .orElseThrow(() -> new RuntimeException("Role not found: " + newPrimaryRole.name()));
-                        
-                        // Remove old main role if it was a main role
-                        if (isMainRole(oldPrimaryRole)) {
-                                roleRepository.findByName(oldPrimaryRole.name())
-                                        .ifPresent(oldRole -> user.getRoles().remove(oldRole));
+                // Defense-in-depth; strict ADMIN target guards normally prevent this path
+                if (oldPrimaryRole == PrimaryRole.ADMIN && request.getPrimaryRole() != PrimaryRole.ADMIN) {
+                        Long activeAdminCount = userRepository.countByPrimaryRoleAndStatus(PrimaryRole.ADMIN, UserStatus.ACTIVE);
+                        if (activeAdminCount <= 1) {
+                                throw new BadRequestException("Không thể hạ cấp quản trị viên cuối cùng đang hoạt động");
                         }
-                        
-                        // Add new main role
-                        user.getRoles().add(newRole);
-                        
-                        log.info("Synchronized roles entity: removed {}, added {}", oldPrimaryRole, newPrimaryRole);
                 }
                 
-                // Update PrimaryRole enum AFTER roles sync succeeds
+                // ✅ SYNC: Remove ALL existing main roles, then add new one
+                // Rule: User has exactly one main role matching primaryRole
+                Set<String> mainRoleNames = Set.of("USER", "MENTOR", "RECRUITER", "PARENT", "ADMIN");
+                Set<Role> rolesToRemove = user.getRoles().stream()
+                                .filter(r -> mainRoleNames.contains(r.getName()))
+                                .collect(Collectors.toSet());
+                user.getRoles().removeAll(rolesToRemove);
+                log.info("Removed all main roles from user {}: {}", request.getUserId(), 
+                        rolesToRemove.stream().map(Role::getName).collect(Collectors.toList()));
+
+                // Rule: If demoting from ADMIN, remove all sub-admin roles
+                if (oldPrimaryRole == PrimaryRole.ADMIN && newPrimaryRole != PrimaryRole.ADMIN) {
+                        Set<String> subAdminNames = PrimaryRole.subAdminRoleNames();
+                        Set<Role> subAdminRolesToRemove = user.getRoles().stream()
+                                        .filter(r -> subAdminNames.contains(r.getName()))
+                                        .collect(Collectors.toSet());
+                        user.getRoles().removeAll(subAdminRolesToRemove);
+                        log.info("Demoting from ADMIN - removed sub-admin roles from user {}: {}", request.getUserId(),
+                                subAdminRolesToRemove.stream().map(Role::getName).collect(Collectors.toList()));
+                }
+                
+                // Add new main role
+                Role newRole = roleRepository.findByName(newPrimaryRole.name())
+                                .orElseThrow(() -> new NotFoundException("Không tìm thấy vai trò: " + newPrimaryRole.name()));
+                user.getRoles().add(newRole);
+                
+                // Update PrimaryRole enum
                 user.setPrimaryRole(newPrimaryRole);
                 
                 user.setUpdatedAt(LocalDateTime.now());
                 User updatedUser = userRepository.save(user);
 
-                log.info("Successfully updated user role for userId: {}", request.getUserId());
+                // Invalidate refresh session; existing access token keeps its current claims until expiry
+                refreshTokenRepository.deleteByUserId(request.getUserId());
+                log.info("Invalidated refresh token for user {} due to primary role change", request.getUserId());
+
+                log.info("Successfully updated user role for userId: {} - old: {}, new: {}", 
+                        request.getUserId(), oldPrimaryRole, newPrimaryRole);
                 return convertToAdminUserResponse(updatedUser);
         }
         
-        /**
-         * Check if role is a main role (not sub-admin)
-         * Main roles: USER, MENTOR, RECRUITER, ADMIN, PARENT
-         */
-        private boolean isMainRole(PrimaryRole role) {
-                return role == PrimaryRole.USER || 
-                       role == PrimaryRole.MENTOR || 
-                       role == PrimaryRole.RECRUITER || 
-                       role == PrimaryRole.ADMIN || 
-                       role == PrimaryRole.PARENT;
-        }
 
         @Override
         @Transactional
-        public AdminUserResponse addRolesToUser(AddRoleRequest request) {
-                log.info("Adding roles to user - userId: {}, roles: {}", request.getUserId(), request.getRoles());
+        public AdminUserResponse setSubAdminRoles(AddRoleRequest request) {
+                log.info("Setting sub-admin roles for user - userId: {}, roles: {}", request.getUserId(), request.getRoles());
+
+                // Self-edit check: Lấy current user ID và fail closed nếu không có
+                Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+                if (authentication == null || !authentication.isAuthenticated()) {
+                        throw new ForbiddenException("Yêu cầu xác thực để thay đổi quyền");
+                }
+                Long currentUserId = JwtUtils.extractUserId(authentication);
+                if (currentUserId.equals(request.getUserId())) {
+                        throw new ForbiddenException("Không thể tự thay đổi quyền của chính mình");
+                }
 
                 // ✅ Use findByIdWithRoles to eagerly fetch roles collection for modification
                 User user = userRepository.findByIdWithRoles(request.getUserId())
-                                .orElseThrow(() -> new RuntimeException(
-                                                "User not found with id: " + request.getUserId()));
+                                .orElseThrow(() -> new NotFoundException(
+                                                "Không tìm thấy người dùng với ID: " + request.getUserId()));
 
-                if (request.getRoles() != null && !request.getRoles().isEmpty()) {
-                    for (String roleName : request.getRoles()) {
-                        Role role = roleRepository.findByName(roleName)
-                            .orElseThrow(() -> new RuntimeException("Role not found: " + roleName));
-                        user.getRoles().add(role);
-                    }
+                // ADMIN protection: Cannot modify another ADMIN's sub-admin roles
+                if (user.getPrimaryRole() == PrimaryRole.ADMIN && !currentUserId.equals(request.getUserId())) {
+                        throw new ForbiddenException("Không thể thay đổi quyền của quản trị viên cấp cao");
                 }
+
+                // Validate and filter roles - chỉ cho phép sub-admin roles
+                List<String> requestedRoles = request.getRoles() != null ? request.getRoles() : List.of();
+                Set<String> subAdminRoles = PrimaryRole.subAdminRoleNames();
+                for (String roleName : requestedRoles) {
+                        if (!subAdminRoles.contains(roleName)) {
+                                throw new BadRequestException("Vai trò không hợp lệ: " + roleName + 
+                                        ". Chỉ các vai trò phụ trợ (USER_ADMIN, CONTENT_ADMIN, COMMUNITY_ADMIN, " +
+                                        "FINANCE_ADMIN, PREMIUM_ADMIN, AI_ADMIN, SUPPORT_ADMIN, SYSTEM_ADMIN) được phép.");
+                        }
+                }
+
+                // Get current sub-admin roles
+                Set<String> subAdminRoleNames = PrimaryRole.subAdminRoleNames();
+                Set<Role> currentSubAdminRoles = user.getRoles().stream()
+                                .filter(r -> subAdminRoleNames.contains(r.getName()))
+                                .collect(Collectors.toSet());
+
+                // Get target roles from request
+                Set<Role> targetRoles = requestedRoles.stream()
+                                .map(name -> roleRepository.findByName(name)
+                                                .orElseThrow(() -> new NotFoundException("Không tìm thấy vai trò: " + name)))
+                                .collect(Collectors.toSet());
+
+                // Replace: remove old sub-admin roles, add new ones
+                user.getRoles().removeAll(currentSubAdminRoles);
+                user.getRoles().addAll(targetRoles);
 
                 user.setUpdatedAt(LocalDateTime.now());
                 User updatedUser = userRepository.save(user);
 
-                log.info("Successfully added roles for userId: {}", request.getUserId());
+                // Invalidate refresh session; existing access token remains valid until expiry
+                refreshTokenRepository.deleteByUserId(request.getUserId());
+                log.info("Invalidated refresh token for user {} due to sub-admin role change", request.getUserId());
+
+                log.info("Successfully set sub-admin roles for userId: {}. New roles: {}", 
+                         request.getUserId(), 
+                         updatedUser.getRoles().stream().map(Role::getName).collect(Collectors.toList()));
                 return convertToAdminUserResponse(updatedUser);
         }
 
@@ -294,8 +405,27 @@ public class AdminUserServiceImpl implements AdminUserService {
         public void deleteUser(Long userId) {
                 log.info("Deleting user with userId: {}", userId);
 
+                // Self-delete guard: Prevent user from soft-deleting themselves
+                Long currentUserId = getCurrentUserId();
+                if (currentUserId.equals(userId)) {
+                        throw new ForbiddenException("Không thể tự xóa tài khoản của chính mình");
+                }
+
                 User user = userRepository.findById(userId)
-                                .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
+                                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng với ID: " + userId));
+
+                // ADMIN protection: Cannot delete another ADMIN
+                if (user.getPrimaryRole() == PrimaryRole.ADMIN) {
+                        throw new ForbiddenException("Không thể xóa tài khoản quản trị viên cấp cao");
+                }
+
+                // Defense-in-depth; strict ADMIN target guards normally prevent this path
+                if (user.getPrimaryRole() == PrimaryRole.ADMIN) {
+                        Long activeAdminCount = userRepository.countByPrimaryRoleAndStatus(PrimaryRole.ADMIN, UserStatus.ACTIVE);
+                        if (activeAdminCount <= 1) {
+                                throw new BadRequestException("Không thể xóa quản trị viên cuối cùng đang hoạt động");
+                        }
+                }
 
                 // Soft delete by setting status to INACTIVE
                 user.setStatus(UserStatus.INACTIVE);
@@ -312,7 +442,12 @@ public class AdminUserServiceImpl implements AdminUserService {
 
                 // ✅ Use findByIdWithRoles since response includes roles
                 User user = userRepository.findByIdWithRoles(userId)
-                                .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
+                                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng với ID: " + userId));
+
+                // USER_ADMIN không thể xem tài khoản ADMIN
+                if (isUserAdminOnly() && user.getPrimaryRole() == PrimaryRole.ADMIN) {
+                        throw new ForbiddenException("Từ chối truy cập: Không thể xem tài khoản quản trị viên cấp cao");
+                }
 
                 // Get recent courses (top 5)
                 List<AdminUserDetailResponse.UserCourseInfo> recentCourses = new ArrayList<>();
@@ -422,10 +557,16 @@ public class AdminUserServiceImpl implements AdminUserService {
                 log.info("Updating user profile - userId: {}", request.getUserId());
 
                 User user = userRepository.findById(request.getUserId())
-                                .orElseThrow(() -> new RuntimeException(
-                                                "User not found with id: " + request.getUserId()));
+                                .orElseThrow(() -> new NotFoundException(
+                                                "Không tìm thấy người dùng với ID: " + request.getUserId()));
 
-                StringBuilder changes = new StringBuilder("Profile updated: ");
+                // Strict ADMIN protection: No actor can modify another ADMIN account
+                Long currentUserId = getCurrentUserId();
+                if (user.getPrimaryRole() == PrimaryRole.ADMIN && !currentUserId.equals(request.getUserId())) {
+                        throw new ForbiddenException("Không thể cập nhật tài khoản quản trị viên cấp cao");
+                }
+
+                StringBuilder changes = new StringBuilder("Cập nhật hồ sơ: ");
 
                 if (request.getFirstName() != null) {
                         user.setFirstName(request.getFirstName());
@@ -438,7 +579,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                 if (request.getEmail() != null && !request.getEmail().equals(user.getEmail())) {
                         // Check if email already exists
                         if (userRepository.existsByEmail(request.getEmail())) {
-                                throw new RuntimeException("Email already exists: " + request.getEmail());
+                                throw new BadRequestException("Email đã tồn tại: " + request.getEmail());
                         }
                         user.setEmail(request.getEmail());
                         changes.append("email, ");
@@ -460,9 +601,15 @@ public class AdminUserServiceImpl implements AdminUserService {
         public String resetUserPassword(ResetPasswordRequest request) {
                 log.info("Resetting password for userId: {}", request.getUserId());
 
+                // ADMIN protection: Cannot reset another ADMIN's password
+                Long currentUserId = getCurrentUserId();
                 User user = userRepository.findById(request.getUserId())
-                                .orElseThrow(() -> new RuntimeException(
-                                                "User not found with id: " + request.getUserId()));
+                                .orElseThrow(() -> new NotFoundException(
+                                                "Không tìm thấy người dùng với ID: " + request.getUserId()));
+
+                if (user.getPrimaryRole() == PrimaryRole.ADMIN && !currentUserId.equals(request.getUserId())) {
+                        throw new ForbiddenException("Không thể đặt lại mật khẩu của quản trị viên cấp cao");
+                }
 
                 // Encode and set new password
                 String encodedPassword = passwordEncoder.encode(request.getNewPassword());
@@ -515,13 +662,32 @@ public class AdminUserServiceImpl implements AdminUserService {
         public void permanentlyDeleteUser(Long userId) {
                 log.info("Permanently deleting user with userId: {}", userId);
 
+                // Self-delete guard: Prevent user from permanently deleting themselves
+                Long currentUserId = getCurrentUserId();
+                if (currentUserId.equals(userId)) {
+                        throw new ForbiddenException("Không thể tự xóa vĩnh viễn tài khoản của chính mình");
+                }
+
                 User user = userRepository.findById(userId)
-                                .orElseThrow(() -> new RuntimeException("User not found with id: " + userId));
+                                .orElseThrow(() -> new NotFoundException("Không tìm thấy người dùng với ID: " + userId));
+
+                // ADMIN protection: Cannot permanently delete another ADMIN
+                if (user.getPrimaryRole() == PrimaryRole.ADMIN) {
+                        throw new ForbiddenException("Không thể xóa vĩnh viễn tài khoản quản trị viên cấp cao");
+                }
 
                 // Only allow permanent deletion for INACTIVE users
                 if (user.getStatus() == UserStatus.ACTIVE) {
-                        throw new RuntimeException(
-                                        "Cannot permanently delete an ACTIVE user. Ban/deactivate the account first.");
+                        throw new BadRequestException(
+                                        "Không thể xóa vĩnh viễn tài khoản đang hoạt động. Vui lòng khóa tài khoản trước.");
+                }
+
+                // Defense-in-depth; strict ADMIN target guards normally prevent this path
+                if (user.getPrimaryRole() == PrimaryRole.ADMIN) {
+                        Long activeAdminCount = userRepository.countByPrimaryRoleAndStatus(PrimaryRole.ADMIN, UserStatus.ACTIVE);
+                        if (activeAdminCount <= 1) {
+                                throw new BadRequestException("Không thể xóa vĩnh viễn quản trị viên cuối cùng đang hoạt động");
+                        }
                 }
 
                 try {
@@ -974,6 +1140,44 @@ public class AdminUserServiceImpl implements AdminUserService {
                         log.error("Error permanently deleting user with userId: {}", userId, e);
                         throw new RuntimeException("Failed to permanently delete user: " + e.getMessage(), e);
                 }
+        }
+
+        /**
+         * Check if current user is USER_ADMIN only (not full ADMIN).
+         * Used to enforce that USER_ADMIN cannot view/modify super admin accounts.
+         */
+        private boolean isUserAdminOnly() {
+                Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+                if (authentication == null || !authentication.isAuthenticated()) {
+                        return false;
+                }
+                boolean hasUserAdmin = authentication.getAuthorities().stream()
+                                .anyMatch(a -> a.getAuthority().equals("ROLE_USER_ADMIN"));
+                boolean hasAdmin = authentication.getAuthorities().stream()
+                                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
+                return hasUserAdmin && !hasAdmin;
+        }
+
+        /**
+         * Check if target user has ADMIN primary role.
+         * Used to prevent USER_ADMIN from accessing/modifying super admin accounts.
+         */
+        private boolean isTargetAdmin(Long userId) {
+                return userRepository.findById(userId)
+                                .map(user -> user.getPrimaryRole() == PrimaryRole.ADMIN)
+                                .orElse(false);
+        }
+
+        /**
+         * Get current authenticated user ID from security context.
+         * Used for self-check guards (prevent self-role-change, self-delete, etc.)
+         */
+        private Long getCurrentUserId() {
+                Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+                if (authentication == null || !authentication.isAuthenticated()) {
+                        throw new ForbiddenException("Yêu cầu xác thực");
+                }
+                return JwtUtils.extractUserId(authentication);
         }
 
         /**

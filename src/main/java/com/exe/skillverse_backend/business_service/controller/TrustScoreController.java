@@ -33,7 +33,7 @@ public class TrustScoreController {
     }
 
     @PostMapping("/calculate/{userId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER_ADMIN')")
     public ResponseEntity<TrustScore> calculateScore(@PathVariable Long userId) {
         log.info("POST /api/trust-scores/calculate/{}", userId);
         TrustScore score = trustScoreService.calculateScore(userId);

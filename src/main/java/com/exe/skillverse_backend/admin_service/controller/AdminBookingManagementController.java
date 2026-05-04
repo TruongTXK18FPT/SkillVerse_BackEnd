@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/admin/bookings")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
 @Tag(name = "Admin Booking Management", description = "Booking operations and revenue dashboard for admins")
 public class AdminBookingManagementController {
 

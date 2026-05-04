@@ -89,7 +89,7 @@ public class FinalVerificationController {
     }
 
     @DeleteMapping("/completion-gate")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     public ResponseEntity<Void> adminResetGate(@PathVariable Long journeyId) {
         gateService.adminResetGate(journeyId);
         return ResponseEntity.noContent().build();

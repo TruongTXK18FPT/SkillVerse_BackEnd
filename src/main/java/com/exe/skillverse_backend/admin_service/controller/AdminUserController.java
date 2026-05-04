@@ -85,6 +85,7 @@ public class AdminUserController {
     }
 
     @PutMapping("/status")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Update user status", description = "Update user status (ban/unban)")
     public ResponseEntity<AdminUserResponse> updateUserStatus(
         @Valid @RequestBody UpdateUserStatusRequest request
@@ -96,6 +97,7 @@ public class AdminUserController {
     }
 
     @PutMapping("/role")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Update user role", description = "Update user primary role")
     public ResponseEntity<AdminUserResponse> updateUserRole(
         @Valid @RequestBody UpdateUserRoleRequest request
@@ -106,19 +108,20 @@ public class AdminUserController {
         return ResponseEntity.ok(response);
     }
 
-    @PutMapping("/roles/add")
+    @PutMapping("/roles")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Add roles to user", description = "Add additional roles to a user (for Sub-Admins)")
-    public ResponseEntity<AdminUserResponse> addRolesToUser(
+    @Operation(summary = "Set sub-admin roles for user", description = "Replace user's sub-admin roles. Only ADMIN can assign sub-admin roles.")
+    public ResponseEntity<AdminUserResponse> setSubAdminRoles(
         @Valid @RequestBody AddRoleRequest request
     ) {
-        log.info("PUT /api/admin/users/roles/add - userId: {}, roles: {}", 
+        log.info("PUT /api/admin/users/roles - userId: {}, roles: {}", 
                  request.getUserId(), request.getRoles());
-        AdminUserResponse response = adminUserService.addRolesToUser(request);
+        AdminUserResponse response = adminUserService.setSubAdminRoles(request);
         return ResponseEntity.ok(response);
     }
 
     @DeleteMapping("/{userId}")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Delete user", description = "Soft delete user by setting status to INACTIVE")
     public ResponseEntity<Void> deleteUser(
         @Parameter(description = "User ID", required = true)
@@ -130,6 +133,7 @@ public class AdminUserController {
     }
 
     @DeleteMapping("/{userId}/permanent")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Permanently delete user",
         description = "Permanently delete user from database. Only works for banned/deactivated users (INACTIVE).")
     public ResponseEntity<Void> permanentlyDeleteUser(
@@ -142,6 +146,7 @@ public class AdminUserController {
     }
 
     @PostMapping("/{userId}/ban")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Ban user", description = "Ban a user account")
     public ResponseEntity<AdminUserResponse> banUser(
         @Parameter(description = "User ID", required = true)
@@ -161,6 +166,7 @@ public class AdminUserController {
     }
 
     @PostMapping("/{userId}/unban")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Unban user", description = "Unban a user account")
     public ResponseEntity<AdminUserResponse> unbanUser(
         @Parameter(description = "User ID", required = true)
@@ -190,6 +196,7 @@ public class AdminUserController {
     }
 
     @PostMapping("/reset-password")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Reset user password", description = "Admin reset user password")
     public ResponseEntity<String> resetUserPassword(
         @Valid @RequestBody ResetPasswordRequest request

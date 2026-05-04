@@ -112,7 +112,7 @@ public class DisputeController {
     }
 
     @GetMapping("/all")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
     public ResponseEntity<Page<Dispute>> getAllDisputes(
             @PageableDefault(size = 20) Pageable pageable) {
         log.info("GET /api/disputes/all");
@@ -171,7 +171,7 @@ public class DisputeController {
     }
 
     @PostMapping("/{disputeId}/resolve")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('FINANCE_ADMIN')")
     public ResponseEntity<Dispute> resolveDispute(
             @PathVariable Long disputeId,
             @Valid @RequestBody ResolveDisputeRequest request,
