@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
 import com.exe.skillverse_backend.course_service.entity.CourseSkill;
 import com.exe.skillverse_backend.course_service.entity.CourseSkillId;
+import com.exe.skillverse_backend.course_service.event.CourseRevisionApprovedEvent;
 import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
@@ -42,6 +43,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -56,6 +58,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -82,7 +85,7 @@ public class CourseServiceImpl implements CourseService {
     private final SkillRepository skillRepository;
     private final CourseSkillRepository courseSkillRepository;
     private final ObjectMapper objectMapper;
-    // TODO: inject ApplicationEventPublisher for events
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -155,6 +158,15 @@ public class CourseServiceImpl implements CourseService {
             log.info("Loaded thumbnail media: {} - {}", thumbnail.getId(), thumbnail.getUrl());
         }
 
+        List<String> normalizedSkills = normalizeCourseSkillUpdate(dto.getCourseSkills());
+        boolean skillsProvided = dto.getCourseSkills() != null;
+        List<String> existingSkillTags = course.getCourseSkillTags() != null
+                ? course.getCourseSkillTags()
+                : Collections.emptyList();
+        dto.setCourseSkills(
+            skillsProvided ? normalizedSkills : new ArrayList<>(existingSkillTags)
+        );
+
         courseMapper.updateEntity(course, dto, thumbnail);
         course.setUpdatedAt(now());
 
@@ -163,8 +175,8 @@ public class CourseServiceImpl implements CourseService {
 
         // Sync skill tags → Skill entities (N:N links).
         // Only sync when dto explicitly provides courseSkills; null means "no change to skills".
-        if (dto.getCourseSkills() != null) {
-            syncCourseSkillLinks(courseId, dto.getCourseSkills());
+        if (skillsProvided) {
+            syncCourseSkillLinks(courseId, normalizedSkills);
         }
 
         return courseMapper.toDetailDto(saved);
@@ -434,6 +446,13 @@ public class CourseServiceImpl implements CourseService {
         Course saved = courseRepository.save(course);
         ensureInitialApprovedRevisionExists(saved, adminId);
         saved = courseRepository.save(saved);
+
+        if (saved.getActiveRevisionId() != null) {
+            eventPublisher.publishEvent(
+                new CourseRevisionApprovedEvent(this, saved.getId(), saved.getActiveRevisionId())
+            );
+        }
+
         log.info("Course {} approved by admin {}", courseId, adminId);
 
         // Notify the course author
@@ -721,6 +740,9 @@ public class CourseServiceImpl implements CourseService {
                 .currency(course.getCurrency())
                 .learningObjectivesJson(objectMapper.valueToTree(course.getLearningObjectives()))
                 .requirementsJson(objectMapper.valueToTree(course.getRequirements()))
+                .courseSkillTagsJson(objectMapper.valueToTree(
+                    course.getCourseSkillTags() != null ? course.getCourseSkillTags() : Collections.emptyList()
+                ))
                 .contentSnapshotJson(CourseRevisionSnapshotAssembler.buildCourseContentSnapshot(
                         objectMapper,
                         course,
@@ -1028,5 +1050,24 @@ public class CourseServiceImpl implements CourseService {
 
         log.info("[SkillLink] Synced {} skill links for course {} (added={}, removed={})",
                 normalized.size(), courseId, normalized.size() - (int) currentNames.stream().filter(normalized::contains).count(), toRemove.size());
+    }
+
+    private List<String> normalizeCourseSkillUpdate(List<String> courseSkills) {
+        if (courseSkills == null) {
+            return null;
+        }
+
+        List<String> normalized = courseSkills.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(String::trim)
+                .toList();
+
+        if (normalized.size() == 1 && "__EMPTY__".equals(normalized.get(0))) {
+            return Collections.emptyList();
+        }
+
+        return normalized.stream()
+                .filter(value -> !"__EMPTY__".equals(value))
+                .toList();
     }
 }

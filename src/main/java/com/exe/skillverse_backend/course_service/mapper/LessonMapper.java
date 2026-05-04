@@ -26,7 +26,7 @@ public interface LessonMapper {
     @Mapping(target = "durationSec", source = "durationSec")
     @Mapping(target = "contentText", source = "contentText")
     @Mapping(target = "resourceUrl", source = "resourceUrl")
-    @Mapping(target = "videoUrl", source = "videoUrl")
+    @Mapping(target = "videoUrl", source = ".", qualifiedByName = "resolveVideoUrl")
     @Mapping(target = "videoMediaId", source = "videoMedia.id")
     LessonBriefDTO toBriefDto(Lesson lesson);
 
@@ -37,7 +37,7 @@ public interface LessonMapper {
     @Mapping(target = "durationSec", source = "durationSec")
     @Mapping(target = "contentText", source = "contentText")
     @Mapping(target = "resourceUrl", source = "resourceUrl")
-    @Mapping(target = "videoUrl", source = "videoUrl")
+    @Mapping(target = "videoUrl", source = ".", qualifiedByName = "resolveVideoUrl")
     @Mapping(target = "videoMediaId", source = "videoMedia.id")
     LessonDetailDTO toDetailDto(Lesson lesson);
 
@@ -85,5 +85,22 @@ public interface LessonMapper {
         if (mediaId == null)
             return null;
         return mapIdToMedia(mediaId);
+    }
+
+    /**
+     * Resolve video URL from either videoUrl field (YouTube) or videoMedia.url (uploaded file).
+     * Priority: videoUrl field (external URLs like YouTube) > videoMedia.url (uploaded files)
+     */
+    @Named("resolveVideoUrl")
+    default String resolveVideoUrl(Lesson lesson) {
+        // Priority 1: External URL (YouTube, etc.) from videoUrl field
+        if (lesson.getVideoUrl() != null && !lesson.getVideoUrl().isBlank()) {
+            return lesson.getVideoUrl();
+        }
+        // Priority 2: Uploaded video file URL from Media entity
+        if (lesson.getVideoMedia() != null && lesson.getVideoMedia().getUrl() != null) {
+            return lesson.getVideoMedia().getUrl();
+        }
+        return null;
     }
 }

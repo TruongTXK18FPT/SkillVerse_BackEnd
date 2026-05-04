@@ -319,9 +319,11 @@ public class MultiLevelCourseMatcher {
      *
      * <p>Scoring:
      * <ul>
-     *   <li>title match  → +3 per matched keyword</li>
-     *   <li>category match → +2 per matched keyword</li>
-     *   <li>level match  → +2 per matched keyword (basic/intermediate/advanced alignment)</li>
+     *   <li>skill tag match  → +5 per matched keyword</li>
+     *   <li>title match      → +4 per matched keyword</li>
+     *   <li>category match   → +2 per matched keyword</li>
+     *   <li>level match      → +2 per matched keyword (basic/intermediate/advanced alignment)</li>
+     *   <li>learning signal  → +2 per matched keyword</li>
      *   <li>description/shortDescription match → +1 per matched keyword</li>
      * </ul>
      *
@@ -340,14 +342,20 @@ public class MultiLevelCourseMatcher {
         int score = 0;
         int structuralHits = 0;
         int anchorHits = 0;
-        String title = course.getTitle().toLowerCase();
-        String category = course.getCategory().toLowerCase();
-        String level = course.getLevel().toLowerCase();
-        String desc = (course.getDescription() + " " + course.getShortDescription()).toLowerCase();
+        String title = safeLower(course.getTitle());
+        String category = safeLower(course.getCategory());
+        String level = safeLower(course.getLevel());
+        String desc = safeLower(course.getDescription()) + " " + safeLower(course.getShortDescription());
+        String skillTags = safeLower(course.getSkillTagText());
+        String learningSignals = safeLower(course.getLearningSignalText());
 
         for (String kw : keywords) {
+            if (skillTags.contains(kw)) {
+                score += 5;
+                structuralHits++;
+            }
             if (title.contains(kw)) {
-                score += 3;
+                score += 4;
                 structuralHits++;
             }
             if (category.contains(kw)) {
@@ -358,12 +366,16 @@ public class MultiLevelCourseMatcher {
                 score += 2;
                 structuralHits++;
             }
+            if (learningSignals.contains(kw)) {
+                score += 2;
+                structuralHits++;
+            }
             if (desc.contains(kw)) score += 1;
         }
 
         if (anchorKeywords != null && !anchorKeywords.isEmpty()) {
             for (String anchor : anchorKeywords) {
-                if (title.contains(anchor) || category.contains(anchor)) {
+                if (title.contains(anchor) || category.contains(anchor) || skillTags.contains(anchor)) {
                     anchorHits++;
                 }
             }
@@ -376,7 +388,7 @@ public class MultiLevelCourseMatcher {
         }
 
         // Difficulty alignment bonus
-        if (difficulty != null && level.contains(difficulty.toLowerCase())) {
+        if (difficulty != null && level.contains(difficulty.toLowerCase(Locale.ROOT))) {
             score += 2;
         }
 
@@ -666,6 +678,10 @@ public class MultiLevelCourseMatcher {
 
     /** Temporary scored course holder used during matching */
     private record ScoredCourse(CourseCatalogEntry course, int baseScore, int finalScore, int timesUsed, int anchorHits) {}
+
+    private String safeLower(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
 
     private record MatchScore(int totalScore, int anchorHits, int structuralHits) {}
 
