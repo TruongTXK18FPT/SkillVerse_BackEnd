@@ -20,6 +20,7 @@ public class PortfolioVerifiedSkillDetailDTO {
     private Long reviewerId;
     private String reviewerName;
     private String reviewerRole;
+    private String reviewerSlug;
     private String reviewNote;
     private Long journeyId;
     private Long bookingId;

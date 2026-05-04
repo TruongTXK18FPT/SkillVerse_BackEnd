@@ -58,6 +58,13 @@ public interface FinalVerificationGateService {
     JourneyOutputAssessmentResponse getLatestOutputAssessment(Long callerId, Long journeyId);
 
     /**
+     * Returns the latest completion report for the journey (any gate decision).
+     * Caller must be journey owner or assigned mentor.
+     * Returns null when none exists.
+     */
+    JourneyCompletionReportResponse getLatestCompletionReport(Long callerId, Long journeyId);
+
+    /**
      * Admin-only: reset finalVerificationRequired to false when a journey is permanently
      * stuck (e.g. mentor confirmed but never submitted completion report).
      * Allows learner to complete as COMPLETED_UNVERIFIED.

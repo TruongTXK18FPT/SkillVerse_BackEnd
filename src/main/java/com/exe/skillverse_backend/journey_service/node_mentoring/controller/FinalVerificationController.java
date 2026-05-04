@@ -58,6 +58,22 @@ public class FinalVerificationController {
         return ResponseEntity.ok(gateService.submitCompletionReport(mentorId, journeyId, request));
     }
 
+    /**
+     * Reads the latest completion report (any decision). Returns 204 when none.
+     * Accessible by journey owner (learner) or assigned mentor — learners need
+     * this to display the mentor's PASS/FAIL note in the "Kết quả" tab after
+     * the mentor submits the report.
+     */
+    @GetMapping("/completion-report/latest")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<JourneyCompletionReportResponse> getLatestCompletionReport(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long journeyId) {
+        Long callerId = JwtUtils.extractUserId(jwt);
+        JourneyCompletionReportResponse result = gateService.getLatestCompletionReport(callerId, journeyId);
+        return result != null ? ResponseEntity.ok(result) : ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/output-assessment")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<JourneyOutputAssessmentResponse> getOutputAssessment(

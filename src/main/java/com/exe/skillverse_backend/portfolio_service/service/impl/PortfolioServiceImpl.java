@@ -1353,7 +1353,8 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Override
     @Transactional(readOnly = true)
     public List<PortfolioVerifiedSkillDetailDTO> getPublicVerifiedSkillDetails(Long userId) {
-        getPublicExtendedProfileOrThrow(userId);
+        // Note: No extended profile check - verified skills should be accessible publicly
+        // regardless of whether the user has set up their portfolio
         User user = getUserOrThrow(userId);
         return resolveVerifiedSkillDetails(user);
     }
@@ -1397,6 +1398,11 @@ public class PortfolioServiceImpl implements PortfolioService {
                 .reviewerRole(reviewer != null && reviewer.getPrimaryRole() != null
                         ? reviewer.getPrimaryRole().name()
                         : "ADMIN")
+                .reviewerSlug(reviewer != null
+                        ? extendedProfileRepository.findByUserId(reviewer.getId())
+                                .map(p -> p.getCustomUrlSlug())
+                                .orElse(null)
+                        : null)
                 .reviewNote(request.getReviewNote())
                 .verificationRequestId(request.getId())
                 .evidences(request.getEvidences() == null
@@ -1458,6 +1464,11 @@ public class PortfolioServiceImpl implements PortfolioService {
                 .reviewerId(skill.getVerifiedByMentorId())
                 .reviewerName(reviewer != null ? reviewer.getFullName() : "Mentor")
                 .reviewerRole("MENTOR")
+                .reviewerSlug(reviewer != null
+                        ? extendedProfileRepository.findByUserId(reviewer.getId())
+                                .map(p -> p.getCustomUrlSlug())
+                                .orElse(null)
+                        : null)
                 .reviewNote(report != null && report.getSummaryReport() != null && !report.getSummaryReport().isBlank()
                         ? report.getSummaryReport()
                         : skill.getVerificationNote())

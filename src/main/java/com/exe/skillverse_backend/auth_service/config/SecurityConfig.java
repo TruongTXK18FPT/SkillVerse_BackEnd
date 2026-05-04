@@ -127,6 +127,12 @@ public class SecurityConfig {
                                 // Mentor skill verification: public evidence page
                                 .requestMatchers(HttpMethod.GET, "/api/v1/public/mentors/**").permitAll()
 
+                                // Journey verification: public journey details for portfolio
+                                .requestMatchers(HttpMethod.GET, "/api/v1/public/journeys/**").permitAll()
+
+                                // Student skill verification: public verified skills for portfolio
+                                .requestMatchers(HttpMethod.GET, "/api/v1/public/students/**").permitAll()
+
                                 // Portfolio: allow public portfolio viewing endpoints
                                 .requestMatchers(HttpMethod.GET, "/api/portfolio/public", "/api/portfolio/public/**",
                                                 "/api/portfolio/profile/slug/**")

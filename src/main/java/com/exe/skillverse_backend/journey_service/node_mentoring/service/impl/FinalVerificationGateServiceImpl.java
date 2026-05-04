@@ -271,7 +271,25 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
 
         JourneyOutputAssessment saved = outputAssessmentRepo.save(a);
         if (request.getAssessmentStatus() == AssessmentStatus.APPROVED) {
-            completeJourneyIfGatePassed(journey, actingMentorId, null, request.getFeedback());
+            // Auto-create PASS completion report if one doesn't exist yet.
+            // This allows the journey to complete immediately upon assessment approval
+            // without requiring the mentor to manually submit a completion report.
+            Long bookingId = null;
+            if (!completionReportRepo.existsByJourneyIdAndGateDecision(journeyId, GateDecision.PASS)) {
+                JourneyCompletionReport report = completionReportRepo
+                        .findFirstByJourneyIdOrderByConfirmedAtDesc(journeyId)
+                        .orElseGet(() -> JourneyCompletionReport.builder()
+                                .journeyId(journeyId)
+                                .mentorId(actingMentorId)
+                                .build());
+                report.setGateDecision(GateDecision.PASS);
+                report.setCompletionNote(request.getFeedback());
+                JourneyCompletionReport savedReport = completionReportRepo.save(report);
+                bookingId = savedReport.getBookingId();
+                log.info("Auto-created PASS completion report for journey {} on output assessment approval by mentor {}",
+                        journeyId, actingMentorId);
+            }
+            completeJourneyIfGatePassed(journey, actingMentorId, bookingId, request.getFeedback());
         } else if (request.getAssessmentStatus() == AssessmentStatus.REJECTED) {
             journey.setStatus(JourneyStatus.ACTIVE);
             journeyRepository.save(journey);
@@ -286,6 +304,15 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
         requireOwnerOrAssignedMentor(callerId, journey);
         return outputAssessmentRepo.findFirstByJourneyIdOrderBySubmittedAtDesc(journeyId)
                 .map(JourneyOutputAssessmentResponse::from)
+                .orElse(null);
+    }
+
+    @Override
+    public JourneyCompletionReportResponse getLatestCompletionReport(Long callerId, Long journeyId) {
+        Journey journey = resolver.resolveJourney(journeyId);
+        requireOwnerOrAssignedMentor(callerId, journey);
+        return completionReportRepo.findFirstByJourneyIdOrderByConfirmedAtDesc(journeyId)
+                .map(JourneyCompletionReportResponse::from)
                 .orElse(null);
     }
 
