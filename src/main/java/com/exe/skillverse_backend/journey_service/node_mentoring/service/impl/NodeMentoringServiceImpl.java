@@ -220,11 +220,13 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
 
         // requireLearnerMarkedNodeCompleted(journey, nodeId);
 
+        Integer score = request.getReviewResult() == ReviewResult.APPROVED ? request.getScore() : null;
+
         RoadmapNodeReview review = RoadmapNodeReview.builder()
                 .submissionId(s.getId())
                 .mentorId(actingMentorId)
                 .bookingId(request.getBookingId())
-                .score(request.getScore())
+                .score(score)
                 .feedback(request.getFeedback())
                 .reviewResult(request.getReviewResult())
                 .build();
@@ -269,12 +271,12 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND,
                         "No submission to verify for node " + nodeId));
 
-        // Must have at least one APPROVED review before verification is allowed.
-        boolean hasApproved = reviewRepo.findBySubmissionIdOrderByReviewedAtDesc(s.getId()).stream()
-                .anyMatch(r -> r.getReviewResult() == ReviewResult.APPROVED);
-        if (!hasApproved) {
+        RoadmapNodeReview latestReview = reviewRepo.findFirstBySubmissionIdOrderByReviewedAtDesc(s.getId())
+                .orElse(null);
+        if (latestReview == null || latestReview.getReviewResult() != ReviewResult.APPROVED
+                || s.getVerificationStatus() != VerificationStatus.APPROVED) {
             throw new ApiException(ErrorCode.CONFLICT,
-                    "Cannot verify node before an APPROVED review exists");
+                    "Cannot verify node before the latest review is APPROVED");
         }
 
         RoadmapNodeVerification v = RoadmapNodeVerification.builder()

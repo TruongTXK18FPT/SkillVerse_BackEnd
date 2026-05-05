@@ -2210,6 +2210,7 @@ public class JourneyServiceImpl implements JourneyService {
         LocalDateTime nowInZone = nowInStudyZone(request.getTimezone());
         
         Map<LocalDate, Integer> sessionsPerDay = new HashMap<>();
+        Map<LocalDate, List<LocalDateTime[]>> occupiedSlotsByDay = new HashMap<>();
         List<StudySessionResponse> normalized = new ArrayList<>();
         LocalDateTime fallbackCursor = LocalDateTime.of(baseDate, resolvePreferredStartTime(request));
 
@@ -2224,8 +2225,10 @@ public class JourneyServiceImpl implements JourneyService {
                     request,
                     durationMinutes,
                     sessionsPerDay,
+                    occupiedSlotsByDay,
                     preferredDays,
                     maxSessionsPerDay,
+                    breakMinutes,
                     nowInZone
                 );
             } else {
@@ -2234,8 +2237,10 @@ public class JourneyServiceImpl implements JourneyService {
                     request,
                     durationMinutes,
                     sessionsPerDay,
+                    occupiedSlotsByDay,
                     preferredDays,
                     maxSessionsPerDay,
+                    breakMinutes,
                     nowInZone
                 );
             }
@@ -2286,6 +2291,7 @@ public class JourneyServiceImpl implements JourneyService {
         LocalDateTime nowInZone = nowInStudyZone(request.getTimezone());
         
         Map<LocalDate, Integer> sessionsPerDay = new HashMap<>();
+        Map<LocalDate, List<LocalDateTime[]>> occupiedSlotsByDay = new HashMap<>();
 
         int estimatedMinutes = node.getEstimatedTimeMinutes() != null && node.getEstimatedTimeMinutes() > 0
                 ? node.getEstimatedTimeMinutes()
@@ -2307,8 +2313,10 @@ public class JourneyServiceImpl implements JourneyService {
                 request,
                 durationMinutes,
                 sessionsPerDay,
+                occupiedSlotsByDay,
                 preferredDays,
                 maxSessionsPerDay,
+                breakMinutes,
                 nowInZone
             );
             
@@ -2371,7 +2379,11 @@ public class JourneyServiceImpl implements JourneyService {
         
         LocalDateTime nowInZone = nowInStudyZone(request.getTimezone());
         
-        Map<LocalDate, Integer> sessionsPerDay = new HashMap<>();
+        Map<LocalDate, List<LocalDateTime[]>> occupiedSlotsByDay = loadExistingStudySlots(
+                user.getId(),
+                baseDate,
+                baseDate.plusDays(SLOT_SEARCH_MAX_DAYS));
+        Map<LocalDate, Integer> sessionsPerDay = countOccupiedSlotsByDay(occupiedSlotsByDay);
         LocalDateTime fallbackCursor = LocalDateTime.of(baseDate, resolvePreferredStartTime(request));
 
         // Pre-create StudySession entities so they can be linked to tasks.
@@ -2385,8 +2397,10 @@ public class JourneyServiceImpl implements JourneyService {
                 request,
                 durationMinutes,
                 sessionsPerDay,
+                occupiedSlotsByDay,
                 preferredDays,
                 maxSessionsPerDay,
+                breakMinutes,
                 nowInZone
             );
             LocalDateTime endTime = startTime.plusMinutes(durationMinutes);
@@ -2724,8 +2738,10 @@ public class JourneyServiceImpl implements JourneyService {
             GenerateScheduleRequest request,
             int durationMinutes,
             Map<LocalDate, Integer> sessionsPerDay,
+            Map<LocalDate, List<LocalDateTime[]>> occupiedSlotsByDay,
             List<String> preferredDays,
             int maxSessionsPerDay,
+            int breakMinutes,
             LocalDateTime nowInZone) {
         List<String> timeWindows = request.getPreferredTimeWindows();
         if (timeWindows == null || timeWindows.isEmpty()) {
@@ -2773,9 +2789,27 @@ public class JourneyServiceImpl implements JourneyService {
 
                 LocalDateTime slotEnd = slotStart.plusMinutes(durationMinutes);
                 LocalDateTime windowEndDateTime = LocalDateTime.of(searchDate, windowEnd);
-                
-                if (!slotEnd.isAfter(windowEndDateTime)) {
+
+                while (!slotEnd.isAfter(windowEndDateTime) &&
+                        overlapsAny(slotStart, slotEnd, occupiedSlotsByDay.getOrDefault(searchDate, List.of()))) {
+                    LocalDateTime nextStart = nextStartAfterOccupiedSlot(
+                            slotStart,
+                            slotEnd,
+                            occupiedSlotsByDay.getOrDefault(searchDate, List.of()),
+                            breakMinutes);
+                    if (!nextStart.isAfter(slotStart)) {
+                        break;
+                    }
+                    slotStart = nextStart;
+                    slotEnd = slotStart.plusMinutes(durationMinutes);
+                }
+
+                if (!slotEnd.isAfter(windowEndDateTime) &&
+                        !overlapsAny(slotStart, slotEnd, occupiedSlotsByDay.getOrDefault(searchDate, List.of()))) {
                     sessionsPerDay.put(searchDate, currentSessions + 1);
+                    occupiedSlotsByDay
+                            .computeIfAbsent(searchDate, ignored -> new ArrayList<>())
+                            .add(new LocalDateTime[] { slotStart, slotEnd });
                     return slotStart;
                 }
             }
@@ -2784,6 +2818,47 @@ public class JourneyServiceImpl implements JourneyService {
         throw new ApiException(ErrorCode.BAD_REQUEST, 
             "Cannot find available study slot within " + SLOT_SEARCH_MAX_DAYS + " days. " +
             "Please adjust your study preferences or reduce session duration.");
+    }
+
+    private Map<LocalDate, List<LocalDateTime[]>> loadExistingStudySlots(
+            Long userId,
+            LocalDate startDate,
+            LocalDate endDate) {
+        return studySessionRepository
+                .findByUserIdAndStartTimeBetween(userId, startDate.atStartOfDay(), endDate.plusDays(1).atStartOfDay())
+                .stream()
+                .filter(session -> session.getStartTime() != null && session.getEndTime() != null)
+                .collect(Collectors.groupingBy(
+                        session -> session.getStartTime().toLocalDate(),
+                        Collectors.mapping(
+                                session -> new LocalDateTime[] { session.getStartTime(), session.getEndTime() },
+                                Collectors.toCollection(ArrayList::new))));
+    }
+
+    private Map<LocalDate, Integer> countOccupiedSlotsByDay(Map<LocalDate, List<LocalDateTime[]>> occupiedSlotsByDay) {
+        Map<LocalDate, Integer> sessionsPerDay = new HashMap<>();
+        occupiedSlotsByDay.forEach((date, slots) -> sessionsPerDay.put(date, slots.size()));
+        return sessionsPerDay;
+    }
+
+    private boolean overlapsAny(
+            LocalDateTime startTime,
+            LocalDateTime endTime,
+            List<LocalDateTime[]> occupiedSlots) {
+        return occupiedSlots.stream()
+                .anyMatch(slot -> startTime.isBefore(slot[1]) && slot[0].isBefore(endTime));
+    }
+
+    private LocalDateTime nextStartAfterOccupiedSlot(
+            LocalDateTime startTime,
+            LocalDateTime endTime,
+            List<LocalDateTime[]> occupiedSlots,
+            int breakMinutes) {
+        return occupiedSlots.stream()
+                .filter(slot -> startTime.isBefore(slot[1]) && slot[0].isBefore(endTime))
+                .map(slot -> slot[1].plusMinutes(breakMinutes))
+                .max(LocalDateTime::compareTo)
+                .orElse(startTime);
     }
 
     private int safeDurationMinutes(int durationMinutes) {
