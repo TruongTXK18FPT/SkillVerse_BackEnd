@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -527,6 +528,95 @@ class JourneyServiceImplStudyPlanTest {
             assertTrue(windowsUsed >= 2,
                 "Flexible scheduling should use at least 2 different time windows (morning/afternoon/evening)");
         }
+    }
+
+    @Test
+    void createStudyPlanForRoadmapNode_sideNodeAllowedWithoutCompletingMainNode() {
+        User user = User.builder().id(9L).email("test@example.com").build();
+        RoadmapSession roadmapSession = RoadmapSession.builder()
+                .id(55L)
+                .user(user)
+                .title("Test roadmap")
+                .roadmapJson("{\"roadmap\":[]}")
+                .build();
+
+        when(roadmapSessionRepository.findByIdAndUserId(55L, 9L)).thenReturn(Optional.of(roadmapSession));
+        when(journeyRepository.findByRoadmapSessionId(55L)).thenReturn(Optional.empty());
+        
+        // Build roadmap with MAIN node (not completed) and SIDE node
+        RoadmapResponse.RoadmapNode mainNode = RoadmapResponse.RoadmapNode.builder()
+                .id("main-node-1")
+                .title("Main Node 1")
+                .description("Main node description")
+                .type(RoadmapResponse.RoadmapNode.NodeType.MAIN)
+                .children(List.of())
+                .learningObjectives(List.of("Objective"))
+                .keyConcepts(List.of("Concept"))
+                .practicalExercises(List.of("Exercise"))
+                .successCriteria(List.of("Done"))
+                .build();
+
+        RoadmapResponse.RoadmapNode sideNode = RoadmapResponse.RoadmapNode.builder()
+                .id("side-node-1")
+                .title("Side Node 1")
+                .description("Side node description")
+                .type(RoadmapResponse.RoadmapNode.NodeType.SIDE)
+                .children(List.of())
+                .learningObjectives(List.of("Objective"))
+                .keyConcepts(List.of("Concept"))
+                .practicalExercises(List.of("Exercise"))
+                .successCriteria(List.of("Done"))
+                .build();
+
+        RoadmapResponse roadmap = RoadmapResponse.builder()
+                .sessionId(55L)
+                .roadmap(List.of(mainNode, sideNode))
+                .progress(Map.of("main-node-1", RoadmapResponse.QuestProgress.builder()
+                        .status("IN_PROGRESS")
+                        .build()))
+                .build();
+
+        when(aiRoadmapService.getRoadmapById(55L, 9L)).thenReturn(roadmap);
+        when(taskBoardService.getBoard(9L)).thenReturn(List.of(TaskColumnResponse.builder()
+                .id(UUID.randomUUID())
+                .name("To Do")
+                .tasks(List.of())
+                .build()));
+
+        GenerateScheduleRequest request = new GenerateScheduleRequest();
+        request.setStartDate(LocalDateTime.of(2026, 4, 5, 0, 0).toLocalDate());
+        request.setTimezone("Asia/Ho_Chi_Minh");
+        request.setStudyPreference("flexible");
+        request.setDurationMinutes(90);
+        request.setMaxSessionsPerDay(1);
+
+        when(aiStudySupportService.generateProposedSchedule(anyLong(), any())).thenReturn(List.of());
+        when(taskBoardService.createTask(anyLong(), any(CreateTaskRequest.class))).thenAnswer(invocation -> {
+            CreateTaskRequest req = invocation.getArgument(1);
+            return TaskResponse.builder()
+                    .id(UUID.randomUUID())
+                    .title(req.getTitle())
+                    .description(req.getDescription())
+                    .userNotes(req.getUserNotes())
+                    .columnId(req.getColumnId())
+                    .priority(req.getPriority())
+                    .startDate(req.getStartDate())
+                    .endDate(req.getEndDate())
+                    .deadline(req.getDeadline())
+                    .status("todo")
+                    .userProgress(0)
+                    .build();
+        });
+
+        service.studyClock = Clock.fixed(Instant.parse("2026-04-05T00:00:00Z"), ZoneOffset.UTC);
+        
+        // Should NOT throw FORBIDDEN - SIDE node should be allowed
+        Object result = service.createStudyPlanForRoadmapNode(user, 55L, "side-node-1", request);
+        
+        Map<?, ?> payload = assertInstanceOf(Map.class, result);
+        assertEquals(Boolean.TRUE, payload.get("created"));
+        
+        verify(taskBoardService, atLeast(1)).createTask(anyLong(), any(CreateTaskRequest.class));
     }
 
     private RoadmapResponse buildRoadmapResponse(Long sessionId, String nodeId) {

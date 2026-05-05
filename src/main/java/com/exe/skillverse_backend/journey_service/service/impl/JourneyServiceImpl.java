@@ -1794,11 +1794,19 @@ public class JourneyServiceImpl implements JourneyService {
                     "nodeId", normalizedNodeId);
         }
 
-        String nextEligibleNodeId = findNextEligibleNodeId(roadmap, roadmapNodes);
-        if (nextEligibleNodeId != null && !normalizedNodeId.equals(nextEligibleNodeId)) {
-            String nextNodeTitle = resolveNodeDisplayTitle(roadmapNodes, nextEligibleNodeId);
-            throw new ApiException(ErrorCode.FORBIDDEN,
-                    String.format("Bạn cần hoàn thành node '%s' trước khi tạo plan cho node này.", nextNodeTitle));
+        RoadmapResponse.RoadmapNode targetNode = findNodeById(roadmapNodes, normalizedNodeId);
+        if (targetNode == null) {
+            throw new ApiException(ErrorCode.NOT_FOUND, "Node not found");
+        }
+
+        // Only enforce next eligible check for MAIN nodes. SIDE nodes are optional.
+        if (targetNode.getType() == RoadmapResponse.RoadmapNode.NodeType.MAIN) {
+            String nextEligibleMainNodeId = findNextEligibleMainNodeId(roadmap, roadmapNodes);
+            if (nextEligibleMainNodeId != null && !normalizedNodeId.equals(nextEligibleMainNodeId)) {
+                String nextNodeTitle = resolveNodeDisplayTitle(roadmapNodes, nextEligibleMainNodeId);
+                throw new ApiException(ErrorCode.FORBIDDEN,
+                        String.format("Bạn cần hoàn thành node '%s' trước khi tạo plan cho node này.", nextNodeTitle));
+            }
         }
 
         int nodeOrder = resolveNodeOrder(roadmapNodes, normalizedNodeId);
@@ -2877,6 +2885,24 @@ public class JourneyServiceImpl implements JourneyService {
         return null;
     }
 
+    private String findNextEligibleMainNodeId(RoadmapResponse roadmap, List<RoadmapResponse.RoadmapNode> nodes) {
+        if (nodes == null || nodes.isEmpty()) {
+            return null;
+        }
+
+        for (RoadmapResponse.RoadmapNode node : nodes) {
+            if (node == null || node.getId() == null || node.getId().isBlank()) {
+                continue;
+            }
+            // Only return MAIN nodes for enforcement. SIDE nodes are optional.
+            if (node.getType() == RoadmapResponse.RoadmapNode.NodeType.MAIN
+                    && !isRoadmapNodeCompleted(roadmap, node.getId())) {
+                return node.getId();
+            }
+        }
+        return null;
+    }
+
     private boolean isRoadmapNodeCompleted(RoadmapResponse roadmap, String nodeId) {
         if (roadmap == null || roadmap.getProgress() == null || nodeId == null || nodeId.isBlank()) {
             return false;
@@ -2899,6 +2925,18 @@ public class JourneyServiceImpl implements JourneyService {
                 })
                 .findFirst()
                 .orElse(nodeId);
+    }
+
+    private RoadmapResponse.RoadmapNode findNodeById(List<RoadmapResponse.RoadmapNode> nodes, String nodeId) {
+        if (nodeId == null || nodeId.isBlank() || nodes == null) {
+            return null;
+        }
+        for (RoadmapResponse.RoadmapNode node : nodes) {
+            if (node.getId() != null && node.getId().equals(nodeId)) {
+                return node;
+            }
+        }
+        return null;
     }
 
     @Override
