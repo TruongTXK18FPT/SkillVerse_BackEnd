@@ -67,7 +67,8 @@ public class PreChatController {
     private static final EnumSet<BookingStatus> CHAT_ENABLED_STATUSES = EnumSet.of(
             BookingStatus.PENDING,
             BookingStatus.CONFIRMED,
-            BookingStatus.ONGOING);
+            BookingStatus.ONGOING,
+            BookingStatus.MENTORING_ACTIVE);
 
     private final PreChatMessageRepository messageRepository;
     private final PreChatBlockRepository blockRepository;
@@ -306,6 +307,10 @@ public class PreChatController {
     }
 
     private boolean isChatAllowed(Booking booking, LocalDateTime now) {
+        if (booking != null && booking.getStatus() == BookingStatus.MENTORING_ACTIVE) {
+            return true;
+        }
+
         return booking != null
                 && booking.getEndTime() != null
                 && booking.getEndTime().isAfter(now)

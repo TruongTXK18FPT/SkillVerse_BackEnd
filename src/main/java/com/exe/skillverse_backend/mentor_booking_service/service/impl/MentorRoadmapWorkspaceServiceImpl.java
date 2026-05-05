@@ -18,6 +18,9 @@ import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepos
 import com.exe.skillverse_backend.mentor_booking_service.repository.RoadmapFollowUpMeetingRepository;
 import com.exe.skillverse_backend.mentor_booking_service.service.BookingService;
 import com.exe.skillverse_backend.mentor_booking_service.service.MentorRoadmapWorkspaceService;
+import com.exe.skillverse_backend.notification_service.entity.NotificationType;
+import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -27,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -64,6 +68,8 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
     private final RoadmapSessionRepository roadmapSessionRepository;
     private final RoadmapFollowUpMeetingRepository followUpMeetingRepository;
     private final ObjectMapper objectMapper;
+    private final NotificationService notificationService;
+    private final EmailService emailService;
 
     @Override
     @Transactional(readOnly = true)
@@ -347,7 +353,218 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
             saved.setMeetingLink(generateJitsiLink(bookingId, saved.getId()));
             saved = followUpMeetingRepository.save(saved);
         }
+        notifyCounterpartOfFollowUpMeeting(booking, saved, callerId, isMentor);
         return RoadmapFollowUpMeetingDTO.from(saved);
+    }
+
+    private void notifyCounterpartOfFollowUpMeeting(
+            Booking booking,
+            RoadmapFollowUpMeeting meeting,
+            Long creatorId,
+            boolean creatorIsMentor) {
+        var recipient = creatorIsMentor ? booking.getLearner() : booking.getMentor();
+        var creator = creatorIsMentor ? booking.getMentor() : booking.getLearner();
+        String creatorName = displayName(creator, creatorIsMentor ? "Mentor" : "Học viên");
+        String recipientName = displayName(recipient, "bạn");
+        String scheduledAt = formatMeetingDateTime(meeting.getScheduledAt());
+        String duration = meeting.getDurationMinutes() != null ? meeting.getDurationMinutes() + " phút" : "Chưa xác định";
+        String title = safeText(meeting.getTitle(), "Buổi họp roadmap");
+        String purpose = safeText(meeting.getPurpose(), "Trao đổi tiến độ roadmap và các bước tiếp theo");
+        String agenda = safeText(meeting.getAgenda(), "Mentor và học viên sẽ cùng rà soát tiến độ, tháo gỡ vướng mắc và thống nhất hành động sau buổi họp.");
+
+        String notificationTitle = "Meeting roadmap mới cần bạn xác nhận";
+        String notificationMessage = truncateForNotification(String.format(
+                "%s đã tạo \"%s\" vào %s. Mục đích: %s. Mở booking để xem agenda, link meeting và phản hồi.",
+                creatorName,
+                truncateForNotification(title, 48),
+                scheduledAt,
+                truncateForNotification(purpose, 72)), 240);
+
+        try {
+            notificationService.createNotification(
+                    recipient.getId(),
+                    notificationTitle,
+                    notificationMessage,
+                    NotificationType.ROADMAP_FOLLOW_UP_MEETING_CREATED,
+                    booking.getId().toString(),
+                    creatorId);
+        } catch (Exception ex) {
+            log.warn(
+                    "Could not create roadmap follow-up meeting notification with dedicated type for user {}. Falling back to BOOKING_REMINDER.",
+                    recipient.getId(),
+                    ex);
+            try {
+                notificationService.createNotification(
+                        recipient.getId(),
+                        notificationTitle,
+                        notificationMessage,
+                        NotificationType.BOOKING_REMINDER,
+                        booking.getId().toString(),
+                        creatorId);
+            } catch (Exception fallbackEx) {
+                log.error("Could not create fallback roadmap follow-up meeting notification for user {}",
+                        recipient.getId(),
+                        fallbackEx);
+            }
+        }
+
+        if (recipient.getEmail() == null || recipient.getEmail().isBlank()) {
+            return;
+        }
+
+        try {
+            String subject = "Meeting roadmap mới đang chờ bạn xác nhận - SkillVerse";
+            String html = buildFollowUpMeetingEmailHtml(
+                    recipientName,
+                    creatorName,
+                    title,
+                    purpose,
+                    agenda,
+                    scheduledAt,
+                    duration,
+                    meeting.getMeetingLink(),
+                    booking.getId());
+            emailService.sendHtmlEmail(recipient.getEmail(), subject, html);
+        } catch (Exception ex) {
+            log.warn("Could not send roadmap follow-up meeting email to {}", recipient.getEmail(), ex);
+        }
+    }
+
+    private String buildFollowUpMeetingEmailHtml(
+            String recipientName,
+            String creatorName,
+            String meetingTitle,
+            String purpose,
+            String agenda,
+            String scheduledAt,
+            String duration,
+            String meetingLink,
+            Long bookingId) {
+        String safeLink = meetingLink == null || meetingLink.isBlank() ? null : escapeHtml(meetingLink);
+        String linkBlock = safeLink == null
+                ? "<div class=\"note\">Link phòng họp sẽ được cập nhật trong workspace roadmap.</div>"
+                : "<div class=\"cta\"><a class=\"button\" href=\"" + safeLink + "\">Mở phòng họp</a></div>";
+
+        return """
+                <!doctype html>
+                <html lang="vi">
+                <head>
+                    <meta charset="UTF-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1" />
+                    <title>SkillVerse Roadmap Meeting</title>
+                    <style>
+                        body { margin:0; padding:0; background:#f3f6fb; font-family:Arial, Helvetica, sans-serif; color:#132238; }
+                        .wrapper { width:100%%; background:#f3f6fb; }
+                        .container { width:640px; max-width:640px; background:#ffffff; border-radius:16px; overflow:hidden; border:1px solid #d9e4f1; }
+                        .header { padding:22px 18px; background:#061322; background-image:linear-gradient(120deg,#071321 0%%,#0a1f35 52%%,#0f3b63 100%%); border-bottom:1px solid #1c4d7a; text-align:center; }
+                        .logo { width:138px; max-width:138px; height:auto; display:block; margin:0 auto; }
+                        .badge { display:inline-block; margin-top:12px; padding:6px 12px; border-radius:999px; background:#0c2138; color:#6de9ff; border:1px solid #24c8f5; font-size:11px; font-weight:700; letter-spacing:0.4px; }
+                        .content { padding:24px; }
+                        h1 { margin:0 0 12px 0; font-size:24px; line-height:1.3; color:#10263f; }
+                        p { margin:0 0 10px 0; line-height:1.7; font-size:14px; color:#344a63; }
+                        .detail-card { width:100%%; border:1px solid #dbe6f3; border-radius:12px; border-collapse:separate; border-spacing:0; margin-top:14px; background:#ffffff; }
+                        .detail-card tr + tr td { border-top:1px solid #e8eff8; }
+                        .detail-card td { padding:12px 14px; font-size:14px; vertical-align:top; }
+                        .detail-card .label { color:#617991; width:42%%; }
+                        .detail-card .value { color:#163352; font-weight:700; text-align:right; }
+                        .note { margin-top:14px; background:#eaf6ff; border:1px solid #cae8ff; border-left:4px solid #24c8f5; color:#1f5f92; border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.6; }
+                        .agenda { margin-top:14px; background:#f8fbff; border:1px solid #dbe6f3; border-radius:12px; padding:14px; color:#344a63; font-size:14px; line-height:1.7; }
+                        .cta { margin-top:20px; text-align:left; }
+                        .button { display:inline-block; background:#0f75bc; color:#ffffff !important; text-decoration:none; padding:12px 18px; border-radius:10px; font-size:14px; font-weight:700; }
+                        .footer { padding:14px 20px 20px; font-size:12px; text-align:center; color:#6c8098; border-top:1px solid #e6eef8; background:#fbfdff; }
+                    </style>
+                </head>
+                <body>
+                    <table role="presentation" class="wrapper" cellpadding="0" cellspacing="0">
+                        <tr>
+                            <td align="center" style="padding:24px 12px;">
+                                <table role="presentation" class="container" cellpadding="0" cellspacing="0">
+                                    <tr>
+                                        <td class="header">
+                                            <img class="logo" src="cid:skillverse-logo" alt="SkillVerse" />
+                                            <div class="badge">ROADMAP FOLLOW-UP</div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="content">
+                                            <h1>Meeting follow-up mới đang chờ bạn xác nhận</h1>
+                                            <p>Xin chào <strong>%s</strong>, <strong>%s</strong> vừa tạo một buổi họp mới để đồng bộ tiến độ roadmap với bạn.</p>
+                                            <table role="presentation" class="detail-card" cellpadding="0" cellspacing="0">
+                                                <tr><td class="label">Tiêu đề</td><td class="value">%s</td></tr>
+                                                <tr><td class="label">Thời gian</td><td class="value">%s</td></tr>
+                                                <tr><td class="label">Thời lượng</td><td class="value">%s</td></tr>
+                                                <tr><td class="label">Mục đích</td><td class="value">%s</td></tr>
+                                                <tr><td class="label">Booking</td><td class="value">#%s</td></tr>
+                                            </table>
+                                            <div class="agenda"><strong>Agenda:</strong><br/>%s</div>
+                                            <div class="note">Bạn có thể mở trang thông báo hoặc workspace roadmap trong SkillVerse để chấp nhận, từ chối hoặc xem chi tiết buổi họp.</div>
+                                            %s
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="footer">© 2026 SkillVerse. Email này được gửi tự động từ hệ thống.</td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+                </body>
+                </html>
+                """.formatted(
+                escapeHtml(recipientName),
+                escapeHtml(creatorName),
+                escapeHtml(meetingTitle),
+                escapeHtml(scheduledAt),
+                escapeHtml(duration),
+                escapeHtml(purpose),
+                bookingId,
+                escapeHtml(agenda),
+                linkBlock);
+    }
+
+    private String formatMeetingDateTime(LocalDateTime value) {
+        if (value == null) {
+            return "Chưa xác định";
+        }
+        return value.format(DateTimeFormatter.ofPattern("HH:mm, dd/MM/yyyy"));
+    }
+
+    private String displayName(com.exe.skillverse_backend.auth_service.entity.User user, String fallback) {
+        if (user == null) {
+            return fallback;
+        }
+        String name = user.getFullName();
+        if (name != null && !name.isBlank()) {
+            return name;
+        }
+        return user.getEmail() != null && !user.getEmail().isBlank() ? user.getEmail() : fallback;
+    }
+
+    private String safeText(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private String truncateForNotification(String value, int maxLength) {
+        if (value == null) {
+            return "";
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() <= maxLength) {
+            return trimmed;
+        }
+        return trimmed.substring(0, Math.max(0, maxLength - 3)).trim() + "...";
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     @Override

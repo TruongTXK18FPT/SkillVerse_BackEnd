@@ -36,7 +36,10 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
             select b from Booking b
             where (b.mentor.id = :userId or b.learner.id = :userId)
               and b.status in :statuses
-              and b.endTime > :now
+              and (
+                  b.status = com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus.MENTORING_ACTIVE
+                  or b.endTime > :now
+              )
             order by b.startTime desc
             """)
     List<Booking> findChatEligibleBookings(
