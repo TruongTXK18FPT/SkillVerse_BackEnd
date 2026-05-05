@@ -32,9 +32,20 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
     Optional<Journey> findByIdAndUser(Long id, User user);
 
     /**
-     * Find active journey for a user (not completed, not cancelled)
+     * Find active journey for a user (non-terminal journey statuses only).
+     * Terminal statuses: COMPLETED, CANCELLED, COMPLETED_UNVERIFIED, COMPLETED_VERIFIED.
      */
-    @Query("SELECT j FROM Journey j WHERE j.user = :user AND j.status NOT IN ('COMPLETED', 'CANCELLED') ORDER BY j.lastActivityAt DESC")
+    @Query("""
+            SELECT j FROM Journey j
+            WHERE j.user = :user
+              AND j.status NOT IN (
+                  com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED,
+                  com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.CANCELLED,
+                  com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_UNVERIFIED,
+                  com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_VERIFIED
+              )
+            ORDER BY j.lastActivityAt DESC
+            """)
     List<Journey> findActiveJourneysByUser(@Param("user") User user);
 
     /**
