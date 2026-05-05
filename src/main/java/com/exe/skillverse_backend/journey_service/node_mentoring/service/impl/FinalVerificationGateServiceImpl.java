@@ -203,12 +203,8 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
         Journey journey = resolver.resolveJourneyWithRoadmap(journeyId);
         resolver.ensureLearnerOwns(journey, learnerId);
 
-        boolean hasMentorBooking = bookingRepository.existsActiveJourneyBookingForAnyMentor(
-                journeyId, ASSIGNED_MENTOR_STATUSES);
-        if (!hasMentorBooking) {
-            throw new ApiException(ErrorCode.FORBIDDEN,
-                    "Output assessment requires an active mentor booking for this journey");
-        }
+        // Removed mentor booking check to allow free learners to submit final assessment
+        // Assessment will be marked as "Chưa xác thực" (unverified) until a mentor reviews it
 
         JourneyOutputAssessment latest = outputAssessmentRepo.findFirstByJourneyIdOrderBySubmittedAtDesc(journeyId)
                 .orElse(null);
