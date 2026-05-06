@@ -18,6 +18,10 @@ import java.util.Set;
  */
 final class RoadmapBranchingNormalizer {
 
+    private static final int REQUIRED_MAIN_NODES = 8;
+    private static final int MIN_SIDE_NODES = 3;
+    private static final int MAX_SIDE_NODES = 6;
+
     private RoadmapBranchingNormalizer() {
     }
 
@@ -43,6 +47,7 @@ final class RoadmapBranchingNormalizer {
         if (byId.isEmpty()) {
             return new Result(nodes, warnings, 0, 0);
         }
+        boolean enforceStandardCounts = byId.size() >= REQUIRED_MAIN_NODES + MIN_SIDE_NODES;
 
         List<RoadmapResponse.RoadmapNode> mainNodes = nodes.stream()
                 .filter(node -> node != null && byId.containsKey(node.getId()))
@@ -57,7 +62,36 @@ final class RoadmapBranchingNormalizer {
             warnings.add("No MAIN node found; promoted first node '" + firstNode.getId() + "' to MAIN");
         }
 
+        if (enforceStandardCounts && mainNodes.size() < REQUIRED_MAIN_NODES) {
+            List<RoadmapResponse.RoadmapNode> expandedMainNodes = new ArrayList<>(mainNodes);
+            Set<String> mainIds = new HashSet<>();
+            for (RoadmapResponse.RoadmapNode node : mainNodes) {
+                mainIds.add(node.getId());
+            }
+            for (RoadmapResponse.RoadmapNode node : nodes) {
+                if (expandedMainNodes.size() >= REQUIRED_MAIN_NODES) {
+                    break;
+                }
+                if (node == null || !byId.containsKey(node.getId()) || mainIds.contains(node.getId())) {
+                    continue;
+                }
+                node.setType(RoadmapResponse.RoadmapNode.NodeType.MAIN);
+                node.setIsCore(true);
+                expandedMainNodes.add(node);
+                mainIds.add(node.getId());
+                warnings.add("Promoted node '" + node.getId() + "' to MAIN to satisfy 8 MAIN nodes");
+            }
+            mainNodes = expandedMainNodes;
+        }
+
         List<RoadmapResponse.RoadmapNode> orderedMain = topologicalSortMain(mainNodes, byId, originalOrder, warnings);
+        List<RoadmapResponse.RoadmapNode> overflowMainNodes = new ArrayList<>();
+        if (enforceStandardCounts && orderedMain.size() > REQUIRED_MAIN_NODES) {
+            overflowMainNodes.addAll(orderedMain.subList(REQUIRED_MAIN_NODES, orderedMain.size()));
+            orderedMain = new ArrayList<>(orderedMain.subList(0, REQUIRED_MAIN_NODES));
+            warnings.add("Trimmed MAIN spine to exactly 8 nodes; overflow MAIN nodes became SIDE candidates");
+        }
+
         Map<String, Integer> mainPositionById = new LinkedHashMap<>();
         for (int i = 0; i < orderedMain.size(); i++) {
             RoadmapResponse.RoadmapNode node = orderedMain.get(i);
@@ -76,8 +110,32 @@ final class RoadmapBranchingNormalizer {
             sideNodesByMain.put(main.getId(), new ArrayList<>());
         }
 
+        int acceptedSideNodes = 0;
+        Set<String> acceptedOverflowSideIds = new HashSet<>();
+        for (RoadmapResponse.RoadmapNode node : overflowMainNodes) {
+            if (enforceStandardCounts && acceptedSideNodes >= MAX_SIDE_NODES) {
+                warnings.add("Dropped overflow MAIN node '" + node.getId() + "' to keep at most 6 SIDE nodes");
+                continue;
+            }
+            RoadmapResponse.RoadmapNode parentMain = resolveSideParent(node, orderedMain, mainPositionById, byId, originalOrder);
+            if (parentMain == null) {
+                parentMain = orderedMain.get(orderedMain.size() - 1);
+            }
+            attachSideNode(node, parentMain, orderedMain.size(), originalOrder, nodes.size());
+            sideNodesByMain.get(parentMain.getId()).add(node);
+            acceptedOverflowSideIds.add(node.getId());
+            acceptedSideNodes++;
+        }
+
         for (RoadmapResponse.RoadmapNode node : nodes) {
             if (node == null || !byId.containsKey(node.getId()) || mainPositionById.containsKey(node.getId())) {
+                continue;
+            }
+            if (acceptedOverflowSideIds.contains(node.getId())) {
+                continue;
+            }
+            if (enforceStandardCounts && acceptedSideNodes >= MAX_SIDE_NODES) {
+                warnings.add("Dropped SIDE node '" + node.getId() + "' to keep at most 6 SIDE nodes");
                 continue;
             }
 
@@ -87,17 +145,13 @@ final class RoadmapBranchingNormalizer {
                 warnings.add("SIDE node '" + node.getId() + "' had no MAIN parent candidate; attached to first MAIN");
             }
 
-            node.setType(RoadmapResponse.RoadmapNode.NodeType.SIDE);
-            node.setIsCore(false);
-            node.setParentId(parentMain.getId());
-            node.setMainPathIndex(parentMain.getMainPathIndex());
-            node.setOrderIndex(orderedMain.size() + originalOrder.getOrDefault(node.getId(), nodes.size()) + 1);
-            if (isBlank(node.getPhaseId())) {
-                node.setPhaseId(parentMain.getPhaseId());
-            }
-            node.setPrerequisites(new ArrayList<>(List.of(parentMain.getId())));
-            node.setChildren(new ArrayList<>());
+            attachSideNode(node, parentMain, orderedMain.size(), originalOrder, nodes.size());
             sideNodesByMain.get(parentMain.getId()).add(node);
+            acceptedSideNodes++;
+        }
+
+        if (enforceStandardCounts && acceptedSideNodes < MIN_SIDE_NODES && nodes.size() > orderedMain.size()) {
+            warnings.add("Roadmap did not provide enough SIDE candidates to satisfy at least 3 SIDE nodes");
         }
 
         List<RoadmapResponse.RoadmapNode> normalized = new ArrayList<>(nodes.size());
@@ -125,6 +179,24 @@ final class RoadmapBranchingNormalizer {
 
         int sideCount = normalized.size() - orderedMain.size();
         return new Result(normalized, warnings, orderedMain.size(), sideCount);
+    }
+
+    private static void attachSideNode(
+            RoadmapResponse.RoadmapNode node,
+            RoadmapResponse.RoadmapNode parentMain,
+            int mainNodeCount,
+            Map<String, Integer> originalOrder,
+            int fallbackOrder) {
+        node.setType(RoadmapResponse.RoadmapNode.NodeType.SIDE);
+        node.setIsCore(false);
+        node.setParentId(parentMain.getId());
+        node.setMainPathIndex(parentMain.getMainPathIndex());
+        node.setOrderIndex(mainNodeCount + originalOrder.getOrDefault(node.getId(), fallbackOrder) + 1);
+        if (isBlank(node.getPhaseId())) {
+            node.setPhaseId(parentMain.getPhaseId());
+        }
+        node.setPrerequisites(new ArrayList<>(List.of(parentMain.getId())));
+        node.setChildren(new ArrayList<>());
     }
 
     private static boolean isMainNode(RoadmapResponse.RoadmapNode node) {

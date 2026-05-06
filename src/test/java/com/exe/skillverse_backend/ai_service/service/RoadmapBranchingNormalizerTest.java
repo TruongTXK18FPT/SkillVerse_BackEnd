@@ -69,6 +69,62 @@ class RoadmapBranchingNormalizerTest {
                 .noneMatch(node -> node.getPrerequisites() != null && node.getPrerequisites().contains("s1")));
     }
 
+    @Test
+    void normalize_capsGeneratedRoadmapToEightMainAndSixSideNodes() {
+        List<RoadmapResponse.RoadmapNode> nodes = List.of(
+                main("m1", "Main 1"),
+                main("m2", "Main 2"),
+                main("m3", "Main 3"),
+                main("m4", "Main 4"),
+                main("m5", "Main 5"),
+                main("m6", "Main 6"),
+                main("m7", "Main 7"),
+                main("m8", "Main 8"),
+                main("m9", "Overflow main 9"),
+                side("s1", "Side 1"),
+                side("s2", "Side 2"),
+                side("s3", "Side 3"),
+                side("s4", "Side 4"),
+                side("s5", "Side 5"),
+                side("s6", "Side 6"),
+                side("s7", "Dropped side 7"));
+
+        RoadmapBranchingNormalizer.Result result = RoadmapBranchingNormalizer.normalize(nodes);
+
+        assertEquals(8, result.mainNodes());
+        assertEquals(6, result.sideNodes());
+        assertEquals(14, result.nodes().size());
+        assertEquals(8, result.nodes().stream()
+                .filter(node -> node.getType() == RoadmapResponse.RoadmapNode.NodeType.MAIN)
+                .count());
+        assertEquals(6, result.nodes().stream()
+                .filter(node -> node.getType() == RoadmapResponse.RoadmapNode.NodeType.SIDE)
+                .count());
+    }
+
+    @Test
+    void normalize_promotesSideNodesToReachEightMainNodes() {
+        List<RoadmapResponse.RoadmapNode> nodes = List.of(
+                main("m1", "Main 1"),
+                main("m2", "Main 2"),
+                main("m3", "Main 3"),
+                main("m4", "Main 4"),
+                main("m5", "Main 5"),
+                main("m6", "Main 6"),
+                main("m7", "Main 7"),
+                side("s1", "Promoted side"),
+                side("s2", "Remaining side 2"),
+                side("s3", "Remaining side 3"),
+                side("s4", "Remaining side 4"));
+
+        RoadmapBranchingNormalizer.Result result = RoadmapBranchingNormalizer.normalize(nodes);
+
+        assertEquals(8, result.mainNodes());
+        assertEquals(3, result.sideNodes());
+        assertEquals(RoadmapResponse.RoadmapNode.NodeType.MAIN,
+                result.nodes().stream().filter(node -> "s1".equals(node.getId())).findFirst().orElseThrow().getType());
+    }
+
     private RoadmapResponse.RoadmapNode main(String id, String title) {
         return RoadmapResponse.RoadmapNode.builder()
                 .id(id)

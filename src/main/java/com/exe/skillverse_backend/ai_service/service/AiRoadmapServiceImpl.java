@@ -1779,7 +1779,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                 Không giải thích, không ký tự ngoài JSON. Chỉ dùng **inline** Markdown trong description (được: **bold**, *italic*, `code`).
 
                                                 YÊU CẦU:
-                                                1) Số node roadmap: 10-12.
+                                                1) Số node roadmap: chính xác 11-14 node, gồm đúng 8 MAIN node và tối thiểu 3 SIDE node khi có nội dung bổ trợ phù hợp.
                                                 2) Mỗi node bắt buộc có: id, title, type, estimated_time_minutes, parent_id, children.
                                                 3) type chỉ nhận MAIN hoặc SIDE.
                                                 4) estimated_time_minutes phải là số nguyên > 0.
@@ -1796,7 +1796,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                 - MAIN nodes form one required spine from first to last.
                                                 - SIDE nodes are optional support attached to one MAIN parent.
                                                 - Never use SIDE as prerequisite for MAIN.
-                                                - BASIC may be straight with 0-2 SIDE nodes.
+                                                - Always create exactly 8 MAIN nodes.
+                                                - Create at least 3 SIDE nodes when they can support, deepen, or practice a MAIN node.
 
                                                 SCHEMA JSON:
                                                 {
@@ -1851,8 +1852,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                         }
                                                     ],
                                                     "roadmap_statistics": {
-                                                        "total_nodes": 10,
-                                                        "main_nodes": 7,
+                                                        "total_nodes": 11,
+                                                        "main_nodes": 8,
                                                         "side_nodes": 3,
                                                         "total_estimated_hours": 40.0,
                                                         "difficulty_distribution": {"easy": 4, "medium": 4, "hard": 2}
@@ -2015,7 +2016,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                           17. `confidence_score` (float 0.0–1.0 — AI confidence this node belongs in the roadmap)
                           18. `reason` (string, 1 câu: tại sao node này quan trọng với người học này cụ thể)
                           19. `evidence` (array string 1-3 items — tín hiệu cụ thể từ đầu vào: skill gap, điểm test, nhu cầu thị trường)
-                        - `roadmap_statistics`: total_nodes, main_nodes, total_estimated_hours
+                        - `roadmap_statistics`: total_nodes, main_nodes, side_nodes, total_estimated_hours
                         - `learning_tips`: array string 2-3 tips
 
                         **NGUYÊN TẮC QUAN TRỌNG:**
@@ -2033,9 +2034,9 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         ## QUY TẮC ROADMAP CONSTRUCTION
 
                         ### Node Structure:
-                        - 10-15 nodes (bắt buộc)
+                        - Chính xác 11-14 nodes (bắt buộc): đúng 8 MAIN nodes và tối thiểu 3 SIDE nodes nếu có chủ đề bổ trợ phù hợp
                         - Exactly 1 root MAIN node (no prerequisites)
-                        - Main path >= 6 nodes unless BASIC/short-duration input needs a smaller straight roadmap
+                        - Main path exactly 8 MAIN nodes for every roadmap
                         - MỖI node bắt buộc có estimated_time_minutes là số nguyên > 0 (không dùng 0)
 
                         ### Node Types by Experience:
@@ -2079,8 +2080,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         - Resources: phải là tài liệu CÓ THẬT và PHỔ BIẾN (VD: MDN, FreeCodeCamp, Offical Docs)
 
                         ## ADAPTATION BY PRIORITY
-                        - "Nhanh đi làm": 10-12 nodes, MAIN ≥ 75%%, easy/medium difficulty
-                        - "Học sâu": 12-18 nodes, MAIN ≈ 60%%, medium/hard difficulty
+                        - "Nhanh đi làm": 11-14 nodes, đúng 8 MAIN và >=3 SIDE bổ trợ, easy/medium difficulty
+                        - "Học sâu": 11-14 nodes, đúng 8 MAIN và >=3 SIDE bổ trợ, medium/hard difficulty
 
                         ## ADAPTATION BY LEARNING STYLE
                         - "Theo dự án": mỗi node = 1 feature/project, format "Xây dựng [feature X] cho project..."
@@ -2106,13 +2107,15 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return String.format("""
                 ## ROADMAP BRANCHING POLICY (ENFORCED)
                 - Always create a clear MAIN spine: MAIN nodes are required steps from first to last.
+                - Create exactly 8 MAIN nodes.
+                - Create at least 3 SIDE nodes when they can support, deepen, or practice a MAIN node.
                 - Every MAIN node after the first must depend on the previous MAIN node.
                 - SIDE nodes are optional support only. Attach each SIDE node to exactly one MAIN parent.
                 - Never put a SIDE node in the prerequisites of a MAIN node.
                 - Create SIDE nodes only for extra practice, alternative tools, deeper theory, mini-project extensions, interview/job-ready bonuses, or foundation review.
                 - Do not branch just to make the roadmap look complex.
-                - BASIC depth can be a straight roadmap with 0-2 SIDE nodes.
-                - SOLID depth should use 2-4 meaningful SIDE nodes when the goal has optional support topics.
+                - BASIC depth should still include 3 concise SIDE nodes only when they directly support MAIN nodes.
+                - SOLID depth should use 3-4 meaningful SIDE nodes when the goal has optional support topics.
                 - ADVANCED depth may use 4-6 SIDE nodes for specialization, advanced practice, and job-ready evidence.
                 - Current desiredDepth: %s.
                 """, desiredDepth);
@@ -2127,6 +2130,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         if ("BASIC".equals(desiredDepth)) {
             return """
                     ## ADAPTIVE BRANCHING (DESIRED_DEPTH=BASIC)
+                    - Node count: exactly 8 MAIN and at least 3 concise SIDE nodes when supportive.
                     - Ưu tiên đường chính tuần tự, nhánh phụ tối thiểu và dễ theo dõi.
                     - Graph depth mục tiêu: tối đa 3 tầng.
                     - Fan-out trung bình mỗi node: 1-2 nhánh.
@@ -2137,6 +2141,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         if ("ADVANCED".equals(desiredDepth)) {
             return """
                     ## ADAPTIVE BRANCHING (DESIRED_DEPTH=ADVANCED)
+                    - Node count: exactly 8 MAIN and 4-6 SIDE nodes when supportive.
                     - Tăng số nhánh phụ có mục tiêu rõ ràng để mở rộng chuyên sâu.
                     - Graph depth mục tiêu: >= 4 tầng khi hợp lý.
                     - Fan-out trung bình mỗi node: 2-3 nhánh ở các node chính.
@@ -2146,6 +2151,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
         return """
                 ## ADAPTIVE BRANCHING (DESIRED_DEPTH=SOLID)
+                - Node count: exactly 8 MAIN and 3-4 SIDE nodes when supportive.
                 - Cân bằng giữa đường chính và nhánh phụ để vừa chắc nền, vừa có mở rộng.
                 - Graph depth mục tiêu: khoảng 4 tầng.
                 - Fan-out trung bình mỗi node: 1-2 nhánh, ưu tiên nhánh có tác dụng rõ ràng.
@@ -2313,7 +2319,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         if (priority.equalsIgnoreCase("Học sâu"))
             ratio = "60/40";
         return String.format(
-                "\nCONSTRAINTS:\navailable_minutes_per_day=%d\nplanned_days=%d\ntime_budget_minutes=%d\nmain_side_ratio=%s\n",
+                "\nCONSTRAINTS:\navailable_minutes_per_day=%d\nplanned_days=%d\ntime_budget_minutes=%d\nmain_side_ratio=%s\nnode_count_rule=exactly_8_MAIN_and_at_least_3_SIDE_when_supportive\n",
                 minutesPerDay, plannedDays, timeBudgetMinutes, ratio);
     }
 
@@ -3320,7 +3326,10 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 ? parsedStatistics.getSideNodes()
                 : sideNodes;
 
-            if (normalizedMainNodes + normalizedSideNodes != normalizedTotalNodes) {
+            if (normalizedMainNodes + normalizedSideNodes != normalizedTotalNodes
+                || !normalizedTotalNodes.equals(totalNodes)
+                || !normalizedMainNodes.equals(mainNodes)
+                || !normalizedSideNodes.equals(sideNodes)) {
                 normalizedMainNodes = mainNodes;
                 normalizedSideNodes = sideNodes;
                 normalizedTotalNodes = totalNodes;
