@@ -189,12 +189,17 @@ class JourneyServiceImplStudyPlanTest {
         assertEquals(Boolean.TRUE, payload.get("created"));
         assertEquals(55L, payload.get("roadmapSessionId"));
         assertEquals("node-1", payload.get("nodeId"));
+        assertEquals(2, payload.get("taskCount"));
         assertFalse(payload.containsKey("journeyId"));
 
         ArgumentCaptor<CreateTaskRequest> taskCaptor = ArgumentCaptor.forClass(CreateTaskRequest.class);
-        verify(taskBoardService).createTask(anyLong(), taskCaptor.capture());
-        assertTrue(taskCaptor.getValue().getUserNotes().contains("[ROADMAP_NODE_LINK] roadmap=55 node=node-1"));
-        assertFalse(taskCaptor.getValue().getUserNotes().contains("journey="));
+        verify(taskBoardService, org.mockito.Mockito.times(2)).createTask(anyLong(), taskCaptor.capture());
+        List<CreateTaskRequest> createdTasks = taskCaptor.getAllValues();
+        assertEquals(2, createdTasks.size());
+        assertTrue(createdTasks.stream().allMatch(task ->
+                task.getUserNotes().contains("[ROADMAP_NODE_LINK] roadmap=55 node=node-1")));
+        assertTrue(createdTasks.stream().noneMatch(task ->
+                task.getUserNotes().contains("journey=")));
         verify(journeyRepository, never()).save(any());
     }
 
