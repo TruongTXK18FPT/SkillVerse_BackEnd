@@ -2075,11 +2075,12 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
                         ## QUY TẮC ROADMAP CONSTRUCTION
 
-                        ### Node Structure:
-                        - Chính xác 11-14 nodes (bắt buộc): đúng 8 MAIN nodes và tối thiểu 3 SIDE nodes nếu có chủ đề bổ trợ phù hợp
-                        - Exactly 1 root MAIN node (no prerequisites)
-                        - Main path exactly 8 MAIN nodes for every roadmap
-                        - MỖI node bắt buộc có estimated_time_minutes là số nguyên > 0 (không dùng 0)
+                        ### Node Structure (BẮT BUỘC TUÂN THỦ TÚY ĐỐI):
+                        - Chính xác 11-14 nodes tổng cộng: ĐÚNG 8 MAIN nodes và tối thiểu 3 SIDE nodes.
+                        - LƯU Ý CHO AI: Tuyệt đối không dừng lại ở 4 hay 5 node. Dù chủ đề ngắn đến đâu, BẠN PHẢI CHIA NHỎ CHỦ ĐỀ ra thành ĐÚNG 8 bước MAIN nối tiếp nhau.
+                        - Exactly 1 root MAIN node (no prerequisites).
+                        - Main path EXACTLY 8 MAIN nodes for every roadmap. NẾU BẠN CHỈ TẠO 4-5 MAIN NODES LÀ BẠN SẼ BỊ LỖI NGHIÊM TRỌNG.
+                        - MỖI node bắt buộc có estimated_time_minutes là số nguyên > 0 (không dùng 0).
 
                         ### Node Types by Experience:
                         - Mới bắt đầu: 75%% MAIN, 25%% SIDE (difficulty: 60%% easy, 30%% medium, 10%% hard)

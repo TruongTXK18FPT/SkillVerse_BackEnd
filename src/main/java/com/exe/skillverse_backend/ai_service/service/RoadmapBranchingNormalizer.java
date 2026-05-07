@@ -47,7 +47,9 @@ final class RoadmapBranchingNormalizer {
         if (byId.isEmpty()) {
             return new Result(nodes, warnings, 0, 0);
         }
-        boolean enforceStandardCounts = byId.size() >= REQUIRED_MAIN_NODES + MIN_SIDE_NODES;
+        // Enforce whenever total nodes >= REQUIRED_MAIN_NODES so that the normalizer
+        // always promotes SIDE-labelled nodes to MAIN when the AI returns fewer than 8 MAIN.
+        boolean enforceStandardCounts = byId.size() >= REQUIRED_MAIN_NODES;
 
         List<RoadmapResponse.RoadmapNode> mainNodes = nodes.stream()
                 .filter(node -> node != null && byId.containsKey(node.getId()))
