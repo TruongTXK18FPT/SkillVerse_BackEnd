@@ -38,7 +38,7 @@ public class LocalAiConfig {
     public ChatModel localAiChatModel() {
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalStateException(
-                "Local AI is enabled but skillverse.ai.local.base-url is blank");
+                    "Local AI is enabled but skillverse.ai.local.base-url is blank");
         }
 
         var requestFactory = new SimpleClientHttpRequestFactory();
@@ -46,20 +46,20 @@ public class LocalAiConfig {
         requestFactory.setReadTimeout(Duration.ofMillis(httpTimeoutMs));
 
         RestClient.Builder restClientBuilder = RestClient.builder()
-            .requestFactory(requestFactory);
+                .requestFactory(requestFactory);
 
         OpenAiApi api = new OpenAiApi(
-            baseUrl,
-            "local",
-            restClientBuilder,
-            WebClient.builder(),
-            new DefaultResponseErrorHandler());
+                baseUrl,
+                "local",
+                restClientBuilder,
+                WebClient.builder(),
+                new DefaultResponseErrorHandler());
 
         OpenAiChatOptions options = OpenAiChatOptions.builder()
-            .withModel(model)
-            .withTemperature(0.7)
-            .withMaxTokens(4096)
-            .build();
+                .withModel(model)
+                .withTemperature(0.7)
+                .withMaxTokens(30000)
+                .build();
 
         log.info("LocalAiChatModel initialized with base-url={}, model={}", baseUrl, model);
         return new OpenAiChatModel(api, options);

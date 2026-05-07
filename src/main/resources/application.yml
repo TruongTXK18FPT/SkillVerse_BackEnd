@@ -272,7 +272,7 @@ skillverse:
     local:
       enabled: ${LOCAL_AI_ENABLED:false}
       base-url: ${LOCAL_AI_BASE_URL:}
-      model: ${LOCAL_AI_MODEL:qwen3.5:27b}
+      model: ${LOCAL_AI_MODEL:qwen2.5:14b}
       connect-timeout-ms: ${LOCAL_AI_CONNECT_TIMEOUT_MS:1500}
       http-timeout-ms: ${LOCAL_AI_HTTP_TIMEOUT_MS:30000}
       queue-wait-ms: ${LOCAL_AI_QUEUE_WAIT_MS:8000}

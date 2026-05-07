@@ -300,17 +300,9 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             generationStartTime = System.currentTimeMillis();
 
             // Step 3A-pre: Local AI first (fast path)
-            if (localAiGateway != null && localAiGateway.isAvailable()) {
-                try {
-                    log.info("🧭 [trace={}] Trying Local AI first", traceId);
-                    roadmapJson = localAiGateway.call("", generationPrompt);
-                    log.info("🧭 [trace={}] Local AI returned response", traceId);
-                    telemetry.markModelPath("local");
-                } catch (LocalAiGateway.LocalAiQueueFullException qfe) {
-                    log.warn("🧭 [trace={}] Local AI queue full, falling back to Mistral: {}", traceId, qfe.getMessage());
-                } catch (Exception localEx) {
-                    log.warn("🧭 [trace={}] Local AI failed, falling back to Mistral: {}", traceId, localEx.getMessage());
-                }
+            roadmapJson = callLocalAiWithRetry(generationPrompt, telemetry, traceId);
+            if (roadmapJson != null) {
+                telemetry.markModelPath("local");
             }
 
             // Step 3A: Mistral primary (2 attempts, 30s fixed backoff) — only if local didn't succeed
@@ -375,7 +367,15 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         log.warn("⚠️ [trace={}] Parse attempt {}/3 failed ({}). Falling back to cloud...",
                                 traceId, parseRetry + 2, reason);
                         telemetry.markFallback("parse-fail-retry-" + (parseRetry + 1), reason, 0);
-                        if ("mistral".equals(currentPath)) {
+                        if ("local".equals(currentPath)) {
+                            roadmapJson = callLocalAiWithRetry(generationPrompt, telemetry, traceId);
+                            if (roadmapJson == null) {
+                                log.warn("⚠️ [trace={}] Local AI parse retry exhausted, falling back to Mistral...", traceId);
+                                currentPath = "mistral";
+                                telemetry.markModelPath("mistral");
+                                roadmapJson = callMistralWithRetry(request, telemetry, traceId);
+                            }
+                        } else if ("mistral".equals(currentPath)) {
                             roadmapJson = callMistralWithRetry(request, telemetry, traceId);
                         } else if ("gemini".equals(currentPath)) {
                             roadmapJson = callGeminiWithRetry(request, telemetry);
@@ -1180,6 +1180,48 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         logJsonCheckpoint("mistral-primary/raw", response);
         logJsonCheckpoint("mistral-primary/extracted", extracted);
         return extracted;
+    }
+
+    /**
+     * Call Local AI with retry.
+     * Attempts up to 2 times with backoff.
+     */
+    private String callLocalAiWithRetry(String prompt, RoadmapGenerationTelemetry telemetry, String traceId) {
+        if (localAiGateway == null || !localAiGateway.isAvailable()) {
+            return null;
+        }
+        int maxAttempts = 2;
+        int backoffMs = 5_000;
+        
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            log.info("🔄 [trace={}] Local AI attempt {}/{}", traceId, attempt, maxAttempts);
+            try {
+                if (telemetry != null) telemetry.recordModelAttempt("local");
+                String rawResponse = localAiGateway.call("", prompt);
+                String json = extractJsonFromResponse(rawResponse);
+                
+                if (isJsonLikelyTruncated(json)) {
+                    log.warn("⚠️ [trace={}] Local AI response appears truncated ({} chars). Retrying...", traceId, json.length());
+                    if (attempt < maxAttempts) sleepRetryBackoff(backoffMs);
+                    continue;
+                }
+                
+                log.info("✅ [trace={}] Local AI succeeded (attempt {}/{}), {} chars", traceId, attempt, maxAttempts, json.length());
+                if (telemetry != null) telemetry.recordPayloadLength(rawResponse, json);
+                return json;
+                
+            } catch (LocalAiGateway.LocalAiQueueFullException qfe) {
+                log.warn("⚠️ [trace={}] Local AI queue full: {}", traceId, qfe.getMessage());
+                if (attempt < maxAttempts) sleepRetryBackoff(backoffMs);
+            } catch (Exception e) {
+                log.warn("⚠️ [trace={}] Local AI attempt {}/{} failed (type={}, status={}): {}", 
+                        traceId, attempt, maxAttempts, classifyAiFailure(e), extractHttpStatus(e), safeMessage(e));
+                if (attempt < maxAttempts) sleepRetryBackoff(backoffMs);
+            }
+        }
+        
+        log.warn("⚠️ [trace={}] Local AI prompt failed after {} attempts. Falling back.", traceId, maxAttempts);
+        return null;
     }
 
     /**
