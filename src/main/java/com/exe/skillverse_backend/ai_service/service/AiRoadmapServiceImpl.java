@@ -1722,8 +1722,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
         return "## Khóa học SkillVerse được pre-select\n"
                 + shortlist
-                + "\n\nChỉ dùng danh sách này như shortlist ưu tiên khi tạo `suggested_resources` hoặc gợi ý học trong roadmap."
-                + " Giữ nguyên schema output hiện tại.";
+                + "\n\nCRITICAL RULE: TUYỆT ĐỐI KHÔNG ĐƯỢC làm sai lệch mục tiêu gốc của người học dựa vào danh sách khóa học này (Ví dụ: Nếu user muốn học 'Java', KHÔNG ĐƯỢC biến lộ trình thành 'Spring Boot' chỉ vì có khóa học Spring Boot). CHỈ dùng danh sách này để điền vào `suggested_resources`. Mục tiêu của roadmap phải bám sát 100% yêu cầu gốc.";
     }
 
     private String resolveRoadmapSkillSlug(GenerateRoadmapRequest request) {
@@ -2041,14 +2040,14 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         - `roadmap`: array nodes, mỗi node BẮT BUỘC có đủ các fields sau:
                           1. `id` (string)
                           2. `title` (string, 40-80 chars, bắt đầu bằng động từ)
-                          3. `description` (**inline** Markdown, tối đa 500 ký tự, được dùng: **bold**, *italic*, `code`; CẤM: ```, >, #, -, multiline). Nêu rõ: **những gì sẽ học được** + hành động thực hành chính + kết quả đầu ra cụ thể. KHÔNG giải thích tại sao quan trọng (đã có importance_score/reason).
+                          3. `description` (**inline** Markdown, tối đa 500 ký tự, được dùng: **bold**, *italic*, `code`; CẤM: ```, >, #, -, multiline). BẮT BUỘC viết chi tiết 3-5 câu. Nêu rõ: **những gì sẽ học được** + hành động thực hành chính + kết quả đầu ra cụ thể. KHÔNG giải thích tại sao quan trọng (đã có importance_score/reason).
                           4. `estimated_time_minutes` (int, > 0)
                           5. `type` (MAIN hoặc SIDE)
                           6. `parent_id` (string id HOẶC null cho root node)
                           7. `children` (array string id, LUÔN LÀ array — dùng [] nếu node lá)
                           8. `difficulty` (easy | medium | hard)
                           9. `prerequisites` (array string id, LUÔN LÀ array — dùng [] nếu không có)
-                          10. `learning_objectives` (array string 1-3 items — BẮT BUỘC, nêu cụ thể kỹ năng/kiến thức đạt được sau node)
+                          10. `learning_objectives` (array string 2-4 items — BẮT BUỘC, diễn giải chi tiết kỹ năng đạt được, mỗi item tối đa 120 ký tự)
                           11. `key_concepts` (array string 2-5 items — BẮT BUỘC cho MAIN node, tối thiểu 3 items; dùng [] chỉ với SIDE node)
                           12. `practical_exercises` (array string 1-3 items — BẮT BUỘC cho mọi node, tối thiểu 2 items mô tả bài tập/task cụ thể để thực hành kiến thức của node này)
                           13. `success_criteria` (array string 1-3 items — BẮT BUỘC cho MAIN node, tối thiểu 2 items mô tả tiêu chí hoàn thành cụ thể có thể đo lường được)
@@ -2062,11 +2061,11 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                         - `learning_tips`: array string 2-3 tips
 
                         **NGUYÊN TẮC QUAN TRỌNG:**
-                        - description: cho phép **inline** Markdown trong JSON (được: **bold**, *italic*, `code`). CẤM: ``` code fences, > blockquote, # heading, - list prefix, newlines trong chuỗi JSON. Mỗi description tối đa 500 ký tự, tập trung vào nội dung học + hành động + output cụ thể. KHÔNG lặp lại reason/importance_score.
-                        - key_concepts: BẮT BUỘC cho MAIN node (tối thiểu 3 items). Mỗi item là 1 khái niệm/kỹ thuật cốt lõi trong node, tối đa 60 ký tự.
-                        - practical_exercises: BẮT BUỘC cho MỌI node (tối thiểu 2 items). Mỗi item là 1 bài tập/task cụ thể người học phải làm, bắt đầu bằng động từ hành động (Viết, Xây dựng, Tạo, Implement...), tối đa 120 ký tự.
-                        - success_criteria: BẮT BUỘC cho MAIN node (tối thiểu 2 items). Mỗi item là 1 tiêu chí có thể đo lường được (VD: "Có thể viết REST API CRUD hoàn chỉnh không cần tra cứu"), tối đa 120 ký tự.
-                        - suggested_resources: KHÔNG BẮT BUỘC. Mỗi array tối đa 3 items, mỗi item tối đa 80 ký tự.
+                        - description: cho phép **inline** Markdown trong JSON. BẮT BUỘC viết dài và chi tiết (tối thiểu 3 câu, tối đa 500 ký tự), tập trung vào nội dung học + hành động + output cụ thể. KHÔNG lặp lại reason/importance_score.
+                        - key_concepts: BẮT BUỘC cho MAIN node (tối thiểu 3 items). Mỗi item là 1 khái niệm/kỹ thuật cốt lõi, diễn đạt chi tiết (tối đa 60 ký tự).
+                        - practical_exercises: BẮT BUỘC cho MỌI node (tối thiểu 2 items). Mỗi item PHẢI mô tả 1 bài tập/task cụ thể và có độ khó thực tế (VD: 'Xây dựng API quản lý user có phân quyền và validate data'), tối đa 120 ký tự.
+                        - success_criteria: BẮT BUỘC cho MAIN node (tối thiểu 2 items). Mỗi item là 1 tiêu chí có thể đo lường được, tối đa 120 ký tự.
+                        - suggested_resources: KHÔNG BẮT BUỘC. Mỗi array tối đa 3 items, ưu tiên lấy từ danh sách khóa học pre-select.
                         - thinking_progression: 2-4 bước tư duy, mỗi bước tối đa 100 ký tự.
                         - projects_evidence: 1-3 dự án, mỗi project tối đa 120 ký tự.
                         - Tất cả arrays (children, prerequisites, learning_objectives, tips, key_concepts, practical_exercises, success_criteria, suggested_resources) phải là valid JSON array với ] đóng. KHÔNG bao giờ để unclosed bracket.
