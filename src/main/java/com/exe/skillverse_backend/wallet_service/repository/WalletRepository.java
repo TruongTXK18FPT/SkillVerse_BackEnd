@@ -24,6 +24,11 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
     Optional<Wallet> findByUser_Id(Long userId);
     
     /**
+     * Find wallet by user email
+     */
+    Optional<Wallet> findByUser_Email(String email);
+    
+    /**
      * Find wallet by user ID with pessimistic lock
      * Use this for update operations to prevent race conditions
      */

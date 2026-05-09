@@ -24,6 +24,9 @@ import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepo
 import com.exe.skillverse_backend.course_service.repository.CoursePurchaseRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.text.NumberFormat;
 import java.util.HashMap;
 import java.util.List;
@@ -128,6 +131,40 @@ public class WalletServiceImpl implements WalletService {
 
                                         return savedWallet;
                                 });
+        }
+
+        private Wallet getPlatformWallet() {
+                // Find admin user - exeadmin@gmail.com
+                return walletRepository.findByUser_Email("exeadmin@gmail.com")
+                                .orElseGet(() -> {
+                                        User admin = userRepository.findByEmail("exeadmin@gmail.com")
+                                                        .orElseThrow(() -> new IllegalStateException(
+                                                                        "Hệ thống chưa cấu hình tài khoản Admin (exeadmin@gmail.com)"));
+                                        return createWalletForUser(admin.getId());
+                                });
+        }
+
+        private void recordPlatformFee(BigDecimal amount, String description, String referenceType, String referenceId) {
+                if (amount.compareTo(BigDecimal.ZERO) <= 0)
+                        return;
+
+                Wallet platformWallet = getPlatformWallet();
+                platformWallet.depositCash(amount);
+                walletRepository.save(platformWallet);
+
+                WalletTransaction feeTx = WalletTransaction.builder()
+                                .wallet(platformWallet)
+                                .transactionType(WalletTransaction.TransactionType.PLATFORM_FEE)
+                                .currencyType(WalletTransaction.CurrencyType.CASH)
+                                .cashAmount(amount)
+                                .cashBalanceAfter(platformWallet.getCashBalance())
+                                .status(WalletTransaction.TransactionStatus.COMPLETED)
+                                .description(description)
+                                .referenceType(referenceType)
+                                .referenceId(referenceId)
+                                .createdAt(LocalDateTime.now())
+                                .build();
+                transactionRepository.save(feeTx);
         }
 
         /**
@@ -476,13 +513,32 @@ public class WalletServiceImpl implements WalletService {
                                 .map(Wallet::getFrozenCashBalance)
                                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-                return Map.of(
-                                "totalWallets", allWallets.size(),
-                                "activeWallets",
-                                allWallets.stream().filter(w -> w.getStatus() == Wallet.WalletStatus.ACTIVE).count(),
-                                "totalCashInSystem", totalCashInSystem,
-                                "totalCoinsInSystem", totalCoinsInSystem,
-                                "totalFrozenCash", totalFrozenCash);
+                BigDecimal totalDeposits = transactionRepository.calculateTotalDepositedGlobal();
+                BigDecimal totalWithdrawals = transactionRepository.calculateTotalWithdrawnGlobal();
+                BigDecimal totalBookingPayments = transactionRepository.calculateTotalBookingPayments();
+                BigDecimal totalMentorEarnings = transactionRepository.calculateTotalMentorEarnings();
+                BigDecimal totalStudentEarnings = transactionRepository.calculateTotalStudentEarnings();
+                BigDecimal totalPlatformFees = transactionRepository.calculateTotalPlatformFees();
+                BigDecimal totalPurchaseRevenue = transactionRepository.calculateTotalPurchaseRevenue();
+                BigDecimal totalRefunds = transactionRepository.calculateTotalRefunds();
+                BigDecimal totalEscrowFunds = transactionRepository.calculateTotalEscrowFunds();
+
+                Map<String, Object> result = new HashMap<>();
+                result.put("totalWallets", allWallets.size());
+                result.put("activeWallets", allWallets.stream().filter(w -> w.getStatus() == Wallet.WalletStatus.ACTIVE).count());
+                result.put("totalCashInSystem", totalCashInSystem);
+                result.put("totalCoinsInSystem", totalCoinsInSystem);
+                result.put("totalFrozenCash", totalFrozenCash);
+                result.put("totalDeposits", totalDeposits);
+                result.put("totalWithdrawals", totalWithdrawals);
+                result.put("totalBookingPayments", totalBookingPayments);
+                result.put("totalMentorEarnings", totalMentorEarnings);
+                result.put("totalStudentEarnings", totalStudentEarnings);
+                result.put("totalPlatformFees", totalPlatformFees);
+                result.put("totalPurchaseRevenue", totalPurchaseRevenue);
+                result.put("totalRefunds", totalRefunds);
+                result.put("totalEscrowFunds", totalEscrowFunds);
+                return result;
         }
 
         /**
@@ -490,12 +546,28 @@ public class WalletServiceImpl implements WalletService {
          */
         @Transactional(readOnly = true)
         public Map<String, Object> getDailyStatistics(String startDate, String endDate) {
-                // TODO: Implement with actual date range queries
-                // This would require additional repository methods
-                return Map.of(
-                                "message", "Daily statistics not yet implemented",
-                                "startDate", startDate != null ? startDate : "today",
-                                "endDate", endDate != null ? endDate : "today");
+                LocalDateTime start = startDate != null ? LocalDate.parse(startDate).atStartOfDay() : LocalDate.now().minusDays(30).atStartOfDay();
+                LocalDateTime end = endDate != null ? LocalDate.parse(endDate).atTime(23, 59, 59) : LocalDateTime.now();
+
+                BigDecimal totalDeposits = transactionRepository.calculateTotalDepositedInRange(start, end);
+                BigDecimal totalWithdrawals = transactionRepository.calculateTotalWithdrawnInRange(start, end);
+                BigDecimal totalBookingPayments = transactionRepository.calculateTotalBookingPaymentsInRange(start, end);
+                BigDecimal totalMentorEarnings = transactionRepository.calculateTotalMentorEarningsInRange(start, end);
+                BigDecimal totalStudentEarnings = transactionRepository.calculateTotalStudentEarningsInRange(start, end);
+                BigDecimal totalPlatformFees = transactionRepository.calculateTotalPlatformFeesInRange(start, end);
+                BigDecimal totalPurchaseRevenue = transactionRepository.calculateTotalPurchaseRevenueInRange(start, end);
+
+                Map<String, Object> result = new HashMap<>();
+                result.put("startDate", start.toString());
+                result.put("endDate", end.toString());
+                result.put("totalDeposits", totalDeposits);
+                result.put("totalWithdrawals", totalWithdrawals);
+                result.put("totalBookingPayments", totalBookingPayments);
+                result.put("totalMentorEarnings", totalMentorEarnings);
+                result.put("totalStudentEarnings", totalStudentEarnings);
+                result.put("totalPlatformFees", totalPlatformFees);
+                result.put("totalPurchaseRevenue", totalPurchaseRevenue);
+                return result;
         }
 
         /**
@@ -807,6 +879,9 @@ public class WalletServiceImpl implements WalletService {
                                 .status(WalletTransaction.TransactionStatus.COMPLETED)
                                 .build();
 
+                BigDecimal feeAmount = amount.multiply(new BigDecimal("0.25")).setScale(2, RoundingMode.HALF_UP); // 20% of total = 25% of 80%
+                recordPlatformFee(feeAmount, "Phí hệ thống (20%) từ booking #" + bookingId, "PLATFORM_FEE", referenceId);
+
                 return transactionRepository.save(transaction);
         }
 
@@ -861,6 +936,9 @@ public class WalletServiceImpl implements WalletService {
                                 .status(WalletTransaction.TransactionStatus.COMPLETED)
                                 .build();
 
+                BigDecimal feeAmount = amount.multiply(new BigDecimal("0.25")).setScale(2, RoundingMode.HALF_UP); // 20% of total = 25% of 80%
+                recordPlatformFee(feeAmount, "Phí hệ thống (20%) từ khóa học #" + courseId, "PLATFORM_FEE", referenceId);
+
                 return transactionRepository.save(transaction);
         }
 
@@ -909,7 +987,10 @@ public class WalletServiceImpl implements WalletService {
                                         .build();
                         log.info("[WalletDebug] payMentorForJobPayout: transaction built, about to save");
 
-                        WalletTransaction saved = transactionRepository.save(transaction);
+                        BigDecimal feeAmount = amount.multiply(new BigDecimal("0.11111")).setScale(2, RoundingMode.HALF_UP); // 10% of total = ~11.11% of 90%
+                recordPlatformFee(feeAmount, "Phí hệ thống (10%) từ công việc #" + jobId, "PLATFORM_FEE", referenceId);
+
+                WalletTransaction saved = transactionRepository.save(transaction);
                         log.info("[WalletDebug] payMentorForJobPayout SUCCESS: transactionId={}", saved.getTransactionId());
                         return saved;
                 } catch (Exception e) {
@@ -947,6 +1028,9 @@ public class WalletServiceImpl implements WalletService {
                                 .referenceId(referenceId)
                                 .status(WalletTransaction.TransactionStatus.COMPLETED)
                                 .build();
+
+                BigDecimal feeAmount = amount.multiply(new BigDecimal("0.42857")).setScale(2, RoundingMode.HALF_UP); // 30% of total = ~42.86% of 70%
+                recordPlatformFee(feeAmount, "Phí hệ thống (30%) từ hội thảo #" + seminarId, "PLATFORM_FEE", referenceId);
 
                 return transactionRepository.save(transaction);
         }

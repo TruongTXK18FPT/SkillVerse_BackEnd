@@ -254,6 +254,14 @@ class WalletServiceImplTest {
                 eq("COURSE_PURCHASE_322"), eq("COURSE_PAYOUT"), eq(WalletTransaction.TransactionStatus.COMPLETED)))
                 .thenReturn(false);
         when(walletRepository.findByUserIdWithLock(200L)).thenReturn(Optional.of(wallet));
+
+        Wallet adminWallet = Wallet.builder()
+                .walletId(99L)
+                .user(User.builder().id(999L).email("exeadmin@gmail.com").build())
+                .cashBalance(BigDecimal.ZERO)
+                .build();
+        when(walletRepository.findByUser_Email("exeadmin@gmail.com")).thenReturn(Optional.of(adminWallet));
+
         when(transactionRepository.save(any(WalletTransaction.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 

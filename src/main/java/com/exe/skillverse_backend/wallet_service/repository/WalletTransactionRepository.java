@@ -123,6 +123,64 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
            "AND t.status = 'COMPLETED'")
     Long calculateTotalCoinsSpent(@Param("walletId") Long walletId);
     
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'DEPOSIT_CASH' " +
+           "AND t.status = 'COMPLETED'")
+    BigDecimal calculateTotalDepositedGlobal();
+
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'WITHDRAWAL_CASH' " +
+           "AND t.referenceType = 'WITHDRAWAL' " +
+           "AND t.status = 'COMPLETED'")
+    BigDecimal calculateTotalWithdrawnGlobal();
+
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType IN ('MENTOR_BOOKING', 'COURSE_SALE') " +
+           "AND t.status = 'COMPLETED'")
+    BigDecimal calculateTotalMentorEarnings();
+
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'WITHDRAWAL_CASH' " +
+           "AND t.referenceType = 'BOOKING' " +
+           "AND t.status = 'COMPLETED'")
+    BigDecimal calculateTotalBookingPayments();
+
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'WITHDRAWAL_CASH' " +
+           "AND t.referenceType = 'BOOKING' " +
+           "AND t.status = 'COMPLETED' " +
+           "AND t.createdAt BETWEEN :startDate AND :endDate")
+    BigDecimal calculateTotalBookingPaymentsInRange(
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
+    );
+
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'JOB_PAYOUT' " +
+           "AND t.status = 'COMPLETED'")
+    BigDecimal calculateTotalStudentEarnings();
+
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'PLATFORM_FEE' " +
+           "AND t.status = 'COMPLETED'")
+    BigDecimal calculateTotalPlatformFees();
+
+    /**
+     * Calculate total refunds (REFUND_CASH + ESCROW_REFUND) across ALL wallets
+     */
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType IN ('REFUND_CASH', 'ESCROW_REFUND', 'REFUND_COINS') " +
+           "AND t.status = 'COMPLETED'")
+    BigDecimal calculateTotalRefunds();
+
+    /**
+     * Calculate total frozen/escrow funds (ESCROW_FUND) across ALL wallets
+     */
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'ESCROW_FUND' " +
+           "AND t.status = 'COMPLETED'")
+    BigDecimal calculateTotalEscrowFunds();
+
     /**
      * Calculate total revenue from purchases (Premium, Course, Coins) across ALL wallets
      * This is for admin dashboard statistics
@@ -141,6 +199,52 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
            "AND t.createdAt BETWEEN :startDate AND :endDate")
     BigDecimal calculateTotalPurchaseRevenueInRange(
         @Param("startDate") LocalDateTime startDate, 
+        @Param("endDate") LocalDateTime endDate
+    );
+
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'DEPOSIT_CASH' " +
+           "AND t.status = 'COMPLETED' " +
+           "AND t.createdAt BETWEEN :startDate AND :endDate")
+    BigDecimal calculateTotalDepositedInRange(
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
+    );
+
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'WITHDRAWAL_CASH' " +
+           "AND t.referenceType = 'WITHDRAWAL' " +
+           "AND t.status = 'COMPLETED' " +
+           "AND t.createdAt BETWEEN :startDate AND :endDate")
+    BigDecimal calculateTotalWithdrawnInRange(
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
+    );
+
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType IN ('MENTOR_BOOKING', 'COURSE_SALE') " +
+           "AND t.status = 'COMPLETED' " +
+           "AND t.createdAt BETWEEN :startDate AND :endDate")
+    BigDecimal calculateTotalMentorEarningsInRange(
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
+    );
+
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'JOB_PAYOUT' " +
+           "AND t.status = 'COMPLETED' " +
+           "AND t.createdAt BETWEEN :startDate AND :endDate")
+    BigDecimal calculateTotalStudentEarningsInRange(
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
+    );
+
+    @Query("SELECT COALESCE(SUM(t.cashAmount), 0) FROM WalletTransaction t " +
+           "WHERE t.transactionType = 'PLATFORM_FEE' " +
+           "AND t.status = 'COMPLETED' " +
+           "AND t.createdAt BETWEEN :startDate AND :endDate")
+    BigDecimal calculateTotalPlatformFeesInRange(
+        @Param("startDate") LocalDateTime startDate,
         @Param("endDate") LocalDateTime endDate
     );
     
