@@ -38,7 +38,6 @@ public interface SkillRepository extends JpaRepository<Skill, Long>, JpaSpecific
 
     // ACTIVE-only variants for public APIs
     Page<Skill> findByParentSkillIdIsNullAndStatus(com.exe.skillverse_backend.shared.enums.SkillStatus status, Pageable pageable);
-    Page<Skill> findByCategoryIgnoreCaseAndStatus(String category, com.exe.skillverse_backend.shared.enums.SkillStatus status, Pageable pageable);
     List<Skill> findByParentSkillIdAndStatusOrderByNameAsc(Long parentSkillId, com.exe.skillverse_backend.shared.enums.SkillStatus status);
     Page<Skill> findByNameContainingIgnoreCaseAndStatus(String name, com.exe.skillverse_backend.shared.enums.SkillStatus status, Pageable pageable);
     

@@ -32,10 +32,6 @@ public interface UserSkillRepository extends JpaRepository<UserSkill, UserSkillI
     List<UserSkill> findBySkillIdAndMinProficiency(@Param("skillId") Long skillId,
             @Param("minProficiency") Integer minProficiency);
 
-    @Query("SELECT us FROM UserSkill us JOIN us.skill s WHERE us.id.userId = :userId AND s.category = :category")
-    List<UserSkill> findByUserIdAndSkillCategory(@Param("userId") Long userId,
-            @Param("category") String category);
-
     @Query("SELECT COUNT(us) FROM UserSkill us WHERE us.id.userId = :userId")
     Long countByUserId(@Param("userId") Long userId);
 }

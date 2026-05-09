@@ -224,13 +224,6 @@ public class UserProfileServiceImpl implements UserProfileService {
                 .collect(Collectors.toList());
     }
 
-    public List<UserSkillResponse> getUserSkillsByCategory(Long userId, String category) {
-        return userSkillRepository.findByUserIdAndSkillCategory(userId, category)
-                .stream()
-                .map(this::mapToSkillResponse)
-                .collect(Collectors.toList());
-    }
-
     public List<UserSkillResponse> getUserSkillsByMinProficiency(Long userId, Integer minProficiency) {
         return userSkillRepository.findByUserIdAndMinProficiency(userId, minProficiency)
                 .stream()

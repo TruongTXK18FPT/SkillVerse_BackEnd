@@ -30,8 +30,6 @@ public interface UserProfileService {
 
     List<UserSkillResponse> getUserSkills(Long userId);
 
-    List<UserSkillResponse> getUserSkillsByCategory(Long userId, String category);
-
     List<UserSkillResponse> getUserSkillsByMinProficiency(Long userId, Integer minProficiency);
 
     UserProfileResponse createCompleteProfile(Long userId, String fullName, String phone, String address,
