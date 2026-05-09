@@ -28,18 +28,18 @@ public class SkillServiceTestHelper {
 
         try {
             // 1. Create root skill
-            SkillDto programmingSkill = createRootSkill("Programming", "Technology", 
+            SkillDto programmingSkill = createRootSkill("Programming", 
                 "Programming languages and software development");
 
             // 2. Create child skills
-            SkillDto javaSkill = createChildSkill("Java", "Programming Language", 
+            SkillDto javaSkill = createChildSkill("Java", 
                 "Object-oriented programming language", programmingSkill.getId());
             
-            createChildSkill("Python", "Programming Language", 
+            createChildSkill("Python", 
                 "High-level interpreted programming language", programmingSkill.getId());
 
             // 3. Create nested skills
-            createChildSkill("Spring Framework", "Java Framework", 
+            createChildSkill("Spring Framework", 
                 "Java enterprise application framework", javaSkill.getId());
 
             // 4. Test search functionality
@@ -48,9 +48,6 @@ public class SkillServiceTestHelper {
             // 5. Test hierarchy operations
             testHierarchyOperations(programmingSkill.getId());
 
-            // 6. Test category listing
-            testCategoryListing();
-
             log.info("=== Skill Management Demo Completed Successfully ===");
 
         } catch (Exception e) {
@@ -58,10 +55,9 @@ public class SkillServiceTestHelper {
         }
     }
 
-    private SkillDto createRootSkill(String name, String category, String description) {
+    private SkillDto createRootSkill(String name, String description) {
         SkillDto dto = SkillDto.builder()
                 .name(name)
-                .category(category)
                 .description(description)
                 .build();
 
@@ -70,10 +66,9 @@ public class SkillServiceTestHelper {
         return created;
     }
 
-    private SkillDto createChildSkill(String name, String category, String description, Long parentId) {
+    private SkillDto createChildSkill(String name, String description, Long parentId) {
         SkillDto dto = SkillDto.builder()
                 .name(name)
-                .category(category)
                 .description(description)
                 .parentSkillId(parentId)
                 .build();
@@ -107,16 +102,6 @@ public class SkillServiceTestHelper {
         }
     }
 
-    private void testCategoryListing() {
-        log.info("Testing category listing...");
-        
-        PageResponse<SkillDto> techSkills = skillService.listByCategory("Technology", PageRequest.of(0, 10));
-        log.info("Found {} skills in 'Technology' category", techSkills.getItems().size());
-
-        PageResponse<SkillDto> rootSkills = skillService.listRoots(PageRequest.of(0, 10));
-        log.info("Found {} root skills", rootSkills.getItems().size());
-    }
-
     /**
      * Test method for error scenarios
      */
@@ -132,10 +117,9 @@ public class SkillServiceTestHelper {
 
         try {
             // Test duplicate skill creation
-            createRootSkill("TestSkill", "TestCategory", "Test description");
+            createRootSkill("TestSkill", "Test description");
             SkillDto duplicate2 = SkillDto.builder()
                     .name("TestSkill")
-                    .category("TestCategory")
                     .description("Another test description")
                     .build();
             skillService.create(duplicate2);

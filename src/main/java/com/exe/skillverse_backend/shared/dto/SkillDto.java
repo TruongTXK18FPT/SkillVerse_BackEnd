@@ -13,9 +13,11 @@ import lombok.NoArgsConstructor;
 public class SkillDto {
     private Long id;
     private String name;
-    private String category;
+    private String canonicalKey;
     private String description;
     private Long parentSkillId;
+    private com.exe.skillverse_backend.shared.enums.SkillStatus status;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

@@ -276,7 +276,7 @@ public class UserProfileServiceImpl implements UserProfileService {
                 .userId(userSkill.getId().getUserId())
                 .skillId(userSkill.getId().getSkillId())
                 .skillName(userSkill.getSkill() != null ? userSkill.getSkill().getName() : null)
-                .skillCategory(userSkill.getSkill() != null ? userSkill.getSkill().getCategory() : null)
+            .skillCategory(null)
                 .skillDescription(userSkill.getSkill() != null ? userSkill.getSkill().getDescription() : null)
                 .proficiency(userSkill.getProficiency())
                 .proficiencyLabel(getProficiencyLabel(userSkill.getProficiency()))

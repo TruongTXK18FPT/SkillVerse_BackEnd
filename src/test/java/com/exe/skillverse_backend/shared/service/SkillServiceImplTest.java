@@ -37,23 +37,24 @@ class SkillServiceImplTest {
     @Mock
     private SkillMapper skillMapper;
 
+    @Mock
+    private SkillReferenceGuard skillReferenceGuard;
+
     private SkillServiceImpl service;
 
     private final Clock fixedClock = Clock.fixed(Instant.parse("2026-04-03T10:00:00Z"), ZoneOffset.UTC);
 
     @BeforeEach
     void setUp() {
-        service = new SkillServiceImpl(skillRepository, skillMapper, fixedClock);
+        service = new SkillServiceImpl(skillRepository, skillReferenceGuard, skillMapper, fixedClock);
         lenient().when(skillRepository.save(any(Skill.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
-    @DisplayName("create should reject duplicate name and category combinations")
-    void create_ShouldRejectDuplicateNameAndCategoryCombinations() {
-        SkillDto dto = SkillDto.builder().name("Spring Boot").category("Backend").build();
-        // Service normalizes to UPPERCASE before checking uniqueness
-        when(skillRepository.findByNameIgnoreCaseAndCategoryIgnoreCase("SPRING_BOOT", "Backend"))
-                .thenReturn(Optional.of(skill(10L, null, null, null)));
+    @DisplayName("create should reject duplicate canonical keys")
+    void create_ShouldRejectDuplicateCanonicalKey() {
+        SkillDto dto = SkillDto.builder().name("Spring Boot").build();
+        when(skillRepository.existsByCanonicalKey("SPRING_BOOT")).thenReturn(true);
 
         assertThrows(ConflictException.class, () -> service.create(dto));
         verify(skillMapper, never()).toEntity(dto);
@@ -64,15 +65,13 @@ class SkillServiceImplTest {
     void create_ShouldStampTimestampsAndResolveParentSkill() {
         SkillDto dto = SkillDto.builder()
                 .name("Spring Security")
-                .category("Backend")
                 .parentSkillId(1L)
                 .build();
-        Skill parent = skill(1L, "SPRING", "Backend", null);
-        Skill entity = skill(null, "SPRING SECURITY", "Backend", null);
+        Skill parent = skill(1L, "SPRING", null);
+        Skill entity = skill(null, "SPRING SECURITY", null);
 
         // Service normalizes to UPPERCASE before uniqueness check and persistence
-        when(skillRepository.findByNameIgnoreCaseAndCategoryIgnoreCase("SPRING_SECURITY", "Backend"))
-                .thenReturn(Optional.empty());
+        when(skillRepository.existsByCanonicalKey("SPRING_SECURITY")).thenReturn(false);
         when(skillRepository.findById(1L)).thenReturn(Optional.of(parent));
         when(skillMapper.toEntity(dto)).thenReturn(entity);
         when(skillMapper.toDto(any(Skill.class))).thenReturn(SkillDto.builder()
@@ -93,9 +92,9 @@ class SkillServiceImplTest {
     @Test
     @DisplayName("update should reject cyclic reparenting")
     void update_ShouldRejectCyclicReparenting() {
-        Skill current = skill(10L, "Java", "Backend", 1L);
-        Skill newParent = skill(20L, "Spring", "Backend", 10L);
-        SkillDto dto = SkillDto.builder().name("Java").category("Backend").parentSkillId(20L).build();
+        Skill current = skill(10L, "Java", 1L);
+        Skill newParent = skill(20L, "Spring", 10L);
+        SkillDto dto = SkillDto.builder().name("Java").parentSkillId(20L).build();
 
         when(skillRepository.findById(10L)).thenReturn(Optional.of(current));
         when(skillRepository.findById(20L)).thenReturn(Optional.of(newParent));
@@ -106,7 +105,7 @@ class SkillServiceImplTest {
     @Test
     @DisplayName("delete should block skills that still have children")
     void delete_ShouldBlockSkillsThatStillHaveChildren() {
-        Skill skill = skill(30L, "Child", "Backend", null);
+        Skill skill = skill(30L, "Child", null);
         when(skillRepository.findById(30L)).thenReturn(Optional.of(skill));
         when(skillRepository.countByParentSkillId(30L)).thenReturn(2L);
 
@@ -117,9 +116,9 @@ class SkillServiceImplTest {
     @Test
     @DisplayName("pathToRoot should return the node chain from child to root")
     void pathToRoot_ShouldReturnNodeChainFromChildToRoot() {
-        Skill child = skill(3L, "Child", "Backend", 2L);
-        Skill parent = skill(2L, "Parent", "Backend", 1L);
-        Skill root = skill(1L, "Root", "Backend", null);
+        Skill child = skill(3L, "Child", 2L);
+        Skill parent = skill(2L, "Parent", 1L);
+        Skill root = skill(1L, "Root", null);
 
         when(skillRepository.findById(3L)).thenReturn(Optional.of(child));
         when(skillRepository.findById(2L)).thenReturn(Optional.of(parent));
@@ -130,11 +129,10 @@ class SkillServiceImplTest {
         assertEquals(List.of(3L, 2L, 1L), path);
     }
 
-    private Skill skill(Long id, String name, String category, Long parentSkillId) {
+    private Skill skill(Long id, String name, Long parentSkillId) {
         Skill skill = new Skill();
         skill.setId(id);
         skill.setName(name);
-        skill.setCategory(category);
         skill.setParentSkillId(parentSkillId);
         return skill;
     }

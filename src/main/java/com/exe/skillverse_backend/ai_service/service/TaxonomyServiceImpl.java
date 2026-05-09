@@ -25,7 +25,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import com.exe.skillverse_backend.ai_service.entity.TaxonomyEntry;
 
-@Service
+@Service("aiTaxonomyServiceImpl")
 @Slf4j
 public class TaxonomyServiceImpl implements TaxonomyService {
     private static final String EXPERT_PACK_PATH_ENV = "SKILLVERSE_EXPERT_PACK_PATH";

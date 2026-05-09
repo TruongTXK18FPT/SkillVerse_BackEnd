@@ -36,6 +36,27 @@ public class SkillController {
 
     private final SkillService skillService;
 
+    @PostMapping("/resolve")
+    @Operation(summary = "Resolve a skill by raw name")
+    public ResponseEntity<SkillDto> resolveSkill(
+            @Parameter(description = "Raw skill name") @RequestParam String rawName) {
+        log.info("Resolving skill: {}", rawName);
+        SkillDto resolved = skillService.resolve(rawName);
+        return ResponseEntity.ok(resolved);
+    }
+    
+    @GetMapping("/active")
+    @Operation(summary = "Get all active skills")
+    public ResponseEntity<List<SkillDto>> getActiveSkills() {
+        return ResponseEntity.ok(skillService.listActive());
+    }
+
+    @GetMapping("/all")
+    @Operation(summary = "Get all skills (including inactive, for admin view)")
+    public ResponseEntity<List<SkillDto>> getAllSkills() {
+        return ResponseEntity.ok(skillService.listAll());
+    }
+
     @PostMapping
     @Operation(summary = "Create a new skill")
     public ResponseEntity<SkillDto> createSkill(@Valid @RequestBody SkillDto dto) {
@@ -55,11 +76,29 @@ public class SkillController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Delete a skill")
+    @Operation(summary = "Soft delete a skill")
     public ResponseEntity<Void> deleteSkill(
             @Parameter(description = "Skill ID") @PathVariable @NotNull Long id) {
         log.info("Deleting skill id: {}", id);
         skillService.delete(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{id}/reactivate")
+    @Operation(summary = "Reactivate a soft-deleted skill")
+    public ResponseEntity<Void> reactivateSkill(
+            @Parameter(description = "Skill ID") @PathVariable @NotNull Long id) {
+        log.info("Reactivating skill id: {}", id);
+        skillService.reactivate(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/{id}/hard")
+    @Operation(summary = "Hard delete a skill")
+    public ResponseEntity<Void> hardDeleteSkill(
+            @Parameter(description = "Skill ID") @PathVariable @NotNull Long id) {
+        log.info("Hard deleting skill id: {}", id);
+        skillService.hardDelete(id);
         return ResponseEntity.noContent().build();
     }
 
@@ -77,15 +116,6 @@ public class SkillController {
             @Parameter(description = "Search query") @RequestParam(required = false) String q,
             @PageableDefault(size = 20) Pageable pageable) {
         PageResponse<SkillDto> results = skillService.search(q, pageable);
-        return ResponseEntity.ok(results);
-    }
-
-    @GetMapping("/categories/{category}")
-    @Operation(summary = "List skills by category")
-    public ResponseEntity<PageResponse<SkillDto>> getSkillsByCategory(
-            @Parameter(description = "Skill category") @PathVariable String category,
-            @PageableDefault(size = 20) Pageable pageable) {
-        PageResponse<SkillDto> results = skillService.listByCategory(category, pageable);
         return ResponseEntity.ok(results);
     }
 

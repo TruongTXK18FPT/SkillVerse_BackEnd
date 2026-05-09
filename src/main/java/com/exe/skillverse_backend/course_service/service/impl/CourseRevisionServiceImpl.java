@@ -43,6 +43,7 @@ import com.exe.skillverse_backend.shared.exception.MediaOperationException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -523,7 +524,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
      * <ol>
      *   <li>Extract skill names from {@code revision.getCourseSkillTagsJson()}</li>
      *   <li>Delete all existing {@code course_skill} links for this course</li>
-     *   <li>Upsert {@code Skill} entities (find-or-create by name)</li>
+    *   <li>Upsert {@code Skill} entities (resolve by canonical key, fallback to legacy name)</li>
      *   <li>Create new {@code CourseSkill} links</li>
      * </ol>
      *
@@ -548,11 +549,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .orElseThrow(() -> new IllegalStateException("Course " + courseId + " not found"));
 
         for (String name : skillNames) {
-            Skill skill = skillRepository.findByNameIgnoreCase(name)
-                    .orElseGet(() -> {
-                        Skill newSkill = Skill.builder().name(name).build();
-                        return skillRepository.save(newSkill);
-                    });
+            Skill skill = resolveOrCreateSkillByTag(name);
 
             CourseSkill link = CourseSkill.builder()
                     .id(new CourseSkillId(courseId, skill.getId()))
@@ -567,6 +564,18 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         log.info("[RevisionSkillSync] Synced {} skill links for course {} on revision approval",
                 skillNames.size(), courseId);
     }
+
+        private Skill resolveOrCreateSkillByTag(String rawSkillName) {
+        String normalizedName = rawSkillName == null ? null : rawSkillName.trim();
+        String canonicalKey = SkillNameUtils.normalizeRequired(normalizedName);
+
+        return skillRepository.findByCanonicalKey(canonicalKey)
+            .orElseGet(() -> skillRepository.findByNameIgnoreCase(normalizedName)
+                .orElseGet(() -> skillRepository.save(Skill.builder()
+                    .name(normalizedName)
+                    .canonicalKey(canonicalKey)
+                    .build())));
+        }
 
     /**
      * Convert a JSON array node to a deduplicated list of UPPERCASE, trimmed strings.

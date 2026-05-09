@@ -31,6 +31,7 @@ import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import com.exe.skillverse_backend.shared.entity.Media;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.MediaOperationException;
@@ -998,28 +999,24 @@ public class CourseServiceImpl implements CourseService {
             return;
         }
 
-        // Deduplicate and normalize names — ALL non-alphanumeric → underscore, then UPPERCASE.
-        // "java core" / "java-core" → "JAVA_CORE". Consistent with SkillServiceImpl.normalizeName()
-        List<String> normalized = skillNames.stream()
+        // Deduplicate raw skill names; canonical keys are used only for lookup/comparison.
+        List<String> sanitizedNames = skillNames.stream()
                 .filter(n -> n != null && !n.isBlank())
-                .map(n -> n.trim().replaceAll("[^a-zA-Z0-9]+", "_")
-                             .replaceAll("_+", "_")
-                             .replaceAll("^_|_$", "")
-                             .toUpperCase(Locale.ROOT))
+            .map(String::trim)
                 .distinct()
                 .collect(Collectors.toList());
+
+        Set<String> desiredCanonicalKeys = sanitizedNames.stream()
+            .map(SkillNameUtils::normalize)
+            .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
 
         // Fetch Course once to satisfy @MapsId FK requirement on CourseSkill
         Course course = courseRepository.findById(courseId)
                 .orElseThrow(() -> new IllegalStateException("Course " + courseId + " not found"));
 
-        // Step 1: Ensure Skill entity exists for each tag (upsert)
-        for (String name : normalized) {
-            Skill skill = skillRepository.findByNameIgnoreCase(name)
-                    .orElseGet(() -> {
-                        Skill newSkill = Skill.builder().name(name).build();
-                        return skillRepository.save(newSkill);
-                    });
+        // Step 1: Ensure Skill entity exists for each tag (upsert by canonical key)
+        for (String rawName : sanitizedNames) {
+            Skill skill = resolveOrCreateSkillByTag(rawName);
 
             // Step 2: Create CourseSkill link if not exists
             if (!courseSkillRepository.existsByCourseIdAndSkillId(courseId, skill.getId())) {
@@ -1030,27 +1027,53 @@ public class CourseServiceImpl implements CourseService {
                         .build();
                 courseSkillRepository.save(link);
                 log.debug("[SkillLink] Linked course {} to skill '{}' (id={})",
-                        courseId, name, skill.getId());
+                        courseId, rawName, skill.getId());
             }
         }
 
         // Step 3: Remove links for tags no longer present
-        List<String> currentNames = courseSkillRepository.findSkillNamesByCourseId(courseId);
-        List<String> toRemove = currentNames.stream()
-                .filter(n -> !normalized.contains(n))
+                List<Skill> currentSkills = courseSkillRepository.findSkillsByCourseId(courseId);
+                List<Skill> toRemove = currentSkills.stream()
+                    .filter(skill -> !desiredCanonicalKeys.contains(resolveSkillCanonicalKey(skill)))
                 .collect(Collectors.toList());
 
-        for (String nameToRemove : toRemove) {
-            skillRepository.findByNameIgnoreCase(nameToRemove).ifPresent(skill -> {
-                courseSkillRepository.deleteByCourseIdAndSkillId(courseId, skill.getId());
-                log.debug("[SkillLink] Unlinked course {} from skill '{}' (id={})",
-                        courseId, nameToRemove, skill.getId());
-            });
+                for (Skill skillToRemove : toRemove) {
+                    courseSkillRepository.deleteByCourseIdAndSkillId(courseId, skillToRemove.getId());
+                    log.debug("[SkillLink] Unlinked course {} from skill '{}' (id={})",
+                        courseId, skillToRemove.getName(), skillToRemove.getId());
         }
 
+                Set<String> currentCanonicalKeys = currentSkills.stream()
+                    .map(this::resolveSkillCanonicalKey)
+                    .collect(Collectors.toSet());
+                long addedCount = desiredCanonicalKeys.stream()
+                    .filter(key -> !currentCanonicalKeys.contains(key))
+                    .count();
+
         log.info("[SkillLink] Synced {} skill links for course {} (added={}, removed={})",
-                normalized.size(), courseId, normalized.size() - (int) currentNames.stream().filter(normalized::contains).count(), toRemove.size());
+                    sanitizedNames.size(), courseId, addedCount, toRemove.size());
     }
+
+                private Skill resolveOrCreateSkillByTag(String rawSkillName) {
+                String normalizedName = rawSkillName == null ? null : rawSkillName.trim();
+                String canonicalKey = SkillNameUtils.normalizeRequired(normalizedName);
+
+                return skillRepository.findByCanonicalKey(canonicalKey)
+                    .orElseGet(() -> skillRepository.findByNameIgnoreCase(normalizedName)
+                        .orElseGet(() -> skillRepository.save(Skill.builder()
+                            .name(normalizedName)
+                            .canonicalKey(canonicalKey)
+                            .build())));
+                }
+
+                private String resolveSkillCanonicalKey(Skill skill) {
+                if (skill == null) {
+                    return null;
+                }
+                return skill.getCanonicalKey() != null && !skill.getCanonicalKey().isBlank()
+                    ? skill.getCanonicalKey()
+                    : SkillNameUtils.normalize(skill.getName());
+                }
 
     private List<String> normalizeCourseSkillUpdate(List<String> courseSkills) {
         if (courseSkills == null) {

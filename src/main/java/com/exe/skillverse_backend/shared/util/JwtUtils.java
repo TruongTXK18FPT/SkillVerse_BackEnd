@@ -31,16 +31,23 @@ public final class JwtUtils {
      * @throws IllegalArgumentException if neither claim is present or parseable
      */
     public static Long extractUserId(Jwt jwt) {
-        String userId = jwt.getClaimAsString("userId");
-        if (userId != null && !userId.isBlank()) {
-            return Long.parseLong(userId);
+        if (jwt == null) {
+            throw new com.exe.skillverse_backend.shared.exception.AuthenticationException("Unauthorized");
         }
-        // Fallback: "sub" claim (standard JWT subject == userId in our auth server config)
-        String subject = jwt.getSubject();
-        if (subject != null && !subject.isBlank()) {
-            return Long.parseLong(subject);
+        try {
+            String userId = jwt.getClaimAsString("userId");
+            if (userId != null && !userId.isBlank()) {
+                return Long.parseLong(userId);
+            }
+            // Fallback: "sub" claim (standard JWT subject == userId in our auth server config)
+            String subject = jwt.getSubject();
+            if (subject != null && !subject.isBlank()) {
+                return Long.parseLong(subject);
+            }
+        } catch (Exception e) {
+            // Log if we had a logger, or just let it fall through to throw AuthenticationException
         }
-        throw new IllegalArgumentException("JWT contains neither 'userId' claim nor 'sub' claim");
+        throw new com.exe.skillverse_backend.shared.exception.AuthenticationException("JWT contains no valid userId");
     }
 
     /**

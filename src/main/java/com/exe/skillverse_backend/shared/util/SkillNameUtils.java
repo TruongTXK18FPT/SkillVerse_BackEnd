@@ -32,7 +32,11 @@ public final class SkillNameUtils {
      */
     public static String normalize(String raw) {
         if (raw == null) return null;
-        return raw.trim()
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        normalized = normalized.replace("c#", "csharp");
+        normalized = normalized.replace(".net", "dotnet");
+        
+        return normalized
                 .replaceAll("[^a-zA-Z0-9]+", "_")
                 .replaceAll("_+", "_")
                 .replaceAll("^_|_$", "")

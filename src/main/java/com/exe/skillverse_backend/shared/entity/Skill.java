@@ -10,9 +10,12 @@ import lombok.ToString;
 import java.time.LocalDateTime;
 import java.util.List;
 import com.exe.skillverse_backend.course_service.entity.CourseSkill;
+import com.exe.skillverse_backend.shared.enums.SkillStatus;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -22,6 +25,7 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+
 @Entity
 @Table(name = "skills")
 @Data
@@ -36,7 +40,19 @@ public class Skill {
     @Column(nullable = false)
     private String name;
 
-    private String category;
+    @Column(name = "canonical_key", unique = true)
+    private String canonicalKey;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    @lombok.Builder.Default
+    private SkillStatus status = SkillStatus.ACTIVE;
+
+    @Column(name = "approved_by")
+    private Long approvedBy;
+
+    @Column(name = "approved_at")
+    private LocalDateTime approvedAt;
 
     @Column(columnDefinition = "TEXT")
     private String description;
@@ -44,12 +60,6 @@ public class Skill {
     @Column(name = "parent_skill_id")
     private Long parentSkillId;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "parent_skill_id", insertable = false, updatable = false)
-    private Skill parentSkill;
-
-    @OneToMany(mappedBy = "parentSkill", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    private List<Skill> subSkills;
     @OneToMany(mappedBy = "skill", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude @EqualsAndHashCode.Exclude
     private List<CourseSkill> courseSkills;
