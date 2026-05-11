@@ -265,11 +265,11 @@ public class AdminUserServiceImpl implements AdminUserService {
                         throw new BadRequestException("Vai trò chính là bắt buộc");
                 }
 
-                // Validate: Chỉ cho phép main roles (USER, MENTOR, RECRUITER, PARENT, ADMIN)
+                // Validate: Chỉ cho phép main roles (USER, MENTOR, RECRUITER, ADMIN)
                 // Sub-admin roles phải được gán qua setSubAdminRoles
                 if (!newPrimaryRole.isMainRole()) {
                         throw new BadRequestException("Vai trò không hợp lệ: " + newPrimaryRole + 
-                                ". Chỉ các vai trò chính (USER, MENTOR, RECRUITER, PARENT, ADMIN) được phép. " +
+                                ". Chỉ các vai trò chính (USER, MENTOR, RECRUITER, ADMIN) được phép. " +
                                 "Các vai trò phụ trợ phải được gán qua endpoint vai trò phụ trợ.");
                 }
 
@@ -295,7 +295,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                 
                 // ✅ SYNC: Remove ALL existing main roles, then add new one
                 // Rule: User has exactly one main role matching primaryRole
-                Set<String> mainRoleNames = Set.of("USER", "MENTOR", "RECRUITER", "PARENT", "ADMIN");
+                Set<String> mainRoleNames = Set.of("USER", "MENTOR", "RECRUITER", "ADMIN");
                 Set<Role> rolesToRemove = user.getRoles().stream()
                                 .filter(r -> mainRoleNames.contains(r.getName()))
                                 .collect(Collectors.toSet());
@@ -1050,12 +1050,6 @@ public class AdminUserServiceImpl implements AdminUserService {
                         entityManager.createNativeQuery("DELETE FROM user_roles WHERE user_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
 
-                        // Parent Service
-                        entityManager.createNativeQuery("DELETE FROM parent_student_links WHERE parent_id = ?1 OR student_id = ?1")
-                                        .setParameter(1, userId).executeUpdate();
-                        entityManager.createNativeQuery("DELETE FROM learning_reports WHERE parent_id = ?1 OR student_id = ?1")
-                                        .setParameter(1, userId).executeUpdate();
-
                         // Student Learning Report Service
                         entityManager.createNativeQuery("DELETE FROM student_learning_reports WHERE student_id = ?1")
                                         .setParameter(1, userId).executeUpdate();
@@ -1109,10 +1103,6 @@ public class AdminUserServiceImpl implements AdminUserService {
 
                         // Mentor Service - Favorite Mentors
                         entityManager.createNativeQuery("DELETE FROM favorite_mentors WHERE student_id = ?1 OR mentor_id = ?1")
-                                        .setParameter(1, userId).executeUpdate();
-
-                        // Seminar Service
-                        entityManager.createNativeQuery("DELETE FROM seminar_tickets WHERE CAST(user_id AS TEXT) = CAST(?1 AS TEXT)")
                                         .setParameter(1, userId).executeUpdate();
 
                         // Community Service

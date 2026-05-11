@@ -26,17 +26,23 @@ import com.exe.skillverse_backend.course_service.entity.enums.QuizGradingMethod;
 
 @Entity
 @Table(name = "quizzes")
-@Data @NoArgsConstructor @AllArgsConstructor @Builder
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Quiz {
-  @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+  @Id
+  @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
   @ManyToOne(fetch = FetchType.LAZY, optional = false)
   @JoinColumn(name = "module_id", nullable = false)
   private Module module;
 
-  @Column(length = 200) private String title;
-  @Column(columnDefinition = "TEXT") private String description;
+  @Column(length = 200)
+  private String title;
+  @Column(columnDefinition = "TEXT")
+  private String description;
   private Integer passScore;
   private Integer maxAttempts;
   @Column(name = "time_limit_minutes")
@@ -56,6 +62,24 @@ public class Quiz {
 
   @OneToMany(mappedBy = "quiz", cascade = CascadeType.ALL, orphanRemoval = true)
   @OrderBy("orderIndex ASC")
-  @ToString.Exclude @EqualsAndHashCode.Exclude
+  @ToString.Exclude
+  @EqualsAndHashCode.Exclude
   private List<QuizQuestion> questions;
+
+  public Long getId() { return id; }
+  public void setId(Long id) { this.id = id; }
+  public Module getModule() { return module; }
+  public void setModule(Module module) { this.module = module; }
+  public String getTitle() { return title; }
+  public void setTitle(String title) { this.title = title; }
+  public String getDescription() { return description; }
+  public void setDescription(String description) { this.description = description; }
+  public Integer getPassScore() { return passScore; }
+  public void setPassScore(Integer passScore) { this.passScore = passScore; }
+  public Integer getMaxAttempts() { return maxAttempts; }
+  public void setMaxAttempts(Integer maxAttempts) { this.maxAttempts = maxAttempts; }
+  public Integer getTimeLimitMinutes() { return timeLimitMinutes; }
+  public void setTimeLimitMinutes(Integer timeLimitMinutes) { this.timeLimitMinutes = timeLimitMinutes; }
+  public QuizGradingMethod getGradingMethod() { return gradingMethod; }
+  public void setGradingMethod(QuizGradingMethod gradingMethod) { this.gradingMethod = gradingMethod; }
 }

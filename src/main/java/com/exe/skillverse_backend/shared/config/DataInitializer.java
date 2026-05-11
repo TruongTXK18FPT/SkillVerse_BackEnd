@@ -56,7 +56,7 @@ public class DataInitializer implements CommandLineRunner {
                         jdbcTemplate.execute(dropConstraintSql);
 
                         String addConstraintSql = "ALTER TABLE users ADD CONSTRAINT users_primary_role_check " +
-                                        "CHECK (primary_role IN ('USER', 'MENTOR', 'RECRUITER', 'PARENT', 'ADMIN', " +
+                                        "CHECK (primary_role IN ('USER', 'MENTOR', 'RECRUITER', 'ADMIN', " +
                                         "'USER_ADMIN', 'CONTENT_ADMIN', 'COMMUNITY_ADMIN', 'FINANCE_ADMIN', " +
                                         "'PREMIUM_ADMIN', 'AI_ADMIN', 'SUPPORT_ADMIN', 'SYSTEM_ADMIN'))";
                         jdbcTemplate.execute(addConstraintSql);
@@ -107,14 +107,6 @@ public class DataInitializer implements CommandLineRunner {
                                 recruiterRole.setName("RECRUITER");
                                 roleRepository.save(recruiterRole);
                                 log.info("✅ Created RECRUITER role");
-                        }
-
-                        // Create PARENT role if it doesn't exist
-                        if (!roleRepository.existsByName("PARENT")) {
-                                Role parentRole = new Role();
-                                parentRole.setName("PARENT");
-                                roleRepository.save(parentRole);
-                                log.info("✅ Created PARENT role");
                         }
 
                         // Initialize Sub-Admin Roles

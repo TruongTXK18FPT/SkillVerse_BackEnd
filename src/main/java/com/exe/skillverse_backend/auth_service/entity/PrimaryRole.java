@@ -5,7 +5,7 @@ import java.util.Set;
 /**
  * PrimaryRole enum representing all user roles in the system.
  * <p>
- * Main roles: USER, MENTOR, RECRUITER, PARENT, ADMIN
+ * Main roles: USER, MENTOR, RECRUITER, ADMIN
  * Sub-admin roles: USER_ADMIN, CONTENT_ADMIN, COMMUNITY_ADMIN, FINANCE_ADMIN,
  *                   PREMIUM_ADMIN, AI_ADMIN, SUPPORT_ADMIN, SYSTEM_ADMIN
  */
@@ -14,7 +14,6 @@ public enum PrimaryRole {
     USER, // Regular user with basic access
     MENTOR, // Approved mentor who can offer services
     RECRUITER, // Approved recruiter who can post jobs
-    PARENT, // Parent who can monitor and fund students
     ADMIN, // Administrator with full access (Super Admin)
 
     // Sub-Admin Roles
@@ -29,11 +28,11 @@ public enum PrimaryRole {
 
     /**
      * Check if this role is a main role (not sub-admin).
-     * Main roles: USER, MENTOR, RECRUITER, PARENT, ADMIN
+     * Main roles: USER, MENTOR, RECRUITER, ADMIN
      */
     public boolean isMainRole() {
         return this == USER || this == MENTOR || this == RECRUITER ||
-               this == PARENT || this == ADMIN;
+               this == ADMIN;
     }
 
     /**

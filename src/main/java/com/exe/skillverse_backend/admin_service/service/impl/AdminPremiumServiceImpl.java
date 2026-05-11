@@ -323,7 +323,7 @@ public class AdminPremiumServiceImpl implements AdminPremiumService {
     }
 
     private PremiumPlan.TargetRole normalizeLegacyTargetRole(PremiumPlan.TargetRole targetRole) {
-        if (targetRole == null || targetRole == PremiumPlan.TargetRole.PARENT) {
+        if (targetRole == null) {
             return PremiumPlan.TargetRole.LEARNER;
         }
         return targetRole;

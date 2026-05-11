@@ -55,14 +55,6 @@ public class UserCreationServiceImpl implements UserCreationService {
     }
 
     /**
-     * Create a new user for parent registration
-     */
-    @Transactional
-    public User createUserForParent(String email, String password, String fullName, String phone) {
-        return createUser(email, password, fullName, phone, PrimaryRole.PARENT, "PARENT", true);
-    }
-
-    /**
      * Create a new user for regular user registration
      */
     @Transactional

@@ -141,8 +141,7 @@ public class PremiumPlan {
      */
     public enum TargetRole {
         LEARNER,    // Regular learners/students
-        RECRUITER,  // Recruiter users
-        PARENT      // Parent accounts
+        RECRUITER   // Recruiter users
     }
 
     /**

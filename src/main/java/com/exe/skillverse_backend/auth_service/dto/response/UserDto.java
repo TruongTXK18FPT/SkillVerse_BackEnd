@@ -18,7 +18,7 @@ public class UserDto {
     private Set<String> roles;
 
     /**
-     * Primary role of the user (USER, MENTOR, RECRUITER, PARENT, ADMIN)
+    * Primary role of the user (USER, MENTOR, RECRUITER, ADMIN)
      */
     private String primaryRole;
 

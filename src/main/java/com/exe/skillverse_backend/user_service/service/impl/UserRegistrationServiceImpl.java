@@ -2,8 +2,6 @@ package com.exe.skillverse_backend.user_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.service.UserCreationService;
-import com.exe.skillverse_backend.parent_service.dto.request.LinkStudentRequest;
-import com.exe.skillverse_backend.parent_service.service.ParentService;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.service.RegistrationService;
 import com.exe.skillverse_backend.user_service.dto.request.UserRegistrationRequest;
@@ -26,7 +24,6 @@ public class UserRegistrationServiceImpl
 
     private final UserCreationService userCreationService;
     private final UserProfileRepository userProfileRepository;
-    private final ParentService parentService;
 
     @Override
     public UserRegistrationResponse register(UserRegistrationRequest request) {
@@ -38,33 +35,14 @@ public class UserRegistrationServiceImpl
         // Note: Password validation is already handled by @PasswordMatches annotation on
         // BaseRegistrationRequest - no need to check manually here
 
-        // Create User via auth service
-        User user;
-        if ("PARENT".equalsIgnoreCase(request.getRole())) {
-            user = userCreationService.createUserForParent(request.getEmail(), request.getPassword(),
-                    request.getFullName(), request.getPhone());
-        } else {
-            user = userCreationService.createUserForUser(request.getEmail(), request.getPassword(),
+        User user = userCreationService.createUserForUser(request.getEmail(), request.getPassword(),
                     request.getFullName());
-        }
 
         // Create user profile
         createUserProfile(user.getId(), request);
         // Note: FREE_TIER is already auto-assigned by UserCreationService during user creation
         // No need to call premiumService.assignFreeTierIfMissing() here - it would be redundant
 
-        // Handle Parent-Child linking if applicable
-        if ("PARENT".equalsIgnoreCase(request.getRole()) && request.getChildEmail() != null && !request.getChildEmail().isEmpty()) {
-            try {
-                LinkStudentRequest linkRequest = new LinkStudentRequest();
-                linkRequest.setStudentEmail(request.getChildEmail());
-                parentService.sendLinkRequest(user.getId(), linkRequest);
-                log.info("Initiated link request to student: {}", request.getChildEmail());
-            } catch (Exception e) {
-                log.warn("Failed to link student {} during registration: {}", request.getChildEmail(), e.getMessage());
-                // Don't fail registration, just log warning
-            }
-        }
 
         // Get OTP expiry time
         LocalDateTime otpExpiryTime = userCreationService.getOtpExpiryTime(request.getEmail());

@@ -98,4 +98,17 @@ public class Assignment {
   @Builder.Default
   @Column(name = "trust_ai_enabled", nullable = false)
   private Boolean trustAiEnabled = false;
+
+  public Long getId() { return id; }
+  public void setId(Long id) { this.id = id; }
+  public String getTitle() { return title; }
+  public void setTitle(String title) { this.title = title; }
+  public String getDescription() { return description; }
+  public void setDescription(String description) { this.description = description; }
+  public SubmissionType getSubmissionType() { return submissionType; }
+  public void setSubmissionType(SubmissionType submissionType) { this.submissionType = submissionType; }
+  public BigDecimal getMaxScore() { return maxScore; }
+  public void setMaxScore(BigDecimal maxScore) { this.maxScore = maxScore; }
+  public BigDecimal getPassingScore() { return passingScore; }
+  public void setPassingScore(BigDecimal passingScore) { this.passingScore = passingScore; }
 }

@@ -62,6 +62,6 @@ public abstract class BaseRegistrationRequest {
     @Schema(description = "User's phone number", example = "+1234567890")
     private String phoneNumber;
 
-    @Schema(description = "User's role (optional)", example = "PARENT")
+    @Schema(description = "User's role (optional)", example = "USER")
     private String role;
 }

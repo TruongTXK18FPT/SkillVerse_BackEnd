@@ -479,30 +479,7 @@ public class AdminUserServiceImplTest {
         assertEquals(PrimaryRole.RECRUITER, targetUser.getPrimaryRole());
     }
 
-    @Test
-    void updateUserRole_AcceptsMainRole_Parent() {
-        // Arrange
-        mockSecurityContext(1L); // Different user (admin) performing the change
-        UpdateUserRoleRequest request = UpdateUserRoleRequest.builder()
-                .userId(2L)
-                .primaryRole(PrimaryRole.PARENT)
-                .build();
 
-        Role parentRole = new Role();
-        parentRole.setId(7L);
-        parentRole.setName("PARENT");
-
-        when(userRepository.findByIdWithRoles(2L)).thenReturn(Optional.of(targetUser));
-        when(roleRepository.findByName("PARENT")).thenReturn(Optional.of(parentRole));
-        when(userRepository.save(any(User.class))).thenReturn(targetUser);
-
-        // Act
-        AdminUserResponse response = adminUserService.updateUserRole(request);
-
-        // Assert
-        assertNotNull(response);
-        assertEquals(PrimaryRole.PARENT, targetUser.getPrimaryRole());
-    }
 
     @Test
     void updateUserRole_ThrowsNotFoundWhenUserNotExists() {

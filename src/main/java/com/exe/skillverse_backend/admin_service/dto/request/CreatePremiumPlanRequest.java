@@ -59,7 +59,7 @@ public class CreatePremiumPlanRequest {
     @Schema(description = "Plan type (cannot be FREE_TIER)", example = "PREMIUM_BASIC")
     private PremiumPlan.PlanType planType;
 
-    @Schema(description = "Target role for this plan (LEARNER, RECRUITER, PARENT). If not set, defaults to LEARNER", example = "RECRUITER")
+    @Schema(description = "Target role for this plan (LEARNER, RECRUITER). If not set, defaults to LEARNER", example = "RECRUITER")
     @Builder.Default
     private PremiumPlan.TargetRole targetRole = PremiumPlan.TargetRole.LEARNER;
 

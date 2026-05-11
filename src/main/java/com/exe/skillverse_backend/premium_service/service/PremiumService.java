@@ -61,17 +61,12 @@ public interface PremiumService {
 
     /**
      * Get checkout preview for a target premium plan.
-     * Supports fresh purchase plus the current learner upgrade policy
-     * (72h grace upgrade or full-price upgrade after the grace window).
-     * The applyStudentDiscount flag is retained only for backward compatibility.
-     * It is ignored by the current pricing flow because pricing is now resolved
-     * by backend pricing policy.
+     * Supports fresh purchase plus the current learner upgrade policy.
      */
     SubscriptionCheckoutPreviewResponse getCheckoutPreview(
             Long buyerUserId,
             Long planId,
-            boolean applyStudentDiscount,
-            Long targetUserId
+            boolean applyStudentDiscount
     );
 
     /**
@@ -130,15 +125,7 @@ public interface PremiumService {
      */
     UserSubscriptionResponse purchaseWithWalletCash(Long userId, Long planId, boolean applyStudentDiscount);
 
-    /**
-     * Purchase premium subscription using wallet cash for another user (gift)
-     * Parent can buy for their linked children
-     * Throws exception if insufficient balance or no valid link
-     * The applyStudentDiscount flag is retained only for backward compatibility.
-     * It is ignored by the current pricing flow because pricing is now resolved
-     * by backend pricing policy.
-     */
-    UserSubscriptionResponse purchaseWithWalletCash(Long buyerId, Long planId, boolean applyStudentDiscount, Long targetUserId);
+
 
     /**
      * Enable auto-renewal for subscription

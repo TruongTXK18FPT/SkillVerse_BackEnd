@@ -94,7 +94,7 @@ public class RecruiterSubscriptionController {
 
         try {
             UserSubscriptionResponse response = premiumService.purchaseWithWalletCash(
-                    userId, planId, false, null);
+                    userId, planId, false);
             return ResponseEntity.ok(response);
         } catch (RuntimeException e) {
             log.error("Failed to purchase Recruiter Pro plan: {}", e.getMessage());

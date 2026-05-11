@@ -2,7 +2,6 @@ package com.exe.skillverse_backend.user_service.service;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.service.UserCreationService;
-import com.exe.skillverse_backend.parent_service.service.ParentService;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.user_service.dto.request.UserRegistrationRequest;
 import com.exe.skillverse_backend.user_service.entity.UserProfile;
@@ -31,9 +30,6 @@ class UserRegistrationServiceImplTest {
 
     @Mock
     private UserProfileRepository userProfileRepository;
-
-    @Mock
-    private ParentService parentService;
 
     @InjectMocks
     private UserRegistrationServiceImpl userRegistrationService;
@@ -64,9 +60,7 @@ class UserRegistrationServiceImplTest {
 
         assertEquals("Email đã được đăng ký", exception.getMessage());
         verify(userCreationService, never()).createUserForUser(anyString(), anyString(), anyString());
-        verify(userCreationService, never()).createUserForParent(anyString(), anyString(), anyString(), anyString());
         verify(userProfileRepository, never()).save(any(UserProfile.class));
-        verify(parentService, never()).sendLinkRequest(any(), any());
     }
 
     @Test

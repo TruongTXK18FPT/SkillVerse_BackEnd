@@ -74,20 +74,18 @@ public class PremiumController {
             @RequestParam Long planId,
             @Parameter(description = "Legacy compatibility flag. The backend ignores this value because pricing is resolved by backend policy.")
             @RequestParam(required = false, defaultValue = "false") Boolean applyStudentDiscount,
-            @RequestParam(required = false) Long targetUserId,
             Authentication authentication) {
 
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
 
-        log.info("Generating checkout preview for user {} and plan {} (targetUserId: {})",
-                userId, planId, targetUserId);
+        log.info("Generating checkout preview for user {} and plan {}",
+                userId, planId);
 
         return ResponseEntity.ok(premiumService.getCheckoutPreview(
                 userId,
                 planId,
-                applyStudentDiscount != null && applyStudentDiscount,
-                targetUserId));
+                applyStudentDiscount != null && applyStudentDiscount));
     }
 
     @GetMapping("/subscription/current")
@@ -165,20 +163,18 @@ public class PremiumController {
             @RequestParam Long planId,
             @Parameter(description = "Legacy compatibility flag. The backend ignores this value because pricing is resolved by backend policy.")
             @RequestParam(required = false, defaultValue = "false") Boolean applyStudentDiscount,
-            @RequestParam(required = false) Long targetUserId,
             Authentication authentication) {
 
         Jwt jwt = (Jwt) authentication.getPrincipal();
         Long userId = Long.valueOf(jwt.getClaimAsString("userId"));
 
-        log.info("User {} purchasing premium plan {} with wallet (targetUserId: {})", userId, planId, targetUserId);
+        log.info("User {} purchasing premium plan {} with wallet", userId, planId);
         
         try {
             UserSubscriptionResponse response = premiumService.purchaseWithWalletCash(
                 userId, 
                 planId, 
-                applyStudentDiscount != null && applyStudentDiscount,
-                targetUserId
+                applyStudentDiscount != null && applyStudentDiscount
             );
             
             return ResponseEntity.ok(response);

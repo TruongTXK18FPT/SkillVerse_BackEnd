@@ -69,7 +69,7 @@ public class UpdatePremiumPlanRequest {
     @Schema(description = "Whether plan is active", example = "true")
     private Boolean isActive;
 
-    @Schema(description = "Target role for this plan (LEARNER, RECRUITER, PARENT)", example = "RECRUITER")
+    @Schema(description = "Target role for this plan (LEARNER, RECRUITER)", example = "RECRUITER")
     private PremiumPlan.TargetRole targetRole;
 
     @Valid

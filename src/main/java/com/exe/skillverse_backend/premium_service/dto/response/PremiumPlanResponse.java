@@ -44,7 +44,7 @@ public class PremiumPlanResponse {
     @Schema(description = "Plan type", example = "PREMIUM_BASIC")
     private PremiumPlan.PlanType planType;
 
-    @Schema(description = "Target role for this plan (LEARNER, RECRUITER, PARENT)", example = "LEARNER")
+    @Schema(description = "Target role for this plan (LEARNER, RECRUITER)", example = "LEARNER")
     private PremiumPlan.TargetRole targetRole;
 
     @Schema(description = "Discount percentage for the plan's configured target role", example = "15")

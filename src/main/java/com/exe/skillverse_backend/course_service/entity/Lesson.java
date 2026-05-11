@@ -80,4 +80,19 @@ public class Lesson {
   protected void onUpdate() {
     updatedAt = Instant.now();
   }
+
+  public Long getId() { return id; }
+  public void setId(Long id) { this.id = id; }
+  public String getTitle() { return title; }
+  public void setTitle(String title) { this.title = title; }
+  public LessonType getType() { return type; }
+  public void setType(LessonType type) { this.type = type; }
+  public String getContentText() { return contentText; }
+  public void setContentText(String contentText) { this.contentText = contentText; }
+  public String getResourceUrl() { return resourceUrl; }
+  public void setResourceUrl(String resourceUrl) { this.resourceUrl = resourceUrl; }
+  public String getVideoUrl() { return videoUrl; }
+  public void setVideoUrl(String videoUrl) { this.videoUrl = videoUrl; }
+  public Integer getDurationSec() { return durationSec; }
+  public void setDurationSec(Integer durationSec) { this.durationSec = durationSec; }
 }

@@ -22,7 +22,6 @@ import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
-import com.exe.skillverse_backend.parent_service.repository.ParentStudentLinkRepository;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.repository.PaymentTransactionRepository;
 import com.exe.skillverse_backend.premium_service.constants.PremiumConstants;
@@ -89,8 +88,7 @@ class PremiumServiceImplTest {
     @Mock
     private NotificationServiceImpl notificationService;
 
-    @Mock
-    private ParentStudentLinkRepository parentStudentLinkRepository;
+
 
         @Mock
         private StudentVerificationService studentVerificationService;
@@ -124,7 +122,6 @@ class PremiumServiceImplTest {
                 userProfileService,
                 premiumEmailService,
                 notificationService,
-                parentStudentLinkRepository,
                 studentVerificationService,
                 new ObjectMapper()));
 
@@ -146,37 +143,7 @@ class PremiumServiceImplTest {
                 .build();
     }
 
-    @Test
-    void tryRecoverPendingSubscriptions_recoversUsingCompletedParentPayment() {
-        PaymentTransaction parentPayment = PaymentTransaction.builder()
-                .id(900L)
-                .user(User.builder().id(999L).email("parent@test.com").build())
-                .type(PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION)
-                .status(PaymentTransaction.PaymentStatus.COMPLETED)
-                .internalReference("TXN_PARENT_1")
-                .metadata("{\"subscriptionId\":555,\"targetUserId\":200}")
-                .build();
 
-        when(userRepository.findById(200L)).thenReturn(Optional.of(childUser));
-        when(userSubscriptionRepository.findPendingRecruiterSubscriptions(200L)).thenReturn(Collections.emptyList());
-        when(userSubscriptionRepository.findByUserOrderByCreatedAtDesc(eq(childUser), eq(Pageable.unpaged())))
-                .thenReturn(new PageImpl<>(List.of(pendingSubscription)));
-        when(paymentTransactionRepository.findByUserAndType(
-                childUser,
-                PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION))
-                .thenReturn(Collections.emptyList());
-        when(paymentTransactionRepository.findByTypeAndStatus(
-                PaymentTransaction.PaymentType.PREMIUM_SUBSCRIPTION,
-                PaymentTransaction.PaymentStatus.COMPLETED))
-                .thenReturn(List.of(parentPayment));
-        doReturn(pendingSubscription).when(premiumService)
-                .activateSubscription(555L, "TXN_PARENT_1");
-
-        boolean recovered = premiumService.tryRecoverPendingSubscriptions(200L);
-
-        assertTrue(recovered);
-        verify(premiumService).activateSubscription(555L, "TXN_PARENT_1");
-    }
 
     @Test
     void getCheckoutPreview_returnsGraceWindowUpgradeAmountForLearnerWithin72Hours() {
@@ -226,7 +193,7 @@ class PremiumServiceImplTest {
         when(userSubscriptionRepository.findCurrentActiveSubscription(selfUser))
                 .thenReturn(Optional.of(activeSubscription));
 
-        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(300L, 20L, false, null);
+        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(300L, 20L, false);
 
         assertTrue(preview.isEligible());
         assertTrue(preview.isUpgrade());
@@ -284,7 +251,7 @@ class PremiumServiceImplTest {
         when(userSubscriptionRepository.findCurrentActiveSubscriptionForUpdate(selfUser))
                 .thenReturn(Optional.of(freeSubscription));
 
-        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(303L, 210L, false, null);
+        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(303L, 210L, false);
 
         assertTrue(preview.isEligible());
         assertEquals(new BigDecimal("75000"), preview.getEffectivePrice());
@@ -340,7 +307,7 @@ class PremiumServiceImplTest {
         when(userSubscriptionRepository.findCurrentActiveSubscription(selfUser))
                 .thenReturn(Optional.of(activeSubscription));
 
-        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(302L, 24L, false, null);
+        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(302L, 24L, false);
 
         assertEquals(SubscriptionCheckoutPreviewResponse.PricingMode.UPGRADE_GRACE_WINDOW, preview.getPricingMode());
         assertEquals(new BigDecimal("50000"), preview.getCurrentPlanCredit());
@@ -395,7 +362,7 @@ class PremiumServiceImplTest {
         when(userSubscriptionRepository.findCurrentActiveSubscription(selfUser))
                 .thenReturn(Optional.of(activeSubscription));
 
-        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(301L, 13L, false, null);
+        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(301L, 13L, false);
 
         assertTrue(preview.isEligible());
         assertFalse(preview.isUpgrade());
@@ -453,7 +420,7 @@ class PremiumServiceImplTest {
         when(userSubscriptionRepository.findCurrentActiveSubscription(selfUser))
                 .thenReturn(Optional.of(activeSubscription));
 
-        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(1301L, 113L, false, null);
+        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(1301L, 113L, false);
 
         assertTrue(preview.isEligible());
         assertTrue(preview.isUpgrade());
@@ -519,7 +486,7 @@ class PremiumServiceImplTest {
                     return saved;
                 });
 
-        UserSubscriptionResponse response = premiumService.purchaseWithWalletCash(400L, 22L, false, null);
+        UserSubscriptionResponse response = premiumService.purchaseWithWalletCash(400L, 22L, false);
 
         verify(walletService).deductCash(
                 eq(400L),
@@ -583,7 +550,7 @@ class PremiumServiceImplTest {
         when(userSubscriptionRepository.findCurrentActiveSubscription(selfUser))
                 .thenReturn(Optional.of(activeSubscription));
 
-        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(410L, 23L, false, null);
+        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(410L, 23L, false);
 
         assertTrue(preview.isEligible());
         assertTrue(preview.isUpgrade());
@@ -619,14 +586,14 @@ class PremiumServiceImplTest {
                 .studentDiscountPercent(BigDecimal.ZERO)
                 .isActive(true)
                 .build();
-        User parentUser = User.builder()
+        User mentorUser = User.builder()
                 .id(411L)
-                .email("parent@test.com")
-                .primaryRole(PrimaryRole.PARENT)
+                .email("mentor@test.com")
+                .primaryRole(PrimaryRole.MENTOR)
                 .build();
         UserSubscription activeSubscription = UserSubscription.builder()
                 .id(907L)
-                .user(parentUser)
+                .user(mentorUser)
                 .plan(currentPlan)
                 .isActive(true)
                 .status(UserSubscription.SubscriptionStatus.ACTIVE)
@@ -635,12 +602,12 @@ class PremiumServiceImplTest {
                 .isStudentSubscription(false)
                 .build();
 
-        when(userRepository.findById(411L)).thenReturn(Optional.of(parentUser));
+        when(userRepository.findById(411L)).thenReturn(Optional.of(mentorUser));
         when(premiumPlanRepository.findById(24L)).thenReturn(Optional.of(targetPlan));
-        when(userSubscriptionRepository.findCurrentActiveSubscription(parentUser))
+        when(userSubscriptionRepository.findCurrentActiveSubscription(mentorUser))
                 .thenReturn(Optional.of(activeSubscription));
 
-        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(411L, 24L, false, null);
+        SubscriptionCheckoutPreviewResponse preview = premiumService.getCheckoutPreview(411L, 24L, false);
 
         assertFalse(preview.isEligible());
         assertTrue(preview.isUpgrade());
@@ -700,7 +667,7 @@ class PremiumServiceImplTest {
         when(userSubscriptionRepository.save(any(UserSubscription.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
-        UserSubscriptionResponse response = premiumService.purchaseWithWalletCash(412L, 25L, false, null);
+        UserSubscriptionResponse response = premiumService.purchaseWithWalletCash(412L, 25L, false);
 
         verify(walletService).deductCash(
                 eq(412L),

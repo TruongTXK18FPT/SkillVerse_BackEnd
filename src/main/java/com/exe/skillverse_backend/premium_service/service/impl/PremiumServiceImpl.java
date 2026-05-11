@@ -8,9 +8,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
-import com.exe.skillverse_backend.parent_service.entity.ParentStudentLink;
-import com.exe.skillverse_backend.parent_service.entity.enums.LinkStatus;
-import com.exe.skillverse_backend.parent_service.repository.ParentStudentLinkRepository;
 import com.exe.skillverse_backend.payment_service.entity.PaymentTransaction;
 import com.exe.skillverse_backend.payment_service.repository.PaymentTransactionRepository;
 import com.exe.skillverse_backend.premium_service.constants.PremiumConstants;
@@ -67,7 +64,6 @@ public class PremiumServiceImpl implements PremiumService {
         private final UserProfileService userProfileService;
         private final PremiumEmailService premiumEmailService;
         private final NotificationServiceImpl notificationService;
-        private final ParentStudentLinkRepository parentStudentLinkRepository;
         private final StudentVerificationService studentVerificationService;
         private final ObjectMapper objectMapper;
 
@@ -162,10 +158,9 @@ public class PremiumServiceImpl implements PremiumService {
         public SubscriptionCheckoutPreviewResponse getCheckoutPreview(
                         Long buyerUserId,
                         Long planId,
-                        boolean applyStudentDiscount,
-                        Long targetUserId) {
+                        boolean applyStudentDiscount) {
                 return convertToCheckoutPreviewResponse(
-                                buildCheckoutPreview(buyerUserId, planId, applyStudentDiscount, targetUserId));
+                                buildCheckoutPreview(buyerUserId, planId, applyStudentDiscount));
         }
 
         @Override
@@ -240,12 +235,7 @@ public class PremiumServiceImpl implements PremiumService {
                 Long payerUserId = paymentTransaction.getUser().getId();
                 Long beneficiaryUserId = subscription.getUser().getId();
                 if (!payerUserId.equals(beneficiaryUserId)) {
-                        ParentStudentLink link = parentStudentLinkRepository
-                                        .findByParentIdAndStudentId(payerUserId, beneficiaryUserId)
-                                        .orElseThrow(() -> new RuntimeException("Payment user is not allowed for this subscription"));
-                        if (link.getStatus() != LinkStatus.ACTIVE) {
-                                throw new RuntimeException("Parent-student link is not active");
-                        }
+                        throw new RuntimeException("Payment user is not allowed for this subscription");
                 }
 
                 LocalDateTime activationTime = LocalDateTime.now();
@@ -865,8 +855,7 @@ public class PremiumServiceImpl implements PremiumService {
         private CheckoutPreviewDetails buildCheckoutPreview(
                         Long buyerUserId,
                         Long planId,
-                        boolean legacyApplyStudentDiscount,
-                        Long targetUserId) {
+                        boolean legacyApplyStudentDiscount) {
                 if (legacyApplyStudentDiscount) {
                         log.debug(
                                         "Ignoring legacy applyStudentDiscount=true for buyer {} and plan {} because pricing is resolved by backend policy.",
@@ -875,7 +864,7 @@ public class PremiumServiceImpl implements PremiumService {
                 }
                 User buyer = userRepository.findById(buyerUserId)
                                 .orElseThrow(() -> new RuntimeException("Buyer not found with ID: " + buyerUserId));
-                User recipient = resolveRecipientForPurchase(buyer, targetUserId);
+                User recipient = buyer;
                 PremiumPlan targetPlan = premiumPlanRepository.findById(planId)
                                 .filter(PremiumPlan::getIsActive)
                                 .orElseThrow(() -> new RuntimeException("Premium plan not found: " + planId));
@@ -1051,22 +1040,6 @@ public class PremiumServiceImpl implements PremiumService {
                                 "Thanh toán phần chênh lệch trong 72 giờ đầu để reset toàn bộ thời hạn và quyền lợi của gói mới.");
         }
 
-        private User resolveRecipientForPurchase(User buyer, Long targetUserId) {
-                if (targetUserId == null || targetUserId.equals(buyer.getId())) {
-                        return buyer;
-                }
-
-                ParentStudentLink link = parentStudentLinkRepository.findByParentIdAndStudentId(buyer.getId(), targetUserId)
-                                .orElseThrow(() -> new RuntimeException(
-                                                "Không tìm thấy liên kết giữa phụ huynh và học sinh. Vui lòng kết nối trước khi mua."));
-
-                if (link.getStatus() != LinkStatus.ACTIVE) {
-                        throw new RuntimeException("Liên kết chưa được kích hoạt. Học sinh cần chấp nhận lời mời kết nối.");
-                }
-
-                return userRepository.findById(targetUserId)
-                                .orElseThrow(() -> new RuntimeException("Không tìm thấy học sinh với ID: " + targetUserId));
-        }
 
         private UserSubscription resolveUpgradeSourceSubscription(
                         UserSubscription newSubscription,
@@ -1112,7 +1085,7 @@ public class PremiumServiceImpl implements PremiumService {
                 }
 
                 PremiumPlan.TargetRole targetRole = resolvePlanTargetRole(plan);
-                if (targetRole == PremiumPlan.TargetRole.LEARNER || targetRole == PremiumPlan.TargetRole.PARENT) {
+                if (targetRole == PremiumPlan.TargetRole.LEARNER) {
                         return LEARNER_PLAN_ORDER.getOrDefault(plan.getPlanType(), 0);
                 }
 
@@ -1400,17 +1373,10 @@ public class PremiumServiceImpl implements PremiumService {
 
         @Override
         @Transactional
-        public UserSubscriptionResponse purchaseWithWalletCash(Long userId, Long planId, boolean applyStudentDiscount) {
-                // Delegate to the overloaded method with null targetUserId (self-purchase)
-                return purchaseWithWalletCash(userId, planId, applyStudentDiscount, null);
-        }
-
-        @Override
-        @Transactional
-        public UserSubscriptionResponse purchaseWithWalletCash(Long buyerId, Long planId, boolean applyStudentDiscount, Long targetUserId) {
-                log.info("💰 User {} purchasing premium plan {} with wallet cash (target: {})", buyerId, planId, targetUserId);
+        public UserSubscriptionResponse purchaseWithWalletCash(Long buyerId, Long planId, boolean applyStudentDiscount) {
+                log.info("💰 User {} purchasing premium plan {} with wallet cash", buyerId, planId);
                 CheckoutPreviewDetails checkoutPreview = buildCheckoutPreview(
-                                buyerId, planId, applyStudentDiscount, targetUserId);
+                                buyerId, planId, applyStudentDiscount);
 
                 if (!checkoutPreview.eligible()) {
                         throw new RuntimeException(checkoutPreview.message());
@@ -1424,9 +1390,7 @@ public class PremiumServiceImpl implements PremiumService {
                 if (existingSubscription.isPresent() &&
                                 existingSubscription.get().getPlan().getPlanType() == PremiumPlan.PlanType.FREE_TIER) {
                         UserSubscription freeTierSub = existingSubscription.get();
-                        freeTierSub.suspend("Upgrading to Premium via Wallet"
-                                        + (targetUserId != null ? " (Gift from " + buyerId + ")" : "")
-                                        + " - will reactivate when premium expires");
+                        freeTierSub.suspend("Upgrading to Premium via Wallet - will reactivate when premium expires");
                         userSubscriptionRepository.save(freeTierSub);
                 }
 
@@ -1437,9 +1401,7 @@ public class PremiumServiceImpl implements PremiumService {
                                 finalPrice, checkoutPreview.upgrade(), checkoutPreview.discountApplied());
 
                 if (finalPrice.compareTo(BigDecimal.ZERO) > 0) {
-                        String purchaseDescription = targetUserId != null
-                                        ? String.format("Mua gói Premium: %s cho %s %s", plan.getDisplayName(), recipient.getFirstName(), recipient.getLastName())
-                                        : String.format("Mua gói Premium: %s", plan.getDisplayName());
+                        String purchaseDescription = String.format("Mua gói Premium: %s", plan.getDisplayName());
                         try {
                                 walletService.deductCash(buyerId, finalPrice, purchaseDescription,
                                                 WalletTransaction.TransactionType.PURCHASE_PREMIUM,
@@ -1532,17 +1494,6 @@ public class PremiumServiceImpl implements PremiumService {
                                                 NotificationType.PREMIUM_PURCHASE,
                                                 String.valueOf(scheduledSubscription.getId()));
 
-                                if (targetUserId != null && !targetUserId.equals(buyerId)) {
-                                        notificationService.createNotification(
-                                                        buyerId,
-                                                        scheduleUpdated ? "Đã cập nhật lịch chuyển gói cho học sinh"
-                                                                        : "Đã lên lịch chuyển gói cho học sinh",
-                                                        "Hệ thống đã lên lịch chuyển sang gói " + plan.getDisplayName()
-                                                                        + " cho " + recipient.getFirstName() + " " + recipient.getLastName()
-                                                                        + " từ ngày " + scheduledStartDate.toLocalDate() + ".",
-                                                        NotificationType.PREMIUM_PURCHASE,
-                                                        String.valueOf(scheduledSubscription.getId()));
-                                }
                         }
 
                         return convertToUserSubscriptionResponse(scheduledSubscription);
@@ -1581,9 +1532,7 @@ public class PremiumServiceImpl implements PremiumService {
 
                 try {
                         // Notify recipient
-                        String notifyMessage = targetUserId != null 
-                                ? "Bạn đã được " + buyer.getFirstName() + " " + buyer.getLastName() + " tặng gói Premium " + plan.getDisplayName() + "!"
-                                : "Bạn đã đăng ký gói Premium " + plan.getDisplayName() + " thành công bằng ví.";
+                        String notifyMessage = "Bạn đã đăng ký gói Premium " + plan.getDisplayName() + " thành công bằng ví.";
                         
                         notificationService.createNotification(
                                         recipient.getId(),
@@ -1592,15 +1541,6 @@ public class PremiumServiceImpl implements PremiumService {
                                         NotificationType.PREMIUM_PURCHASE,
                                         String.valueOf(subscription.getId()));
                                         
-                        // Also notify buyer if gift purchase
-                        if (targetUserId != null && !targetUserId.equals(buyerId)) {
-                                notificationService.createNotification(
-                                        buyerId,
-                                        "Tặng Premium thành công",
-                                        "Bạn đã tặng gói Premium " + plan.getDisplayName() + " cho " + recipient.getFirstName() + " " + recipient.getLastName() + " thành công!",
-                                        NotificationType.PREMIUM_PURCHASE,
-                                        String.valueOf(subscription.getId()));
-                        }
                 } catch (Exception e) {
                         log.error("Failed to create notification for premium purchase: {}", e.getMessage());
                 }
@@ -2232,7 +2172,7 @@ public class PremiumServiceImpl implements PremiumService {
         }
 
         private PremiumPlan.TargetRole normalizeLegacyTargetRole(PremiumPlan.TargetRole targetRole) {
-                if (targetRole == null || targetRole == PremiumPlan.TargetRole.PARENT) {
+                if (targetRole == null) {
                         return PremiumPlan.TargetRole.LEARNER;
                 }
                 return targetRole;

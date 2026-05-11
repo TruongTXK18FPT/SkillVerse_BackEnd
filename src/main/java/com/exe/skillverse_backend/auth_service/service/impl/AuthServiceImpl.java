@@ -94,12 +94,12 @@ public class AuthServiceImpl implements AuthService {
                         User user = userRepository.findByEmail(email)
                                         .orElseThrow(() -> new RuntimeException("User not found"));
 
-                        // Only activate regular users and parents - mentors/recruiters need admin approval
-                        if (user.getPrimaryRole() == PrimaryRole.USER || user.getPrimaryRole() == PrimaryRole.PARENT) {
+                        // Only activate regular users - mentors/recruiters need admin approval
+                        if (user.getPrimaryRole() == PrimaryRole.USER) {
                                 user.setStatus(UserStatus.ACTIVE);
                                 log.info("Activated user account: {} ({})", email, user.getPrimaryRole());
 
-                                // Send welcome email only for regular users and parents
+                                // Send welcome email only for regular users
                                 emailService.sendWelcomeEmail(email, null);
                         } else {
                                 // For mentors/recruiters, just mark email as verified but keep INACTIVE
@@ -108,16 +108,16 @@ public class AuthServiceImpl implements AuthService {
                                 // No welcome email - they will get approval/rejection email later from admin
                         }
                         user = userRepository.save(user);
-                        String actionType = (user.getPrimaryRole() == PrimaryRole.USER || user.getPrimaryRole() == PrimaryRole.PARENT) 
+                        String actionType = (user.getPrimaryRole() == PrimaryRole.USER) 
                                         ? "EMAIL_VERIFIED_ACTIVATED"
                                         : "EMAIL_VERIFIED_PENDING_APPROVAL";
-                        String message = (user.getPrimaryRole() == PrimaryRole.USER || user.getPrimaryRole() == PrimaryRole.PARENT)
+                        String message = (user.getPrimaryRole() == PrimaryRole.USER)
                                         ? "Email verified successfully! You can now login with your credentials."
                                         : "Email verified successfully! Your "
                                                         + user.getPrimaryRole().toString().toLowerCase()
                                                         + " application is pending admin approval.";
 
-                        String nextStep = (user.getPrimaryRole() == PrimaryRole.USER || user.getPrimaryRole() == PrimaryRole.PARENT)
+                        String nextStep = (user.getPrimaryRole() == PrimaryRole.USER)
                                         ? "Use /api/auth/login to get your access tokens"
                                         : "Please wait for admin approval before logging in";
 

@@ -71,10 +71,33 @@ public class DatabaseSchemaFixer {
                 this::patchBackfillSkillCanonicalKey,
                 this::verifyBackfillSkillCanonicalKey
             );
+
+            applyPatch(
+                "20260510_drop_unused_services_tables",
+                "Drop tables related to deprecated parent_service and seminar_service",
+                this::patchDropUnusedTables,
+                this::verifyDropUnusedTables
+            );
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
         }
+    }
+
+    private void patchDropUnusedTables() {
+        log.info("Dropping tables for parent_service and seminar_service...");
+        // Drop in correct order to avoid FK constraint issues
+        executeSql("DROP TABLE IF EXISTS seminar_tickets CASCADE");
+        executeSql("DROP TABLE IF EXISTS seminars CASCADE");
+        executeSql("DROP TABLE IF EXISTS learning_reports CASCADE");
+        executeSql("DROP TABLE IF EXISTS parent_student_links CASCADE");
+    }
+
+    private boolean verifyDropUnusedTables() {
+        return !hasTable("seminar_tickets") && 
+               !hasTable("seminars") && 
+               !hasTable("learning_reports") && 
+               !hasTable("parent_student_links");
     }
 
     private void patchBackfillSkillCanonicalKey() {
