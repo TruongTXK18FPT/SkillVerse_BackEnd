@@ -73,6 +73,20 @@ public class DatabaseSchemaFixer {
             );
 
             applyPatch(
+                "20260514_add_skills_status_column",
+                "Add 'status' column to skills table (enum string)",
+                this::patchAddSkillStatusColumn,
+                this::verifyAddSkillStatusColumn
+            );
+
+            applyPatch(
+                "20260514_create_ai_token_usage_logs",
+                "Create ai_token_usage_logs table if missing",
+                this::patchCreateAiTokenUsageLogs,
+                this::verifyCreateAiTokenUsageLogs
+            );
+
+            applyPatch(
                 "20260510_drop_unused_services_tables",
                 "Drop tables related to deprecated parent_service and seminar_service",
                 this::patchDropUnusedTables,
@@ -126,6 +140,54 @@ public class DatabaseSchemaFixer {
         }
         var results = jdbcTemplate.queryForList("SELECT 1 FROM skills WHERE canonical_key IS NULL");
         return results.isEmpty();
+    }
+
+    private void patchAddSkillStatusColumn() {
+        if (hasColumn("skills", "status")) {
+            log.debug("Column 'status' already exists on skills table; skipping");
+            return;
+        }
+        log.info("Adding 'status' column to skills table...");
+        // Use a VARCHAR that matches the enum string values; set default to ACTIVE for safety
+        executeSql("ALTER TABLE skills ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE'");
+    }
+
+    private boolean verifyAddSkillStatusColumn() {
+        return hasColumn("skills", "status");
+    }
+
+    private void patchCreateAiTokenUsageLogs() {
+        if (hasTable("ai_token_usage_logs")) {
+            log.debug("Table ai_token_usage_logs already exists; skipping");
+            return;
+        }
+        log.info("Creating table ai_token_usage_logs...");
+        executeSql("CREATE TABLE IF NOT EXISTS ai_token_usage_logs (" +
+                "id BIGSERIAL PRIMARY KEY, " +
+                "flow_type VARCHAR(30) NOT NULL, " +
+                "provider_type VARCHAR(20) NOT NULL, " +
+                "model_name VARCHAR(50), " +
+                "user_id BIGINT, " +
+                "related_entity_type VARCHAR(30), " +
+                "related_entity_id BIGINT, " +
+                "prompt_tokens BIGINT, " +
+                "completion_tokens BIGINT, " +
+                "total_tokens BIGINT, " +
+                "estimated BOOLEAN NOT NULL, " +
+                "status VARCHAR(10) NOT NULL, " +
+                "latency_ms BIGINT, " +
+                "error_code VARCHAR(50), " +
+                "created_at TIMESTAMP NOT NULL" +
+                ")");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_token_usage_logs_created_at ON ai_token_usage_logs(created_at)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_token_usage_logs_flow_type_created ON ai_token_usage_logs(flow_type, created_at)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_token_usage_logs_provider_type_created ON ai_token_usage_logs(provider_type, created_at)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_token_usage_logs_user_id_created ON ai_token_usage_logs(user_id, created_at)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_ai_token_usage_logs_status_created ON ai_token_usage_logs(status, created_at)");
+    }
+
+    private boolean verifyCreateAiTokenUsageLogs() {
+        return hasTable("ai_token_usage_logs");
     }
 
     // ─── Utilities ────────────────────────────────────────────────────────────
