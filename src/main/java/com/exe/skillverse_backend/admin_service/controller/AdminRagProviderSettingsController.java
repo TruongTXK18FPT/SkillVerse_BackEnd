@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.admin_service.controller;
 import com.exe.skillverse_backend.admin_service.dto.RagProviderSettingsResponse;
 import com.exe.skillverse_backend.admin_service.dto.UpdateRagProviderSettingRequest;
 import com.exe.skillverse_backend.ai_rag_service.config.AiRagProperties;
+import com.exe.skillverse_backend.ai_rag_service.config.MistralAiProperties;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.runtime_settings.service.AppRuntimeSettingService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -28,15 +29,13 @@ public class AdminRagProviderSettingsController {
 
     private final AppRuntimeSettingService runtimeSettingService;
     private final AiRagProperties aiRagProperties;
+    private final MistralAiProperties mistralAiProperties;
 
     @Value("${skillverse.ai.local.enabled:false}")
     private boolean localAiEnvEnabled;
 
     @Value("${skillverse.ai.local.base-url:}")
     private String localAiBaseUrl;
-
-    @Value("${skillverse.ai.mistral.embedding.api-key:}")
-    private String mistralEmbeddingApiKey;
 
     @GetMapping
     @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
@@ -99,7 +98,7 @@ public class AdminRagProviderSettingsController {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Cannot enable Java RAG: AI_RAG_JAVA_ENABLED is false in environment.");
             }
-            if (mistralEmbeddingApiKey == null || mistralEmbeddingApiKey.isBlank()) {
+            if (!isMistralEmbeddingKeyPresent()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                         "Cannot enable Java RAG: MISTRAL_EMBEDDING_API_KEY is not configured.");
             }
@@ -115,7 +114,7 @@ public class AdminRagProviderSettingsController {
         boolean aiRagServiceConfigured = localAiEnvEnabled
                 && localAiBaseUrl != null && !localAiBaseUrl.isBlank();
         boolean javaRagEnvEnabled = aiRagProperties.isJavaEnabled();
-        boolean mistralKeyPresent = mistralEmbeddingApiKey != null && !mistralEmbeddingApiKey.isBlank();
+        boolean mistralKeyPresent = isMistralEmbeddingKeyPresent();
         boolean aiRagServiceOn = runtimeSettingService.isAiRagServiceRuntimeEnabled();
         boolean localAiGenerationOn = runtimeSettingService.isLocalAiGenerationRuntimeEnabled();
         boolean javaRagOn = runtimeSettingService.isJavaRagFallbackRuntimeEnabled();
@@ -144,5 +143,10 @@ public class AdminRagProviderSettingsController {
                 .mistralEmbeddingKeyPresent(mistralKeyPresent)
                 .effectiveMode(effectiveMode)
                 .build();
+    }
+
+    private boolean isMistralEmbeddingKeyPresent() {
+        String apiKey = mistralAiProperties.getEmbedding().getApiKey();
+        return apiKey != null && !apiKey.isBlank();
     }
 }

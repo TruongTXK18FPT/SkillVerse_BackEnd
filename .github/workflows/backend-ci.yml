@@ -35,6 +35,8 @@ env:
   MISTRAL_PLANNER_API_KEY: ${{ secrets.MISTRAL_PLANNER_API_KEY }}
   MISTRAL_PLANNER_MODEL: mistral-small-latest
   MISTRAL_EMBEDDING_API_KEY: ${{ secrets.MISTRAL_EMBEDDING_API_KEY }}
+  AI_RAG_JAVA_ENABLED: ${{ secrets.AI_RAG_JAVA_ENABLED || 'true' }}
+  MISTRAL_EMBEDDING_MODEL: ${{ secrets.MISTRAL_EMBEDDING_MODEL || 'mistral-embed' }}
 
   # Meowl Chat Configuration
   MEOWL_GEMINI_API_KEY: ${{ secrets.MEOWL_GEMINI_API_KEY }}
@@ -417,6 +419,8 @@ jobs:
             -e MISTRAL_API_KEY="${MISTRAL_API_KEY}" \
             -e MISTRAL_PLANNER_API_KEY="${MISTRAL_PLANNER_API_KEY}" \
             -e MISTRAL_EMBEDDING_API_KEY="${MISTRAL_EMBEDDING_API_KEY}" \
+            -e AI_RAG_JAVA_ENABLED="${AI_RAG_JAVA_ENABLED}" \
+            -e MISTRAL_EMBEDDING_MODEL="${MISTRAL_EMBEDDING_MODEL}" \
             -e MEOWL_GEMINI_API_KEY="${MEOWL_GEMINI_API_KEY}" \
             -e PORTFOLIO_MISTRAL_API_KEY="${PORTFOLIO_MISTRAL_API_KEY}" \
             -e LEARNING_REPORT_KEY="${LEARNING_REPORT_KEY}" \
@@ -542,6 +546,8 @@ jobs:
           echo "MISTRAL_API_KEY='${{ secrets.MISTRAL_API_KEY }}'" >> .env
           echo "MISTRAL_PLANNER_API_KEY='${{ secrets.MISTRAL_PLANNER_API_KEY }}'" >> .env
           echo "MISTRAL_EMBEDDING_API_KEY='${{ secrets.MISTRAL_EMBEDDING_API_KEY }}'" >> .env
+          echo "AI_RAG_JAVA_ENABLED='${{ secrets.AI_RAG_JAVA_ENABLED || 'true' }}'" >> .env
+          echo "MISTRAL_EMBEDDING_MODEL='${{ secrets.MISTRAL_EMBEDDING_MODEL || 'mistral-embed' }}'" >> .env
           echo "MEOWL_GEMINI_API_KEY='${{ secrets.MEOWL_GEMINI_API_KEY }}'" >> .env
           echo "PORTFOLIO_MISTRAL_API_KEY='${{ secrets.PORTFOLIO_MISTRAL_API_KEY }}'" >> .env
           echo "LEARNING_REPORT_KEY='${{ secrets.LEARNING_REPORT_KEY }}'" >> .env
@@ -572,6 +578,11 @@ jobs:
             echo "❌ WARNING: MISTRAL_API_KEY secret is empty or not set!"
           else
             echo "✅ MISTRAL_API_KEY is set (length: ${#MISTRAL_API_KEY})"
+          fi
+          if [ -z "${{ secrets.MISTRAL_EMBEDDING_API_KEY }}" ]; then
+            echo "❌ WARNING: MISTRAL_EMBEDDING_API_KEY secret is empty or not set!"
+          else
+            echo "✅ MISTRAL_EMBEDDING_API_KEY is set"
           fi
           if [ -z "${{ secrets.GEMINI_API_KEY }}" ]; then
             echo "❌ WARNING: GEMINI_API_KEY secret is empty or not set!"
@@ -612,6 +623,9 @@ jobs:
             # Debug: Verify critical variables are loaded
             echo "🔍 Verifying loaded environment variables..."
             [ -n "$MISTRAL_API_KEY" ] && echo "✅ MISTRAL_API_KEY loaded" || echo "❌ MISTRAL_API_KEY missing"
+            [ -n "$MISTRAL_EMBEDDING_API_KEY" ] && echo "✅ MISTRAL_EMBEDDING_API_KEY loaded" || echo "❌ MISTRAL_EMBEDDING_API_KEY missing"
+            [ -n "$AI_RAG_JAVA_ENABLED" ] && echo "✅ AI_RAG_JAVA_ENABLED loaded: $AI_RAG_JAVA_ENABLED" || echo "❌ AI_RAG_JAVA_ENABLED missing"
+            [ -n "$MISTRAL_EMBEDDING_MODEL" ] && echo "✅ MISTRAL_EMBEDDING_MODEL loaded: $MISTRAL_EMBEDDING_MODEL" || echo "❌ MISTRAL_EMBEDDING_MODEL missing"
             [ -n "$GEMINI_API_KEY" ] && echo "✅ GEMINI_API_KEY loaded" || echo "❌ GEMINI_API_KEY missing"
             [ -n "$CLOUDINARY_CLOUD_NAME" ] && echo "✅ CLOUDINARY_CLOUD_NAME loaded" || echo "❌ CLOUDINARY_CLOUD_NAME missing"
             [ -n "$ASSIGNMENT_AI_API_KEY" ] && echo "✅ ASSIGNMENT_AI_API_KEY loaded" || echo "❌ ASSIGNMENT_AI_API_KEY missing"
@@ -743,6 +757,8 @@ jobs:
               -e MISTRAL_API_KEY="$MISTRAL_API_KEY" \
               -e MISTRAL_PLANNER_API_KEY="$MISTRAL_PLANNER_API_KEY" \
               -e MISTRAL_EMBEDDING_API_KEY="$MISTRAL_EMBEDDING_API_KEY" \
+              -e AI_RAG_JAVA_ENABLED="$AI_RAG_JAVA_ENABLED" \
+              -e MISTRAL_EMBEDDING_MODEL="$MISTRAL_EMBEDDING_MODEL" \
               -e GEMINI_API_KEY="$GEMINI_API_KEY" \
               -e MEOWL_GEMINI_API_KEY="$MEOWL_GEMINI_API_KEY" \
               -e PORTFOLIO_MISTRAL_API_KEY="$PORTFOLIO_MISTRAL_API_KEY" \
