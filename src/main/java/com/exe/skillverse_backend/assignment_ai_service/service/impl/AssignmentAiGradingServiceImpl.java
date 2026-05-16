@@ -18,6 +18,7 @@ import com.exe.skillverse_backend.course_service.repository.AssignmentRepository
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.course_service.repository.SubmissionCriteriaScoreRepository;
+import com.exe.skillverse_backend.ai_rag_service.service.AiRagGateway;
 import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
 import com.exe.skillverse_backend.ai_usage_service.dto.AiTokenUsageRecordCommand;
 import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiFlowType;
@@ -71,6 +72,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
     private final ChatModel chatModel;
     private final ObjectMapper objectMapper;
     private final LocalAiGateway localAiGateway;
+    private final AiRagGateway aiRagGateway;
     private final LessonRepository lessonRepository;
     private final RevisionPinnedContentResolver revisionPinnedContentResolver;
     private final AiTokenUsageRecorder tokenUsageRecorder;
@@ -87,6 +89,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
             @Autowired(required = false) @Qualifier("assignmentAiChatModel") ChatModel chatModel,
             @Autowired(required = false) CourseLearningProgressService courseLearningProgressService,
             @Autowired(required = false) LocalAiGateway localAiGateway,
+            @Autowired(required = false) AiRagGateway aiRagGateway,
             LessonRepository lessonRepository,
             RevisionPinnedContentResolver revisionPinnedContentResolver,
             @Autowired(required = false) AiTokenUsageRecorder tokenUsageRecorder) {
@@ -101,6 +104,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         this.chatModel = chatModel;
         this.courseLearningProgressService = courseLearningProgressService;
         this.localAiGateway = localAiGateway;
+        this.aiRagGateway = aiRagGateway;
         this.lessonRepository = lessonRepository;
         this.revisionPinnedContentResolver = revisionPinnedContentResolver;
         this.tokenUsageRecorder = tokenUsageRecorder;
@@ -419,37 +423,42 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
             return pinnedContext;
         }
 
-        if (localAiGateway != null) {
+        if (aiRagGateway != null) {
             String courseId = course.getId().toString();
             String moduleId = module.getId().toString();
 
             // Tier 2: module-scoped course content via RAG (course_id + module_id)
-            String ragContext = localAiGateway.fetchRagContext(
-                    ragQuery,
-                    Map.of(
-                            "doc_type", "lesson",
-                            "domain", "course_content",
-                            "course_id", courseId,
-                            "module_id", moduleId
-                    ),
-                    5);
+            try {
+                String ragContext = aiRagGateway.fetchRagContext(
+                        ragQuery,
+                        Map.of(
+                                "doc_type", "lesson",
+                                "domain", "course_content",
+                                "course_id", courseId,
+                                "module_id", moduleId
+                        ),
+                        5);
 
-            if (!ragContext.isBlank()) {
-                return ragContext;
-            }
+                if (!ragContext.isBlank()) {
+                    return ragContext;
+                }
 
-            // Tier 3: course-scoped course content via RAG (course_id only)
-            ragContext = localAiGateway.fetchRagContext(
-                    ragQuery,
-                    Map.of(
-                            "doc_type", "lesson",
-                            "domain", "course_content",
-                            "course_id", courseId
-                    ),
-                    5);
+                // Tier 3: course-scoped course content via RAG (course_id only)
+                ragContext = aiRagGateway.fetchRagContext(
+                        ragQuery,
+                        Map.of(
+                                "doc_type", "lesson",
+                                "domain", "course_content",
+                                "course_id", courseId
+                        ),
+                        5);
 
-            if (!ragContext.isBlank()) {
-                return ragContext;
+                if (!ragContext.isBlank()) {
+                    return ragContext;
+                }
+            } catch (Exception e) {
+                log.warn("RAG context fetch failed for assignment grading (doc {}), falling back to DB: {}",
+                        submission.getAssignment().getId(), e.getMessage());
             }
         }
 

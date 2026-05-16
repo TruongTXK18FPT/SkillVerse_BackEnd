@@ -21,6 +21,7 @@ import com.exe.skillverse_backend.ai_service.entity.RoadmapSession.RoadmapStatus
 import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
+import com.exe.skillverse_backend.ai_rag_service.service.AiRagGateway;
 import com.exe.skillverse_backend.ai_service.service.dto.CourseCatalogEntry;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
@@ -129,6 +130,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
     private final AiCourseCatalogService aiCourseCatalogService;
     private final MultiLevelCourseMatcher multiLevelCourseMatcher;
     private final LocalAiGateway localAiGateway;
+    private final AiRagGateway aiRagGateway;
     private final AiTokenUsageRecorder tokenUsageRecorder;
     private final RoadmapNodeSubmissionRepository nodeSubmissionRepository;
 
@@ -150,6 +152,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             AiCourseCatalogService aiCourseCatalogService,
             MultiLevelCourseMatcher multiLevelCourseMatcher,
             @Autowired(required = false) LocalAiGateway localAiGateway,
+            @Autowired(required = false) AiRagGateway aiRagGateway,
             @Autowired(required = false) AiTokenUsageRecorder tokenUsageRecorder,
             RoadmapNodeSubmissionRepository nodeSubmissionRepository) {
         this.roadmapSessionRepository = roadmapSessionRepository;
@@ -169,6 +172,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         this.aiCourseCatalogService = aiCourseCatalogService;
         this.multiLevelCourseMatcher = multiLevelCourseMatcher;
         this.localAiGateway = localAiGateway;
+        this.aiRagGateway = aiRagGateway;
         this.tokenUsageRecorder = tokenUsageRecorder;
         this.nodeSubmissionRepository = nodeSubmissionRepository;
     }
@@ -1636,7 +1640,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
     }
 
     private String buildRoadmapRagSection(GenerateRoadmapRequest request) {
-        if (localAiGateway == null) {
+        if (aiRagGateway == null) {
             return "";
         }
 
@@ -1662,11 +1666,13 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 if (hasIndustry) scopedFilters.put("industry", canonicalIndustry);
                 if (hasLevel) scopedFilters.put("level", canonicalLevel);
 
-                String ragContext = localAiGateway.fetchRagContext(ragQuery, scopedFilters, 5);
-                if (!ragContext.isBlank()) {
-                    return "## Tài liệu Skill tham khảo từ SkillVerse\n"
-                            + ragContext
-                            + "\n\nHãy tạo roadmap bám sát tài liệu trên nếu phù hợp với mục tiêu người học.";
+                if (aiRagGateway != null) {
+                    String ragContext = aiRagGateway.fetchRagContext(ragQuery, scopedFilters, 5);
+                    if (!ragContext.isBlank()) {
+                        return "## Tài liệu Skill tham khảo từ SkillVerse\n"
+                                + ragContext
+                                + "\n\nHãy tạo roadmap bám sát tài liệu trên nếu phù hợp với mục tiêu người học.";
+                    }
                 }
             }
 
@@ -1675,25 +1681,29 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             domainFilters.put("doc_type", "skill");
             domainFilters.put("domain", AiKnowledgeSlugUtils.toRoadmapDomain(skillSlug));
 
-            String ragContext = localAiGateway.fetchRagContext(ragQuery, domainFilters, 5);
-            if (!ragContext.isBlank()) {
-                return "## Tài liệu Skill tham khảo từ SkillVerse\n"
-                        + ragContext
-                        + "\n\nHãy tạo roadmap bám sát tài liệu trên nếu phù hợp với mục tiêu người học.";
+            if (aiRagGateway != null) {
+                String ragContext = aiRagGateway.fetchRagContext(ragQuery, domainFilters, 5);
+                if (!ragContext.isBlank()) {
+                    return "## Tài liệu Skill tham khảo từ SkillVerse\n"
+                            + ragContext
+                            + "\n\nHãy tạo roadmap bám sát tài liệu trên nếu phù hợp với mục tiêu người học.";
+                }
             }
 
             return "";
         }
 
         // Tier 3: skillSlug unresolvable — broad doc_type=skill only
-        String ragContext = localAiGateway.fetchRagContext(ragQuery, Map.of("doc_type", "skill"), 5);
-        if (ragContext.isBlank()) {
-            return "";
+        if (aiRagGateway != null) {
+            String ragContext = aiRagGateway.fetchRagContext(ragQuery, Map.of("doc_type", "skill"), 5);
+            if (!ragContext.isBlank()) {
+                return "## Tài liệu Skill tham khảo từ SkillVerse\n"
+                        + ragContext
+                        + "\n\nHãy tạo roadmap bám sát tài liệu trên nếu phù hợp với mục tiêu người học.";
+            }
         }
 
-        return "## Tài liệu Skill tham khảo từ SkillVerse\n"
-                + ragContext
-                + "\n\nHãy tạo roadmap bám sát tài liệu trên nếu phù hợp với mục tiêu người học.";
+        return "";
     }
 
     private String buildRoadmapCourseShortlistSection(GenerateRoadmapRequest request) {

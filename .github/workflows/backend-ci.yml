@@ -34,6 +34,7 @@ env:
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   MISTRAL_PLANNER_API_KEY: ${{ secrets.MISTRAL_PLANNER_API_KEY }}
   MISTRAL_PLANNER_MODEL: mistral-small-latest
+  MISTRAL_EMBEDDING_API_KEY: ${{ secrets.MISTRAL_EMBEDDING_API_KEY }}
 
   # Meowl Chat Configuration
   MEOWL_GEMINI_API_KEY: ${{ secrets.MEOWL_GEMINI_API_KEY }}
@@ -415,6 +416,7 @@ jobs:
             -e GEMINI_API_KEY="${GEMINI_API_KEY}" \
             -e MISTRAL_API_KEY="${MISTRAL_API_KEY}" \
             -e MISTRAL_PLANNER_API_KEY="${MISTRAL_PLANNER_API_KEY}" \
+            -e MISTRAL_EMBEDDING_API_KEY="${MISTRAL_EMBEDDING_API_KEY}" \
             -e MEOWL_GEMINI_API_KEY="${MEOWL_GEMINI_API_KEY}" \
             -e PORTFOLIO_MISTRAL_API_KEY="${PORTFOLIO_MISTRAL_API_KEY}" \
             -e LEARNING_REPORT_KEY="${LEARNING_REPORT_KEY}" \
@@ -539,6 +541,7 @@ jobs:
           echo "GEMINI_API_KEY='${{ secrets.GEMINI_API_KEY }}'" >> .env
           echo "MISTRAL_API_KEY='${{ secrets.MISTRAL_API_KEY }}'" >> .env
           echo "MISTRAL_PLANNER_API_KEY='${{ secrets.MISTRAL_PLANNER_API_KEY }}'" >> .env
+          echo "MISTRAL_EMBEDDING_API_KEY='${{ secrets.MISTRAL_EMBEDDING_API_KEY }}'" >> .env
           echo "MEOWL_GEMINI_API_KEY='${{ secrets.MEOWL_GEMINI_API_KEY }}'" >> .env
           echo "PORTFOLIO_MISTRAL_API_KEY='${{ secrets.PORTFOLIO_MISTRAL_API_KEY }}'" >> .env
           echo "LEARNING_REPORT_KEY='${{ secrets.LEARNING_REPORT_KEY }}'" >> .env
@@ -739,6 +742,7 @@ jobs:
               -e FPT_AI_KEY="$FPT_AI_KEY" \
               -e MISTRAL_API_KEY="$MISTRAL_API_KEY" \
               -e MISTRAL_PLANNER_API_KEY="$MISTRAL_PLANNER_API_KEY" \
+              -e MISTRAL_EMBEDDING_API_KEY="$MISTRAL_EMBEDDING_API_KEY" \
               -e GEMINI_API_KEY="$GEMINI_API_KEY" \
               -e MEOWL_GEMINI_API_KEY="$MEOWL_GEMINI_API_KEY" \
               -e PORTFOLIO_MISTRAL_API_KEY="$PORTFOLIO_MISTRAL_API_KEY" \

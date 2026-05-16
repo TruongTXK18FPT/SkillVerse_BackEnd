@@ -6,6 +6,10 @@ import com.exe.skillverse_backend.ai_knowledge_service.entity.enums.AiKnowledgeI
 import com.exe.skillverse_backend.ai_knowledge_service.repository.AiKnowledgeDocumentRepository;
 import com.exe.skillverse_backend.ai_knowledge_service.service.AiKnowledgeIngestionService;
 import com.exe.skillverse_backend.ai_knowledge_service.service.AiKnowledgeMetadataBuilder;
+import com.exe.skillverse_backend.ai_rag_service.config.AiRagProperties;
+import com.exe.skillverse_backend.ai_rag_service.dto.DocumentInput;
+import com.exe.skillverse_backend.ai_rag_service.service.RagIngestionService;
+import com.exe.skillverse_backend.runtime_settings.service.AppRuntimeSettingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,7 +24,7 @@ import java.util.Map;
 
 /**
  * Service for ingesting/deleting AI knowledge documents to/from RAG.
- * 
+ *
  * Endpoints used:
  * - POST /rag/ingest — ingest documents (idempotent by doc_id)
  * - DELETE /rag/document/{doc_id} — delete document
@@ -32,12 +36,15 @@ public class AiKnowledgeIngestionServiceImpl implements AiKnowledgeIngestionServ
 
     private final AiKnowledgeMetadataBuilder metadataBuilder;
     private final AiKnowledgeDocumentRepository documentRepository;
-
-    @Value("${skillverse.ai.local.base-url:}")
-    private String ragBaseUrl;
+    private final RagIngestionService ragIngestionService;
+    private final AppRuntimeSettingService runtimeSettings;
+    private final AiRagProperties aiRagProperties;
 
     @Value("${skillverse.ai.local.enabled:false}")
-    private boolean ragEnabled;
+    private boolean localAiEnabled;
+
+    @Value("${skillverse.ai.local.base-url:}")
+    private String remoteBaseUrl;
 
     @Value("${skillverse.ai.local.connect-timeout-ms:1500}")
     private long connectTimeoutMs;
@@ -50,8 +57,8 @@ public class AiKnowledgeIngestionServiceImpl implements AiKnowledgeIngestionServ
     private RestClient getRestClient() {
         if (restClient == null) {
             log.info(
-                    "Initializing AI knowledge RAG client with base-url={}, connect-timeout-ms={}, http-timeout-ms={}",
-                    ragBaseUrl,
+                    "Initializing AI knowledge RAG remote client with base-url={}, connect-timeout-ms={}, http-timeout-ms={}",
+                    remoteBaseUrl,
                     connectTimeoutMs,
                     httpTimeoutMs
             );
@@ -83,33 +90,59 @@ public class AiKnowledgeIngestionServiceImpl implements AiKnowledgeIngestionServ
             document.setRagDocId(metadataBuilder.generateRagDocId(document));
         }
 
-        if (!ragEnabled || ragBaseUrl == null || ragBaseUrl.isBlank()) {
-            log.warn("RAG is disabled or not configured, keeping document {} as NOT_INGESTED", document.getId());
-            // Keep status as NOT_INGESTED to distinguish infra/config issues from actual ingest failures
-            // Admin can retry ingestion after RAG is enabled/configured
+        boolean effectiveRemote = localAiEnabled
+                && runtimeSettings.isAiRagServiceRuntimeEnabled()
+                && remoteBaseUrl != null && !remoteBaseUrl.isBlank();
+        boolean effectiveJava = aiRagProperties.isJavaEnabled()
+                && runtimeSettings.isJavaRagFallbackRuntimeEnabled();
+
+        if (!effectiveRemote && !effectiveJava) {
+            log.warn("RAG is disabled at runtime, keeping document {} as NOT_INGESTED", document.getId());
             document.setIngestionStatus(AiKnowledgeIngestionStatus.NOT_INGESTED);
             documentRepository.save(document);
             return;
         }
 
         try {
-            Map<String, Object> payload = metadataBuilder.buildIngestPayload(document);
-            Map<String, Object> requestBody = Map.of("documents", List.of(payload));
+            Map<String, Object> payloadMap = metadataBuilder.buildIngestPayload(document);
 
-            String url = ragBaseUrl + "/rag/ingest";
-            
-            getRestClient().post()
-                    .uri(url)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(requestBody)
-                    .retrieve()
-                    .toBodilessEntity();
+            if (effectiveRemote) {
+                log.info("RAG ingest provider selected: AI_RAG_SERVICE documentId={} ragDocId={}",
+                        document.getId(), document.getRagDocId());
+                try {
+                    Map<String, Object> requestBody = Map.of("documents", List.of(payloadMap));
+                    getRestClient().post().uri(remoteBaseUrl + "/rag/ingest")
+                            .contentType(MediaType.APPLICATION_JSON).body(requestBody).retrieve().toBodilessEntity();
+                } catch (Exception e) {
+                    if (effectiveJava) {
+                        log.warn("RAG ingest provider fallback: AI_RAG_SERVICE -> JAVA_RAG documentId={} reason={}",
+                                document.getId(), e.getMessage());
+                        try {
+                            executeJavaIngest(document, payloadMap);
+                        } catch (org.springframework.web.client.HttpClientErrorException.TooManyRequests te) {
+                            handleTooManyRequests(document);
+                            return;
+                        }
+                    } else {
+                        throw e;
+                    }
+                }
+            } else if (effectiveJava) {
+                log.info("RAG ingest provider selected: JAVA_RAG documentId={} ragDocId={}",
+                        document.getId(), document.getRagDocId());
+                try {
+                    executeJavaIngest(document, payloadMap);
+                } catch (org.springframework.web.client.HttpClientErrorException.TooManyRequests te) {
+                    handleTooManyRequests(document);
+                    return;
+                }
+            }
 
             document.setIngestionStatus(AiKnowledgeIngestionStatus.INDEXED);
             document.setIndexedAt(LocalDateTime.now());
             documentRepository.save(document);
 
-            log.info("Successfully ingested document {} with ragDocId {}", 
+            log.info("Successfully ingested document {} with ragDocId {}",
                     document.getId(), document.getRagDocId());
 
         } catch (Exception e) {
@@ -131,24 +164,32 @@ public class AiKnowledgeIngestionServiceImpl implements AiKnowledgeIngestionServ
             return;
         }
 
-        if (!ragEnabled || ragBaseUrl == null || ragBaseUrl.isBlank()) {
-            log.warn("RAG is disabled, skipping deletion for document {}", document.getId());
-            return;
-        }
+        boolean effectiveJava = aiRagProperties.isJavaEnabled()
+                && runtimeSettings.isJavaRagFallbackRuntimeEnabled();
+        boolean effectiveRemote = localAiEnabled
+                && runtimeSettings.isAiRagServiceRuntimeEnabled()
+                && remoteBaseUrl != null && !remoteBaseUrl.isBlank();
 
-        try {
-            String url = ragBaseUrl + "/rag/document/" + document.getRagDocId();
-            
-            getRestClient().delete()
-                    .uri(url)
-                    .retrieve()
-                    .toBodilessEntity();
-
-            log.info("Successfully deleted document {} from RAG", document.getId());
-
-        } catch (Exception e) {
-            log.error("Failed to delete document {} from RAG: {}", document.getId(), e.getMessage());
-            // Don't throw — deletion failure shouldn't block archive operation
+        if (effectiveJava && !effectiveRemote) {
+            try {
+                ragIngestionService.deleteDocument(document.getRagDocId());
+                log.info("Successfully deleted document {} from Java RAG", document.getId());
+            } catch (Exception e) {
+                log.error("Failed to delete document {} from Java RAG: {}", document.getId(), e.getMessage());
+            }
+        } else if (effectiveRemote) {
+            try {
+                String url = remoteBaseUrl + "/rag/document/" + document.getRagDocId();
+                getRestClient().delete()
+                        .uri(url)
+                        .retrieve()
+                        .toBodilessEntity();
+                log.info("Successfully deleted document {} from Remote RAG", document.getId());
+            } catch (Exception e) {
+                log.error("Failed to delete document {} from Remote RAG: {}", document.getId(), e.getMessage());
+            }
+        } else {
+            log.warn("RAG is disabled at runtime, skipping deletion for document {}", document.getId());
         }
     }
 
@@ -157,8 +198,28 @@ public class AiKnowledgeIngestionServiceImpl implements AiKnowledgeIngestionServ
         if (document.getApprovalStatus() != AiKnowledgeApprovalStatus.APPROVED) {
             throw new IllegalStateException("Cannot reindex document that is not approved");
         }
-
         // Reindex is just re-ingest with the same ragDocId (idempotent)
         ingest(document);
+    }
+
+    private void executeJavaIngest(AiKnowledgeDocument document, Map<String, Object> payloadMap) {
+        DocumentInput documentInput = new DocumentInput();
+        documentInput.setDocId((String) payloadMap.get("doc_id"));
+        documentInput.setDocType((String) payloadMap.get("doc_type"));
+        documentInput.setTitle((String) payloadMap.get("title"));
+        documentInput.setContent((String) payloadMap.get("content"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> metadata = (Map<String, Object>) payloadMap.get("metadata");
+        documentInput.setMetadata(metadata);
+
+        int chunks = ragIngestionService.ingestDocument(documentInput);
+        log.info("Successfully ingested document {} using Java RAG. Created {} chunks.", document.getId(), chunks);
+    }
+
+    private void handleTooManyRequests(AiKnowledgeDocument document) {
+        log.warn("Mistral API 429 Too Many Requests during ingestion for document {}. Setting status to NOT_INGESTED", document.getId());
+        document.setIngestionStatus(AiKnowledgeIngestionStatus.NOT_INGESTED);
+        documentRepository.save(document);
     }
 }

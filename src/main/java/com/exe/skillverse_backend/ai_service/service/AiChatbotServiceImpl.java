@@ -12,6 +12,8 @@ import com.exe.skillverse_backend.ai_service.dto.gemini.GeminiDTO;
 import com.exe.skillverse_backend.ai_service.dto.request.ChatRequest;
 import com.exe.skillverse_backend.ai_service.dto.response.ChatResponse;
 import com.exe.skillverse_backend.ai_service.entity.ChatMessage;
+import com.exe.skillverse_backend.ai_rag_service.service.AiRagGateway;
+import com.exe.skillverse_backend.ai_service.service.AiChatbotService;
 import com.exe.skillverse_backend.ai_service.entity.ChatSession;
 import com.exe.skillverse_backend.ai_service.entity.TaxonomyEntry;
 import com.exe.skillverse_backend.ai_service.enums.ChatMode;
@@ -60,6 +62,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   private final ExpertPromptServiceImpl expertPromptService;
   private final PremiumService premiumService;
   private final LocalAiGateway localAiGateway;
+  private final AiRagGateway aiRagGateway;
   private final AiTokenUsageRecorder tokenUsageRecorder;
   
   @Value("${spring.ai.openai.api-key}")
@@ -150,6 +153,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       ExpertPromptServiceImpl expertPromptService,
       PremiumService premiumService,
       @Autowired(required = false) LocalAiGateway localAiGateway,
+      @Autowired(required = false) AiRagGateway aiRagGateway,
       @Autowired(required = false) AiTokenUsageRecorder tokenUsageRecorder) {
     this.mistralChatModel = mistralChatModel;
     this.chatSessionRepository = chatSessionRepository;
@@ -160,6 +164,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     this.expertPromptService = expertPromptService;
     this.premiumService = premiumService;
     this.localAiGateway = localAiGateway;
+    this.aiRagGateway = aiRagGateway;
     this.tokenUsageRecorder = tokenUsageRecorder;
   }
 
@@ -599,7 +604,10 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       if (localAiGateway != null && localAiGateway.isAvailable()) {
         long startTime = System.currentTimeMillis();
         try {
-          String ragContext = localAiGateway.fetchRagContext(userMessage, Map.of("doc_type", "guide", "domain", "chatbot_global"), 5);
+          String ragContext = "";
+          if (aiRagGateway != null) {
+              ragContext = aiRagGateway.fetchRagContext(userMessage, Map.of("doc_type", "guide", "domain", "chatbot_global"), 5);
+          }
           String localSystemPrompt = resolveSystemPromptForLocal(request, previousMessages, agentSuffix, ragContext, sessionDomain);
           log.info("Using Local AI for normal chat mode");
           String conversationText = buildConversationHistoryText(userMessage, previousMessages);
@@ -673,8 +681,8 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       }
 
       // Enrich prompt with RAG context if available
-      if (localAiGateway != null && localAiGateway.isAvailable()) {
-        String ragContext = localAiGateway.fetchRagContext(userMessage, Map.of("doc_type", "guide", "domain", "chatbot_global"), 5);
+      if (aiRagGateway != null) {
+        String ragContext = aiRagGateway.fetchRagContext(userMessage, Map.of("doc_type", "guide", "domain", "chatbot_global"), 5);
         if (!ragContext.isBlank()) {
           finalSystemPrompt = finalSystemPrompt + "\n\n## TÀI LIỆU SKILLVERSE THAM KHẢO:\n" + ragContext;
         }

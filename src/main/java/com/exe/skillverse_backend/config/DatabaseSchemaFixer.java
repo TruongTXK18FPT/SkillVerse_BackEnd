@@ -37,6 +37,9 @@ public class DatabaseSchemaFixer {
     @Value("${app.database-schema-fixer.enabled:true}")
     private boolean enabled;
 
+    @Value("${skillverse.ai.rag.java-enabled:false}")
+    private boolean javaRagEnabled;
+
     @PostConstruct
     public void fixDatabaseConstraints() {
         if (!enabled) {
@@ -92,6 +95,24 @@ public class DatabaseSchemaFixer {
                 this::patchDropUnusedTables,
                 this::verifyDropUnusedTables
             );
+            if (javaRagEnabled) {
+                applyPatch(
+                    "20260516_create_rag_chunks_and_vector",
+                    "Create pgvector extension and rag_chunks table",
+                    this::patchCreateRagChunksAndVector,
+                    this::verifyCreateRagChunksAndVector
+                );
+            } else {
+                log.info("Skipping rag_chunks and vector schema patch because java-rag is disabled");
+            }
+
+            applyPatch(
+                "20260516_create_app_runtime_settings",
+                "Create app_runtime_settings table for admin runtime toggles",
+                this::patchCreateAppRuntimeSettings,
+                this::verifyCreateAppRuntimeSettings
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -188,6 +209,55 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyCreateAiTokenUsageLogs() {
         return hasTable("ai_token_usage_logs");
+    }
+
+    private void patchCreateRagChunksAndVector() {
+        if (hasTable("rag_chunks")) {
+            log.debug("Table rag_chunks already exists; skipping");
+            return;
+        }
+        log.info("Creating pgvector extension and table rag_chunks...");
+        executeSql("CREATE EXTENSION IF NOT EXISTS vector");
+
+        executeSql("CREATE TABLE IF NOT EXISTS rag_chunks (" +
+                "id BIGSERIAL PRIMARY KEY, " +
+                "course_id BIGINT, " +
+                "module_id BIGINT, " +
+                "doc_id VARCHAR(100) NOT NULL, " +
+                "doc_type VARCHAR(20) NOT NULL, " +
+                "title VARCHAR(500), " +
+                "content TEXT NOT NULL, " +
+                "embedding vector(1024), " +
+                "metadata JSONB DEFAULT '{}', " +
+                "created_at TIMESTAMPTZ DEFAULT NOW()" +
+                ")");
+
+        executeSql("CREATE INDEX IF NOT EXISTS idx_rag_course ON rag_chunks (course_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_rag_module ON rag_chunks (course_id, module_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_rag_metadata ON rag_chunks USING GIN (metadata)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_rag_embedding ON rag_chunks USING hnsw (embedding vector_cosine_ops)");
+    }
+
+    private boolean verifyCreateRagChunksAndVector() {
+        return hasTable("rag_chunks");
+    }
+
+    private void patchCreateAppRuntimeSettings() {
+        if (hasTable("app_runtime_settings")) {
+            log.debug("Table app_runtime_settings already exists; skipping");
+            return;
+        }
+        log.info("Creating table app_runtime_settings...");
+        executeSql("CREATE TABLE IF NOT EXISTS app_runtime_settings (" +
+                "setting_key VARCHAR(100) PRIMARY KEY, " +
+                "setting_value TEXT NOT NULL, " +
+                "updated_at TIMESTAMPTZ DEFAULT NOW(), " +
+                "updated_by BIGINT" +
+                ")");
+    }
+
+    private boolean verifyCreateAppRuntimeSettings() {
+        return hasTable("app_runtime_settings");
     }
 
     // ─── Utilities ────────────────────────────────────────────────────────────

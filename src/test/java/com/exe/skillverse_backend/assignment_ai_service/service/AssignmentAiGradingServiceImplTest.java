@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.course_service.entity.AssignmentSubmission;
 import com.exe.skillverse_backend.course_service.entity.Module;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
+import com.exe.skillverse_backend.ai_rag_service.service.AiRagGateway;
 import com.exe.skillverse_backend.course_service.service.CourseLearningProgressService;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
 import com.exe.skillverse_backend.course_service.repository.AssignmentSubmissionRepository;
@@ -87,6 +88,9 @@ class AssignmentAiGradingServiceImplTest {
     private LocalAiGateway localAiGateway;
 
     @Mock
+    private AiRagGateway aiRagGateway;
+
+    @Mock
     private LessonRepository lessonRepository;
 
     @Mock
@@ -112,10 +116,11 @@ class AssignmentAiGradingServiceImplTest {
                 notificationService,
                 chatModel,
                 courseLearningProgressService,
-                null,
+                null, // localAiGateway
+                null, // aiRagGateway
                 lessonRepository,
                 revisionPinnedContentResolver,
-                null
+                null  // tokenUsageRecorder
         );
 
         User mentor = User.builder().id(7L).firstName("Mentor").lastName("One").build();
@@ -349,7 +354,7 @@ class AssignmentAiGradingServiceImplTest {
         AssignmentAiGradingServiceImpl serviceWithLocal = new AssignmentAiGradingServiceImpl(
                 assignmentRepository, submissionRepository, criteriaRepository, criteriaScoreRepository,
                 mediaRepository, gradingPromptService, fileExtractor, notificationService,
-                null, courseLearningProgressService, localAiGateway, lessonRepository,
+                null, courseLearningProgressService, localAiGateway, null, lessonRepository,
                 revisionPinnedContentResolver, null);
 
         when(revisionPinnedContentResolver.resolveModulesWithContent(any(), anyLong()))
@@ -375,13 +380,14 @@ class AssignmentAiGradingServiceImplTest {
         AssignmentAiGradingServiceImpl serviceWithLocal = new AssignmentAiGradingServiceImpl(
                 assignmentRepository, submissionRepository, criteriaRepository, criteriaScoreRepository,
                 mediaRepository, gradingPromptService, fileExtractor, notificationService,
-                null, courseLearningProgressService, localAiGateway, lessonRepository,
+                null, courseLearningProgressService, localAiGateway, aiRagGateway, lessonRepository,
                 revisionPinnedContentResolver, null);
 
         when(revisionPinnedContentResolver.resolveModulesWithContent(any(), anyLong()))
                 .thenReturn(Optional.empty());
         when(localAiGateway.isAvailable()).thenReturn(true);
-        when(localAiGateway.fetchRagContext(anyString(), any(), anyInt()))
+        // aiRagGateway.fetchRagContext throws — grading should still proceed to AI call
+        when(aiRagGateway.fetchRagContext(anyString(), any(), anyInt()))
                 .thenThrow(new RuntimeException("RAG network error"));
         when(submissionRepository.findByIdWithFullChain(100L)).thenReturn(Optional.of(submission));
         when(gradingPromptService.buildGradingPrompt(any(), anyString(), anyString(), any()))
@@ -401,7 +407,7 @@ class AssignmentAiGradingServiceImplTest {
         AssignmentAiGradingServiceImpl serviceWithLocal = new AssignmentAiGradingServiceImpl(
                 assignmentRepository, submissionRepository, criteriaRepository, criteriaScoreRepository,
                 mediaRepository, gradingPromptService, fileExtractor, notificationService,
-                null, courseLearningProgressService, localAiGateway, lessonRepository,
+                null, courseLearningProgressService, localAiGateway, aiRagGateway, lessonRepository,
                 revisionPinnedContentResolver, null);
 
         // Build a pinned ModuleDetailDTO containing the assignment and one READING lesson
@@ -426,8 +432,8 @@ class AssignmentAiGradingServiceImplTest {
         assertThrows(RuntimeException.class,
                 () -> serviceWithLocal.generateAiGrade(100L, 7L));
 
-        // Pinned context found — RAG and live DB must NOT be consulted
-        verify(localAiGateway, never()).fetchRagContext(anyString(), any(), anyInt());
+        // Pinned context found — aiRagGateway and live DB must NOT be consulted
+        verify(aiRagGateway, never()).fetchRagContext(anyString(), any(), anyInt());
         verify(lessonRepository, never()).findByModuleIdOrderByOrderIndexAsc(anyLong());
     }
 }

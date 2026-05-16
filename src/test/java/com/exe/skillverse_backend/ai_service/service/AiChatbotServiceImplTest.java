@@ -73,6 +73,7 @@ class AiChatbotServiceImplTest {
                 expertPromptService,
                 premiumService,
                 null,
+                null,
                 null);
     }
 
@@ -88,6 +89,7 @@ class AiChatbotServiceImplTest {
                 usageLimitService,
                 expertPromptService,
                 premiumService,
+                null,
                 null,
                 null);
 

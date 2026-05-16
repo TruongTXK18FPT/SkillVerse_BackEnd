@@ -11,6 +11,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.exe.skillverse_backend.runtime_settings.service.AppRuntimeSettingService;
 import java.lang.reflect.Field;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,13 @@ import org.springframework.ai.chat.model.ChatModel;
 class LocalAiGatewayTest {
 
     private LocalAiGateway gateway(boolean enabled, ChatModel model) {
-        return new LocalAiGateway(model, enabled, "", 1500L, 5000L, 4000L, 1);
+        return new LocalAiGateway(model, runtimeSettings(true), enabled, "", 1500L, 5000L, 4000L, 1);
+    }
+
+    private AppRuntimeSettingService runtimeSettings(boolean localGenerationEnabled) {
+        AppRuntimeSettingService runtimeSettings = mock(AppRuntimeSettingService.class);
+        when(runtimeSettings.isLocalAiGenerationRuntimeEnabled()).thenReturn(localGenerationEnabled);
+        return runtimeSettings;
     }
 
     @Test
@@ -58,7 +65,7 @@ class LocalAiGatewayTest {
     @DisplayName("fetchRagContext returns empty string when base-url is blank")
     void fetchRagContext_ReturnsEmpty_WhenBaseUrlBlank() {
         ChatModel model = mock(ChatModel.class);
-        LocalAiGateway gw = new LocalAiGateway(model, true, "", 1500L, 5000L, 4000L, 1);
+        LocalAiGateway gw = new LocalAiGateway(model, runtimeSettings(true), true, "", 1500L, 5000L, 4000L, 1);
         String result = gw.fetchRagContext("query", null, 5);
         assertEquals("", result);
     }
@@ -68,7 +75,7 @@ class LocalAiGatewayTest {
     void fetchRagContext_ReturnsEmpty_OnNetworkError() {
         ChatModel model = mock(ChatModel.class);
         // Port 1 is almost always refused immediately
-        LocalAiGateway gw = new LocalAiGateway(model, true, "http://localhost:1", 100L, 500L, 4000L, 1);
+        LocalAiGateway gw = new LocalAiGateway(model, runtimeSettings(true), true, "http://localhost:1", 100L, 500L, 4000L, 1);
         String result = gw.fetchRagContext("career advice", null, 5);
         assertEquals("", result);
     }
@@ -78,7 +85,7 @@ class LocalAiGatewayTest {
     void call_ThrowsQueueFull_WhenQueueExceeded() throws Exception {
         ChatModel model = mock(ChatModel.class);
         // maxPending=0 means only 1 concurrent request allowed
-        LocalAiGateway gw = new LocalAiGateway(model, true, "http://localhost", 1500L, 5000L, 4000L, 0);
+        LocalAiGateway gw = new LocalAiGateway(model, runtimeSettings(true), true, "http://localhost", 1500L, 5000L, 4000L, 0);
 
         // Simulate 1 request already in-flight via reflection
         Field field = LocalAiGateway.class.getDeclaredField("inFlightAndQueued");

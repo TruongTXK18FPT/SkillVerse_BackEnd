@@ -125,7 +125,8 @@ class AiRoadmapServiceImplTest {
                 aiCourseCatalogService,
                 multiLevelCourseMatcher,
                 localAiGateway,
-                null,
+                null, // aiRagGateway
+                null, // tokenUsageRecorder
                 nodeSubmissionRepository);
     }
 
@@ -149,8 +150,9 @@ class AiRoadmapServiceImplTest {
                 taskBoardService,
                 aiCourseCatalogService,
                 multiLevelCourseMatcher,
-                null,
-                null,
+                null, // localAiGateway
+                null, // aiRagGateway
+                null, // tokenUsageRecorder
                 nodeSubmissionRepository);
 
         Mockito.verifyNoInteractions(localAiGateway);

@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.ai_service.service;
 
+import com.exe.skillverse_backend.runtime_settings.service.AppRuntimeSettingService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
@@ -27,6 +28,7 @@ public class LocalAiGateway {
 
     private final boolean enabled;
     private final ChatModel localAiChatModel;
+    private final AppRuntimeSettingService runtimeSettings;
     private final RestClient ragRestClient;
     private final String baseUrl;
     private final long queueWaitMs;
@@ -38,6 +40,7 @@ public class LocalAiGateway {
 
     public LocalAiGateway(
             @Autowired(required = false) @Qualifier("localAiChatModel") ChatModel localAiChatModel,
+            AppRuntimeSettingService runtimeSettings,
             @Value("${skillverse.ai.local.enabled:false}") boolean enabled,
             @Value("${skillverse.ai.local.base-url:}") String baseUrl,
             @Value("${skillverse.ai.local.connect-timeout-ms:1500}") long connectTimeoutMs,
@@ -46,6 +49,7 @@ public class LocalAiGateway {
             @Value("${skillverse.ai.local.queue-max-pending:2}") int maxPending) {
         this.enabled = enabled;
         this.localAiChatModel = localAiChatModel;
+        this.runtimeSettings = runtimeSettings;
         this.baseUrl = baseUrl;
         this.queueWaitMs = queueWaitMs;
         this.maxPending = maxPending;
@@ -60,10 +64,13 @@ public class LocalAiGateway {
     }
 
     public boolean isAvailable() {
-        return enabled && localAiChatModel != null;
+        return enabled && runtimeSettings.isLocalAiGenerationRuntimeEnabled() && localAiChatModel != null;
     }
 
     public String call(String systemPrompt, String userPrompt) {
+        if (!enabled || !runtimeSettings.isLocalAiGenerationRuntimeEnabled()) {
+            throw new IllegalStateException("Local AI generation disabled");
+        }
         if (localAiChatModel == null) {
             throw new IllegalStateException("Local AI not configured");
         }

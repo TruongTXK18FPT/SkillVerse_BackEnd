@@ -278,6 +278,27 @@ skillverse:
       queue-wait-ms: ${LOCAL_AI_QUEUE_WAIT_MS:8000}
       queue-max-pending: ${LOCAL_AI_QUEUE_MAX_PENDING:2}
 
+    # Mistral-only Java RAG Configuration
+    rag:
+      java-enabled: ${AI_RAG_JAVA_ENABLED:true}
+      prefer-remote: ${AI_RAG_PREFER_REMOTE:false}
+      fallback-to-java: ${AI_RAG_FALLBACK_TO_JAVA:true}
+      top-k-default: ${AI_RAG_TOP_K_DEFAULT:5}
+      top-k-max: ${AI_RAG_TOP_K_MAX:20}
+      score-threshold: ${AI_RAG_SCORE_THRESHOLD:0.4}
+      chunk-size: ${AI_RAG_CHUNK_SIZE:150}
+      chunk-overlap: ${AI_RAG_CHUNK_OVERLAP:15}
+      max-document-chunks: ${AI_RAG_MAX_DOCUMENT_CHUNKS:1000}
+      embedding-batch-size: ${AI_RAG_EMBEDDING_BATCH_SIZE:16}
+      ingest-max-concurrency: ${AI_RAG_INGEST_MAX_CONCURRENCY:1}
+
+    mistral:
+      embedding:
+        api-key: ${MISTRAL_EMBEDDING_API_KEY:}
+        base-url: ${MISTRAL_EMBEDDING_BASE_URL:https://api.mistral.ai/v1}
+        model: ${MISTRAL_EMBEDDING_MODEL:mistral-embed}
+        timeout-ms: ${MISTRAL_EMBEDDING_TIMEOUT_MS:60000}
+
 springdoc:
   api-docs:
     enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}
