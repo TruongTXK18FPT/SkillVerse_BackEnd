@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.shared.controller;
 
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import com.exe.skillverse_backend.shared.dto.SkillDto;
+import com.exe.skillverse_backend.shared.enums.SkillStatus;
 import com.exe.skillverse_backend.shared.service.SkillService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -55,6 +56,15 @@ public class SkillController {
     @Operation(summary = "Get all skills (including inactive, for admin view)")
     public ResponseEntity<List<SkillDto>> getAllSkills() {
         return ResponseEntity.ok(skillService.listAll());
+    }
+
+    @GetMapping("/all-paged")
+    @Operation(summary = "Search all skills with pagination (including inactive, for admin view)")
+    public ResponseEntity<PageResponse<SkillDto>> getAllSkillsPaged(
+            @Parameter(description = "Search query") @RequestParam(required = false) String q,
+            @Parameter(description = "Optional skill status filter") @RequestParam(required = false) SkillStatus status,
+            @PageableDefault(size = 20, sort = "id") Pageable pageable) {
+        return ResponseEntity.ok(skillService.listAll(q, status, pageable));
     }
 
     @PostMapping

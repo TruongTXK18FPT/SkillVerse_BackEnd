@@ -36,6 +36,7 @@ import com.exe.skillverse_backend.course_service.service.CourseRevisionService;
 import com.exe.skillverse_backend.course_service.util.CourseRevisionSnapshotAssembler;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import com.exe.skillverse_backend.shared.entity.Media;
+import com.exe.skillverse_backend.shared.enums.SkillStatus;
 import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
@@ -524,7 +525,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
      * <ol>
      *   <li>Extract skill names from {@code revision.getCourseSkillTagsJson()}</li>
      *   <li>Delete all existing {@code course_skill} links for this course</li>
-    *   <li>Upsert {@code Skill} entities (resolve by canonical key, fallback to legacy name)</li>
+    *   <li>Resolve existing ACTIVE {@code Skill} entities by canonical key, fallback to legacy name</li>
      *   <li>Create new {@code CourseSkill} links</li>
      * </ol>
      *
@@ -549,7 +550,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .orElseThrow(() -> new IllegalStateException("Course " + courseId + " not found"));
 
         for (String name : skillNames) {
-            Skill skill = resolveOrCreateSkillByTag(name);
+            Skill skill = resolveExistingActiveSkillByTag(name);
 
             CourseSkill link = CourseSkill.builder()
                     .id(new CourseSkillId(courseId, skill.getId()))
@@ -565,16 +566,17 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 skillNames.size(), courseId);
     }
 
-        private Skill resolveOrCreateSkillByTag(String rawSkillName) {
+        private Skill resolveExistingActiveSkillByTag(String rawSkillName) {
         String normalizedName = rawSkillName == null ? null : rawSkillName.trim();
         String canonicalKey = SkillNameUtils.normalizeRequired(normalizedName);
 
-        return skillRepository.findByCanonicalKey(canonicalKey)
+        Skill skill = skillRepository.findByCanonicalKey(canonicalKey)
             .orElseGet(() -> skillRepository.findByNameIgnoreCase(normalizedName)
-                .orElseGet(() -> skillRepository.save(Skill.builder()
-                    .name(normalizedName)
-                    .canonicalKey(canonicalKey)
-                    .build())));
+                .orElseThrow(() -> new BadRequestException("SKILL_NOT_FOUND: " + normalizedName)));
+        if (skill.getStatus() != SkillStatus.ACTIVE) {
+            throw new BadRequestException("SKILL_NOT_ACTIVE: " + normalizedName);
+        }
+        return skill;
         }
 
     /**

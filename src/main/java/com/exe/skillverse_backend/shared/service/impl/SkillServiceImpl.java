@@ -64,6 +64,14 @@ public class SkillServiceImpl implements SkillService {
         return skillMapper.toDtos(skillRepository.findAll());
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<SkillDto> listAll(String q, SkillStatus status, Pageable p) {
+        String query = q == null ? null : q.trim();
+        Page<Skill> page = skillRepository.searchAdmin(query, status, p);
+        return toPage(page);
+    }
+
     // ===== create =====
 
     @Override

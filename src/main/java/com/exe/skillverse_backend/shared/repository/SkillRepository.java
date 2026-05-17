@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.shared.repository;
 
 import com.exe.skillverse_backend.shared.entity.Skill;
+import com.exe.skillverse_backend.shared.enums.SkillStatus;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
@@ -23,6 +24,22 @@ public interface SkillRepository extends JpaRepository<Skill, Long>, JpaSpecific
     
     // Find active skills
     List<Skill> findByStatus(com.exe.skillverse_backend.shared.enums.SkillStatus status);
+
+    @Query("""
+       select s from Skill s
+       where (:status is null or s.status = :status)
+         and (
+           :q is null
+           or :q = ''
+           or lower(s.name) like lower(concat('%', :q, '%'))
+           or lower(coalesce(s.canonicalKey, '')) like lower(concat('%', :q, '%'))
+           or lower(coalesce(s.description, '')) like lower(concat('%', :q, '%'))
+         )
+    """)
+    Page<Skill> searchAdmin(
+            @Param("q") String q,
+            @Param("status") SkillStatus status,
+            Pageable pageable);
     
     // Autocomplete — contains search (không chỉ prefix)
     Page<Skill> findByNameContainingIgnoreCase(String name, Pageable pageable);

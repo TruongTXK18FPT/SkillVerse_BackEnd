@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.shared.service;
 
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import com.exe.skillverse_backend.shared.dto.SkillDto;
+import com.exe.skillverse_backend.shared.enums.SkillStatus;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
 
@@ -17,6 +18,8 @@ public interface SkillService {
     
     // Retrieves all skills including INACTIVE
     List<SkillDto> listAll();                            // list all active skills
+
+    PageResponse<SkillDto> listAll(String q, SkillStatus status, Pageable p);
 
     SkillDto update(Long id, SkillDto dto);                 // cập nhật name/description/parentSkillId
     
