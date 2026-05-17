@@ -1,6 +1,11 @@
 package com.exe.skillverse_backend.question_bank_service.service.impl;
 
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.QuestionInfo;
+import com.exe.skillverse_backend.career_taxonomy_service.entity.Domain;
+import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPosition;
+import com.exe.skillverse_backend.career_taxonomy_service.enums.TaxonomyStatus;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.DomainRepository;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionRepository;
 import com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest;
 import com.exe.skillverse_backend.question_bank_service.dto.request.UpdateQuestionBankRequest;
 import com.exe.skillverse_backend.question_bank_service.dto.response.QuestionBankResponse;
@@ -10,8 +15,12 @@ import com.exe.skillverse_backend.question_bank_service.entity.QuestionBankQuest
 import com.exe.skillverse_backend.question_bank_service.repository.QuestionBankQuestionRepository;
 import com.exe.skillverse_backend.question_bank_service.repository.QuestionBankRepository;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
+import com.exe.skillverse_backend.shared.entity.Skill;
+import com.exe.skillverse_backend.shared.enums.SkillStatus;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
+import com.exe.skillverse_backend.shared.repository.SkillRepository;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -45,34 +54,45 @@ public class QuestionBankServiceImpl implements QuestionBankService {
 
     private final QuestionBankRepository questionBankRepository;
     private final QuestionBankQuestionRepository questionBankQuestionRepository;
+    private final DomainRepository domainRepository;
+    private final JobPositionRepository jobPositionRepository;
+    private final SkillRepository skillRepository;
     private final ObjectMapper objectMapper;
+
+    private record TaxonomyScope(
+            Long domainId,
+            Long jobPositionId,
+            Long skillId,
+            String domainCode,
+            String domainName,
+            String jobPositionName,
+            String skillName
+    ) {
+    }
 
     @Override
     public QuestionBankResponse createBank(CreateQuestionBankRequest request) {
-        String domain = requireValue(request.getDomain(), "Domain is required");
-        String industry = requireValue(request.getIndustry(), "Industry is required");
-        String jobRole = requireValue(request.getJobRole(), "Job role is required");
-        String skillName = normalizeOptional(request.getSkillName());
+        TaxonomyScope scope = resolveScopeForCreate(request);
         String title = requireValue(request.getTitle(), "Title is required");
 
-        if (questionBankRepository.existsActiveByScope(domain, industry, jobRole, skillName)) {
+        if (questionBankRepository.existsActiveByTaxonomyScope(scope.domainId(), scope.jobPositionId(), scope.skillId())) {
             throw new ApiException(
                     ErrorCode.BAD_REQUEST,
                     String.format(
-                            "Question bank already exists for %s / %s / %s / %s",
-                            domain,
-                            industry,
-                            jobRole,
-                            skillName != null ? skillName : "GENERAL"
+                            "Question bank already exists for domainId=%s / jobPositionId=%s / skillId=%s",
+                            scope.domainId(),
+                            scope.jobPositionId(),
+                            scope.skillId() != null ? scope.skillId() : "GENERAL"
                     )
             );
         }
 
         QuestionBank bank = QuestionBank.builder()
-                .domain(domain)
-                .industry(industry)
-                .jobRole(jobRole)
-                .skillName(skillName)
+                .domainId(scope.domainId())
+                .jobPositionId(scope.jobPositionId())
+                .skillId(scope.skillId())
+                .domain(scope.domainCode())
+                .skillName(scope.skillName())
                 .title(title)
                 .description(normalizeOptional(request.getDescription()))
                 .difficultyDistribution(normalizeOptional(request.getDifficultyDistribution()) != null
@@ -82,24 +102,23 @@ public class QuestionBankServiceImpl implements QuestionBankService {
                 .build();
 
         bank = questionBankRepository.save(bank);
-        log.info("Created question bank: id={}, domain={}, skill={}", bank.getId(), bank.getDomain(), bank.getSkillName());
+        log.info("Created question bank: id={}, domainId={}, jobPositionId={}, skillId={}",
+                bank.getId(), bank.getDomainId(), bank.getJobPositionId(), bank.getSkillId());
         return toResponse(bank);
     }
 
     @Override
     @Transactional(readOnly = true)
     public Page<QuestionBankSummaryResponse> listBanks(
-            String domain,
-            String industry,
-            String jobRole,
-            String skillName,
+            Long domainId,
+            Long jobPositionId,
+            Long skillId,
             Pageable pageable
     ) {
-        Page<QuestionBank> banks = questionBankRepository.findByFilters(
-                normalizeOptional(domain),
-                normalizeOptional(industry),
-                normalizeOptional(jobRole),
-                normalizeOptional(skillName),
+        Page<QuestionBank> banks = questionBankRepository.findByTaxonomyFilters(
+                domainId,
+                jobPositionId,
+                skillId,
                 pageable
         );
         return banks.map(this::toSummaryResponse);
@@ -115,31 +134,21 @@ public class QuestionBankServiceImpl implements QuestionBankService {
     public QuestionBankResponse updateBank(Long id, UpdateQuestionBankRequest request) {
         QuestionBank bank = findByIdOrThrow(id);
 
-        String nextIndustry = request.getIndustry() != null
-                ? requireValue(request.getIndustry(), "Industry is required")
-                : bank.getIndustry();
-        String nextJobRole = request.getJobRole() != null
-                ? requireValue(request.getJobRole(), "Job role is required")
-                : bank.getJobRole();
-        String nextSkillName = request.getSkillName() != null
-                ? normalizeOptional(request.getSkillName())
-                : bank.getSkillName();
+        TaxonomyScope nextScope = resolveScopeForUpdate(bank, request);
 
-        if (questionBankRepository.existsActiveByScopeAndIdNot(
-                bank.getDomain(),
-                nextIndustry,
-                nextJobRole,
-                nextSkillName,
+        if (questionBankRepository.existsActiveByTaxonomyScopeAndIdNot(
+                nextScope.domainId(),
+                nextScope.jobPositionId(),
+                nextScope.skillId(),
                 bank.getId()
         )) {
             throw new ApiException(
                     ErrorCode.BAD_REQUEST,
                     String.format(
-                            "Another question bank already exists for %s / %s / %s / %s",
-                            bank.getDomain(),
-                            nextIndustry,
-                            nextJobRole,
-                            nextSkillName != null ? nextSkillName : "GENERAL"
+                            "Another question bank already exists for domainId=%s / jobPositionId=%s / skillId=%s",
+                            nextScope.domainId(),
+                            nextScope.jobPositionId(),
+                            nextScope.skillId() != null ? nextScope.skillId() : "GENERAL"
                     )
             );
         }
@@ -150,9 +159,11 @@ public class QuestionBankServiceImpl implements QuestionBankService {
         if (request.getDescription() != null) {
             bank.setDescription(normalizeOptional(request.getDescription()));
         }
-        bank.setIndustry(nextIndustry);
-        bank.setJobRole(nextJobRole);
-        bank.setSkillName(nextSkillName);
+        bank.setDomainId(nextScope.domainId());
+        bank.setJobPositionId(nextScope.jobPositionId());
+        bank.setSkillId(nextScope.skillId());
+        bank.setDomain(nextScope.domainCode());
+        bank.setSkillName(nextScope.skillName());
         if (request.getDifficultyDistribution() != null) {
             bank.setDifficultyDistribution(request.getDifficultyDistribution());
         }
@@ -167,26 +178,53 @@ public class QuestionBankServiceImpl implements QuestionBankService {
 
     @Override
     public void deleteBank(Long id) {
-        QuestionBank bank = findByIdOrThrow(id);
-        bank.setIsActive(false);
-        questionBankRepository.save(bank);
+        QuestionBank existing = questionBankRepository.findById(id)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "QUESTION_BANK_NOT_FOUND"));
+        existing.setIsActive(false);
+        questionBankRepository.save(existing);
         log.info("Soft-deleted question bank: id={}", id);
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public Optional<QuestionBankResponse> findActiveBank(String domain, String industry, String jobRole, String skillName) {
-        String normalizedDomain = normalizeOptional(domain);
-        String normalizedIndustry = normalizeOptional(industry);
-        String normalizedJobRole = normalizeOptional(jobRole);
-        String normalizedSkillName = normalizeOptional(skillName);
+    @Transactional
+    public void syncJobPositionBanks() {
+        List<com.exe.skillverse_backend.career_taxonomy_service.entity.JobPosition> activeJobs = 
+            jobPositionRepository.findAllActiveWithActiveDomain(com.exe.skillverse_backend.career_taxonomy_service.enums.TaxonomyStatus.ACTIVE);
+        
+        int createdCount = 0;
+        for (var jp : activeJobs) {
+            boolean exists = questionBankRepository.existsActiveByTaxonomyScope(jp.getDomainId(), jp.getId(), null);
+            if (!exists) {
+                com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest request = 
+                    com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
+                        .domainId(jp.getDomainId())
+                        .jobPositionId(jp.getId())
+                        .domain(jp.getDomain().getCode())
+                        .title("Ngân hàng câu hỏi - " + jp.getName())
+                        .description("Ngân hàng câu hỏi được đồng bộ tự động cho vị trí " + jp.getName())
+                        .build();
+                createBank(request);
+                createdCount++;
+                log.info("Synced question bank for JobPosition {}", jp.getId());
+            }
+        }
+        log.info("Finished syncing Job Position question banks. Created {} new banks.", createdCount);
+    }
 
-        if (normalizedSkillName != null) {
-            Optional<QuestionBank> exactSkillBank = questionBankRepository.findByExactScope(
-                            normalizedDomain,
-                            normalizedIndustry,
-                            normalizedJobRole,
-                            normalizedSkillName,
+    // Legacy string-based lookup removed — taxonomy ID-based methods are canonical now.
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<QuestionBankResponse> findActiveBank(Long domainId, Long jobPositionId, Long skillId) {
+        if (domainId == null || jobPositionId == null) {
+            return Optional.empty();
+        }
+
+        if (skillId != null) {
+            Optional<QuestionBank> exactSkillBank = questionBankRepository.findByExactTaxonomyScope(
+                            domainId,
+                            jobPositionId,
+                            skillId,
                             PageRequest.of(0, 1))
                     .stream()
                     .findFirst();
@@ -195,10 +233,9 @@ public class QuestionBankServiceImpl implements QuestionBankService {
             }
         }
 
-        return questionBankRepository.findPreferredByScope(
-                        normalizedDomain,
-                        normalizedIndustry,
-                        normalizedJobRole,
+        return questionBankRepository.findPreferredByTaxonomyScope(
+                        domainId,
+                        jobPositionId,
                         PageRequest.of(0, 1))
                 .stream()
                 .findFirst()
@@ -207,44 +244,20 @@ public class QuestionBankServiceImpl implements QuestionBankService {
 
     @Override
     @Transactional(readOnly = true)
-    public Optional<QuestionBankResponse> findActiveBank(String domain, String industry, String jobRole) {
-        return findActiveBank(domain, industry, jobRole, null);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public Optional<QuestionBankResponse> findActiveBankByJobRole(String domain, String jobRole, String skillName) {
-        String normalizedDomain = normalizeOptional(domain);
-        String normalizedJobRole = normalizeOptional(jobRole);
-        String normalizedSkillName = normalizeOptional(skillName);
-
-        if (normalizedSkillName != null) {
-            Optional<QuestionBank> exactSkillBank = questionBankRepository.findByExactDomainAndRole(
-                            normalizedDomain,
-                            normalizedJobRole,
-                            normalizedSkillName,
-                            PageRequest.of(0, 1))
-                    .stream()
-                    .findFirst();
-            if (exactSkillBank.isPresent()) {
-                return exactSkillBank.map(this::toResponse);
-            }
+    public Optional<QuestionBankResponse> findActiveBank(Long domainId, Long jobPositionId) {
+        if (domainId == null || jobPositionId == null) {
+            return Optional.empty();
         }
-
-        return questionBankRepository.findPreferredByDomainAndRole(
-                        normalizedDomain,
-                        normalizedJobRole,
+        return questionBankRepository.findByExactTaxonomyScope(
+                        domainId,
+                        jobPositionId,
+                        null,
                         PageRequest.of(0, 1))
                 .stream()
                 .findFirst()
                 .map(this::toResponse);
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public Optional<QuestionBankResponse> findActiveBank(String domain, String jobRole) {
-        return findActiveBankByJobRole(domain, jobRole, null);
-    }
 
     @Override
     public boolean isBankReadyForAllLevels(Long bankId) {
@@ -426,6 +439,193 @@ public class QuestionBankServiceImpl implements QuestionBankService {
         return normalized;
     }
 
+    private TaxonomyScope resolveScopeForCreate(CreateQuestionBankRequest request) {
+        return resolveScope(
+                request.getDomainId(),
+                request.getJobPositionId(),
+                request.getSkillId(),
+                request.getDomain(),
+                null,
+                null,
+                request.getSkillName(),
+                true
+        );
+    }
+
+    private TaxonomyScope resolveScopeForUpdate(QuestionBank bank, UpdateQuestionBankRequest request) {
+        boolean scopeRequested = request.getDomainId() != null
+                || request.getJobPositionId() != null
+                || request.getSkillId() != null
+                || normalizeOptional(request.getSkillName()) != null;
+        if (!scopeRequested) {
+            return resolveScope(
+                    bank.getDomainId(),
+                    bank.getJobPositionId(),
+                    bank.getSkillId(),
+                    bank.getDomain(),
+                    null,
+                    null,
+                    bank.getSkillName(),
+                    true
+            );
+        }
+
+        return resolveScope(
+                request.getDomainId() != null ? request.getDomainId() : bank.getDomainId(),
+                request.getJobPositionId() != null ? request.getJobPositionId() : bank.getJobPositionId(),
+                request.getSkillId(),
+                bank.getDomain(),
+                null,
+                null,
+                request.getSkillName(),
+                true
+        );
+    }
+
+    private TaxonomyScope resolveScope(
+            Long domainId,
+            Long jobPositionId,
+            Long skillId,
+            String legacyDomain,
+            String legacyIndustry,
+            String legacyJobRole,
+            String legacySkillName,
+            boolean required
+    ) {
+        Domain domain = resolveDomain(domainId, legacyDomain)
+                .orElseThrow(() -> required
+                        ? new ApiException(ErrorCode.BAD_REQUEST, "Domain khong hop le hoac chua ton tai trong taxonomy.")
+                        : new ApiException(ErrorCode.BAD_REQUEST, "Domain khong hop le."));
+
+        if (domain.getStatus() != TaxonomyStatus.ACTIVE) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Domain khong con ACTIVE.");
+        }
+
+        JobPosition jobPosition = resolveJobPosition(jobPositionId, domain.getId(), legacyJobRole, legacyIndustry)
+                .orElseThrow(() -> required
+                        ? new ApiException(ErrorCode.BAD_REQUEST, "Job position khong hop le hoac khong thuoc domain da chon.")
+                        : new ApiException(ErrorCode.BAD_REQUEST, "Job position khong hop le."));
+
+        if (jobPosition.getStatus() != TaxonomyStatus.ACTIVE) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Job position khong con ACTIVE.");
+        }
+        if (!domain.getId().equals(jobPosition.getDomainId())) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Job position khong thuoc domain da chon.");
+        }
+
+        Skill skill = resolveSkill(skillId, legacySkillName).orElse(null);
+        if (skill != null && skill.getStatus() != SkillStatus.ACTIVE) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Skill khong con ACTIVE.");
+        }
+
+        String skillSnapshot = null;
+        Long resolvedSkillId = null;
+        if (skill != null) {
+            resolvedSkillId = skill.getId();
+            skillSnapshot = normalizeOptional(skill.getCanonicalKey()) != null
+                    ? skill.getCanonicalKey()
+                    : SkillNameUtils.normalize(skill.getName());
+        } else if (skillId != null) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Skill khong hop le hoac chua ton tai.");
+        }
+
+        return new TaxonomyScope(
+                domain.getId(),
+                jobPosition.getId(),
+                resolvedSkillId,
+                normalizeOptional(domain.getCode()),
+                normalizeOptional(domain.getName()),
+                normalizeOptional(jobPosition.getName()),
+                skillSnapshot
+        );
+    }
+
+    private Optional<TaxonomyScope> resolveLegacyScopeIfPossible(
+            String domain,
+            String industry,
+            String jobRole,
+            String skillName
+    ) {
+        try {
+            return Optional.of(resolveScope(null, null, null, domain, industry, jobRole, skillName, false));
+        } catch (ApiException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private Optional<Domain> resolveDomain(Long domainId, String legacyDomain) {
+        if (domainId != null) {
+            return domainRepository.findById(domainId);
+        }
+        String normalizedDomain = normalizeOptional(legacyDomain);
+        if (normalizedDomain == null) {
+            return Optional.empty();
+        }
+        return domainRepository.findByCodeIgnoreCase(normalizedDomain);
+    }
+
+    private Optional<JobPosition> resolveJobPosition(
+            Long jobPositionId,
+            Long domainId,
+            String legacyJobRole,
+            String legacyIndustry
+    ) {
+        if (jobPositionId != null) {
+            return jobPositionRepository.findById(jobPositionId);
+        }
+
+        String requestedName = normalizeOptional(legacyJobRole);
+        if (requestedName == null) {
+            requestedName = normalizeOptional(legacyIndustry);
+        }
+        if (domainId == null || requestedName == null) {
+            return Optional.empty();
+        }
+
+        String normalizedRequestedName = requestedName.trim();
+        return jobPositionRepository.findByDomainId(domainId).stream()
+                .filter(jobPosition -> equalsIgnoreCase(jobPosition.getName(), normalizedRequestedName)
+                        || equalsIgnoreCase(jobPosition.getCode(), normalizedRequestedName))
+                .findFirst();
+    }
+
+    private Optional<Skill> resolveSkill(Long skillId, String legacySkillName) {
+        if (skillId != null) {
+            return skillRepository.findById(skillId);
+        }
+
+        String normalizedSkillName = normalizeOptional(legacySkillName);
+        if (normalizedSkillName == null) {
+            return Optional.empty();
+        }
+
+        String canonicalKey = SkillNameUtils.normalize(normalizedSkillName);
+        return skillRepository.findByCanonicalKey(canonicalKey)
+                .or(() -> skillRepository.findByNameIgnoreCase(normalizedSkillName));
+    }
+
+    private boolean equalsIgnoreCase(String left, String right) {
+        return left != null && right != null && left.equalsIgnoreCase(right);
+    }
+
+    private String resolveDomainName(QuestionBank bank) {
+        if (bank.getDomainId() == null) {
+            return bank.getDomain();
+        }
+        return domainRepository.findById(bank.getDomainId())
+                .map(Domain::getName)
+                .orElse(bank.getDomain());
+    }
+
+    private String resolveJobPositionName(QuestionBank bank) {
+        if (bank.getJobPositionId() == null) {
+            return null;
+        }
+        return jobPositionRepository.findById(bank.getJobPositionId())
+                .map(JobPosition::getName)
+                .orElse(null);
+    }
+
     private QuestionBankResponse toResponse(QuestionBank bank) {
         Map<String, Long> difficultyBreakdown = new LinkedHashMap<>();
         List<Object[]> counts = questionBankQuestionRepository.countByDifficulty(bank.getId());
@@ -433,11 +633,22 @@ public class QuestionBankServiceImpl implements QuestionBankService {
             difficultyBreakdown.put((String) row[0], (Long) row[1]);
         }
 
+        Map<String, Long> skillBreakdown = new LinkedHashMap<>();
+        List<Object[]> skillCounts = questionBankQuestionRepository.countBySkillArea(bank.getId());
+        for (Object[] row : skillCounts) {
+            if (row[0] != null) {
+                skillBreakdown.put((String) row[0], (Long) row[1]);
+            }
+        }
+
         return QuestionBankResponse.builder()
                 .id(bank.getId())
+                .domainId(bank.getDomainId())
+                .jobPositionId(bank.getJobPositionId())
+                .skillId(bank.getSkillId())
                 .domain(bank.getDomain())
-                .industry(bank.getIndustry())
-                .jobRole(bank.getJobRole())
+                .domainName(resolveDomainName(bank))
+                .jobPositionName(resolveJobPositionName(bank))
                 .skillName(bank.getSkillName())
                 .title(bank.getTitle())
                 .description(bank.getDescription())
@@ -447,15 +658,19 @@ public class QuestionBankServiceImpl implements QuestionBankService {
                 .updatedAt(bank.getUpdatedAt())
                 .activeQuestionCount(bank.getActiveQuestionCount())
                 .difficultyBreakdown(difficultyBreakdown)
+                .skillBreakdown(skillBreakdown)
                 .build();
     }
 
     private QuestionBankSummaryResponse toSummaryResponse(QuestionBank bank) {
         return QuestionBankSummaryResponse.builder()
                 .id(bank.getId())
+                .domainId(bank.getDomainId())
+                .jobPositionId(bank.getJobPositionId())
+                .skillId(bank.getSkillId())
                 .domain(bank.getDomain())
-                .industry(bank.getIndustry())
-                .jobRole(bank.getJobRole())
+                .domainName(resolveDomainName(bank))
+                .jobPositionName(resolveJobPositionName(bank))
                 .skillName(bank.getSkillName())
                 .title(bank.getTitle())
                 .activeQuestionCount(bank.getActiveQuestionCount())

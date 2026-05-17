@@ -18,6 +18,10 @@ import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository
 import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.DomainRepository;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionRepository;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionTrackRepository;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionTrackSkillRepository;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.journey_service.node_mentoring.service.FinalVerificationGateService;
@@ -41,6 +45,7 @@ import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
+import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapTemplateService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import java.time.Clock;
@@ -86,6 +91,8 @@ class JourneyServiceImplStudyPlanTest {
     @Mock
     private AiRoadmapService aiRoadmapService;
     @Mock
+    private RoadmapTemplateService roadmapTemplateService;
+    @Mock
     private AssessmentPromptService assessmentPromptService;
     @Mock
     private TaskBoardService taskBoardService;
@@ -101,6 +108,14 @@ class JourneyServiceImplStudyPlanTest {
     private BookingRepository bookingRepository;
     @Mock
     private PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+    @Mock
+    private DomainRepository domainRepository;
+    @Mock
+    private JobPositionRepository jobPositionRepository;
+    @Mock
+    private JobPositionTrackRepository jobPositionTrackRepository;
+    @Mock
+    private JobPositionTrackSkillRepository jobPositionTrackSkillRepository;
 
     @InjectMocks
     private JourneyServiceImpl service;
@@ -118,6 +133,7 @@ class JourneyServiceImplStudyPlanTest {
                 entityManager,
                 generateTestChatModel,
                 aiRoadmapService,
+                roadmapTemplateService,
                 assessmentPromptService,
                 taskBoardService,
                 aiStudySupportService,
@@ -126,6 +142,10 @@ class JourneyServiceImplStudyPlanTest {
                 studySessionRepository,
                 bookingRepository,
                 portfolioExtendedProfileRepository,
+                domainRepository,
+                jobPositionRepository,
+                jobPositionTrackRepository,
+                jobPositionTrackSkillRepository,
                 new ObjectMapper());
 
         // Mock session persistence (GAP-2 fix: sessions are now created before tasks)

@@ -22,9 +22,11 @@ public class QuestionBank {
     @Column(nullable = false)
     private String domain;
 
-    private String industry;
+    @Column(name = "domain_id")
+    private Long domainId;
 
-    private String jobRole;
+    @Column(name = "job_position_id")
+    private Long jobPositionId;
 
     /**
      * [V3] Skill cụ thể mà question bank phục vụ (e.g., "REACT", "JAVA_SPRING_BOOT").
@@ -32,6 +34,9 @@ public class QuestionBank {
      */
     @Column(name = "skill_name", length = 100)
     private String skillName;
+
+    @Column(name = "skill_id")
+    private Long skillId;
 
     @Column(nullable = false)
     private String title;

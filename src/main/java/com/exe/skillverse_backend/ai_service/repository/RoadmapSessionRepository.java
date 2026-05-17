@@ -84,10 +84,13 @@ public interface RoadmapSessionRepository extends JpaRepository<RoadmapSession, 
     List<Object[]> countModeMonthlyForUser(@Param("userId") Long userId, @Param("from") Instant from, @Param("to") Instant to);
 
     /**
-     * Find the ACTIVE roadmap for a user (should be at most 1)
+     * Find active roadmaps for a user.
      */
-    @Query("SELECT rs FROM RoadmapSession rs WHERE rs.user.id = :userId AND rs.status = 'ACTIVE'")
-    Optional<RoadmapSession> findActiveByUserId(@Param("userId") Long userId);
+    @Query("SELECT rs FROM RoadmapSession rs WHERE rs.user.id = :userId AND rs.status = 'ACTIVE' ORDER BY rs.createdAt DESC")
+    List<RoadmapSession> findActiveByUserId(@Param("userId") Long userId);
+
+    @Query("SELECT COUNT(rs) FROM RoadmapSession rs WHERE rs.user.id = :userId AND rs.status = 'ACTIVE'")
+    long countActiveByUserId(@Param("userId") Long userId);
 
     /**
      * Find all non-deleted roadmaps for a user

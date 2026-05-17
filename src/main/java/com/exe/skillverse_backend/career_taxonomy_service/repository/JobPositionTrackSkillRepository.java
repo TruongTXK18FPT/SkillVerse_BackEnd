@@ -14,6 +14,7 @@ public interface JobPositionTrackSkillRepository extends JpaRepository<JobPositi
     void deleteByTrackIdAndSkillId(Long trackId, Long skillId);
     void deleteByTrackId(Long trackId);
     boolean existsBySkillId(Long skillId);
+    List<JobPositionTrackSkill> findBySkillId(Long skillId);
 
     /** Returns only mappings where the linked skill is ACTIVE — eliminates post-fetch filter. */
     @org.springframework.data.jpa.repository.Query("""

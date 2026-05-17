@@ -1,6 +1,11 @@
 package com.exe.skillverse_backend.question_bank_service.service;
 
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.QuestionInfo;
+import com.exe.skillverse_backend.career_taxonomy_service.entity.Domain;
+import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPosition;
+import com.exe.skillverse_backend.career_taxonomy_service.enums.TaxonomyStatus;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.DomainRepository;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionRepository;
 import com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest;
 import com.exe.skillverse_backend.question_bank_service.dto.request.UpdateQuestionBankRequest;
 import com.exe.skillverse_backend.question_bank_service.dto.response.QuestionBankResponse;
@@ -10,6 +15,7 @@ import com.exe.skillverse_backend.question_bank_service.repository.QuestionBankQ
 import com.exe.skillverse_backend.question_bank_service.repository.QuestionBankRepository;
 import com.exe.skillverse_backend.question_bank_service.service.impl.QuestionBankServiceImpl;
 import com.exe.skillverse_backend.shared.exception.ApiException;
+import com.exe.skillverse_backend.shared.repository.SkillRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Optional;
@@ -42,24 +48,45 @@ class QuestionBankServiceImplTest {
     @Mock
     private QuestionBankQuestionRepository questionBankQuestionRepository;
 
+    @Mock
+    private DomainRepository domainRepository;
+
+    @Mock
+    private JobPositionRepository jobPositionRepository;
+
+    @Mock
+    private SkillRepository skillRepository;
+
     private QuestionBankServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new QuestionBankServiceImpl(questionBankRepository, questionBankQuestionRepository, new ObjectMapper());
+        service = new QuestionBankServiceImpl(
+                questionBankRepository,
+                questionBankQuestionRepository,
+                domainRepository,
+                jobPositionRepository,
+                skillRepository,
+                new ObjectMapper());
         lenient().when(questionBankRepository.save(any(QuestionBank.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test
-    @DisplayName("createBank should reject duplicate active banks for the same domain tuple")
+    @DisplayName("createBank should reject duplicate active banks for the same taxonomy scope")
     void createBank_ShouldRejectDuplicateActiveBanks() {
+        // Provide taxonomy IDs so the scope resolver can find a domain + job position
+        Domain domain = Domain.builder().id(1L).code("IT").name("IT").status(TaxonomyStatus.ACTIVE).build();
+        JobPosition jp = JobPosition.builder().id(2L).domainId(1L).name("Backend Developer").status(TaxonomyStatus.ACTIVE).build();
+
         CreateQuestionBankRequest request = CreateQuestionBankRequest.builder()
+                .domainId(1L)
+                .jobPositionId(2L)
                 .domain("IT")
-                .industry("Software")
-                .jobRole("Backend Developer")
                 .title("Backend Screening")
                 .build();
-        when(questionBankRepository.existsActiveByScope("IT", "Software", "Backend Developer", null))
+        when(domainRepository.findById(1L)).thenReturn(Optional.of(domain));
+        when(jobPositionRepository.findById(2L)).thenReturn(Optional.of(jp));
+        when(questionBankRepository.existsActiveByTaxonomyScope(1L, 2L, null))
                 .thenReturn(true);
 
         assertThrows(ApiException.class, () -> service.createBank(request));
@@ -68,23 +95,28 @@ class QuestionBankServiceImplTest {
     @Test
     @DisplayName("createBank should use the default difficulty distribution when the request omits it")
     void createBank_ShouldUseDefaultDifficultyDistribution() {
+        Domain domain = Domain.builder().id(1L).code("IT").name("IT").status(TaxonomyStatus.ACTIVE).build();
+        JobPosition jp = JobPosition.builder().id(2L).domainId(1L).name("Backend Developer").status(TaxonomyStatus.ACTIVE).build();
+
         CreateQuestionBankRequest request = CreateQuestionBankRequest.builder()
+                .domainId(1L)
+                .jobPositionId(2L)
                 .domain("IT")
-                .industry("Software")
-                .jobRole("Backend Developer")
                 .title("Backend Screening")
                 .build();
         QuestionBank bank = QuestionBank.builder()
                 .id(1L)
+                .domainId(1L)
+                .jobPositionId(2L)
                 .domain("IT")
-                .industry("Software")
-                .jobRole("Backend Developer")
                 .title("Backend Screening")
                 .difficultyDistribution("{\"BEGINNER\":0.20,\"INTERMEDIATE\":0.35,\"ADVANCED\":0.30,\"EXPERT\":0.15}")
                 .isActive(true)
                 .build();
 
-        when(questionBankRepository.existsActiveByScope("IT", "Software", "Backend Developer", null))
+        when(domainRepository.findById(1L)).thenReturn(Optional.of(domain));
+        when(jobPositionRepository.findById(2L)).thenReturn(Optional.of(jp));
+        when(questionBankRepository.existsActiveByTaxonomyScope(1L, 2L, null))
                 .thenReturn(false);
         when(questionBankQuestionRepository.countByDifficulty(1L)).thenReturn(List.of());
         when(questionBankRepository.save(any(QuestionBank.class))).thenReturn(bank);
@@ -98,22 +130,26 @@ class QuestionBankServiceImplTest {
     @Test
     @DisplayName("updateBank should reject collisions with another active bank")
     void updateBank_ShouldRejectCollisionsWithAnotherActiveBank() {
+        Domain domain = Domain.builder().id(1L).code("IT").name("IT").status(TaxonomyStatus.ACTIVE).build();
+        JobPosition jp = JobPosition.builder().id(2L).domainId(1L).name("Backend Developer").status(TaxonomyStatus.ACTIVE).build();
+        JobPosition jpQA = JobPosition.builder().id(3L).domainId(1L).name("QA Engineer").status(TaxonomyStatus.ACTIVE).build();
+
         QuestionBank existing = QuestionBank.builder()
                 .id(5L)
+                .domainId(1L)
+                .jobPositionId(2L)
                 .domain("IT")
-                .industry("Software")
-                .jobRole("Backend Developer")
                 .title("Existing")
                 .isActive(true)
                 .build();
         UpdateQuestionBankRequest request = UpdateQuestionBankRequest.builder()
-                .industry("Software")
-                .jobRole("QA Engineer")
+                .jobPositionId(3L)
                 .build();
 
         when(questionBankRepository.findById(5L)).thenReturn(Optional.of(existing));
-        when(questionBankRepository.existsActiveByScopeAndIdNot(
-                "IT", "Software", "QA Engineer", null, 5L))
+        when(domainRepository.findById(1L)).thenReturn(Optional.of(domain));
+        when(jobPositionRepository.findById(3L)).thenReturn(Optional.of(jpQA));
+        when(questionBankRepository.existsActiveByTaxonomyScopeAndIdNot(1L, 3L, null, 5L))
                 .thenReturn(true);
 
         assertThrows(ApiException.class, () -> service.updateBank(5L, request));

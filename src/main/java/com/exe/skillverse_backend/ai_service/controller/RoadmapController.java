@@ -423,7 +423,7 @@ public class RoadmapController {
         // =========================================================================
 
         @PutMapping("/{sessionId}/activate")
-        @Operation(summary = "Activate a roadmap", description = "Set a roadmap as ACTIVE (pauses all other ACTIVE roadmaps for the user)")
+        @Operation(summary = "Activate a roadmap", description = "Set a roadmap as ACTIVE when the user has fewer than 5 active roadmaps")
         @ApiResponses({
                         @ApiResponse(responseCode = "200", description = "Roadmap activated"),
                         @ApiResponse(responseCode = "404", description = "Roadmap not found"),

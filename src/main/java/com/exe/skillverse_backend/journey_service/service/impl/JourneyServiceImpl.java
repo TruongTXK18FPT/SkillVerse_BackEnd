@@ -11,6 +11,15 @@ import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.Tes
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.UserAssessmentInfo;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService;
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.career_taxonomy_service.entity.Domain;
+import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPosition;
+import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPositionTrack;
+import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPositionTrackSkill;
+import com.exe.skillverse_backend.career_taxonomy_service.enums.TaxonomyStatus;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.DomainRepository;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionRepository;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionTrackRepository;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionTrackSkillRepository;
 import com.exe.skillverse_backend.journey_service.dto.request.StartJourneyRequest;
 import com.exe.skillverse_backend.journey_service.dto.request.SubmitTestRequest;
 import com.exe.skillverse_backend.journey_service.dto.response.AssessmentTestResponse;
@@ -44,6 +53,8 @@ import com.exe.skillverse_backend.question_bank_service.service.QuestionBankQues
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
+import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapTemplateService;
+import com.exe.skillverse_backend.shared.enums.SkillStatus;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.shared.util.SkillNameUtils;
@@ -59,7 +70,6 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -89,8 +99,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class JourneyServiceImpl implements JourneyService {
 
     private static final int MAX_ASSESSMENT_ATTEMPTS = 2;
-    private static final int DEFAULT_RECOVERED_QUESTION_COUNT = 15;
+    private static final int DEFAULT_ASSESSMENT_QUESTION_COUNT = 50;
+    private static final int DEFAULT_ASSESSMENT_TIME_LIMIT_MINUTES = 50;
+    private static final int DEFAULT_RECOVERED_QUESTION_COUNT = DEFAULT_ASSESSMENT_QUESTION_COUNT;
     private static final int MIN_SKILL_JOURNEY_BANK_SEED_QUESTIONS = 5;
+    private static final int MAX_CONCURRENT_LEARNING_JOURNEYS = 5;
     private static final String QUESTION_BANK_PROMPT_MARKER = "question bank id=";
     private static final String FULL_QB_PROMPT_PREFIX = "Full QB: " + QUESTION_BANK_PROMPT_MARKER;
     private static final String HYBRID_QB_PROMPT_PREFIX = "Hybrid QB: " + QUESTION_BANK_PROMPT_MARKER;
@@ -110,15 +123,6 @@ public class JourneyServiceImpl implements JourneyService {
     private static final String STUDY_PLAN_LINK_MARKER_PREFIX = "[ROADMAP_NODE_LINK]";
     private static final String DEFAULT_STUDY_TIMEZONE = "Asia/Ho_Chi_Minh";
     private static final Pattern OPTION_PREFIX_PATTERN = Pattern.compile("^\\s*([A-D])(?:\\s*[\\.:\\)\\-]|\\s+|$)", Pattern.CASE_INSENSITIVE);
-    private static final Set<Journey.JourneyStatus> AUTO_PAUSE_ON_RESUME_STATUSES = EnumSet.of(
-            Journey.JourneyStatus.ASSESSMENT_PENDING,
-            Journey.JourneyStatus.TEST_IN_PROGRESS,
-            Journey.JourneyStatus.EVALUATION_PENDING,
-            Journey.JourneyStatus.ROADMAP_GENERATED,
-            Journey.JourneyStatus.STUDY_PLAN_IN_PROGRESS,
-            Journey.JourneyStatus.ACTIVE
-    );
-
     private final JourneyRepository journeyRepository;
     private final RoadmapSessionRepository roadmapSessionRepository;
     private final AssessmentTestRepository assessmentTestRepository;
@@ -131,6 +135,7 @@ public class JourneyServiceImpl implements JourneyService {
     @Qualifier("generateTestChatModel")
     private final ChatModel generateTestChatModel;
     private final AiRoadmapService aiRoadmapService;
+    private final RoadmapTemplateService roadmapTemplateService;
     private final AssessmentPromptService assessmentPromptService;
     private final TaskBoardService taskBoardService;
     private final AiStudySupportService aiStudySupportService;
@@ -139,6 +144,10 @@ public class JourneyServiceImpl implements JourneyService {
     private final StudySessionRepository studySessionRepository;
     private final BookingRepository bookingRepository;
     private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+    private final DomainRepository domainRepository;
+    private final JobPositionRepository jobPositionRepository;
+    private final JobPositionTrackRepository jobPositionTrackRepository;
+    private final JobPositionTrackSkillRepository jobPositionTrackSkillRepository;
     private final ObjectMapper objectMapper;
 
     private static final class QuestionEvaluation {
@@ -195,6 +204,14 @@ public class JourneyServiceImpl implements JourneyService {
     ) {
     }
 
+    private record JobPositionJourneyContext(
+            Domain domain,
+            JobPosition jobPosition,
+            JobPositionTrack track,
+            List<JobPositionTrackSkill> trackSkills
+    ) {
+    }
+
     // Lazy ChatClient instance
     private ChatClient getChatClient() {
         return ChatClient.create(generateTestChatModel);
@@ -206,27 +223,37 @@ public class JourneyServiceImpl implements JourneyService {
         log.info("Starting new journey for user: {} with domain: {}", user.getEmail(), request.getDomain());
         normalizeJourneyRequestDefaults(request);
 
-        // V3 Phase 3: Enforce single-journey per user — must complete or delete old journey first.
-        if (journeyRepository.hasNonTerminalJourney(user)) {
+        long currentLearningJourneys = journeyRepository.countConcurrentLearningJourneys(user);
+        if (currentLearningJourneys >= MAX_CONCURRENT_LEARNING_JOURNEYS) {
             throw new ApiException(ErrorCode.CONFLICT,
-                    "Bạn đang có một hành trình chưa hoàn thành. Hãy hoàn thành hoặc xóa hành trình cũ trước khi tạo mới.");
+                    "Bạn đang học tối đa 5 hành trình cùng lúc. Hãy hoàn thành, tạm dừng hoặc xóa một hành trình trước khi tạo mới.");
         }
 
-        // Validate V3 allowed domains
-        if (!Journey.ALLOWED_DOMAINS.contains(request.getDomain())) {
-            throw new ApiException(ErrorCode.BAD_REQUEST, "Domain không hợp lệ. Hệ thống hiện chỉ hỗ trợ " + String.join(", ", Journey.ALLOWED_DOMAINS));
+        validateAndNormalizeAdminManagedDomain(request);
+
+        JobPositionJourneyContext jobContext = resolveJobPositionJourneyContext(request).orElse(null);
+        if (jobContext != null) {
+            applyJobPositionContextToRequest(request, jobContext);
         }
+        List<Long> focusSkillIds = jobContext != null
+                ? jobContext.trackSkills().stream()
+                        .map(JobPositionTrackSkill::getSkillId)
+                        .filter(Objects::nonNull)
+                        .distinct()
+                        .toList()
+                : List.of();
 
         // V3: Extract single skillName from request if available
         String skillName = null;
         if (request.getSkills() != null && !request.getSkills().isEmpty()) {
             skillName = SkillNameUtils.normalize(request.getSkills().get(0));
         }
+        skillName = resolvePrimarySkillName(jobContext, request);
 
         // Create journey entity
         Journey journey = Journey.builder()
                 .user(user)
-                .type(request.getType())
+                .type(jobContext != null ? "CAREER" : request.getType())
                 .domain(request.getDomain())
                 .title(buildJourneyTitle(request))
                 .subCategory(request.getSubCategory())
@@ -236,6 +263,11 @@ public class JourneyServiceImpl implements JourneyService {
                 .skillName(skillName)
                 .status(Journey.JourneyStatus.ASSESSMENT_PENDING)
                 .assessmentData(convertRequestToJson(request))
+                .jobPositionTrackId(jobContext != null ? jobContext.track().getId() : request.getJobPositionTrackId())
+                .targetLevel(jobContext != null && jobContext.track().getTargetLevel() != null
+                        ? jobContext.track().getTargetLevel().name()
+                        : null)
+                .focusSkillIdsJson(focusSkillIds.isEmpty() ? null : writeJson(focusSkillIds))
                 .progressPercentage(0)
                 .startedAt(Instant.now())
                 .lastActivityAt(Instant.now())
@@ -376,8 +408,6 @@ public class JourneyServiceImpl implements JourneyService {
             throw new RuntimeException("Can only resume a paused journey");
         }
 
-        pauseOtherJourneysOnResume(user, journey.getId());
-
         Journey.JourneyStatus resumedStatus = determineResumeStatus(journey);
         journey.setStatus(resumedStatus);
         journey.setLastActivityAt(Instant.now());
@@ -417,32 +447,6 @@ public class JourneyServiceImpl implements JourneyService {
         }
 
         return Journey.JourneyStatus.ASSESSMENT_PENDING;
-    }
-
-    private void pauseOtherJourneysOnResume(User user, Long resumedJourneyId) {
-        List<Journey> candidates = journeyRepository.findActiveJourneysByUser(user);
-        if (candidates.isEmpty()) {
-            return;
-        }
-
-        Instant now = Instant.now();
-        List<Journey> journeysToPause = candidates.stream()
-                .filter(j -> !Objects.equals(j.getId(), resumedJourneyId))
-                .filter(j -> AUTO_PAUSE_ON_RESUME_STATUSES.contains(j.getStatus()))
-                .collect(Collectors.toList());
-
-        if (journeysToPause.isEmpty()) {
-            return;
-        }
-
-        journeysToPause.forEach(j -> {
-            j.setStatus(Journey.JourneyStatus.PAUSED);
-            j.setLastActivityAt(now);
-        });
-        journeyRepository.saveAll(journeysToPause);
-
-        log.info("Paused {} other journeys for user {} while resuming journey {}",
-                journeysToPause.size(), user.getId(), resumedJourneyId);
     }
 
     @Override
@@ -606,6 +610,33 @@ public class JourneyServiceImpl implements JourneyService {
         String jobRole = assessmentData.getJobRole();
         String userLevel = generationContext.testedLevel().name();
 
+        JobPositionJourneyContext jobContext = resolveJobPositionJourneyContext(assessmentData)
+                .or(() -> resolveJobPositionJourneyContext(journey))
+                .orElse(null);
+        if (jobContext != null) {
+            List<QuestionInfo> jobPositionQuestions = selectJobPositionTrackQuestions(
+                    jobContext,
+                    requestedQuestionCount,
+                    userLevel);
+            if (jobPositionQuestions.size() >= requestedQuestionCount) {
+                questionBankService.incrementUsedCount(jobPositionQuestions);
+                return saveQuestionBankAssessmentTest(
+                        journey,
+                        user,
+                        domain,
+                        null,
+                        jobPositionQuestions.stream().limit(requestedQuestionCount).toList(),
+                        requestedTimeLimitMinutes,
+                        generationContext,
+                        buildJobPositionQuestionBankPrompt(jobContext, requestedQuestionCount));
+            }
+            log.info("Job-position bank selection returned only {} / {} questions for track {}.",
+                    jobPositionQuestions.size(), requestedQuestionCount, jobContext.track().getId());
+            log.info("Falling back to AI generation for job-position track {}. AI-generated questions will be saved to the matching question bank after submission.",
+                    jobContext.track().getId());
+            return null;
+        }
+
         Optional<QuestionBankResponse> bankOpt = resolveQuestionBankForJourney(journey, domain, industry, jobRole);
         if (bankOpt.isEmpty()) {
             log.info("No question bank found for domain={}, industry={}, jobRole={}, type={}. Falling back to AI generation.",
@@ -664,7 +695,7 @@ public class JourneyServiceImpl implements JourneyService {
             String generationPrompt) {
         AssessmentTest test = AssessmentTest.builder()
                 .journey(journey)
-                .questionBank(entityManager.getReference(QuestionBank.class, bankId))
+                .questionBank(bankId != null ? entityManager.getReference(QuestionBank.class, bankId) : null)
                 .title("Bài đánh giá kỹ năng " + domain)
                 .description("Bài quiz đánh giá kỹ năng từ ngân hàng câu hỏi cho " + domain)
                 .targetField(domain)
@@ -703,44 +734,145 @@ public class JourneyServiceImpl implements JourneyService {
     private Optional<QuestionBankResponse> resolveQuestionBankForJourney(
             Journey journey, String domain, String industry, String jobRole) {
         String skillName = journey != null ? journey.getSkillName() : null;
-        log.info("resolveQuestionBankForJourney: journeyId={}, type={}, skillName={}, domain={}, industry={}, jobRole={}",
+        log.info("resolveQuestionBankForJourney: journeyId={}, type={}, skillName={}, domain={}",
                 journey != null ? journey.getId() : null,
                 journey != null ? journey.getType() : null,
                 skillName,
-                domain,
-                industry,
-                jobRole);
+                domain);
 
-        if (isSkillJourney(journey)) {
-            Optional<QuestionBankResponse> scopedBank = questionBankService.findActiveBank(
-                    domain,
-                    industry,
-                    jobRole,
-                    skillName);
-            if (scopedBank.isPresent() && matchesSkillScopedBank(scopedBank.get(), skillName)) {
-                log.info("Found exact skill-scoped question bank: {}", scopedBank.get().getId());
-                return scopedBank;
-            }
-            if ((industry == null || industry.isBlank()) && jobRole != null && !jobRole.isBlank()) {
-                log.info("Trying findActiveBankByJobRole fallback: domain={}, jobRole={}, skillName={}", domain, jobRole, skillName);
-                Optional<QuestionBankResponse> roleBank = questionBankService.findActiveBankByJobRole(
-                        domain,
-                        jobRole,
-                        skillName);
-                if (roleBank.isPresent() && matchesSkillScopedBank(roleBank.get(), skillName)) {
-                    return roleBank;
-                }
-            }
-            log.info("No question bank found for skill journey with skillName={}", skillName);
-            return Optional.empty();
-        }
-        return questionBankService.findActiveBank(domain, jobRole);
+        return Optional.empty(); // Should be updated or removed if not needed since we use domain/jobPosition/skill now
     }
 
     private boolean matchesSkillScopedBank(QuestionBankResponse bank, String requestedSkillName) {
         String requested = SkillNameUtils.normalize(requestedSkillName);
         String bankSkill = SkillNameUtils.normalize(bank != null ? bank.getSkillName() : null);
         return requested != null && !requested.isBlank() && requested.equals(bankSkill);
+    }
+
+    private List<QuestionInfo> selectJobPositionTrackQuestions(
+            JobPositionJourneyContext context,
+            int requestedQuestionCount,
+            String userLevel) {
+        if (context == null || context.trackSkills().isEmpty() || requestedQuestionCount <= 0) {
+            return Collections.emptyList();
+        }
+
+        List<JobPositionTrackSkill> skills = context.trackSkills();
+        List<String> skillNames = skills.stream()
+                .map(this::resolveTrackSkillName)
+                .filter(Objects::nonNull)
+                .filter(skill -> !skill.isBlank())
+                .distinct()
+                .toList();
+        int totalWeight = skills.stream().mapToInt(s -> s.getWeight() != null ? s.getWeight() : 1).sum();
+        if (totalWeight <= 0) totalWeight = 1;
+
+        int remainingCount = requestedQuestionCount;
+        int[] targets = new int[skills.size()];
+        for (int i = 0; i < skills.size(); i++) {
+            if (i == skills.size() - 1) {
+                targets[i] = Math.max(0, remainingCount);
+            } else {
+                int weight = skills.get(i).getWeight() != null ? skills.get(i).getWeight() : 1;
+                targets[i] = Math.round((float) weight / totalWeight * requestedQuestionCount);
+                if (targets[i] > remainingCount) targets[i] = Math.max(0, remainingCount);
+                remainingCount -= targets[i];
+            }
+        }
+
+        Map<String, QuestionInfo> selected = new LinkedHashMap<>();
+
+        Optional<QuestionBankResponse> roleBank = findRoleQuestionBank(context);
+        roleBank.ifPresent(bank -> addUniqueQuestions(
+                selected,
+                selectSkillScopedQuestions(bank.getId(), skillNames, requestedQuestionCount, userLevel),
+                requestedQuestionCount));
+
+        for (int index = 0; index < skills.size() && selected.size() < requestedQuestionCount; index++) {
+            JobPositionTrackSkill trackSkill = skills.get(index);
+            String skillName = resolveTrackSkillName(trackSkill);
+            if (skillName == null || skillName.isBlank()) {
+                continue;
+            }
+            int targetForSkill = targets[index];
+            if (targetForSkill <= 0) continue;
+
+            Optional<QuestionBankResponse> skillBank = findSkillQuestionBank(context, trackSkill);
+            if (skillBank.isEmpty()) {
+                log.info("No question bank found for job-position skill {}", skillName);
+                continue;
+            }
+            List<QuestionInfo> skillQuestions = questionBankService.selectRandomQuestionsByLevel(
+                    skillBank.get().getId(), targetForSkill, userLevel);
+            addUniqueQuestions(selected, skillQuestions, requestedQuestionCount);
+        }
+
+        if (selected.size() < requestedQuestionCount) {
+            for (JobPositionTrackSkill trackSkill : skills) {
+                if (selected.size() >= requestedQuestionCount) {
+                    break;
+                }
+                String skillName = resolveTrackSkillName(trackSkill);
+                Optional<QuestionBankResponse> skillBank = findSkillQuestionBank(context, trackSkill);
+                if (skillBank.isEmpty()) {
+                    continue;
+                }
+                List<QuestionInfo> fill = questionBankService.selectRandomQuestions(
+                        skillBank.get().getId(),
+                        requestedQuestionCount - selected.size(),
+                        skillBank.get().getDifficultyDistribution());
+                addUniqueQuestions(selected, fill, requestedQuestionCount);
+            }
+        }
+
+        List<QuestionInfo> result = new ArrayList<>(selected.values());
+        Collections.shuffle(result);
+        return result;
+    }
+
+    private Optional<QuestionBankResponse> findSkillQuestionBank(
+            JobPositionJourneyContext context,
+            JobPositionTrackSkill trackSkill) {
+        if (context == null || trackSkill == null || trackSkill.getSkillId() == null) {
+            return Optional.empty();
+        }
+        Optional<QuestionBankResponse> scoped = questionBankService.findActiveBank(
+                context.domain().getId(),
+                context.jobPosition().getId(),
+                trackSkill.getSkillId());
+        if (scoped.isPresent() && matchesTrackSkillScopedBank(scoped.get(), trackSkill)) {
+            return scoped;
+        }
+        return Optional.empty();
+    }
+
+    private Optional<QuestionBankResponse> findRoleQuestionBank(JobPositionJourneyContext context) {
+        if (context == null) {
+            return Optional.empty();
+        }
+        return questionBankService.findActiveBank(context.domain().getId(), context.jobPosition().getId())
+                .filter(bank -> bank.getSkillId() == null && !hasText(bank.getSkillName()));
+    }
+
+    private boolean matchesTrackSkillScopedBank(QuestionBankResponse bank, JobPositionTrackSkill trackSkill) {
+        if (bank == null || trackSkill == null) {
+            return false;
+        }
+        if (bank.getSkillId() != null && trackSkill.getSkillId() != null) {
+            return Objects.equals(bank.getSkillId(), trackSkill.getSkillId());
+        }
+        return matchesSkillScopedBank(bank, resolveTrackSkillName(trackSkill));
+    }
+
+    private String buildJobPositionQuestionBankPrompt(JobPositionJourneyContext context, int requestedQuestionCount) {
+        String skillNames = context.trackSkills().stream()
+                .map(this::resolveTrackSkillName)
+                .filter(Objects::nonNull)
+                .collect(Collectors.joining(", "));
+        return "Job-position QB: trackId=" + context.track().getId()
+                + ", jobPositionId=" + context.jobPosition().getId()
+                + ", total=" + requestedQuestionCount
+                + ", skills=[" + skillNames + "]";
     }
 
     private List<QuestionInfo> selectQuestionsFromBank(
@@ -802,6 +934,26 @@ public class JourneyServiceImpl implements JourneyService {
                         remainingForSkill);
                 int added = addUniqueQuestions(selected, matches, requestedQuestionCount);
                 remainingForSkill -= added;
+            }
+        }
+
+        if (selected.size() < requestedQuestionCount) {
+            for (String requestedSkill : normalizedSkills) {
+                String actualSkillArea = availableSkillAreas.get(canonicalizeSkillKey(requestedSkill));
+                if (actualSkillArea == null) {
+                    continue;
+                }
+                for (String difficulty : preferredDifficulties) {
+                    if (selected.size() >= requestedQuestionCount) {
+                        break;
+                    }
+                    List<QuestionInfo> matches = questionBankService.selectRandomQuestionsBySkillAreaAndDifficulty(
+                            bankId,
+                            actualSkillArea,
+                            difficulty,
+                            requestedQuestionCount - selected.size());
+                    addUniqueQuestions(selected, matches, requestedQuestionCount);
+                }
             }
         }
 
@@ -874,6 +1026,10 @@ public class JourneyServiceImpl implements JourneyService {
                 .toLowerCase(Locale.ROOT)
                 .replaceAll("\\s+", " ")
                 .replaceAll("[.,;:'\"!?()\\[\\]{}]", "");
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private String getSkillAreasAlreadyCovered(List<QuestionInfo> questions) {
@@ -1046,46 +1202,161 @@ public class JourneyServiceImpl implements JourneyService {
         return payloads;
     }
 
+    private void validateAndNormalizeAdminManagedDomain(StartJourneyRequest request) {
+        String normalizedDomain = normalizeDomainCode(request != null ? request.getDomain() : null);
+        if (normalizedDomain == null) {
+            throw new ApiException(ErrorCode.BAD_REQUEST,
+                    "Domain không hợp lệ. Vui lòng chọn domain đang hoạt động do admin quản lý.");
+        }
+
+        Domain domain = domainRepository.findByCodeIgnoreCase(normalizedDomain)
+                .orElseThrow(() -> new ApiException(ErrorCode.BAD_REQUEST,
+                        "Domain không hợp lệ. Vui lòng chọn domain đang hoạt động do admin quản lý."));
+        if (domain.getStatus() != TaxonomyStatus.ACTIVE) {
+            throw new ApiException(ErrorCode.BAD_REQUEST,
+                    "Domain đã ngừng kích hoạt. Vui lòng chọn domain khác do admin quản lý.");
+        }
+
+        request.setDomain(normalizeDomainCode(domain.getCode()));
+    }
+
+    private String normalizeDomainCode(String domainCode) {
+        if (domainCode == null || domainCode.isBlank()) {
+            return null;
+        }
+        return domainCode.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private Optional<JobPositionJourneyContext> resolveJobPositionJourneyContext(StartJourneyRequest request) {
+        if (request == null) {
+            return Optional.empty();
+        }
+        Long trackId = request.getJobPositionTrackId();
+        Long jobPositionId = request.getJobPositionId();
+        if (trackId == null) {
+            trackId = inferTrackIdFromRequest(request);
+        }
+        if (trackId == null) {
+            return Optional.empty();
+        }
+        Long resolvedTrackId = trackId;
+
+        JobPositionTrack track = jobPositionTrackRepository.findById(resolvedTrackId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Job position track not found: " + resolvedTrackId));
+        if (track.getStatus() != TaxonomyStatus.ACTIVE) {
+            throw new ApiException(ErrorCode.CONFLICT, "Job position track is not active");
+        }
+        if (jobPositionId != null && !Objects.equals(jobPositionId, track.getJobPositionId())) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Job position track does not belong to selected job position");
+        }
+
+        JobPosition jobPosition = jobPositionRepository.findById(track.getJobPositionId())
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Job position not found: " + track.getJobPositionId()));
+        if (jobPosition.getStatus() != TaxonomyStatus.ACTIVE) {
+            throw new ApiException(ErrorCode.CONFLICT, "Job position is not active");
+        }
+        Domain domain = domainRepository.findById(jobPosition.getDomainId())
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Domain not found: " + jobPosition.getDomainId()));
+        if (domain.getStatus() != TaxonomyStatus.ACTIVE) {
+            throw new ApiException(ErrorCode.CONFLICT, "Domain is not active");
+        }
+
+        List<JobPositionTrackSkill> trackSkills = jobPositionTrackSkillRepository
+                .findActiveSkillsByTrackId(track.getId(), SkillStatus.ACTIVE);
+        if (trackSkills.isEmpty()) {
+            throw new ApiException(ErrorCode.CONFLICT, "Job position track does not have active skills for assessment");
+        }
+        return Optional.of(new JobPositionJourneyContext(domain, jobPosition, track, trackSkills));
+    }
+
+    private Optional<JobPositionJourneyContext> resolveJobPositionJourneyContext(Journey journey) {
+        if (journey == null || journey.getJobPositionTrackId() == null) {
+            return Optional.empty();
+        }
+        StartJourneyRequest request = StartJourneyRequest.builder()
+                .domain(journey.getDomain())
+                .jobRole(journey.getJobRole())
+                .jobPositionTrackId(journey.getJobPositionTrackId())
+                .build();
+        return resolveJobPositionJourneyContext(request);
+    }
+
+    private Long inferTrackIdFromRequest(StartJourneyRequest request) {
+        if (request == null || request.getJobRole() == null || request.getJobRole().isBlank()) {
+            return null;
+        }
+        String requestedRole = canonicalizeSkillKey(request.getJobRole());
+        List<JobPositionTrack> candidates = jobPositionTrackRepository.findAllActiveWithActiveParentChain(TaxonomyStatus.ACTIVE);
+        return candidates.stream()
+                .filter(track -> request.getJobPositionId() == null
+                        || Objects.equals(track.getJobPositionId(), request.getJobPositionId()))
+                .filter(track -> {
+                    String trackName = canonicalizeSkillKey(track.getName());
+                    String trackCode = canonicalizeSkillKey(track.getCode());
+                    return trackName.equals(requestedRole)
+                            || trackCode.equals(requestedRole)
+                            || trackName.contains(requestedRole)
+                            || requestedRole.contains(trackName);
+                })
+                .map(JobPositionTrack::getId)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private void applyJobPositionContextToRequest(StartJourneyRequest request, JobPositionJourneyContext context) {
+        request.setType("CAREER");
+        request.setDomain(context.domain().getCode());
+        request.setJobPositionId(context.jobPosition().getId());
+        request.setJobPositionTrackId(context.track().getId());
+        request.setJobRole(context.jobPosition().getName());
+        request.setSubCategory(context.track().getName());
+        request.setIndustry(context.jobPosition().getName());
+        request.setQuestionCount(DEFAULT_ASSESSMENT_QUESTION_COUNT);
+        request.setDuration("STANDARD");
+        request.setSkills(context.trackSkills().stream()
+                .map(this::resolveTrackSkillName)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList());
+    }
+
+    private String resolvePrimarySkillName(JobPositionJourneyContext context, StartJourneyRequest request) {
+        if (context != null) {
+            return context.trackSkills().stream()
+                    .map(this::resolveTrackSkillName)
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .map(SkillNameUtils::normalize)
+                    .orElse(null);
+        }
+        if (request != null && request.getSkills() != null && !request.getSkills().isEmpty()) {
+            return SkillNameUtils.normalize(request.getSkills().get(0));
+        }
+        return null;
+    }
+
+    private String resolveTrackSkillName(JobPositionTrackSkill trackSkill) {
+        if (trackSkill == null || trackSkill.getSkill() == null) {
+            return null;
+        }
+        return firstNonBlank(trackSkill.getSkill().getName(), trackSkill.getSkill().getCanonicalKey());
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            log.warn("Failed to serialize journey metadata: {}", e.getMessage());
+            return null;
+        }
+    }
+
     private int resolveAssessmentQuestionCount(StartJourneyRequest assessmentData) {
-        if (assessmentData == null) {
-            return 15;
-        }
-
-        Integer requestedQuestionCount = assessmentData.getQuestionCount();
-        if (requestedQuestionCount != null) {
-            if (requestedQuestionCount <= 15) {
-                return 15;
-            }
-            if (requestedQuestionCount <= 25) {
-                return 25;
-            }
-            return 40;
-        }
-
-        String duration = assessmentData.getDuration();
-        if (duration == null || duration.isBlank()) {
-            return 15;
-        }
-
-        return switch (duration.trim().toUpperCase(Locale.ROOT)) {
-            case "QUICK" -> 15;
-            case "STANDARD" -> 25;
-            case "DEEP" -> 40;
-            default -> 25;
-        };
+        return DEFAULT_ASSESSMENT_QUESTION_COUNT;
     }
 
     private int resolveAssessmentTimeLimitMinutes(StartJourneyRequest assessmentData) {
-        if (assessmentData == null || assessmentData.getDuration() == null || assessmentData.getDuration().isBlank()) {
-            return 15;
-        }
-
-        return switch (assessmentData.getDuration().trim().toUpperCase(Locale.ROOT)) {
-            case "QUICK" -> 5;
-            case "STANDARD" -> 15;
-            case "DEEP" -> 30;
-            default -> 15;
-        };
+        return DEFAULT_ASSESSMENT_TIME_LIMIT_MINUTES;
     }
 
     private List<Object> normalizeGeneratedQuestions(Object questionsData, int requestedQuestionCount) {
@@ -1179,6 +1450,8 @@ public class JourneyServiceImpl implements JourneyService {
         if (request.getLevel() == null || request.getLevel().isBlank()) {
             request.setLevel(Journey.SkillLevel.BEGINNER.name());
         }
+        request.setQuestionCount(DEFAULT_ASSESSMENT_QUESTION_COUNT);
+        request.setDuration("STANDARD");
     }
 
     private StartJourneyRequest readAssessmentData(Journey journey) {
@@ -1359,6 +1632,28 @@ public class JourneyServiceImpl implements JourneyService {
             return questionBankService.getBankById(bankId);
         }
 
+        JobPositionJourneyContext jobContext = resolveJobPositionJourneyContext(journey).orElse(null);
+        if (jobContext != null) {
+            Optional<QuestionBankResponse> roleBank = questionBankService.findActiveBank(
+                    jobContext.domain().getId(),
+                    jobContext.jobPosition().getId());
+            if (roleBank.isPresent()) {
+                return roleBank.get();
+            }
+
+            var createRequest = com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
+                    .domainId(jobContext.domain().getId())
+                    .jobPositionId(jobContext.jobPosition().getId())
+                    .domain(jobContext.domain().getCode())
+                    .title("Auto bank: " + jobContext.domain().getCode() + " / " + jobContext.jobPosition().getName())
+                    .description("Auto-generated question bank from AI test submissions")
+                    .build();
+            QuestionBankResponse createdBank = questionBankService.createBank(createRequest);
+            log.info("Auto-created taxonomy question bank {} for domainId={}, jobPositionId={}",
+                    createdBank.getId(), jobContext.domain().getId(), jobContext.jobPosition().getId());
+            return createdBank;
+        }
+
         Optional<QuestionBankResponse> existingBank = resolveQuestionBankForJourney(
                 journey,
                 domain,
@@ -1376,10 +1671,7 @@ public class JourneyServiceImpl implements JourneyService {
 
         var createRequest = com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
                 .domain(domain)
-                .industry(resolvedIndustry)
-                .jobRole(resolvedJobRole)
-                .skillName(journey != null ? journey.getSkillName() : null)
-                .title("Auto bank: " + domain + " / " + (!resolvedJobRole.isBlank() ? resolvedJobRole : "general"))
+                .title("Auto bank: " + domain + " / general")
                 .description("Auto-generated question bank from AI test submissions")
                 .build();
         QuestionBankResponse createdBank = questionBankService.createBank(createRequest);
@@ -1557,9 +1849,6 @@ public class JourneyServiceImpl implements JourneyService {
                             domain, jobRole);
                     var createRequest = com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
                             .domain(domain)
-                            .industry(industry)
-                            .jobRole(jobRole)
-                            .skillName(journey.getSkillName())
                             .title("Auto bank: " + domain + " / " + (jobRole != null ? jobRole : "general"))
                             .description("Auto-generated question bank from AI test submissions")
                             .build();
@@ -2631,6 +2920,13 @@ public class JourneyServiceImpl implements JourneyService {
         }
     }
 
+    private String resolveQuestionBankSkillNameForEnrichment(Journey journey) {
+        if (journey == null || journey.getJobPositionTrackId() != null) {
+            return null;
+        }
+        return journey.getSkillName();
+    }
+
     private int resolveRoadmapNodeTargetSessionCount(
             RoadmapResponse.RoadmapNode node,
             GenerateScheduleRequest request) {
@@ -3269,6 +3565,8 @@ public class JourneyServiceImpl implements JourneyService {
                 .industry(journey.getIndustry())
                 .subCategory(journey.getSubCategory())
                 .jobRole(journey.getJobRole())
+                .jobPositionTrackId(journey.getJobPositionTrackId())
+                .targetLevel(journey.getTargetLevel())
                 .goal(journey.getGoal() != null ? journey.getGoal() : "Unknown")
                 .status(journey.getStatus() != null ? journey.getStatus() : Journey.JourneyStatus.NOT_STARTED)
                 .currentLevel(journey.getCurrentLevel())
@@ -5169,6 +5467,13 @@ public class JourneyServiceImpl implements JourneyService {
 
         StartJourneyRequest assessmentData = parseAssessmentData(journey.getAssessmentData());
         EvaluationSnapshot snapshot = buildSnapshotFromStoredResult(testResult, null);
+        if (journey.getJobPositionTrackId() != null) {
+            return roadmapTemplateService.createRoadmapSessionFromPublishedTemplate(
+                    journey,
+                    testResult,
+                    skillGaps != null ? skillGaps : Collections.emptyList(),
+                    strengths != null ? strengths : Collections.emptyList());
+        }
         GenerateRoadmapRequest roadmapRequest = buildRoadmapRequestFromEvaluation(
                 journey,
                 assessmentData,

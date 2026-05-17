@@ -22,9 +22,12 @@ public class QuestionBankSubmissionResponse {
     private String mentorEmail;
     private String mentorAvatarUrl;
     private String mentorPortfolioSlug;
+    private Long domainId;
+    private Long jobPositionId;
+    private Long skillId;
     private String domain;
-    private String industry;
-    private String jobRole;
+    private String domainName;
+    private String jobPositionName;
     private String skillName;
     private String title;
     private String description;

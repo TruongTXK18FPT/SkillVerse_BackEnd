@@ -11,6 +11,7 @@ import java.util.Optional;
 @Repository
 public interface DomainRepository extends JpaRepository<Domain, Long> {
     Optional<Domain> findByCode(String code);
+    Optional<Domain> findByCodeIgnoreCase(String code);
     boolean existsByCode(String code);
     List<Domain> findByStatus(TaxonomyStatus status);
 }

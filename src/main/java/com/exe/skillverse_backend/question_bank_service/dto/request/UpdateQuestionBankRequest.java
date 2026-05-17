@@ -13,8 +13,9 @@ public class UpdateQuestionBankRequest {
 
     private String title;
     private String description;
-    private String industry;
-    private String jobRole;
+    private Long domainId;
+    private Long jobPositionId;
+    private Long skillId;
     private String skillName;
     private String difficultyDistribution;
     private Boolean isActive;

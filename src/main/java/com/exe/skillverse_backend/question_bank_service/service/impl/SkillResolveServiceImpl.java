@@ -118,13 +118,12 @@ public class SkillResolveServiceImpl implements SkillResolveService {
         ResolveMatch best = matches.getFirst();
 
         Optional<com.exe.skillverse_backend.question_bank_service.entity.QuestionBank> existingBank =
-                questionBankRepository.findByExactScope(
-                        best.domain(),
-                        best.industry(),
-                        best.jobRole(),
-                        normalizedSkill,
-                        PageRequest.of(0, 1)
-                ).stream().findFirst();
+                questionBankRepository.findByDomainAndIsActiveTrue(best.domain()).stream()
+                        .filter(b -> {
+                            String bankSkill = b.getSkillName();
+                            return bankSkill != null && bankSkill.equalsIgnoreCase(normalizedSkill);
+                        })
+                        .findFirst();
 
         SkillResolveResponse.SkillResolveResponseBuilder responseBuilder = SkillResolveResponse.builder()
                 .skillName(normalizedSkill)
@@ -149,8 +148,6 @@ public class SkillResolveServiceImpl implements SkillResolveService {
                 QuestionBankResponse createdBank = questionBankService.createBank(
                         CreateQuestionBankRequest.builder()
                                 .domain(best.domain())
-                                .industry(best.industry())
-                                .jobRole(best.jobRole())
                                 .skillName(normalizedSkill)
                                 .title("Question bank dau vao " + best.jobRole() + " - " + formatSkillLabel(normalizedSkill))
                                 .description("Bo cau hoi danh gia dau vao cho skill "

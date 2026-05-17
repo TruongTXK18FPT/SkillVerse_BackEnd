@@ -101,6 +101,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
 
     // Use Gemini native endpoint instead of OpenAI-compatible one
     private static final String GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
+    private static final int MAX_CONCURRENT_ACTIVE_ROADMAPS = 5;
     private static final int AI_TRANSIENT_MAX_RETRIES = 2;
     private static final long AI_RETRY_BASE_WAIT_MS = 1_000L;
     private static final Pattern ROADMAP_NODE_LINK_PATTERN = Pattern.compile(
@@ -238,6 +239,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 logGoal,
                 request.getRoadmapMode(),
                 request.getAiAgentMode());
+        ensureCanStartAnotherActiveRoadmap(user.getId(),
+                "Bạn đang học tối đa 5 lộ trình cùng lúc. Hãy hoàn thành, tạm dừng hoặc xóa một lộ trình trước khi tạo mới.");
         log.debug("🧪 [trace={}] Roadmap request payload: mode={}, aiAgentMode={}, goal='{}', target='{}', duration='{}', desiredDuration='{}', experience='{}', currentSkillLevel='{}', learningStyle='{}', roadmapType='{}', skillName='{}', skillCategory='{}', desiredDepth='{}', learnerType='{}', dailyLearningTime='{}', assessmentPreference='{}', difficultyTolerance='{}', priority='{}'",
             traceId,
             request.getRoadmapMode(),
@@ -497,11 +500,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             // IMPORTANT: serialize after all node/metadata enrichments to avoid stale roadmap_json.
             String storedJson = serializeParsedRoadmap(parsed);
 
-            // Step 6.7: Pause all currently ACTIVE roadmaps for this user
-            int pausedCount = roadmapSessionRepository.pauseAllActiveByUserId(user.getId());
-            if (pausedCount > 0) {
-                log.info("⏸️ Paused {} active roadmap(s) for user {} before creating new one", pausedCount, user.getId());
-            }
+            ensureCanStartAnotherActiveRoadmap(user.getId(),
+                    "Bạn đang học tối đa 5 lộ trình cùng lúc. Hãy hoàn thành, tạm dừng hoặc xóa một lộ trình trước khi tạo mới.");
 
             // Step 7: Save to database with V2 schema
             RoadmapSession session = RoadmapSession.builder()
@@ -4852,8 +4852,15 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
     // Roadmap Lifecycle Management: Activate, Pause, Delete
     // =========================================================================
 
+    private void ensureCanStartAnotherActiveRoadmap(Long userId, String message) {
+        long activeRoadmapCount = roadmapSessionRepository.countActiveByUserId(userId);
+        if (activeRoadmapCount >= MAX_CONCURRENT_ACTIVE_ROADMAPS) {
+            throw new ApiException(ErrorCode.CONFLICT, message);
+        }
+    }
+
     /**
-     * Activate a roadmap (only ONE can be ACTIVE per user at a time)
+     * Activate a roadmap while allowing up to 5 active roadmaps per user.
      */
     @Override
     @Transactional
@@ -4869,8 +4876,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             return; // Already active, no-op
         }
 
-        // Pause all currently active roadmaps for this user
-        roadmapSessionRepository.pauseAllActiveByUserId(userId);
+        ensureCanStartAnotherActiveRoadmap(userId,
+                "Bạn đang học tối đa 5 lộ trình cùng lúc. Hãy tạm dừng hoặc xóa một lộ trình trước khi kích hoạt thêm.");
 
         // Activate the requested roadmap
         session.setStatus(RoadmapStatus.ACTIVE);

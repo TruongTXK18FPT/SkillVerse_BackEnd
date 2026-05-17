@@ -18,14 +18,16 @@ import java.util.List;
 @AllArgsConstructor
 public class CreateQuestionBankSubmissionRequest {
 
+    @NotNull(message = "Domain is required")
+    private Long domainId;
+
+    @NotNull(message = "Job position is required")
+    private Long jobPositionId;
+
+    private Long skillId;
+
     @NotBlank(message = "Domain is required")
     private String domain;
-
-    @NotBlank(message = "Industry is required")
-    private String industry;
-
-    @NotBlank(message = "Job role is required")
-    private String jobRole;
 
     @NotBlank(message = "Skill name is required")
     private String skillName;

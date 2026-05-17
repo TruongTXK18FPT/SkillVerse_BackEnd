@@ -14,9 +14,12 @@ import java.time.LocalDateTime;
 public class QuestionBankSummaryResponse {
 
     private Long id;
+    private Long domainId;
+    private Long jobPositionId;
+    private Long skillId;
     private String domain;
-    private String industry;
-    private String jobRole;
+    private String domainName;
+    private String jobPositionName;
     private String skillName;
     private String title;
     private Integer activeQuestionCount;

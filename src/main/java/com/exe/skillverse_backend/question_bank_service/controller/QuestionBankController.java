@@ -38,12 +38,11 @@ public class QuestionBankController {
     @PreAuthorize("hasRole('ADMIN') or hasRole('AI_ADMIN')")
     @Operation(summary = "List all question banks")
     public ResponseEntity<Page<QuestionBankSummaryResponse>> listBanks(
-            @RequestParam(required = false) String domain,
-            @RequestParam(required = false) String industry,
-            @RequestParam(required = false) String jobRole,
-            @RequestParam(required = false) String skillName,
+            @RequestParam(required = false) Long domainId,
+            @RequestParam(required = false) Long jobPositionId,
+            @RequestParam(required = false) Long skillId,
             @PageableDefault(size = 20) Pageable pageable) {
-        return ResponseEntity.ok(questionBankService.listBanks(domain, industry, jobRole, skillName, pageable));
+        return ResponseEntity.ok(questionBankService.listBanks(domainId, jobPositionId, skillId, pageable));
     }
 
     @GetMapping("/{id}")
@@ -68,5 +67,13 @@ public class QuestionBankController {
     public ResponseEntity<Void> deleteBank(@PathVariable Long id) {
         questionBankService.deleteBank(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/sync-job-positions")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Auto-create missing question banks for all active job positions")
+    public ResponseEntity<Void> syncJobPositionBanks() {
+        questionBankService.syncJobPositionBanks();
+        return ResponseEntity.ok().build();
     }
 }

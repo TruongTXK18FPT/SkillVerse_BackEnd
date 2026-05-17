@@ -79,19 +79,20 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
     int clearRoadmapSessionId(@Param("roadmapSessionId") Long roadmapSessionId);
 
     /**
-     * Check if a user already has a non-terminal (active/in-progress) journey.
-     * Terminal statuses: COMPLETED, CANCELLED, COMPLETED_UNVERIFIED, COMPLETED_VERIFIED.
-     * Used to enforce the single-journey-per-user business rule.
+     * Count a user's currently learning journeys.
+     * Paused and terminal journeys do not consume concurrent learning slots.
+     * Used to enforce the concurrent journey limit.
      */
     @Query("""
-            SELECT CASE WHEN COUNT(j) > 0 THEN TRUE ELSE FALSE END FROM Journey j
+            SELECT COUNT(j) FROM Journey j
             WHERE j.user = :user
               AND j.status NOT IN (
                   com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED,
+                  com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.PAUSED,
                   com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.CANCELLED,
                   com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_UNVERIFIED,
                   com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_VERIFIED
               )
             """)
-    boolean hasNonTerminalJourney(@Param("user") User user);
+    long countConcurrentLearningJourneys(@Param("user") User user);
 }

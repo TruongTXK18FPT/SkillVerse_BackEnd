@@ -142,4 +142,3 @@ public class Booking {
         updatedAt = LocalDateTime.now();
     }
 }
-

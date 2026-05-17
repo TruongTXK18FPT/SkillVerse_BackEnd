@@ -14,6 +14,7 @@ public interface TaxonomyService {
     List<JobPositionDto> listActiveJobPositions(Long domainId);
     List<JobPositionTrackDto> listActiveTracks(Long jobPositionId);
     List<JobPositionTrackSkillDto> listTrackSkills(Long trackId);
+    List<JobPositionDto> searchJobPositionsBySkill(Long skillId);
 
     // Read APIs for Admin (includes inactive)
     List<DomainDto> listAllDomains();

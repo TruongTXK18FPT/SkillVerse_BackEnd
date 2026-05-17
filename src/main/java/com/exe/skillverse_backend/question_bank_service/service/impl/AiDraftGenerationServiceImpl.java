@@ -13,6 +13,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPosition;
+import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionRepository;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -30,6 +33,7 @@ public class AiDraftGenerationServiceImpl implements AiDraftGenerationService {
     private final ObjectMapper objectMapper;
     private final ChatModel generateTestChatModel;
     private final ExpertPromptServiceImpl expertPromptService;
+    private final JobPositionRepository jobPositionRepository;
 
     @Override
     public AiDraftResponse generateDraftQuestions(Long bankId, AiGenerateDraftRequest request) {
@@ -79,10 +83,17 @@ public class AiDraftGenerationServiceImpl implements AiDraftGenerationService {
     private String buildBankGenerationPrompt(QuestionBank bank, int questionCount,
             String difficultyDistJson, AiGenerateDraftRequest request) {
         StringBuilder prompt = new StringBuilder();
+        String jobPositionName = "";
+        if (bank.getJobPositionId() != null) {
+            jobPositionName = jobPositionRepository.findById(bank.getJobPositionId())
+                    .map(JobPosition::getName)
+                    .orElse("");
+        }
+
         String expertSystemPrompt = expertPromptService.getSystemPrompt(
                 bank.getDomain(),
-                bank.getIndustry(),
-                bank.getJobRole());
+                null,
+                jobPositionName);
 
         prompt.append("Bạn là chuyên gia thiết kế bài đánh giá đầu vào cho SkillVerse.\n");
         prompt.append("Mục tiêu là tạo bộ câu hỏi sàng lọc đầu vào đúng chuẩn nghề nghiệp, đúng bối cảnh công việc và đúng quy tắc của ngành.\n\n");
@@ -95,8 +106,7 @@ public class AiDraftGenerationServiceImpl implements AiDraftGenerationService {
 
         prompt.append("Thông tin ngân hàng câu hỏi:\n");
         prompt.append("- Lĩnh vực: ").append(safe(bank.getDomain())).append("\n");
-        prompt.append("- Ngành: ").append(safe(bank.getIndustry())).append("\n");
-        prompt.append("- Vai trò: ").append(safe(bank.getJobRole())).append("\n");
+        prompt.append("- Vị trí công việc (Job Position): ").append(safe(jobPositionName)).append("\n");
         prompt.append("- Tên bank: ").append(safe(bank.getTitle())).append("\n");
         if (bank.getDescription() != null && !bank.getDescription().isBlank()) {
             prompt.append("- Mô tả bank: ").append(bank.getDescription()).append("\n");
@@ -132,7 +142,7 @@ public class AiDraftGenerationServiceImpl implements AiDraftGenerationService {
         prompt.append("   - difficulty: BEGINNER / INTERMEDIATE / ADVANCED / EXPERT.\n");
         prompt.append("   - skillArea: Kỹ năng hoặc năng lực đang được đánh giá.\n");
         prompt.append("   - category: KNOWLEDGE / SKILL / SITUATION / ANALYSIS.\n");
-        prompt.append("4. Câu hỏi phải bám sát lĩnh vực/ngành/vai trò đã chọn, không lệch chủ đề.\n");
+        prompt.append("4. Câu hỏi phải bám sát lĩnh vực và vị trí công việc đã chọn, không lệch chủ đề.\n");
         prompt.append("5. Câu hỏi phải có tính thực tế, đủ chất lượng để dùng cho bài quiz đầu vào.\n");
         prompt.append("6. Nếu có kỹ năng ưu tiên thì tăng tỷ trọng câu hỏi liên quan nhưng vẫn giữ đủ độ phủ nền tảng.\n");
         prompt.append("7. Đáp án đúng phải được phân bổ cân bằng giữa A/B/C/D.\n");

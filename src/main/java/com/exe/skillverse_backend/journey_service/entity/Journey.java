@@ -26,9 +26,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
-import java.util.ArrayList;
+
 import java.util.List;
-import java.util.Set;
 
 /**
  * Entity representing a user's guided learning journey.
@@ -45,12 +44,6 @@ import java.util.Set;
 @AllArgsConstructor
 @Builder
 public class Journey {
-
-    /**
-     * [V3] Chỉ cho phép 3 domain chính trong Phase 1.
-     * Journey cũ với domain khác vẫn giữ nguyên, chỉ chặn tạo mới.
-     */
-    public static final Set<String> ALLOWED_DOMAINS = Set.of("IT", "DESIGN", "BUSINESS");
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -142,6 +135,22 @@ public class Journey {
      */
     @Column(name = "roadmap_session_id")
     private Long roadmapSessionId;
+
+    @Column(name = "roadmap_template_id")
+    private Long roadmapTemplateId;
+
+    @Column(name = "job_position_track_id")
+    private Long jobPositionTrackId;
+
+    @Column(name = "roadmap_booking_id")
+    private Long roadmapBookingId;
+
+    @Column(name = "target_level", length = 50)
+    private String targetLevel;
+
+    @Column(name = "focus_skill_ids_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String focusSkillIdsJson;
 
     /**
      * Overall progress percentage (0-100)

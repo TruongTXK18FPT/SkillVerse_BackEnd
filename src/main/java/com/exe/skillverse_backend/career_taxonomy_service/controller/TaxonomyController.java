@@ -50,4 +50,10 @@ public class TaxonomyController {
     public ResponseEntity<List<JobPositionTrackSkillDto>> listTrackSkills(@PathVariable Long trackId) {
         return ResponseEntity.ok(taxonomyService.listTrackSkills(trackId));
     }
+
+    @GetMapping("/job-positions/search-by-skill")
+    @Operation(summary = "Find active job positions that contain a specific skill")
+    public ResponseEntity<List<JobPositionDto>> searchJobPositionsBySkill(@RequestParam Long skillId) {
+        return ResponseEntity.ok(taxonomyService.searchJobPositionsBySkill(skillId));
+    }
 }

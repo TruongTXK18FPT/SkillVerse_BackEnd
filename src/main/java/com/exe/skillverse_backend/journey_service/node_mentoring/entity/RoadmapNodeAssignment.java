@@ -34,7 +34,8 @@ public class RoadmapNodeAssignment {
 
     public enum AssignmentSource {
         SYSTEM_GENERATED,
-        MENTOR_REFINED
+        MENTOR_REFINED,
+        TEMPLATE
     }
 
     @Id
@@ -53,6 +54,9 @@ public class RoadmapNodeAssignment {
     @Column(name = "node_skill_id")
     private Long nodeSkillId;
 
+    @Column(name = "roadmap_template_node_id")
+    private Long roadmapTemplateNodeId;
+
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "assignment_source", nullable = false, length = 30)
@@ -63,6 +67,12 @@ public class RoadmapNodeAssignment {
 
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
+
+    @Column(name = "expected_output", columnDefinition = "TEXT")
+    private String expectedOutput;
+
+    @Column(name = "rubric", columnDefinition = "TEXT")
+    private String rubric;
 
     @Column(name = "created_by")
     private Long createdBy;

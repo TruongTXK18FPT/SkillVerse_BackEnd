@@ -507,7 +507,6 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
             journey.setCompletedAt(Instant.now());
         }
         journeyRepository.save(journey);
-
         // Release escrow + pay mentor 80%. Without this, mentors who confirm
         // completion via the Completion Report PASS path (instead of the final
         // meeting verdict) never receive their booking earnings.
@@ -582,7 +581,6 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
             journey.setJourneyOutputVerificationRequired(false);
             journey.setStatus(JourneyStatus.ACTIVE);
             journeyRepository.save(journey);
-
             notificationService.createNotification(
                     journey.getUser().getId(),
                     "⚠️ Booking đã bị hủy tự động",

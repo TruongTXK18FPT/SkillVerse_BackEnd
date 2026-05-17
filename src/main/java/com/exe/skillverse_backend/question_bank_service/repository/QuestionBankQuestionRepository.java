@@ -84,6 +84,11 @@ public interface QuestionBankQuestionRepository extends JpaRepository<QuestionBa
            "GROUP BY q.difficulty")
     List<Object[]> countByDifficulty(@Param("bankId") Long bankId);
 
+    @Query("SELECT q.skillArea, COUNT(q) FROM QuestionBankQuestion q " +
+           "WHERE q.questionBank.id = :bankId AND q.isActive = true AND q.skillArea IS NOT NULL " +
+           "GROUP BY q.skillArea")
+    List<Object[]> countBySkillArea(@Param("bankId") Long bankId);
+
     @Query("SELECT DISTINCT q.skillArea FROM QuestionBankQuestion q " +
            "WHERE q.questionBank.id = :bankId AND q.isActive = true AND q.skillArea IS NOT NULL")
     List<String> findDistinctSkillAreas(@Param("bankId") Long bankId);

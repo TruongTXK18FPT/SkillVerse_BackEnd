@@ -33,14 +33,17 @@ public class QuestionBankSubmission {
     @Column(nullable = false, length = 50)
     private String domain;
 
-    @Column(nullable = false, length = 150)
-    private String industry;
+    @Column(name = "domain_id")
+    private Long domainId;
 
-    @Column(name = "job_role", nullable = false, length = 150)
-    private String jobRole;
+    @Column(name = "job_position_id")
+    private Long jobPositionId;
 
     @Column(name = "skill_name", nullable = false, length = 100)
     private String skillName;
+
+    @Column(name = "skill_id")
+    private Long skillId;
 
     @Column(nullable = false, length = 255)
     private String title;

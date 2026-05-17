@@ -23,6 +23,8 @@ public class JourneySummaryResponse {
     private String industry;
     private String subCategory;
     private String jobRole;
+    private Long jobPositionTrackId;
+    private String targetLevel;
     private String goal;
     private Journey.JourneyStatus status;
     private Journey.SkillLevel currentLevel;
@@ -54,7 +56,7 @@ public class JourneySummaryResponse {
     private Integer maxAssessmentAttempts;
     private Integer remainingAssessmentRetakes;
 
-    // V3 Phase 3 — single-journey enforcement: whether journey has active mentor booking
+    // V3 Phase 3 — lifecycle guard: whether journey has active mentor booking
     private Boolean hasActiveMentorBooking;
 
     @Data

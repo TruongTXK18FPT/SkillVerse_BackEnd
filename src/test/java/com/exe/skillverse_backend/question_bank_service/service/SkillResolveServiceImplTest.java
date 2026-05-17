@@ -51,7 +51,7 @@ class SkillResolveServiceImplTest {
                         config("Business", "Marketing", "SEO Specialist",
                                 "seo, onpage, offpage, keyword")
                 ));
-        when(questionBankRepository.findByExactScope(any(), any(), any(), any(), any(Pageable.class)))
+        when(questionBankRepository.findByDomainAndIsActiveTrue(any()))
                 .thenReturn(List.of());
     }
 
@@ -80,12 +80,8 @@ class SkillResolveServiceImplTest {
     void resolveSkill_ShouldNormalizeSkillNameBeforeLookup() {
         service.resolveSkill("Java Spring Boot");
 
-        org.mockito.Mockito.verify(questionBankRepository).findByExactScope(
-                eq("Information Technology"),
-                eq("Software Development"),
-                eq("Backend Developer"),
-                eq("JAVA_SPRING_BOOT"),
-                any(Pageable.class)
+        org.mockito.Mockito.verify(questionBankRepository).findByDomainAndIsActiveTrue(
+                eq("Information Technology")
         );
     }
 

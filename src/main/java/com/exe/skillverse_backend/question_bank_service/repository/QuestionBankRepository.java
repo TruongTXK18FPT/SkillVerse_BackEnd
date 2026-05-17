@@ -16,96 +16,64 @@ public interface QuestionBankRepository extends JpaRepository<QuestionBank, Long
 
     Page<QuestionBank> findByIsActiveTrue(Pageable pageable);
 
-    @Query("SELECT q FROM QuestionBank q WHERE q.isActive = true " +
-           "AND (:domain IS NULL OR q.domain = :domain) " +
-           "AND (:industry IS NULL OR q.industry = :industry) " +
-           "AND (:jobRole IS NULL OR q.jobRole = :jobRole) " +
-           "AND (:skillName IS NULL OR q.skillName = :skillName)")
-    Page<QuestionBank> findByFilters(@Param("domain") String domain,
-                                     @Param("industry") String industry,
-                                     @Param("jobRole") String jobRole,
-                                     @Param("skillName") String skillName,
-                                     Pageable pageable);
+    @Query("""
+           SELECT q FROM QuestionBank q WHERE q.isActive = true
+           AND (:domainId IS NULL OR q.domainId = :domainId)
+           AND (:jobPositionId IS NULL OR q.jobPositionId = :jobPositionId)
+           AND (:skillId IS NULL OR q.skillId = :skillId)
+           """)
+    Page<QuestionBank> findByTaxonomyFilters(@Param("domainId") Long domainId,
+                                             @Param("jobPositionId") Long jobPositionId,
+                                             @Param("skillId") Long skillId,
+                                             Pageable pageable);
 
     @Query("""
             SELECT q FROM QuestionBank q
             WHERE q.isActive = true
-              AND q.domain = :domain
-              AND ((:industry IS NULL AND q.industry IS NULL) OR q.industry = :industry)
-              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
-              AND ((:skillName IS NULL AND q.skillName IS NULL) OR q.skillName = :skillName)
+              AND q.domainId = :domainId
+              AND q.jobPositionId = :jobPositionId
+              AND ((:skillId IS NULL AND q.skillId IS NULL) OR q.skillId = :skillId)
             ORDER BY q.updatedAt DESC, q.id DESC
             """)
-    List<QuestionBank> findByExactScope(@Param("domain") String domain,
-                                        @Param("industry") String industry,
-                                        @Param("jobRole") String jobRole,
-                                        @Param("skillName") String skillName,
-                                        Pageable pageable);
-
-    @Query("""
-            SELECT q FROM QuestionBank q
-            WHERE q.isActive = true
-              AND q.domain = :domain
-              AND ((:industry IS NULL AND q.industry IS NULL) OR q.industry = :industry)
-              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
-            ORDER BY CASE WHEN q.skillName IS NULL THEN 0 ELSE 1 END, q.updatedAt DESC, q.id DESC
-            """)
-    List<QuestionBank> findPreferredByScope(@Param("domain") String domain,
-                                            @Param("industry") String industry,
-                                            @Param("jobRole") String jobRole,
-                                            Pageable pageable);
-
-    @Query("""
-            SELECT q FROM QuestionBank q
-            WHERE q.isActive = true
-              AND q.domain = :domain
-              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
-              AND ((:skillName IS NULL AND q.skillName IS NULL) OR q.skillName = :skillName)
-            ORDER BY q.updatedAt DESC, q.id DESC
-            """)
-    List<QuestionBank> findByExactDomainAndRole(@Param("domain") String domain,
-                                                @Param("jobRole") String jobRole,
-                                                @Param("skillName") String skillName,
+    List<QuestionBank> findByExactTaxonomyScope(@Param("domainId") Long domainId,
+                                                @Param("jobPositionId") Long jobPositionId,
+                                                @Param("skillId") Long skillId,
                                                 Pageable pageable);
 
     @Query("""
             SELECT q FROM QuestionBank q
             WHERE q.isActive = true
-              AND q.domain = :domain
-              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
-            ORDER BY CASE WHEN q.skillName IS NULL THEN 0 ELSE 1 END, q.updatedAt DESC, q.id DESC
+              AND q.domainId = :domainId
+              AND q.jobPositionId = :jobPositionId
+            ORDER BY CASE WHEN q.skillId IS NULL THEN 0 ELSE 1 END, q.updatedAt DESC, q.id DESC
             """)
-    List<QuestionBank> findPreferredByDomainAndRole(@Param("domain") String domain,
-                                                    @Param("jobRole") String jobRole,
+    List<QuestionBank> findPreferredByTaxonomyScope(@Param("domainId") Long domainId,
+                                                    @Param("jobPositionId") Long jobPositionId,
                                                     Pageable pageable);
 
-    List<QuestionBank> findByDomainAndIsActiveTrue(String domain);
-
     @Query("""
             SELECT CASE WHEN COUNT(q) > 0 THEN TRUE ELSE FALSE END FROM QuestionBank q
             WHERE q.isActive = true
-              AND q.domain = :domain
-              AND ((:industry IS NULL AND q.industry IS NULL) OR q.industry = :industry)
-              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
-              AND ((:skillName IS NULL AND q.skillName IS NULL) OR q.skillName = :skillName)
+              AND q.domainId = :domainId
+              AND q.jobPositionId = :jobPositionId
+              AND ((:skillId IS NULL AND q.skillId IS NULL) OR q.skillId = :skillId)
             """)
-    boolean existsActiveByScope(@Param("domain") String domain,
-                                @Param("industry") String industry,
-                                @Param("jobRole") String jobRole,
-                                @Param("skillName") String skillName);
+    boolean existsActiveByTaxonomyScope(@Param("domainId") Long domainId,
+                                        @Param("jobPositionId") Long jobPositionId,
+                                        @Param("skillId") Long skillId);
 
     @Query("""
             SELECT CASE WHEN COUNT(q) > 0 THEN TRUE ELSE FALSE END FROM QuestionBank q
             WHERE q.isActive = true
-              AND q.domain = :domain
-              AND ((:industry IS NULL AND q.industry IS NULL) OR q.industry = :industry)
-              AND ((:jobRole IS NULL AND q.jobRole IS NULL) OR q.jobRole = :jobRole)
-              AND ((:skillName IS NULL AND q.skillName IS NULL) OR q.skillName = :skillName)
+              AND q.domainId = :domainId
+              AND q.jobPositionId = :jobPositionId
+              AND ((:skillId IS NULL AND q.skillId IS NULL) OR q.skillId = :skillId)
               AND q.id <> :excludeId
             """)
-    boolean existsActiveByScopeAndIdNot(@Param("domain") String domain,
-                                        @Param("industry") String industry,
-                                        @Param("jobRole") String jobRole,
-                                        @Param("skillName") String skillName,
-                                        @Param("excludeId") Long excludeId);
+    boolean existsActiveByTaxonomyScopeAndIdNot(@Param("domainId") Long domainId,
+                                                @Param("jobPositionId") Long jobPositionId,
+                                                @Param("skillId") Long skillId,
+                                                @Param("excludeId") Long excludeId);
+
+    List<QuestionBank> findByDomainAndIsActiveTrue(String domain);
 }

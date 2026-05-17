@@ -231,4 +231,40 @@ public interface CourseRepository extends JpaRepository<Course, Long>, JpaSpecif
         """,
         nativeQuery = true)
     List<Object[]> findPublicCourseById(@Param("courseId") Long courseId);
+
+    @Transactional(readOnly = true)
+    @Query(value = """
+        SELECT c.id, COALESCE(cr.title, c.title) AS title, COALESCE(cr.level, c.level) AS level,
+               COALESCE(cr.category, c.category) AS category, c.created_at, COUNT(e.user_id) AS enrollment_count,
+               m.url AS thumbnail_url
+        FROM courses c
+        INNER JOIN course_skill cs ON cs.course_id = c.id AND cs.skill_id = :skillId
+        LEFT JOIN course_revisions cr ON cr.id = c.active_revision_id AND cr.status = 'APPROVED'
+        LEFT JOIN media m ON m.id = c.thumbnail_media_id
+        LEFT JOIN course_enrollment e ON e.course_id = c.id
+        WHERE c.status = 'PUBLIC'
+        GROUP BY c.id, c.title, c.level, c.category, c.created_at, cr.title, cr.level, cr.category, m.url
+        ORDER BY c.created_at DESC
+        LIMIT :limit
+        """,
+        nativeQuery = true)
+    List<Object[]> findNewestPublicCourseCandidatesBySkill(@Param("skillId") Long skillId, @Param("limit") int limit);
+
+    @Transactional(readOnly = true)
+    @Query(value = """
+        SELECT c.id, COALESCE(cr.title, c.title) AS title, COALESCE(cr.level, c.level) AS level,
+               COALESCE(cr.category, c.category) AS category, c.created_at, COUNT(e.user_id) AS enrollment_count,
+               m.url AS thumbnail_url
+        FROM courses c
+        INNER JOIN course_skill cs ON cs.course_id = c.id AND cs.skill_id = :skillId
+        LEFT JOIN course_revisions cr ON cr.id = c.active_revision_id AND cr.status = 'APPROVED'
+        LEFT JOIN media m ON m.id = c.thumbnail_media_id
+        LEFT JOIN course_enrollment e ON e.course_id = c.id
+        WHERE c.status = 'PUBLIC'
+        GROUP BY c.id, c.title, c.level, c.category, c.created_at, cr.title, cr.level, cr.category, m.url
+        ORDER BY COUNT(e.user_id) DESC, c.created_at DESC
+        LIMIT :limit
+        """,
+        nativeQuery = true)
+    List<Object[]> findPopularPublicCourseCandidatesBySkill(@Param("skillId") Long skillId, @Param("limit") int limit);
 }

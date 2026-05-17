@@ -22,8 +22,8 @@ import java.security.MessageDigest;
  * 2. Implement patchXxx() method with the SQL
  * 3. Implement verifyXxx() method to check it worked
  *
- * All previously applied patches have been removed. All schema changes
- * are now managed by Hibernate ddl-auto.
+ * Keep this file for production-safe schema gaps that cannot rely on
+ * Hibernate ddl-auto, especially new feature rollouts on existing databases.
  */
 @Component
 @RequiredArgsConstructor
@@ -90,6 +90,27 @@ public class DatabaseSchemaFixer {
             );
 
             applyPatch(
+                "20260515_roadmap_template_admin_v2",
+                "Create and update roadmap template admin V2 tables, columns, indexes, and constraints",
+                this::patchRoadmapTemplateAdminV2,
+                this::verifyRoadmapTemplateAdminV2
+            );
+
+            applyPatch(
+                "20260516_roadmap_template_activity_level_band",
+                "Add min/max level band to roadmap template activities",
+                this::patchRoadmapTemplateActivityLevelBand,
+                this::verifyRoadmapTemplateActivityLevelBand
+            );
+
+            applyPatch(
+                "20260516_roadmap_templates_drop_mentor_not_null",
+                "Allow admin-owned roadmap templates without legacy mentor_id",
+                this::patchRoadmapTemplatesDropMentorNotNull,
+                this::verifyRoadmapTemplatesDropMentorNotNull
+            );
+
+            applyPatch(
                 "20260510_drop_unused_services_tables",
                 "Drop tables related to deprecated parent_service and seminar_service",
                 this::patchDropUnusedTables,
@@ -111,6 +132,20 @@ public class DatabaseSchemaFixer {
                 "Create app_runtime_settings table for admin runtime toggles",
                 this::patchCreateAppRuntimeSettings,
                 this::verifyCreateAppRuntimeSettings
+            );
+
+            applyPatch(
+                "20260517_question_bank_taxonomy_scope",
+                "Add taxonomy scope columns to question banks",
+                this::patchQuestionBankTaxonomyScope,
+                this::verifyQuestionBankTaxonomyScope
+            );
+
+            applyPatch(
+                "20260517_drop_track_skill_importance_level",
+                "Drop importance_level from job_position_track_skills and enforce weight 1-10",
+                this::patchDropTrackSkillImportanceLevel,
+                this::verifyDropTrackSkillImportanceLevel
             );
 
             log.info("No active schema patches to run. Infrastructure ready.");
@@ -262,6 +297,421 @@ public class DatabaseSchemaFixer {
 
     // ─── Utilities ────────────────────────────────────────────────────────────
 
+    private void patchQuestionBankTaxonomyScope() {
+        if (!hasTable("question_banks")) {
+            log.info("Table question_banks does not exist yet; skipping taxonomy scope patch");
+            return;
+        }
+
+        executeSql("ALTER TABLE question_banks ADD COLUMN IF NOT EXISTS domain_id BIGINT");
+        executeSql("ALTER TABLE question_banks ADD COLUMN IF NOT EXISTS job_position_id BIGINT");
+        executeSql("ALTER TABLE question_banks ADD COLUMN IF NOT EXISTS skill_id BIGINT");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_question_banks_domain_id ON question_banks(domain_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_question_banks_job_position_id ON question_banks(job_position_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_question_banks_skill_id ON question_banks(skill_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_question_banks_taxonomy_scope ON question_banks(domain_id, job_position_id, skill_id)");
+        executeSql("""
+            UPDATE question_banks qb
+            SET domain_id = d.id
+            FROM domains d
+            WHERE qb.domain_id IS NULL
+              AND qb.domain IS NOT NULL
+              AND lower(qb.domain) = lower(d.code)
+        """);
+        executeSql("""
+            UPDATE question_banks qb
+            SET job_position_id = jp.id
+            FROM job_positions jp
+            WHERE qb.job_position_id IS NULL
+              AND qb.domain_id = jp.domain_id
+              AND (
+                lower(coalesce(qb.job_role, '')) = lower(jp.name)
+                OR lower(coalesce(qb.job_role, '')) = lower(jp.code)
+                OR lower(coalesce(qb.industry, '')) = lower(jp.name)
+                OR lower(coalesce(qb.industry, '')) = lower(jp.code)
+              )
+        """);
+        executeSql("""
+            UPDATE question_banks qb
+            SET skill_id = s.id
+            FROM skills s
+            WHERE qb.skill_id IS NULL
+              AND qb.skill_name IS NOT NULL
+              AND (
+                lower(qb.skill_name) = lower(s.name)
+                OR lower(qb.skill_name) = lower(s.canonical_key)
+              )
+        """);
+
+        if (hasTable("question_bank_submissions")) {
+            executeSql("ALTER TABLE question_bank_submissions ADD COLUMN IF NOT EXISTS domain_id BIGINT");
+            executeSql("ALTER TABLE question_bank_submissions ADD COLUMN IF NOT EXISTS job_position_id BIGINT");
+            executeSql("ALTER TABLE question_bank_submissions ADD COLUMN IF NOT EXISTS skill_id BIGINT");
+            executeSql("CREATE INDEX IF NOT EXISTS idx_qbs_domain_id ON question_bank_submissions(domain_id)");
+            executeSql("CREATE INDEX IF NOT EXISTS idx_qbs_job_position_id ON question_bank_submissions(job_position_id)");
+            executeSql("CREATE INDEX IF NOT EXISTS idx_qbs_skill_id ON question_bank_submissions(skill_id)");
+            executeSql("""
+                UPDATE question_bank_submissions qbs
+                SET domain_id = d.id
+                FROM domains d
+                WHERE qbs.domain_id IS NULL
+                  AND qbs.domain IS NOT NULL
+                  AND lower(qbs.domain) = lower(d.code)
+            """);
+            executeSql("""
+                UPDATE question_bank_submissions qbs
+                SET job_position_id = jp.id
+                FROM job_positions jp
+                WHERE qbs.job_position_id IS NULL
+                  AND qbs.domain_id = jp.domain_id
+                  AND (
+                    lower(coalesce(qbs.job_role, '')) = lower(jp.name)
+                    OR lower(coalesce(qbs.job_role, '')) = lower(jp.code)
+                    OR lower(coalesce(qbs.industry, '')) = lower(jp.name)
+                    OR lower(coalesce(qbs.industry, '')) = lower(jp.code)
+                  )
+            """);
+            executeSql("""
+                UPDATE question_bank_submissions qbs
+                SET skill_id = s.id
+                FROM skills s
+                WHERE qbs.skill_id IS NULL
+                  AND qbs.skill_name IS NOT NULL
+                  AND (
+                    lower(qbs.skill_name) = lower(s.name)
+                    OR lower(qbs.skill_name) = lower(s.canonical_key)
+                  )
+            """);
+        }
+    }
+
+    private boolean verifyQuestionBankTaxonomyScope() {
+        boolean bankColumnsOk = !hasTable("question_banks")
+                || (hasColumn("question_banks", "domain_id")
+                && hasColumn("question_banks", "job_position_id")
+                && hasColumn("question_banks", "skill_id"));
+        boolean submissionColumnsOk = !hasTable("question_bank_submissions")
+                || (hasColumn("question_bank_submissions", "domain_id")
+                && hasColumn("question_bank_submissions", "job_position_id")
+                && hasColumn("question_bank_submissions", "skill_id"));
+        return bankColumnsOk && submissionColumnsOk;
+    }
+
+    private void patchRoadmapTemplateAdminV2() {
+        log.info("Creating/updating roadmap template admin V2 schema...");
+
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS roadmap_templates (
+                id BIGSERIAL PRIMARY KEY,
+                created_by_admin_id BIGINT,
+                updated_by_admin_id BIGINT,
+                domain_id BIGINT NOT NULL,
+                job_position_id BIGINT NOT NULL,
+                job_position_track_id BIGINT NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                description TEXT,
+                target_role VARCHAR(255),
+                target_level VARCHAR(50),
+                target_role_snapshot VARCHAR(255),
+                target_level_snapshot VARCHAR(50),
+                total_node_count INTEGER,
+                generation_mode VARCHAR(30) NOT NULL DEFAULT 'LEGACY_STATIC',
+                knowledge_policy VARCHAR(40) NOT NULL DEFAULT 'TEMPLATE_ONLY',
+                global_learning_goal TEXT,
+                audience_level VARCHAR(80),
+                output_standard TEXT,
+                assessment_policy TEXT,
+                template_instructions TEXT,
+                constraints_json TEXT,
+                status VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ
+            )
+        """);
+
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS roadmap_template_nodes (
+                id BIGSERIAL PRIMARY KEY,
+                template_id BIGINT NOT NULL,
+                parent_node_id BIGINT,
+                node_key VARCHAR(100),
+                title VARCHAR(255) NOT NULL,
+                description TEXT,
+                order_index INTEGER NOT NULL,
+                skill_id BIGINT,
+                skill_name_snapshot VARCHAR(255),
+                skill_canonical_key_snapshot VARCHAR(255),
+                requirement_type VARCHAR(30),
+                importance_level VARCHAR(30),
+                difficulty VARCHAR(30),
+                estimated_hours DOUBLE PRECISION,
+                expected_output TEXT,
+                rubric TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ
+            )
+        """);
+
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS roadmap_template_courses (
+                id BIGSERIAL PRIMARY KEY,
+                template_id BIGINT NOT NULL,
+                template_node_id BIGINT,
+                course_id BIGINT NOT NULL,
+                skill_id BIGINT,
+                display_order INTEGER,
+                required BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """);
+
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS roadmap_template_skill_blocks (
+                id BIGSERIAL PRIMARY KEY,
+                template_id BIGINT NOT NULL,
+                skill_id BIGINT NOT NULL,
+                skill_name_snapshot VARCHAR(255),
+                skill_canonical_key_snapshot VARCHAR(255),
+                weight_percent DOUBLE PRECISION NOT NULL,
+                min_nodes INTEGER,
+                max_nodes INTEGER,
+                node_count_override INTEGER,
+                learning_goals TEXT,
+                required_topics TEXT,
+                activity_instructions TEXT,
+                exercise_types TEXT,
+                success_criteria TEXT,
+                rag_query_hint TEXT,
+                course_link_policy VARCHAR(30) NOT NULL DEFAULT 'AUTO_HYBRID',
+                auto_course_limit INTEGER NOT NULL DEFAULT 2,
+                rag_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ
+            )
+        """);
+
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS roadmap_template_activities (
+                id BIGSERIAL PRIMARY KEY,
+                template_id BIGINT NOT NULL,
+                skill_block_id BIGINT NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                description TEXT,
+                exercise_type VARCHAR(80),
+                expected_output TEXT,
+                rubric TEXT,
+                difficulty VARCHAR(30),
+                min_level VARCHAR(20),
+                max_level VARCHAR(20),
+                estimated_hours DOUBLE PRECISION,
+                prerequisite_hint TEXT,
+                ai_prompt_hint TEXT,
+                order_index INTEGER NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ
+            )
+        """);
+
+        patchRoadmapTemplateV2Columns();
+        patchRoadmapTemplateV2Indexes();
+        patchRoadmapTemplateV2Constraints();
+    }
+
+    private void patchRoadmapTemplateV2Columns() {
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS total_node_count INTEGER");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS generation_mode VARCHAR(30) NOT NULL DEFAULT 'LEGACY_STATIC'");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS knowledge_policy VARCHAR(40) NOT NULL DEFAULT 'TEMPLATE_ONLY'");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS global_learning_goal TEXT");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS audience_level VARCHAR(80)");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS output_standard TEXT");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS assessment_policy TEXT");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS template_instructions TEXT");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS constraints_json TEXT");
+        executeSql("UPDATE roadmap_templates SET generation_mode = 'LEGACY_STATIC' WHERE generation_mode IS NULL");
+        executeSql("UPDATE roadmap_templates SET knowledge_policy = 'TEMPLATE_ONLY' WHERE knowledge_policy IS NULL");
+        executeSql("ALTER TABLE roadmap_templates ALTER COLUMN generation_mode SET DEFAULT 'LEGACY_STATIC'");
+        executeSql("ALTER TABLE roadmap_templates ALTER COLUMN knowledge_policy SET DEFAULT 'TEMPLATE_ONLY'");
+        executeSql("ALTER TABLE roadmap_templates ALTER COLUMN generation_mode SET NOT NULL");
+        executeSql("ALTER TABLE roadmap_templates ALTER COLUMN knowledge_policy SET NOT NULL");
+        patchRoadmapTemplatesDropMentorNotNull();
+
+        executeSql("ALTER TABLE roadmap_template_courses ADD COLUMN IF NOT EXISTS skill_id BIGINT");
+
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS skill_name_snapshot VARCHAR(255)");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS skill_canonical_key_snapshot VARCHAR(255)");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS min_nodes INTEGER");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS max_nodes INTEGER");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS node_count_override INTEGER");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS learning_goals TEXT");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS required_topics TEXT");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS activity_instructions TEXT");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS exercise_types TEXT");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS success_criteria TEXT");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS rag_query_hint TEXT");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS course_link_policy VARCHAR(30) NOT NULL DEFAULT 'AUTO_HYBRID'");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS auto_course_limit INTEGER NOT NULL DEFAULT 2");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ADD COLUMN IF NOT EXISTS rag_enabled BOOLEAN NOT NULL DEFAULT TRUE");
+        executeSql("UPDATE roadmap_template_skill_blocks SET course_link_policy = 'AUTO_HYBRID' WHERE course_link_policy IS NULL");
+        executeSql("UPDATE roadmap_template_skill_blocks SET auto_course_limit = 2 WHERE auto_course_limit IS NULL");
+        executeSql("UPDATE roadmap_template_skill_blocks SET rag_enabled = TRUE WHERE rag_enabled IS NULL");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ALTER COLUMN course_link_policy SET DEFAULT 'AUTO_HYBRID'");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ALTER COLUMN auto_course_limit SET DEFAULT 2");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ALTER COLUMN rag_enabled SET DEFAULT TRUE");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ALTER COLUMN course_link_policy SET NOT NULL");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ALTER COLUMN auto_course_limit SET NOT NULL");
+        executeSql("ALTER TABLE roadmap_template_skill_blocks ALTER COLUMN rag_enabled SET NOT NULL");
+    }
+
+    private void patchRoadmapTemplateV2Indexes() {
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_templates_status ON roadmap_templates(status)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_templates_job_position_track_id ON roadmap_templates(job_position_track_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_templates_created_by_admin_id ON roadmap_templates(created_by_admin_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_nodes_template_id ON roadmap_template_nodes(template_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_nodes_skill_id ON roadmap_template_nodes(skill_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_courses_template_id ON roadmap_template_courses(template_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_courses_template_node_id ON roadmap_template_courses(template_node_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_courses_course_id ON roadmap_template_courses(course_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_courses_skill_id ON roadmap_template_courses(skill_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_skill_blocks_template_id ON roadmap_template_skill_blocks(template_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_skill_blocks_skill_id ON roadmap_template_skill_blocks(skill_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_activities_skill_block_id ON roadmap_template_activities(skill_block_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_activities_template_id ON roadmap_template_activities(template_id)");
+    }
+
+    private void patchRoadmapTemplateV2Constraints() {
+        addConstraintIfMissing(
+                "roadmap_template_nodes",
+                "fk_roadmap_template_nodes_template",
+                "ALTER TABLE roadmap_template_nodes ADD CONSTRAINT fk_roadmap_template_nodes_template " +
+                        "FOREIGN KEY (template_id) REFERENCES roadmap_templates(id) ON DELETE CASCADE"
+        );
+        addConstraintIfMissing(
+                "roadmap_template_courses",
+                "fk_roadmap_template_courses_template",
+                "ALTER TABLE roadmap_template_courses ADD CONSTRAINT fk_roadmap_template_courses_template " +
+                        "FOREIGN KEY (template_id) REFERENCES roadmap_templates(id) ON DELETE CASCADE"
+        );
+        addConstraintIfMissing(
+                "roadmap_template_courses",
+                "fk_roadmap_template_courses_node",
+                "ALTER TABLE roadmap_template_courses ADD CONSTRAINT fk_roadmap_template_courses_node " +
+                        "FOREIGN KEY (template_node_id) REFERENCES roadmap_template_nodes(id) ON DELETE CASCADE"
+        );
+        addConstraintIfMissing(
+                "roadmap_template_skill_blocks",
+                "fk_roadmap_template_skill_blocks_template",
+                "ALTER TABLE roadmap_template_skill_blocks ADD CONSTRAINT fk_roadmap_template_skill_blocks_template " +
+                        "FOREIGN KEY (template_id) REFERENCES roadmap_templates(id) ON DELETE CASCADE"
+        );
+        addConstraintIfMissing(
+                "roadmap_template_activities",
+                "fk_roadmap_template_activities_template",
+                "ALTER TABLE roadmap_template_activities ADD CONSTRAINT fk_roadmap_template_activities_template " +
+                        "FOREIGN KEY (template_id) REFERENCES roadmap_templates(id) ON DELETE CASCADE"
+        );
+        addConstraintIfMissing(
+                "roadmap_template_activities",
+                "fk_roadmap_template_activities_skill_block",
+                "ALTER TABLE roadmap_template_activities ADD CONSTRAINT fk_roadmap_template_activities_skill_block " +
+                        "FOREIGN KEY (skill_block_id) REFERENCES roadmap_template_skill_blocks(id) ON DELETE CASCADE"
+        );
+    }
+
+    private boolean verifyRoadmapTemplateAdminV2() {
+        return hasTable("roadmap_templates")
+                && hasTable("roadmap_template_nodes")
+                && hasTable("roadmap_template_courses")
+                && hasTable("roadmap_template_skill_blocks")
+                && hasTable("roadmap_template_activities")
+                && hasColumn("roadmap_templates", "total_node_count")
+                && hasColumn("roadmap_templates", "generation_mode")
+                && hasColumn("roadmap_templates", "knowledge_policy")
+                && hasColumn("roadmap_templates", "global_learning_goal")
+                && hasColumn("roadmap_templates", "audience_level")
+                && hasColumn("roadmap_templates", "output_standard")
+                && hasColumn("roadmap_templates", "assessment_policy")
+                && hasColumn("roadmap_templates", "template_instructions")
+                && hasColumn("roadmap_templates", "constraints_json")
+                && hasColumn("roadmap_template_courses", "skill_id")
+                && hasColumn("roadmap_template_skill_blocks", "weight_percent")
+                && hasColumn("roadmap_template_skill_blocks", "course_link_policy")
+                && hasColumn("roadmap_template_skill_blocks", "auto_course_limit")
+                && hasColumn("roadmap_template_skill_blocks", "rag_enabled")
+                && hasColumn("roadmap_template_activities", "expected_output")
+                && hasColumn("roadmap_template_activities", "rubric")
+                && hasColumn("roadmap_template_activities", "ai_prompt_hint")
+                && hasColumn("roadmap_template_activities", "min_level")
+                && hasColumn("roadmap_template_activities", "max_level")
+                && hasIndex("idx_roadmap_template_skill_blocks_template_id")
+                && hasIndex("idx_roadmap_template_activities_skill_block_id");
+    }
+
+    private void patchRoadmapTemplateActivityLevelBand() {
+        if (!hasTable("roadmap_template_activities")) {
+            log.info("Table roadmap_template_activities does not exist yet. Creating V2 schema first.");
+            patchRoadmapTemplateAdminV2();
+        }
+        executeSql("ALTER TABLE roadmap_template_activities ADD COLUMN IF NOT EXISTS min_level VARCHAR(20)");
+        executeSql("ALTER TABLE roadmap_template_activities ADD COLUMN IF NOT EXISTS max_level VARCHAR(20)");
+    }
+
+    private boolean verifyRoadmapTemplateActivityLevelBand() {
+        return hasTable("roadmap_template_activities")
+                && hasColumn("roadmap_template_activities", "min_level")
+                && hasColumn("roadmap_template_activities", "max_level");
+    }
+
+    private void patchRoadmapTemplatesDropMentorNotNull() {
+        if (!hasTable("roadmap_templates") || !hasColumn("roadmap_templates", "mentor_id")) {
+            return;
+        }
+        log.info("Relaxing legacy roadmap_templates.mentor_id NOT NULL constraint for admin templates...");
+        executeSql("ALTER TABLE roadmap_templates ALTER COLUMN mentor_id DROP NOT NULL");
+        executeSql("ALTER TABLE roadmap_templates ALTER COLUMN mentor_id DROP DEFAULT");
+    }
+
+    private boolean verifyRoadmapTemplatesDropMentorNotNull() {
+        return !hasTable("roadmap_templates")
+                || !hasColumn("roadmap_templates", "mentor_id")
+                || !isColumnNotNull("roadmap_templates", "mentor_id");
+    }
+
+    private void patchDropTrackSkillImportanceLevel() {
+        if (!hasTable("job_position_track_skills")) {
+            log.info("Table job_position_track_skills does not exist yet; skipping");
+            return;
+        }
+
+        // 1. Clamp existing weight values to 1-10
+        executeSql("UPDATE job_position_track_skills SET weight = 1 WHERE weight IS NULL OR weight < 1");
+        executeSql("UPDATE job_position_track_skills SET weight = 10 WHERE weight > 10");
+
+        // 2. Drop the importance_level column
+        if (hasColumn("job_position_track_skills", "importance_level")) {
+            log.info("Dropping importance_level column from job_position_track_skills...");
+            executeSql("ALTER TABLE job_position_track_skills DROP COLUMN importance_level");
+        }
+
+        // 3. Ensure weight is NOT NULL with a default
+        executeSql("ALTER TABLE job_position_track_skills ALTER COLUMN weight SET NOT NULL");
+        executeSql("ALTER TABLE job_position_track_skills ALTER COLUMN weight SET DEFAULT 1");
+
+        // 4. Add CHECK constraint for weight range
+        addConstraintIfMissing(
+                "job_position_track_skills",
+                "chk_track_skill_weight",
+                "ALTER TABLE job_position_track_skills ADD CONSTRAINT chk_track_skill_weight CHECK (weight >= 1 AND weight <= 10)"
+        );
+    }
+
+    private boolean verifyDropTrackSkillImportanceLevel() {
+        if (!hasTable("job_position_track_skills")) {
+            return true;
+        }
+        return !hasColumn("job_position_track_skills", "importance_level")
+                && hasConstraint("job_position_track_skills", "chk_track_skill_weight");
+    }
+
     private String getDatabaseProductName() {
         try {
             return jdbcTemplate.getDataSource().getConnection().getMetaData().getDatabaseProductName();
@@ -362,6 +812,18 @@ public class DatabaseSchemaFixer {
 
     // ─── SQL Execution Helpers ────────────────────────────────────────────────
 
+    private void addConstraintIfMissing(String tableName, String constraintName, String sql) {
+        if (!hasTable(tableName)) {
+            log.debug("Table {} does not exist; skipping constraint {}", tableName, constraintName);
+            return;
+        }
+        if (hasConstraint(tableName, constraintName)) {
+            log.debug("Constraint {} already exists on {}; skipping", constraintName, tableName);
+            return;
+        }
+        executeSql(sql);
+    }
+
     protected void executeSql(String sql) {
         try {
             jdbcTemplate.execute(sql);
@@ -379,6 +841,24 @@ public class DatabaseSchemaFixer {
                   AND column_name = ?
             """, tableName, columnName);
             return !results.isEmpty();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    protected boolean isColumnNotNull(String tableName, String columnName) {
+        try {
+            var results = jdbcTemplate.queryForList("""
+                SELECT is_nullable FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = ?
+                  AND column_name = ?
+            """, tableName, columnName);
+            if (results.isEmpty()) {
+                return false;
+            }
+            Object value = results.get(0).get("is_nullable");
+            return "NO".equalsIgnoreCase(String.valueOf(value));
         } catch (Exception e) {
             return false;
         }

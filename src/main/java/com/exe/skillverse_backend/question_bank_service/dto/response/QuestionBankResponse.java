@@ -15,9 +15,12 @@ import java.util.Map;
 public class QuestionBankResponse {
 
     private Long id;
+    private Long domainId;
+    private Long jobPositionId;
+    private Long skillId;
     private String domain;
-    private String industry;
-    private String jobRole;
+    private String domainName;
+    private String jobPositionName;
     private String skillName;
     private String title;
     private String description;
@@ -27,4 +30,5 @@ public class QuestionBankResponse {
     private LocalDateTime updatedAt;
     private Integer activeQuestionCount;
     private Map<String, Long> difficultyBreakdown;
+    private Map<String, Long> skillBreakdown;
 }

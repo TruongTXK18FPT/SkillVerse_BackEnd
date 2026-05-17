@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.career_taxonomy_service.dto;
 
-import com.exe.skillverse_backend.career_taxonomy_service.enums.ImportanceLevel;
 import com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -18,6 +17,6 @@ public class JobPositionTrackSkillDto {
     private String skillName;
     private String canonicalKey;
     private RequirementType requirementType;
-    private ImportanceLevel importanceLevel;
     private Integer sortOrder;
+    private Integer weight;
 }

@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.career_taxonomy_service.entity;
 
-import com.exe.skillverse_backend.career_taxonomy_service.enums.ImportanceLevel;
 import com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType;
 import com.exe.skillverse_backend.shared.entity.Skill;
 import jakarta.persistence.Column;
@@ -15,6 +14,8 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -53,12 +54,13 @@ public class JobPositionTrackSkill {
     @Builder.Default
     private RequirementType requirementType = RequirementType.REQUIRED;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "importance_level", nullable = false)
-    @Builder.Default
-    private ImportanceLevel importanceLevel = ImportanceLevel.MEDIUM;
-
     @Column(name = "sort_order")
     @Builder.Default
     private Integer sortOrder = 0;
+
+    @Min(1)
+    @Max(10)
+    @Column(name = "weight", nullable = false)
+    @Builder.Default
+    private Integer weight = 1;
 }

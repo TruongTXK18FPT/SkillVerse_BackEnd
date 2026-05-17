@@ -27,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -38,6 +39,7 @@ public class TaxonomyServiceImpl implements TaxonomyService {
     private final JobPositionTrackRepository trackRepository;
     private final JobPositionTrackSkillRepository trackSkillRepository;
     private final SkillRepository skillRepository;
+    private final com.exe.skillverse_backend.question_bank_service.service.QuestionBankService questionBankService;
     private final TaxonomyMapper mapper;
 
     // --- READ APIs ---
@@ -140,6 +142,27 @@ public class TaxonomyServiceImpl implements TaxonomyService {
         return mapper.toJobPositionTrackDtos(trackRepository.findAll());
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<JobPositionDto> searchJobPositionsBySkill(Long skillId) {
+        if (skillId == null) {
+            return new ArrayList<>();
+        }
+        
+        // Find all tracks that have this skill
+        List<JobPositionTrackSkill> trackSkills = trackSkillRepository.findBySkillId(skillId);
+        
+        // Extract unique Job Positions
+        return trackSkills.stream()
+                .map(JobPositionTrackSkill::getTrack)
+                .filter(track -> track.getStatus() == TaxonomyStatus.ACTIVE)
+                .map(JobPositionTrack::getJobPosition)
+                .filter(jp -> jp.getStatus() == TaxonomyStatus.ACTIVE)
+                .distinct()
+                .map(mapper::toJobPositionDto)
+                .collect(Collectors.toList());
+    }
+
     // --- WRITE APIs ---
 
     @Override
@@ -213,7 +236,26 @@ public class TaxonomyServiceImpl implements TaxonomyService {
         jp.setCode(normalizedCode);
         jp.setDomain(domain);
         jp.setStatus(TaxonomyStatus.ACTIVE);
-        return mapper.toJobPositionDto(jobPositionRepository.save(jp));
+        JobPosition savedJp = jobPositionRepository.save(jp);
+        
+        // Auto-create a Question Bank for this Job Position
+        try {
+            com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest qbRequest = 
+                com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
+                    .domainId(domain.getId())
+                    .jobPositionId(savedJp.getId())
+                    .domain(domain.getCode())
+                    .title("Ngân hàng câu hỏi - " + savedJp.getName())
+                    .description("Ngân hàng câu hỏi tự động tạo cho vị trí " + savedJp.getName())
+                    .build();
+            questionBankService.createBank(qbRequest);
+            log.info("Auto-created question bank for newly created JobPosition: {}", savedJp.getId());
+        } catch (Exception e) {
+            log.error("Failed to auto-create question bank for JobPosition {}", savedJp.getId(), e);
+            // We don't fail the whole transaction if bank creation fails, it can be synced later
+        }
+        
+        return mapper.toJobPositionDto(savedJp);
     }
 
     @Override
@@ -391,8 +433,9 @@ public class TaxonomyServiceImpl implements TaxonomyService {
             ts.setTrack(track);
             ts.setSkill(skill);
             ts.setRequirementType(dto.getRequirementType() != null ? dto.getRequirementType() : com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType.REQUIRED);
-            ts.setImportanceLevel(dto.getImportanceLevel() != null ? dto.getImportanceLevel() : com.exe.skillverse_backend.career_taxonomy_service.enums.ImportanceLevel.MEDIUM);
             ts.setSortOrder(dto.getSortOrder() != null ? dto.getSortOrder() : i);
+            int rawWeight = dto.getWeight() != null ? dto.getWeight() : 1;
+            ts.setWeight(Math.max(1, Math.min(10, rawWeight)));
             
             newEntities.add(ts);
         }

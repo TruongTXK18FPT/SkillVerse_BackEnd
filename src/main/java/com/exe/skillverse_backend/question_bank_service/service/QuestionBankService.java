@@ -17,7 +17,7 @@ public interface QuestionBankService {
 
     QuestionBankResponse createBank(CreateQuestionBankRequest request);
 
-    Page<QuestionBankSummaryResponse> listBanks(String domain, String industry, String jobRole, String skillName, Pageable pageable);
+    Page<QuestionBankSummaryResponse> listBanks(Long domainId, Long jobPositionId, Long skillId, Pageable pageable);
 
     QuestionBankResponse getBankById(Long id);
 
@@ -25,21 +25,11 @@ public interface QuestionBankService {
 
     void deleteBank(Long id);
 
-    Optional<QuestionBankResponse> findActiveBank(String domain, String industry, String jobRole, String skillName);
+    void syncJobPositionBanks();
 
-    Optional<QuestionBankResponse> findActiveBank(String domain, String industry, String jobRole);
+    Optional<QuestionBankResponse> findActiveBank(Long domainId, Long jobPositionId, Long skillId);
 
-    /**
-     * Find active question bank by domain + job role (no industry filter), with optional skill scope.
-     * Used by JourneyService for bank-first test generation.
-     */
-    Optional<QuestionBankResponse> findActiveBankByJobRole(String domain, String jobRole, String skillName);
-
-    /**
-     * Find active question bank by domain + job role (no industry filter).
-     * Used by JourneyService for bank-first test generation.
-     */
-    Optional<QuestionBankResponse> findActiveBank(String domain, String jobRole);
+    Optional<QuestionBankResponse> findActiveBank(Long domainId, Long jobPositionId);
 
     /**
      * Check whether a question bank has sufficient questions in ALL four difficulty levels

@@ -64,8 +64,6 @@ public class QuestionBankSubmissionServiceImpl implements QuestionBankSubmission
     @Override
     public QuestionBankSubmissionResponse createSubmission(User mentor, CreateQuestionBankSubmissionRequest request) {
         String domain = normalizeDomain(request.getDomain());
-        String industry = requireValue(request.getIndustry(), "Industry is required");
-        String jobRole = requireValue(request.getJobRole(), "Job role is required");
         String skillName = normalizeSkillName(request.getSkillName());
 
         // [Question Bank Contribution] Mentor chỉ được gửi câu hỏi cho skill đã được xác thực.
@@ -81,14 +79,15 @@ public class QuestionBankSubmissionServiceImpl implements QuestionBankSubmission
 
         String title = normalizeOptional(request.getTitle());
         if (title == null) {
-            title = buildDefaultTitle(skillName, jobRole);
+            title = buildDefaultTitle(skillName);
         }
 
         QuestionBankSubmission submission = QuestionBankSubmission.builder()
                 .mentor(mentor)
+                .domainId(request.getDomainId())
+                .jobPositionId(request.getJobPositionId())
+                .skillId(request.getSkillId())
                 .domain(domain)
-                .industry(industry)
-                .jobRole(jobRole)
                 .skillName(skillName)
                 .title(title)
                 .description(normalizeOptional(request.getDescription()))
@@ -164,9 +163,10 @@ public class QuestionBankSubmissionServiceImpl implements QuestionBankSubmission
             QuestionBank bank = resolution.bank();
             if (bank == null) {
                 QuestionBankResponse createdBank = questionBankService.createBank(CreateQuestionBankRequest.builder()
+                        .domainId(submission.getDomainId())
+                        .jobPositionId(submission.getJobPositionId())
+                        .skillId(submission.getSkillId())
                         .domain(submission.getDomain())
-                        .industry(submission.getIndustry())
-                        .jobRole(submission.getJobRole())
                         .skillName(submission.getSkillName())
                         .title(submission.getTitle())
                         .description(submission.getDescription())
@@ -229,15 +229,18 @@ public class QuestionBankSubmissionServiceImpl implements QuestionBankSubmission
 
     // [Question Bank Contribution] Preview và approve dùng chung luật loại trùng để admin thấy đúng số câu sẽ lưu.
     private SubmissionResolution resolveSubmission(QuestionBankSubmission submission) {
-        Optional<QuestionBank> existingBank = questionBankRepository.findByExactScope(
-                        submission.getDomain(),
-                        submission.getIndustry(),
-                        submission.getJobRole(),
-                        submission.getSkillName(),
-                        PageRequest.of(0, 1))
-                .stream()
-                .findFirst();
-        return resolveSubmission(submission, existingBank.orElse(null));
+        if (submission.getDomainId() != null && submission.getJobPositionId() != null) {
+            Optional<QuestionBank> taxonomyBank = questionBankRepository.findByExactTaxonomyScope(
+                            submission.getDomainId(),
+                            submission.getJobPositionId(),
+                            submission.getSkillId(),
+                            PageRequest.of(0, 1))
+                    .stream()
+                    .findFirst();
+            return resolveSubmission(submission, taxonomyBank.orElse(null));
+        }
+
+        return resolveSubmission(submission, null);
     }
 
     // [Question Bank Contribution] Chỉ lưu những câu chưa trùng trong submission hiện tại và chưa tồn tại trong bank đích.
@@ -298,9 +301,11 @@ public class QuestionBankSubmissionServiceImpl implements QuestionBankSubmission
                 .mentorEmail(mentor.getEmail())
                 .mentorAvatarUrl(mentor.getAvatarUrl())
                 .mentorPortfolioSlug(profile != null ? profile.getCustomUrlSlug() : null)
+                .domainId(submission.getDomainId())
+                .jobPositionId(submission.getJobPositionId())
+                .skillId(submission.getSkillId())
                 .domain(submission.getDomain())
-                .industry(submission.getIndustry())
-                .jobRole(submission.getJobRole())
+                .domainName(submission.getDomain())
                 .skillName(submission.getSkillName())
                 .title(submission.getTitle())
                 .description(submission.getDescription())
@@ -430,8 +435,8 @@ public class QuestionBankSubmissionServiceImpl implements QuestionBankSubmission
         return normalized;
     }
 
-    private String buildDefaultTitle(String skillName, String jobRole) {
-        return "Bộ câu hỏi mentor đóng góp - " + skillName.replace('_', ' ') + " / " + jobRole;
+    private String buildDefaultTitle(String skillName) {
+        return "Bộ câu hỏi mentor đóng góp - " + skillName.replace('_', ' ');
     }
 
     private String normalizeQuestionText(String questionText) {

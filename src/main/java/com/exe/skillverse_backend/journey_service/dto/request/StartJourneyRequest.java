@@ -69,6 +69,15 @@ public class StartJourneyRequest {
     private String industry;
 
     /**
+     * Canonical taxonomy IDs for job-position based journey flow.
+     * When jobPositionTrackId is present, backend derives the assessment skills
+     * from JobPositionTrackSkill instead of trusting user-selected skills.
+     */
+    private Long jobPositionId;
+
+    private Long jobPositionTrackId;
+
+    /**
         * Target skills user wants to develop in this journey.
         * In V3 flow this is typically a focused list (often one primary skill).
      */

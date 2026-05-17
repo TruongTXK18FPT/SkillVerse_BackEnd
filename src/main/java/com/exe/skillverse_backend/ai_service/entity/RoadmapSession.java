@@ -131,6 +131,19 @@ public class RoadmapSession {
     @Column(name = "roadmap_mode", length = 20)
     private String roadmapMode;
 
+    @Column(name = "roadmap_template_id")
+    private Long roadmapTemplateId;
+
+    @Column(name = "job_position_track_id")
+    private Long jobPositionTrackId;
+
+    @Column(name = "generation_mode", length = 40)
+    private String generationMode;
+
+    @Column(name = "template_snapshot_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String templateSnapshotJson;
+
     @Column(name = "target", columnDefinition = "TEXT")
     private String target;
 
@@ -157,8 +170,8 @@ public class RoadmapSession {
     private Boolean isPremiumGenerated = false;
 
     /**
-     * Roadmap lifecycle status: ACTIVE (currently learning), PAUSED, DELETED (soft)
-     * Only ONE roadmap per user can be ACTIVE at a time.
+     * Roadmap lifecycle status: ACTIVE (currently learning), PAUSED, DELETED (soft).
+     * A user can have up to 5 ACTIVE roadmaps at a time.
      */
     @Builder.Default
     @Enumerated(EnumType.STRING)
