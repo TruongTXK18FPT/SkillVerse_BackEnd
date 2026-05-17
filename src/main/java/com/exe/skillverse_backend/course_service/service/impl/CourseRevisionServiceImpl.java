@@ -399,10 +399,10 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         if (dto.getPrice() != null) revision.setPrice(dto.getPrice());
         if (dto.getCurrency() != null) revision.setCurrency(dto.getCurrency());
         if (dto.getLearningObjectives() != null) {
-            revision.setLearningObjectivesJson(writeJsonSafely(normalizeDtoStringList(dto.getLearningObjectives()), "[]"));
+            revision.setLearningObjectivesJson(writeJsonSafely(normalizeDtoTextList(dto.getLearningObjectives()), "[]"));
         }
         if (dto.getRequirements() != null) {
-            revision.setRequirementsJson(writeJsonSafely(normalizeDtoStringList(dto.getRequirements()), "[]"));
+            revision.setRequirementsJson(writeJsonSafely(normalizeDtoTextList(dto.getRequirements()), "[]"));
         }
         if (dto.getCourseSkills() != null) {
             revision.setCourseSkillTagsJson(writeJsonSafely(normalizeDtoStringList(dto.getCourseSkills()), "[]"));
@@ -642,6 +642,29 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 return Collections.emptyList();
             }
             // Mixed with real items → ignore sentinel, keep the real items only.
+            normalized = normalized.stream().filter(s -> !"__EMPTY__".equals(s)).toList();
+        }
+        return normalized;
+    }
+
+    /**
+     * Normalizes display text lists from multipart binding without slugifying user-facing content.
+     * Learning objectives and requirements may contain Vietnamese or punctuation and must round-trip
+     * exactly enough for editing; only trim, drop blanks, dedupe, and honor the clear sentinel.
+     */
+    private List<String> normalizeDtoTextList(List<String> items) {
+        if (items == null || items.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> normalized = items.stream()
+                .filter(s -> s != null && !s.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
+        if (normalized.contains("__EMPTY__")) {
+            if (normalized.size() == 1) {
+                return Collections.emptyList();
+            }
             normalized = normalized.stream().filter(s -> !"__EMPTY__".equals(s)).toList();
         }
         return normalized;
