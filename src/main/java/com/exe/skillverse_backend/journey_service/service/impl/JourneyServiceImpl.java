@@ -15,6 +15,7 @@ import com.exe.skillverse_backend.career_taxonomy_service.entity.Domain;
 import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPosition;
 import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPositionTrack;
 import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPositionTrackSkill;
+import com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType;
 import com.exe.skillverse_backend.career_taxonomy_service.enums.TaxonomyStatus;
 import com.exe.skillverse_backend.career_taxonomy_service.repository.DomainRepository;
 import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionRepository;
@@ -617,7 +618,8 @@ public class JourneyServiceImpl implements JourneyService {
             List<QuestionInfo> jobPositionQuestions = selectJobPositionTrackQuestions(
                     jobContext,
                     requestedQuestionCount,
-                    userLevel);
+                    userLevel,
+                    assessmentData);
             if (jobPositionQuestions.size() >= requestedQuestionCount) {
                 questionBankService.incrementUsedCount(jobPositionQuestions);
                 return saveQuestionBankAssessmentTest(
@@ -628,7 +630,7 @@ public class JourneyServiceImpl implements JourneyService {
                         jobPositionQuestions.stream().limit(requestedQuestionCount).toList(),
                         requestedTimeLimitMinutes,
                         generationContext,
-                        buildJobPositionQuestionBankPrompt(jobContext, requestedQuestionCount));
+                        buildJobPositionQuestionBankPrompt(jobContext, requestedQuestionCount, assessmentData, userLevel));
             }
             log.info("Job-position bank selection returned only {} / {} questions for track {}.",
                     jobPositionQuestions.size(), requestedQuestionCount, jobContext.track().getId());
@@ -752,40 +754,22 @@ public class JourneyServiceImpl implements JourneyService {
     private List<QuestionInfo> selectJobPositionTrackQuestions(
             JobPositionJourneyContext context,
             int requestedQuestionCount,
-            String userLevel) {
+            String userLevel,
+            StartJourneyRequest assessmentData) {
         if (context == null || context.trackSkills().isEmpty() || requestedQuestionCount <= 0) {
             return Collections.emptyList();
         }
 
-        List<JobPositionTrackSkill> skills = context.trackSkills();
-        List<String> skillNames = skills.stream()
-                .map(this::resolveTrackSkillName)
-                .filter(Objects::nonNull)
-                .filter(skill -> !skill.isBlank())
-                .distinct()
-                .toList();
-        int totalWeight = skills.stream().mapToInt(s -> s.getWeight() != null ? s.getWeight() : 1).sum();
-        if (totalWeight <= 0) totalWeight = 1;
-
-        int remainingCount = requestedQuestionCount;
-        int[] targets = new int[skills.size()];
-        for (int i = 0; i < skills.size(); i++) {
-            if (i == skills.size() - 1) {
-                targets[i] = Math.max(0, remainingCount);
-            } else {
-                int weight = skills.get(i).getWeight() != null ? skills.get(i).getWeight() : 1;
-                targets[i] = Math.round((float) weight / totalWeight * requestedQuestionCount);
-                if (targets[i] > remainingCount) targets[i] = Math.max(0, remainingCount);
-                remainingCount -= targets[i];
-            }
-        }
+        List<JobPositionTrackSkill> skills = assessmentCoreTrackSkills(context.trackSkills());
+        int[] targets = allocateQuestionTargetsByWeight(skills, requestedQuestionCount);
+        String selectionLevel = resolveQuestionBankSelectionLevel(userLevel, assessmentData);
 
         Map<String, QuestionInfo> selected = new LinkedHashMap<>();
 
         Optional<QuestionBankResponse> roleBank = findRoleQuestionBank(context);
         roleBank.ifPresent(bank -> addUniqueQuestions(
                 selected,
-                selectSkillScopedQuestions(bank.getId(), skillNames, requestedQuestionCount, userLevel),
+                selectSkillScopedQuestions(bank.getId(), skills, targets, requestedQuestionCount, selectionLevel),
                 requestedQuestionCount));
 
         for (int index = 0; index < skills.size() && selected.size() < requestedQuestionCount; index++) {
@@ -803,7 +787,7 @@ public class JourneyServiceImpl implements JourneyService {
                 continue;
             }
             List<QuestionInfo> skillQuestions = questionBankService.selectRandomQuestionsByLevel(
-                    skillBank.get().getId(), targetForSkill, userLevel);
+                    skillBank.get().getId(), targetForSkill, selectionLevel);
             addUniqueQuestions(selected, skillQuestions, requestedQuestionCount);
         }
 
@@ -828,6 +812,118 @@ public class JourneyServiceImpl implements JourneyService {
         List<QuestionInfo> result = new ArrayList<>(selected.values());
         Collections.shuffle(result);
         return result;
+    }
+
+    private List<JobPositionTrackSkill> assessmentCoreTrackSkills(List<JobPositionTrackSkill> trackSkills) {
+        if (trackSkills == null || trackSkills.isEmpty()) {
+            return List.of();
+        }
+        List<JobPositionTrackSkill> coreSkills = trackSkills.stream()
+                .filter(this::isAssessmentCoreTrackSkill)
+                .toList();
+        if (!coreSkills.isEmpty()) {
+            return coreSkills;
+        }
+        return trackSkills;
+    }
+
+    private boolean isAssessmentCoreTrackSkill(JobPositionTrackSkill trackSkill) {
+        RequirementType type = trackSkill != null && trackSkill.getRequirementType() != null
+                ? trackSkill.getRequirementType().normalized()
+                : RequirementType.REQUIRED;
+        return type == RequirementType.REQUIRED;
+    }
+
+    private int[] allocateQuestionTargetsByWeight(List<JobPositionTrackSkill> skills, int requestedQuestionCount) {
+        int[] targets = new int[skills.size()];
+        if (skills.isEmpty() || requestedQuestionCount <= 0) {
+            return targets;
+        }
+
+        int totalWeight = skills.stream()
+                .mapToInt(this::questionSelectionWeight)
+                .sum();
+        if (totalWeight <= 0) {
+            totalWeight = skills.size();
+        }
+
+        int assigned = 0;
+        double[] remainders = new double[skills.size()];
+        for (int i = 0; i < skills.size(); i++) {
+            double exact = (questionSelectionWeight(skills.get(i)) / (double) totalWeight) * requestedQuestionCount;
+            int base = (int) Math.floor(exact);
+            targets[i] = base;
+            remainders[i] = exact - base;
+            assigned += base;
+        }
+
+        int remaining = requestedQuestionCount - assigned;
+        while (remaining > 0) {
+            int bestIndex = 0;
+            for (int i = 1; i < remainders.length; i++) {
+                if (remainders[i] > remainders[bestIndex]) {
+                    bestIndex = i;
+                }
+            }
+            targets[bestIndex]++;
+            remainders[bestIndex] = -1;
+            remaining--;
+        }
+        return targets;
+    }
+
+    private int questionSelectionWeight(JobPositionTrackSkill skill) {
+        if (skill == null || skill.getWeight() == null) {
+            return 1;
+        }
+        return Math.max(1, Math.min(10, skill.getWeight()));
+    }
+
+    private String resolveQuestionBankSelectionLevel(String userLevel, StartJourneyRequest assessmentData) {
+        String normalizedLevel = userLevel != null ? userLevel.trim().toUpperCase(Locale.ROOT) : "";
+        String goalText = assessmentData != null && assessmentData.getGoal() != null
+                ? assessmentData.getGoal().toLowerCase(Locale.ROOT)
+                : "";
+        Set<String> focusAreas = assessmentData != null && assessmentData.getFocusAreas() != null
+                ? assessmentData.getFocusAreas().stream()
+                        .filter(Objects::nonNull)
+                        .map(value -> value.trim().toUpperCase(Locale.ROOT))
+                        .collect(Collectors.toCollection(LinkedHashSet::new))
+                : Set.of();
+
+        boolean jobReadinessGoal = focusAreas.contains("JOB_READINESS")
+                || goalText.contains("job")
+                || goalText.contains("interview")
+                || goalText.contains("phỏng vấn")
+                || goalText.contains("xin việc")
+                || goalText.contains("đi làm");
+        if (jobReadinessGoal) {
+            return nextAssessmentLevel(normalizedLevel);
+        }
+        if (focusAreas.contains("FUNDAMENTALS") || goalText.contains("nền tảng") || goalText.contains("foundation")) {
+            return previousAssessmentLevel(normalizedLevel);
+        }
+        return normalizedLevel.isBlank() ? "INTERMEDIATE" : normalizedLevel;
+    }
+
+    private String nextAssessmentLevel(String level) {
+        return switch (level) {
+            case "BEGINNER" -> "ELEMENTARY";
+            case "ELEMENTARY" -> "INTERMEDIATE";
+            case "INTERMEDIATE" -> "ADVANCED";
+            case "ADVANCED", "EXPERT" -> "EXPERT";
+            default -> "INTERMEDIATE";
+        };
+    }
+
+    private String previousAssessmentLevel(String level) {
+        return switch (level) {
+            case "EXPERT" -> "ADVANCED";
+            case "ADVANCED" -> "INTERMEDIATE";
+            case "INTERMEDIATE" -> "ELEMENTARY";
+            case "ELEMENTARY", "BEGINNER" -> "BEGINNER";
+            default -> "BEGINNER";
+        };
     }
 
     private Optional<QuestionBankResponse> findSkillQuestionBank(
@@ -864,14 +960,24 @@ public class JourneyServiceImpl implements JourneyService {
         return matchesSkillScopedBank(bank, resolveTrackSkillName(trackSkill));
     }
 
-    private String buildJobPositionQuestionBankPrompt(JobPositionJourneyContext context, int requestedQuestionCount) {
-        String skillNames = context.trackSkills().stream()
+    private String buildJobPositionQuestionBankPrompt(
+            JobPositionJourneyContext context,
+            int requestedQuestionCount,
+            StartJourneyRequest assessmentData,
+            String userLevel) {
+        List<JobPositionTrackSkill> assessedSkills = assessmentCoreTrackSkills(context.trackSkills());
+        String skillNames = assessedSkills.stream()
                 .map(this::resolveTrackSkillName)
                 .filter(Objects::nonNull)
                 .collect(Collectors.joining(", "));
+        String selectionLevel = resolveQuestionBankSelectionLevel(userLevel, assessmentData);
         return "Job-position QB: trackId=" + context.track().getId()
                 + ", jobPositionId=" + context.jobPosition().getId()
                 + ", total=" + requestedQuestionCount
+                + ", requirementScope=REQUIRED_OR_IMPORTANT"
+                + ", requestedLevel=" + userLevel
+                + ", selectionLevel=" + selectionLevel
+                + ", goal=" + (assessmentData != null ? assessmentData.getGoal() : null)
                 + ", skills=[" + skillNames + "]";
     }
 
@@ -883,6 +989,82 @@ public class JourneyServiceImpl implements JourneyService {
         return userLevel != null
                 ? questionBankService.selectRandomQuestionsByLevel(bank.getId(), requestedQuestionCount, userLevel)
                 : questionBankService.selectRandomQuestions(bank.getId(), requestedQuestionCount, bank.getDifficultyDistribution());
+    }
+
+    private List<QuestionInfo> selectSkillScopedQuestions(
+            Long bankId,
+            List<JobPositionTrackSkill> requestedSkills,
+            int[] targets,
+            int requestedQuestionCount,
+            String userLevel) {
+        if (bankId == null || requestedQuestionCount <= 0 || requestedSkills == null || requestedSkills.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Map<String, String> availableSkillAreas = new LinkedHashMap<>();
+        for (Object[] row : questionBankService.countBySkillAreaAndDifficulty(bankId)) {
+            if (row == null || row.length == 0 || !(row[0] instanceof String skillArea) || skillArea.isBlank()) {
+                continue;
+            }
+            availableSkillAreas.putIfAbsent(canonicalizeSkillKey(skillArea), skillArea);
+        }
+        if (availableSkillAreas.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> preferredDifficulties = preferredDifficultiesFor(userLevel);
+        Map<String, QuestionInfo> selected = new LinkedHashMap<>();
+
+        for (int index = 0; index < requestedSkills.size() && selected.size() < requestedQuestionCount; index++) {
+            JobPositionTrackSkill trackSkill = requestedSkills.get(index);
+            String requestedSkill = resolveTrackSkillName(trackSkill);
+            if (requestedSkill == null || requestedSkill.isBlank()) {
+                continue;
+            }
+            String actualSkillArea = availableSkillAreas.get(canonicalizeSkillKey(requestedSkill));
+            if (actualSkillArea == null) {
+                continue;
+            }
+            int remainingForSkill = index < targets.length ? targets[index] : 0;
+            for (String difficulty : preferredDifficulties) {
+                if (selected.size() >= requestedQuestionCount || remainingForSkill <= 0) {
+                    break;
+                }
+                List<QuestionInfo> matches = questionBankService.selectRandomQuestionsBySkillAreaAndDifficulty(
+                        bankId,
+                        actualSkillArea,
+                        difficulty,
+                        remainingForSkill);
+                int added = addUniqueQuestions(selected, matches, requestedQuestionCount);
+                remainingForSkill -= added;
+            }
+        }
+
+        if (selected.size() < requestedQuestionCount) {
+            for (JobPositionTrackSkill trackSkill : requestedSkills) {
+                String requestedSkill = resolveTrackSkillName(trackSkill);
+                if (requestedSkill == null || requestedSkill.isBlank()) {
+                    continue;
+                }
+                String actualSkillArea = availableSkillAreas.get(canonicalizeSkillKey(requestedSkill));
+                if (actualSkillArea == null) {
+                    continue;
+                }
+                for (String difficulty : preferredDifficulties) {
+                    if (selected.size() >= requestedQuestionCount) {
+                        break;
+                    }
+                    List<QuestionInfo> matches = questionBankService.selectRandomQuestionsBySkillAreaAndDifficulty(
+                            bankId,
+                            actualSkillArea,
+                            difficulty,
+                            requestedQuestionCount - selected.size());
+                    addUniqueQuestions(selected, matches, requestedQuestionCount);
+                }
+            }
+        }
+
+        return new ArrayList<>(selected.values());
     }
 
     private List<QuestionInfo> selectSkillScopedQuestions(

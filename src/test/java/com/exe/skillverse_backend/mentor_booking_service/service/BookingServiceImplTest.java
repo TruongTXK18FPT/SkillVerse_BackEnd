@@ -20,6 +20,7 @@ import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.exe.skillverse_backend.wallet_service.repository.WalletTransactionRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import com.exe.skillverse_backend.mentor_matching_service.service.MentorTeachingEligibilityService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -56,6 +57,7 @@ class BookingServiceImplTest {
     @Mock private InvoiceService invoiceService;
     @Mock private JourneyRepository journeyRepository;
     @Mock private PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+    @Mock private MentorTeachingEligibilityService mentorTeachingEligibilityService;
 
     private BookingServiceImpl service;
     private ObjectMapper objectMapper = new ObjectMapper();
@@ -76,7 +78,8 @@ class BookingServiceImplTest {
                 emailService,
                 invoiceService,
                 journeyRepository,
-                portfolioExtendedProfileRepository
+                portfolioExtendedProfileRepository,
+                mentorTeachingEligibilityService
         );
         ReflectionTestUtils.setField(service, "jitsiBaseUrl", "https://meet.jit.si");
         lenient().when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> invocation.getArgument(0));

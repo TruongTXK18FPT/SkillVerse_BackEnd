@@ -85,6 +85,9 @@ public class RoadmapTemplateActivity {
     @Column(name = "ai_prompt_hint", columnDefinition = "TEXT")
     private String aiPromptHint;
 
+    @Column(name = "skill_requirements_json", columnDefinition = "TEXT")
+    private String skillRequirementsJson;
+
     @Column(name = "order_index", nullable = false)
     private Integer orderIndex;
 

@@ -432,7 +432,9 @@ public class TaxonomyServiceImpl implements TaxonomyService {
             JobPositionTrackSkill ts = new JobPositionTrackSkill();
             ts.setTrack(track);
             ts.setSkill(skill);
-            ts.setRequirementType(dto.getRequirementType() != null ? dto.getRequirementType() : com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType.REQUIRED);
+            ts.setRequirementType(dto.getRequirementType() != null
+                    ? dto.getRequirementType().normalized()
+                    : com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType.REQUIRED);
             ts.setSortOrder(dto.getSortOrder() != null ? dto.getSortOrder() : i);
             int rawWeight = dto.getWeight() != null ? dto.getWeight() : 1;
             ts.setWeight(Math.max(1, Math.min(10, rawWeight)));

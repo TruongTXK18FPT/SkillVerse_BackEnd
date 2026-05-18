@@ -148,6 +148,13 @@ public class DatabaseSchemaFixer {
                 this::verifyDropTrackSkillImportanceLevel
             );
 
+            applyPatch(
+                "20260518_drop_track_skill_requirement_type_check",
+                "Drop check constraint on requirement_type in job_position_track_skills",
+                this::patchDropTrackSkillRequirementTypeCheck,
+                this::verifyDropTrackSkillRequirementTypeCheck
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -737,6 +744,25 @@ public class DatabaseSchemaFixer {
         return hasColumn("job_position_track_skills", "weight")
                 && !hasColumn("job_position_track_skills", "importance_level")
                 && hasConstraint("job_position_track_skills", "chk_track_skill_weight");
+    }
+
+    private void patchDropTrackSkillRequirementTypeCheck() {
+        if (!hasTable("job_position_track_skills")) {
+            log.info("Table job_position_track_skills does not exist yet; skipping");
+            return;
+        }
+
+        if (hasConstraint("job_position_track_skills", "job_position_track_skills_requirement_type_check")) {
+            log.info("Dropping requirement_type check constraint from job_position_track_skills...");
+            executeSql("ALTER TABLE job_position_track_skills DROP CONSTRAINT job_position_track_skills_requirement_type_check");
+        }
+    }
+
+    private boolean verifyDropTrackSkillRequirementTypeCheck() {
+        if (!hasTable("job_position_track_skills")) {
+            return true;
+        }
+        return !hasConstraint("job_position_track_skills", "job_position_track_skills_requirement_type_check");
     }
 
     private String getDatabaseProductName() {

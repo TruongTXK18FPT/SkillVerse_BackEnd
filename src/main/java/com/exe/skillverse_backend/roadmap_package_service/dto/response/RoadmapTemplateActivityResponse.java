@@ -21,5 +21,6 @@ public class RoadmapTemplateActivityResponse {
     private Double estimatedHours;
     private String prerequisiteHint;
     private String aiPromptHint;
+    private String skillRequirementsJson;
     private Integer orderIndex;
 }

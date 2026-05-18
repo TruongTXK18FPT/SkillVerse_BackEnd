@@ -11,6 +11,7 @@ import com.exe.skillverse_backend.career_taxonomy_service.entity.Domain;
 import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPosition;
 import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPositionTrack;
 import com.exe.skillverse_backend.career_taxonomy_service.entity.JobPositionTrackSkill;
+import com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType;
 import com.exe.skillverse_backend.career_taxonomy_service.enums.TaxonomyStatus;
 import com.exe.skillverse_backend.career_taxonomy_service.repository.DomainRepository;
 import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionRepository;
@@ -108,7 +109,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             String activitySource,
             String reason,
             Double estimatedHours,
-            List<Long> suggestedCourseIds
+            List<Long> suggestedCourseIds,
+            String skillRequirementsJson
     ) {
     }
 
@@ -566,6 +568,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .estimatedHours(request.getEstimatedHours())
                 .prerequisiteHint(request.getPrerequisiteHint())
                 .aiPromptHint(request.getAiPromptHint())
+                .skillRequirementsJson(request.getSkillRequirementsJson())
                 .orderIndex(request.getOrderIndex() != null ? request.getOrderIndex() : 1)
                 .build();
     }
@@ -1095,7 +1098,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         activity != null ? "activity_blueprint" : "skill_block_fallback",
                         buildRuntimeReason(block, activity, studentSkillLevel, targetLevelMatch),
                         activity != null ? activity.getEstimatedHours() : null,
-                        suggestedCourseIds));
+                        suggestedCourseIds,
+                        activity != null ? activity.getSkillRequirementsJson() : null));
             }
         }
 
@@ -1138,6 +1142,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             n.put("skill_id", node.skillId());
             n.put("skill_name", node.skillName());
             n.put("template_skill_block_id", node.templateSkillBlockId());
+            putSkillRequirements(n, node);
             if (node.minLevel() != null) {
                 n.put("min_level", node.minLevel().name());
             } else {
@@ -1408,6 +1413,27 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     private void putLongArray(ObjectNode node, String field, List<Long> values) {
         ArrayNode array = node.putArray(field);
         defaultList(values).forEach(array::add);
+    }
+
+    private void putSkillRequirements(ObjectNode node, RuntimeRoadmapNode runtimeNode) {
+        ArrayNode array = node.putArray("skills");
+        String raw = runtimeNode.skillRequirementsJson();
+        if (raw != null && !raw.isBlank()) {
+            try {
+                objectMapper.readTree(raw).forEach(array::add);
+                if (!array.isEmpty()) {
+                    return;
+                }
+            } catch (Exception ignored) {
+                log.warn("Invalid activity skillRequirementsJson for runtime node {}", runtimeNode.id());
+                array.removeAll();
+            }
+        }
+
+        ObjectNode fallback = array.addObject();
+        fallback.put("skill_id", runtimeNode.skillId());
+        fallback.put("skill_name", runtimeNode.skillName());
+        fallback.put("requirement_type", RequirementType.REQUIRED.name());
     }
 
     private List<String> splitTemplateText(String value) {
@@ -1754,6 +1780,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .estimatedHours(activity.getEstimatedHours())
                 .prerequisiteHint(activity.getPrerequisiteHint())
                 .aiPromptHint(activity.getAiPromptHint())
+                .skillRequirementsJson(activity.getSkillRequirementsJson())
                 .orderIndex(activity.getOrderIndex())
                 .build();
     }

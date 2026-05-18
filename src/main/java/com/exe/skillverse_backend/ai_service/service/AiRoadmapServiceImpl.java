@@ -22,6 +22,7 @@ import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.ai_rag_service.service.AiRagGateway;
+import com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType;
 import com.exe.skillverse_backend.ai_service.service.dto.CourseCatalogEntry;
 import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
@@ -2900,6 +2901,27 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         return null;
     }
 
+    private Long readLong(JsonNode node, String... keys) {
+        JsonNode target = firstPresentNode(node, keys);
+        if (target == null || target.isNull()) {
+            return null;
+        }
+        if (target.isIntegralNumber()) {
+            return target.asLong();
+        }
+        if (target.isNumber()) {
+            return Math.round(target.asDouble());
+        }
+        if (target.isTextual()) {
+            try {
+                return Long.parseLong(target.asText().trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
     // Scoring and ordering delegated to package-private utility classes.
     // See RoadmapImportanceScorer and RoadmapNodeOrderNormalizer.
 
@@ -3083,6 +3105,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .practicalExercises(parseStringArray(nodeJson.path("practical_exercises"), nodeJson.path("practicalExercises")))
                     .suggestedResources(parseStringArray(nodeJson.path("suggested_resources"), nodeJson.path("suggestedResources")))
                     .successCriteria(parseStringArray(nodeJson.path("success_criteria"), nodeJson.path("successCriteria")))
+                    .skills(parseNodeSkillRequirements(nodeJson))
                     .prerequisites(parseStringArray(nodeJson.path("prerequisites")))
                     .children(parseStringArray(nodeJson.path("children")))
                     .estimatedCompletionRate(readText(nodeJson, "estimated_completion_rate", "estimatedCompletionRate"))
@@ -3097,6 +3120,56 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
         }
 
         return nodes;
+    }
+
+    private List<RoadmapResponse.NodeSkillRequirement> parseNodeSkillRequirements(JsonNode nodeJson) {
+        JsonNode requirements = firstExistingNode(nodeJson, "skills", "skill_requirements", "skillRequirements", "nodeSkills");
+        if (requirements == null || !requirements.isArray()) {
+            Long legacySkillId = readLong(nodeJson, "skill_id", "skillId");
+            String legacySkillName = readText(nodeJson, "skill_name", "skillName");
+            if (legacySkillId == null && legacySkillName == null) {
+                return List.of();
+            }
+            return List.of(RoadmapResponse.NodeSkillRequirement.builder()
+                    .skillId(legacySkillId)
+                    .skillName(legacySkillName)
+                    .canonicalKey(readText(nodeJson, "canonical_key", "canonicalKey"))
+                    .requirementType(RequirementType.REQUIRED)
+                    .build());
+        }
+
+        List<RoadmapResponse.NodeSkillRequirement> parsed = new ArrayList<>();
+        for (JsonNode item : requirements) {
+            if (item == null || item.isNull()) {
+                continue;
+            }
+            Long skillId = readLong(item, "skill_id", "skillId");
+            String skillName = readText(item, "skill_name", "skillName", "name");
+            String canonicalKey = readText(item, "canonical_key", "canonicalKey");
+            if (skillId == null && skillName == null && canonicalKey == null) {
+                continue;
+            }
+            parsed.add(RoadmapResponse.NodeSkillRequirement.builder()
+                    .skillId(skillId)
+                    .skillName(skillName)
+                    .canonicalKey(canonicalKey)
+                    .requirementType(RequirementType.fromValue(readText(item, "requirement_type", "requirementType", "importance")))
+                    .build());
+        }
+        return parsed;
+    }
+
+    private JsonNode firstExistingNode(JsonNode node, String... keys) {
+        if (node == null || keys == null) {
+            return null;
+        }
+        for (String key : keys) {
+            JsonNode value = node.path(key);
+            if (!value.isMissingNode() && !value.isNull()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private Integer resolveEstimatedTimeMinutes(

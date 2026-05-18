@@ -24,6 +24,7 @@ import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRevie
 import com.exe.skillverse_backend.shared.service.EmailService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
+import com.exe.skillverse_backend.mentor_matching_service.service.MentorTeachingEligibilityService;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -72,6 +73,7 @@ public class BookingServiceImpl implements BookingService {
     private final InvoiceService invoiceService;
     private final JourneyRepository journeyRepository;
     private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+    private final MentorTeachingEligibilityService mentorTeachingEligibilityService;
 
     @Value("${jitsi.base-url:https://meet.jit.si}")
     private String jitsiBaseUrl;
@@ -166,6 +168,22 @@ public class BookingServiceImpl implements BookingService {
         }
 
         // ROADMAP_MENTORING: no fixed session — skip meeting reminders
+        if (isRoadmapMentoring) {
+            mentorTeachingEligibilityService.assertCanTeachBooking(
+                    request.getMentorId(),
+                    request.getJourneyId(),
+                    request.getNodeId(),
+                    request.getBookingType());
+        } else if (request.getJourneyId() != null
+                && ("NODE_MENTORING".equals(request.getBookingType())
+                || "JOURNEY_MENTORING".equals(request.getBookingType()))) {
+            mentorTeachingEligibilityService.assertCanTeachBooking(
+                    request.getMentorId(),
+                    request.getJourneyId(),
+                    request.getNodeId(),
+                    request.getBookingType());
+        }
+
         if (!isRoadmapMentoring) {
             scheduleMeetingReminderEmails(saved);
         }

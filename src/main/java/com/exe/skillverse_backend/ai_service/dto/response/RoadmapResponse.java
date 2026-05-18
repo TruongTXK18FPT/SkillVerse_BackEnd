@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.ai_service.dto.response;
 
+import com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -126,6 +127,7 @@ public class RoadmapResponse {
         private List<String> practicalExercises;
         private List<String> suggestedResources;
         private List<String> successCriteria;
+        private List<NodeSkillRequirement> skills;
 
         // Graph structure
         private List<String> prerequisites; // Must complete these before this node
@@ -153,6 +155,17 @@ public class RoadmapResponse {
             LOW_CONFIDENCE, // AI score present but evidence is missing or empty
             FALLBACK        // AI omitted score entirely — heuristic used
         }
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class NodeSkillRequirement {
+        private Long skillId;
+        private String skillName;
+        private String canonicalKey;
+        private RequirementType requirementType;
     }
 
     /**
