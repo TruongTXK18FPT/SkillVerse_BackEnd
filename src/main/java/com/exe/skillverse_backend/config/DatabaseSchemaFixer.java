@@ -682,19 +682,45 @@ public class DatabaseSchemaFixer {
             return;
         }
 
+        boolean hasWeightColumn = hasColumn("job_position_track_skills", "weight");
+        boolean hasImportanceLevelColumn = hasColumn("job_position_track_skills", "importance_level");
+
+        if (!hasWeightColumn) {
+            log.info("Adding missing weight column to job_position_track_skills...");
+            executeSql("ALTER TABLE job_position_track_skills ADD COLUMN IF NOT EXISTS weight INTEGER");
+            hasWeightColumn = true;
+        }
+
+        if (hasImportanceLevelColumn) {
+            log.info("Backfilling weight from legacy importance_level values...");
+            executeSql("""
+                UPDATE job_position_track_skills
+                SET weight = CASE
+                    WHEN importance_level IS NULL THEN 1
+                    WHEN importance_level BETWEEN 0 AND 5 THEN GREATEST(1, importance_level * 2)
+                    ELSE LEAST(10, importance_level)
+                END
+                WHERE weight IS NULL
+            """);
+        }
+
         // 1. Clamp existing weight values to 1-10
-        executeSql("UPDATE job_position_track_skills SET weight = 1 WHERE weight IS NULL OR weight < 1");
-        executeSql("UPDATE job_position_track_skills SET weight = 10 WHERE weight > 10");
+        if (hasWeightColumn) {
+            executeSql("UPDATE job_position_track_skills SET weight = 1 WHERE weight IS NULL OR weight < 1");
+            executeSql("UPDATE job_position_track_skills SET weight = 10 WHERE weight > 10");
+        }
 
         // 2. Drop the importance_level column
-        if (hasColumn("job_position_track_skills", "importance_level")) {
+        if (hasImportanceLevelColumn) {
             log.info("Dropping importance_level column from job_position_track_skills...");
             executeSql("ALTER TABLE job_position_track_skills DROP COLUMN importance_level");
         }
 
         // 3. Ensure weight is NOT NULL with a default
-        executeSql("ALTER TABLE job_position_track_skills ALTER COLUMN weight SET NOT NULL");
-        executeSql("ALTER TABLE job_position_track_skills ALTER COLUMN weight SET DEFAULT 1");
+        if (hasWeightColumn) {
+            executeSql("ALTER TABLE job_position_track_skills ALTER COLUMN weight SET NOT NULL");
+            executeSql("ALTER TABLE job_position_track_skills ALTER COLUMN weight SET DEFAULT 1");
+        }
 
         // 4. Add CHECK constraint for weight range
         addConstraintIfMissing(
@@ -708,7 +734,8 @@ public class DatabaseSchemaFixer {
         if (!hasTable("job_position_track_skills")) {
             return true;
         }
-        return !hasColumn("job_position_track_skills", "importance_level")
+        return hasColumn("job_position_track_skills", "weight")
+                && !hasColumn("job_position_track_skills", "importance_level")
                 && hasConstraint("job_position_track_skills", "chk_track_skill_weight");
     }
 
