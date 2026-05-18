@@ -10,6 +10,7 @@ package com.exe.skillverse_backend.mentor_verification_service.entity;
 public enum EvidenceType {
     CERTIFICATE,
     GITHUB,
+    CV,
     PORTFOLIO_LINK,
     WORK_EXPERIENCE
 }

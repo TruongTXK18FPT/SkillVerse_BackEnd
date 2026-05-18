@@ -30,9 +30,15 @@ public class MentorSkillVerificationRequest {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** Mentor who submitted this skill verification request */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "mentor_id", nullable = false)
     private User mentor;
+
+    // Optional link to the batch this skill belongs to
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "batch_request_id")
+    private MentorBatchVerificationRequest batchRequest;
 
     /** Tên skill cần xác thực (normalized uppercase, e.g. "REACT", "JAVA_SPRING_BOOT") */
     @Column(name = "skill_name", nullable = false, length = 100)

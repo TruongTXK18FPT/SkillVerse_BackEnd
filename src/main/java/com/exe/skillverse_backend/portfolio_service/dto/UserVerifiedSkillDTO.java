@@ -21,6 +21,7 @@ public class UserVerifiedSkillDTO {
     private Long journeyId;
     private Long bookingId;
     private String verificationNote;
+    private Integer featuredOrder;
     private Instant verifiedAt;
 
     public static UserVerifiedSkillDTO from(UserVerifiedSkill entity) {
@@ -32,6 +33,7 @@ public class UserVerifiedSkillDTO {
                 .journeyId(entity.getJourneyId())
                 .bookingId(entity.getBookingId())
                 .verificationNote(entity.getVerificationNote())
+                .featuredOrder(entity.getFeaturedOrder())
                 .verifiedAt(entity.getVerifiedAt())
                 .build();
     }

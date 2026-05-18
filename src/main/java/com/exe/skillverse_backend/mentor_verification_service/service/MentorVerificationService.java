@@ -1,8 +1,11 @@
 package com.exe.skillverse_backend.mentor_verification_service.service;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.mentor_verification_service.dto.request.CreateBatchVerificationRequest;
 import com.exe.skillverse_backend.mentor_verification_service.dto.request.CreateMentorVerificationRequest;
+import com.exe.skillverse_backend.mentor_verification_service.dto.request.ReviewBatchVerificationRequest;
 import com.exe.skillverse_backend.mentor_verification_service.dto.request.ReviewMentorVerificationRequest;
+import com.exe.skillverse_backend.mentor_verification_service.dto.response.BatchVerificationResponse;
 import com.exe.skillverse_backend.mentor_verification_service.dto.response.MentorVerificationResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -11,30 +14,33 @@ import java.util.List;
 
 public interface MentorVerificationService {
 
-    /** Mentor: gửi yêu cầu xác thực 1 skill */
     MentorVerificationResponse submitVerification(User mentor, CreateMentorVerificationRequest request);
 
-    /** Mentor: xem danh sách request của mình */
+    BatchVerificationResponse submitBatchVerification(User mentor, CreateBatchVerificationRequest request);
+
     List<MentorVerificationResponse> getMyVerifications(User mentor);
 
-    /** Mentor: xem danh sách skill đã được verified */
+    List<BatchVerificationResponse> getMyBatchVerifications(User mentor);
+
     List<String> getMyVerifiedSkills(User mentor);
 
-    /** Admin: lấy danh sách request chờ duyệt */
+    void revokeVerifiedSkill(User mentor, String skillName);
+
     Page<MentorVerificationResponse> getPendingVerifications(Pageable pageable);
 
-    /** Admin: lấy tất cả request (có filter) */
     Page<MentorVerificationResponse> getAllVerifications(List<String> statuses, Pageable pageable);
 
-    /** Admin: xem chi tiết 1 request */
+    Page<BatchVerificationResponse> getPendingBatchVerifications(Pageable pageable);
+
+    Page<BatchVerificationResponse> getAllBatchVerifications(List<String> statuses, Pageable pageable);
+
     MentorVerificationResponse getVerificationById(Long requestId);
 
-    /** Admin: duyệt hoặc reject request */
     MentorVerificationResponse reviewVerification(Long requestId, User admin, ReviewMentorVerificationRequest request);
 
-    /** Đếm request pending (cho admin badge) */
+    BatchVerificationResponse reviewBatchVerification(Long batchId, User admin, ReviewBatchVerificationRequest request);
+
     long countPending();
 
-    /** Public: lấy danh sách skill đã APPROVED kèm evidence cho 1 mentor (dùng trang public) */
     List<MentorVerificationResponse> getApprovedVerificationsByMentorId(Long mentorId);
 }

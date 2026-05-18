@@ -62,6 +62,14 @@ public class UserVerifiedSkill {
     @Column(name = "verification_note", columnDefinition = "TEXT")
     private String verificationNote;
 
+    /**
+     * Optional user-controlled ranking for skills that should appear first on
+     * public mentor cards and portfolio badges. Null means normal chronological
+     * ordering.
+     */
+    @Column(name = "featured_order")
+    private Integer featuredOrder;
+
     @CreationTimestamp
     @Column(name = "verified_at", nullable = false, updatable = false)
     private Instant verifiedAt;

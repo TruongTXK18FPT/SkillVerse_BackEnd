@@ -36,6 +36,11 @@ public interface MentorSkillVerificationRequestRepository extends JpaRepository<
     @Query("SELECT r FROM MentorSkillVerificationRequest r WHERE r.mentor.id = :mentorId AND r.status = 'APPROVED'")
     List<MentorSkillVerificationRequest> findApprovedByMentorId(@Param("mentorId") Long mentorId);
 
+    @Query("SELECT r FROM MentorSkillVerificationRequest r WHERE r.mentor.id = :mentorId AND r.skillName = :skillName AND r.status = 'APPROVED'")
+    List<MentorSkillVerificationRequest> findApprovedByMentorIdAndSkillName(
+            @Param("mentorId") Long mentorId,
+            @Param("skillName") String skillName);
+
     /** Tìm tất cả mentor đã verify 1 skill cụ thể (APPROVED only).
      *  Separator-agnostic: strip ALL non-alphanumeric chars then UPPER, so
      *  "BACKEND", "BACK_END", "back end", "back-end" all collapse to "BACKEND".

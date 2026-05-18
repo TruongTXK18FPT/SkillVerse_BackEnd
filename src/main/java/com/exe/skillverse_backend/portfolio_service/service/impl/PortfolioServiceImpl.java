@@ -47,6 +47,8 @@ import com.exe.skillverse_backend.journey_service.node_mentoring.repository.Veri
 import com.exe.skillverse_backend.mentor_verification_service.entity.MentorSkillVerificationRequest;
 import com.exe.skillverse_backend.mentor_verification_service.entity.MentorVerificationEvidence;
 import com.exe.skillverse_backend.mentor_verification_service.repository.MentorSkillVerificationRequestRepository;
+import com.exe.skillverse_backend.student_skill_verification.entity.StudentSkillVerificationRequest;
+import com.exe.skillverse_backend.student_skill_verification.repository.StudentSkillVerificationRequestRepository;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
@@ -101,6 +103,7 @@ public class PortfolioServiceImpl implements PortfolioService {
     private final JobReviewRepository jobReviewRepository;
     private final com.exe.skillverse_backend.portfolio_service.repository.UserVerifiedSkillRepository verifiedSkillRepository;
     private final MentorSkillVerificationRequestRepository mentorVerificationRequestRepository;
+    private final StudentSkillVerificationRequestRepository studentVerificationRequestRepository;
     private final VerificationEvidenceReportRepository verificationEvidenceReportRepository;
     private final JourneyOutputAssessmentRepository journeyOutputAssessmentRepository;
     private final RoadmapNodeSubmissionRepository roadmapNodeSubmissionRepository;
@@ -1328,19 +1331,46 @@ public class PortfolioServiceImpl implements PortfolioService {
     // ==================== V3 PHASE 2: VERIFIED SKILLS ====================
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getVerifiedSkills(Long userId) {
         getUserOrThrow(userId);
+        syncApprovedVerificationRequestsToPortfolio(userId);
         return enrichVerifiedSkills(
-                verifiedSkillRepository.findByUserIdOrderByVerifiedAtDesc(userId));
+                verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId));
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getPublicVerifiedSkills(Long userId) {
         getPublicExtendedProfileOrThrow(userId);
+        syncApprovedVerificationRequestsToPortfolio(userId);
         return enrichVerifiedSkills(
-                verifiedSkillRepository.findByUserIdOrderByVerifiedAtDesc(userId));
+                verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId));
+    }
+
+    @Override
+    @Transactional
+    public List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> updateVerifiedSkillFeaturedOrder(
+            Long userId, List<String> skillNames) {
+        getUserOrThrow(userId);
+        syncApprovedVerificationRequestsToPortfolio(userId);
+        List<String> normalizedSkillNames = skillNames == null ? List.of() : skillNames.stream()
+                .map(com.exe.skillverse_backend.shared.util.SkillNameUtils::normalizeRequired)
+                .distinct()
+                .toList();
+
+        Map<String, Integer> featuredOrderBySkill = new java.util.HashMap<>();
+        for (int i = 0; i < Math.min(5, normalizedSkillNames.size()); i++) {
+            featuredOrderBySkill.put(normalizedSkillNames.get(i), i + 1);
+        }
+
+        List<com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill> skills =
+                verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId);
+        for (var skill : skills) {
+            skill.setFeaturedOrder(featuredOrderBySkill.get(skill.getSkillName()));
+        }
+        verifiedSkillRepository.saveAll(skills);
+        return enrichVerifiedSkills(verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId));
     }
 
     @Override
@@ -1367,6 +1397,53 @@ public class PortfolioServiceImpl implements PortfolioService {
                     dto.setVerifiedByMentorName(mentor.getFullName()));
             return dto;
         }).toList();
+    }
+
+    private void syncApprovedVerificationRequestsToPortfolio(Long userId) {
+        mentorVerificationRequestRepository.findApprovedByMentorId(userId)
+                .forEach(this::upsertMentorAdminVerifiedSkill);
+        studentVerificationRequestRepository.findApprovedByUserId(userId)
+                .forEach(this::upsertStudentAdminVerifiedSkill);
+    }
+
+    private void upsertMentorAdminVerifiedSkill(MentorSkillVerificationRequest request) {
+        String skillName = com.exe.skillverse_backend.shared.util.SkillNameUtils.normalizeRequired(request.getSkillName());
+        var existing = verifiedSkillRepository.findByUserIdAndSkillName(request.getMentor().getId(), skillName);
+        var skill = existing.orElseGet(() -> com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill.builder()
+                .userId(request.getMentor().getId())
+                .skillName(skillName)
+                .build());
+        if (request.getReviewedBy() != null) {
+            skill.setVerifiedByMentorId(request.getReviewedBy().getId());
+        } else if (skill.getVerifiedByMentorId() == null) {
+            skill.setVerifiedByMentorId(request.getMentor().getId());
+        }
+        skill.setVerificationNote(request.getReviewNote());
+        if (skill.getVerifiedAt() == null) {
+            skill.setVerifiedAt((request.getReviewedAt() != null ? request.getReviewedAt() : request.getRequestedAt())
+                    .toInstant(ZoneOffset.ofHours(7)));
+        }
+        verifiedSkillRepository.save(skill);
+    }
+
+    private void upsertStudentAdminVerifiedSkill(StudentSkillVerificationRequest request) {
+        String skillName = com.exe.skillverse_backend.shared.util.SkillNameUtils.normalizeRequired(request.getSkillName());
+        var existing = verifiedSkillRepository.findByUserIdAndSkillName(request.getUser().getId(), skillName);
+        var skill = existing.orElseGet(() -> com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill.builder()
+                .userId(request.getUser().getId())
+                .skillName(skillName)
+                .build());
+        if (request.getReviewedBy() != null) {
+            skill.setVerifiedByMentorId(request.getReviewedBy().getId());
+        } else if (skill.getVerifiedByMentorId() == null) {
+            skill.setVerifiedByMentorId(request.getUser().getId());
+        }
+        skill.setVerificationNote(request.getReviewNote());
+        if (skill.getVerifiedAt() == null) {
+            skill.setVerifiedAt((request.getReviewedAt() != null ? request.getReviewedAt() : request.getRequestedAt())
+                    .toInstant(ZoneOffset.ofHours(7)));
+        }
+        verifiedSkillRepository.save(skill);
     }
 
     private List<PortfolioVerifiedSkillDetailDTO> resolveVerifiedSkillDetails(User user) {
@@ -1405,12 +1482,20 @@ public class PortfolioServiceImpl implements PortfolioService {
                         : null)
                 .reviewNote(request.getReviewNote())
                 .verificationRequestId(request.getId())
-                .evidences(request.getEvidences() == null
-                        ? List.of()
-                        : request.getEvidences().stream()
-                                .map(this::mapMentorEvidence)
-                                .toList())
+                .evidences(resolveMentorVerificationEvidences(request).stream()
+                        .map(this::mapMentorEvidence)
+                        .toList())
                 .build();
+    }
+
+    private List<MentorVerificationEvidence> resolveMentorVerificationEvidences(MentorSkillVerificationRequest request) {
+        if (request.getEvidences() != null && !request.getEvidences().isEmpty()) {
+            return request.getEvidences();
+        }
+        if (request.getBatchRequest() != null && request.getBatchRequest().getEvidences() != null) {
+            return request.getBatchRequest().getEvidences();
+        }
+        return List.of();
     }
 
     private PortfolioVerifiedSkillDetailDTO mapRoadmapVerifiedSkillDetail(

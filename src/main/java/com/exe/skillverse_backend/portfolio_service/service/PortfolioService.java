@@ -94,6 +94,8 @@ public interface PortfolioService {
 
     List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getPublicVerifiedSkills(Long userId);
 
+    List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> updateVerifiedSkillFeaturedOrder(Long userId, List<String> skillNames);
+
     List<com.exe.skillverse_backend.portfolio_service.dto.PortfolioVerifiedSkillDetailDTO> getVerifiedSkillDetails(Long userId);
 
     List<com.exe.skillverse_backend.portfolio_service.dto.PortfolioVerifiedSkillDetailDTO> getPublicVerifiedSkillDetails(Long userId);

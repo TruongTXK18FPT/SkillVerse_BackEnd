@@ -535,6 +535,26 @@ public class PortfolioController {
         }
     }
 
+    @PutMapping("/verified-skills/featured-order")
+    @PreAuthorize("isAuthenticated()")
+    @Operation(summary = "Update featured verified skill order", description = "Rank up to 5 verified skills that should appear first on public cards")
+    public ResponseEntity<?> updateVerifiedSkillFeaturedOrder(
+            Authentication authentication,
+            @RequestBody List<String> skillNames) {
+        try {
+            Long userId = Long.parseLong(authentication.getName());
+            var skills = portfolioService.updateVerifiedSkillFeaturedOrder(userId, skillNames);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", skills));
+        } catch (Exception e) {
+            log.error("Error updating verified skill featured order", e);
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                    "success", false,
+                    "message", e.getMessage()));
+        }
+    }
+
     @GetMapping("/verified-skill-details")
     @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Get verified skill details", description = "Retrieve detailed verification records and evidences for the authenticated portfolio")

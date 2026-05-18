@@ -154,6 +154,31 @@ public class DatabaseSchemaFixer {
                 this::patchDropTrackSkillRequirementTypeCheck,
                 this::verifyDropTrackSkillRequirementTypeCheck
             );
+            // New patch: create batch verification tables & columns
+            applyPatch(
+                "20260520_create_mentor_batch_verification",
+                "Create mentor_batch_verification_requests table and batch_id columns",
+                this::patchCreateMentorBatchVerification,
+                this::verifyCreateMentorBatchVerification
+            );
+            applyPatch(
+                "20260521_allow_revoked_mentor_verification_status",
+                "Allow REVOKED status for mentor skill verification requests and batches",
+                this::patchAllowRevokedMentorVerificationStatus,
+                this::verifyAllowRevokedMentorVerificationStatus
+            );
+            applyPatch(
+                "20260521_allow_cv_verification_evidence_type",
+                "Allow CV evidence type for mentor and student verification evidences",
+                this::patchAllowCvVerificationEvidenceType,
+                this::verifyAllowCvVerificationEvidenceType
+            );
+            applyPatch(
+                "20260521_verified_skill_featured_order",
+                "Add featured ordering fields to user verified skills",
+                this::patchVerifiedSkillFeaturedOrder,
+                this::verifyVerifiedSkillFeaturedOrder
+            );
 
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
@@ -959,5 +984,137 @@ public class DatabaseSchemaFixer {
             return false;
         }
         return hasIndex(indexName);
+    }
+
+    // ---------------------------------------------------------------------
+    // Batch Verification Schema Patch
+    // ---------------------------------------------------------------------
+    private void patchCreateMentorBatchVerification() {
+        log.info("Creating mentor_batch_verification_requests table and batch_id columns...");
+        // Table for batch verification requests
+        executeSql("CREATE TABLE IF NOT EXISTS mentor_batch_verification_requests (" +
+                "id BIGSERIAL PRIMARY KEY, " +
+                "mentor_id BIGINT NOT NULL, " +
+                "status VARCHAR(30) NOT NULL DEFAULT 'PENDING', " +
+                "github_url VARCHAR(500), " +
+                "portfolio_url VARCHAR(500), " +
+                "additional_notes TEXT, " +
+                "general_review_note TEXT, " +
+                "submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), " +
+                "reviewed_by BIGINT, " +
+                "reviewed_at TIMESTAMPTZ, " +
+                "updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()" +
+                ")");
+        // Indexes for fast lookup
+        executeSql("CREATE INDEX IF NOT EXISTS idx_mbvr_mentor_status ON mentor_batch_verification_requests(mentor_id, status)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_mbvr_status_submitted ON mentor_batch_verification_requests(status, submitted_at)");
+
+        // Add batch_request_id columns to existing tables
+        executeSql("ALTER TABLE mentor_verification_evidences ADD COLUMN IF NOT EXISTS batch_request_id BIGINT");
+        executeSql("ALTER TABLE mentor_verification_evidences ALTER COLUMN verification_request_id DROP NOT NULL");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_mve_batch ON mentor_verification_evidences(batch_request_id)");
+        executeSql("ALTER TABLE mentor_skill_verification_requests ADD COLUMN IF NOT EXISTS batch_request_id BIGINT");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_msvr_batch ON mentor_skill_verification_requests(batch_request_id)");
+
+        // Foreign key constraints (cascade delete when a batch is removed)
+        addConstraintIfMissing(
+                "mentor_verification_evidences",
+                "fk_evidence_batch",
+                "ALTER TABLE mentor_verification_evidences ADD CONSTRAINT fk_evidence_batch FOREIGN KEY (batch_request_id) REFERENCES mentor_batch_verification_requests(id) ON DELETE CASCADE"
+        );
+        addConstraintIfMissing(
+                "mentor_skill_verification_requests",
+                "fk_skill_batch",
+                "ALTER TABLE mentor_skill_verification_requests ADD CONSTRAINT fk_skill_batch FOREIGN KEY (batch_request_id) REFERENCES mentor_batch_verification_requests(id) ON DELETE CASCADE"
+        );
+        addConstraintIfMissing(
+                "mentor_verification_evidences",
+                "chk_mve_owner_request",
+                "ALTER TABLE mentor_verification_evidences ADD CONSTRAINT chk_mve_owner_request CHECK (verification_request_id IS NOT NULL OR batch_request_id IS NOT NULL)"
+        );
+    }
+
+    private boolean verifyCreateMentorBatchVerification() {
+        boolean tableOk = hasTable("mentor_batch_verification_requests");
+        boolean evColOk = hasColumn("mentor_verification_evidences", "batch_request_id");
+        boolean skillColOk = hasColumn("mentor_skill_verification_requests", "batch_request_id");
+        boolean evSingleNullable = !isColumnNotNull("mentor_verification_evidences", "verification_request_id");
+        return tableOk && evColOk && skillColOk && evSingleNullable;
+    }
+
+    private void patchAllowRevokedMentorVerificationStatus() {
+        if (hasConstraint("mentor_skill_verification_requests", "chk_msvr_status")) {
+            executeSql("ALTER TABLE mentor_skill_verification_requests DROP CONSTRAINT chk_msvr_status");
+        }
+        addConstraintIfMissing(
+                "mentor_skill_verification_requests",
+                "chk_msvr_status",
+                "ALTER TABLE mentor_skill_verification_requests ADD CONSTRAINT chk_msvr_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'PARTIAL_APPROVED', 'COMPLETED', 'REVOKED'))"
+        );
+
+        if (hasConstraint("mentor_batch_verification_requests", "chk_mbvr_status")) {
+            executeSql("ALTER TABLE mentor_batch_verification_requests DROP CONSTRAINT chk_mbvr_status");
+        }
+        addConstraintIfMissing(
+                "mentor_batch_verification_requests",
+                "chk_mbvr_status",
+                "ALTER TABLE mentor_batch_verification_requests ADD CONSTRAINT chk_mbvr_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'PARTIAL_APPROVED', 'COMPLETED', 'REVOKED'))"
+        );
+    }
+
+    private boolean verifyAllowRevokedMentorVerificationStatus() {
+        return hasConstraint("mentor_skill_verification_requests", "chk_msvr_status")
+                && hasConstraint("mentor_batch_verification_requests", "chk_mbvr_status");
+    }
+
+    private void patchAllowCvVerificationEvidenceType() {
+        if (hasConstraint("mentor_verification_evidences", "chk_mve_type")) {
+            executeSql("ALTER TABLE mentor_verification_evidences DROP CONSTRAINT chk_mve_type");
+        }
+        addConstraintIfMissing(
+                "mentor_verification_evidences",
+                "chk_mve_type",
+                "ALTER TABLE mentor_verification_evidences ADD CONSTRAINT chk_mve_type CHECK (evidence_type IN ('CERTIFICATE', 'GITHUB', 'PORTFOLIO_LINK', 'WORK_EXPERIENCE', 'CV'))"
+        );
+
+        if (hasTable("student_verification_evidences")) {
+            if (hasConstraint("student_verification_evidences", "chk_sve_type")) {
+                executeSql("ALTER TABLE student_verification_evidences DROP CONSTRAINT chk_sve_type");
+            }
+            addConstraintIfMissing(
+                    "student_verification_evidences",
+                    "chk_sve_type",
+                    "ALTER TABLE student_verification_evidences ADD CONSTRAINT chk_sve_type CHECK (evidence_type IN ('CERTIFICATE', 'GITHUB', 'PORTFOLIO_LINK', 'WORK_EXPERIENCE', 'CV'))"
+            );
+        }
+    }
+
+    private boolean verifyAllowCvVerificationEvidenceType() {
+        return hasConstraint("mentor_verification_evidences", "chk_mve_type")
+                && (!hasTable("student_verification_evidences")
+                || hasConstraint("student_verification_evidences", "chk_sve_type"));
+    }
+
+    private void patchVerifiedSkillFeaturedOrder() {
+        executeSql("CREATE TABLE IF NOT EXISTS user_verified_skills (" +
+                "id BIGSERIAL PRIMARY KEY, " +
+                "user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, " +
+                "skill_name VARCHAR(100) NOT NULL, " +
+                "verified_by_mentor_id BIGINT NOT NULL REFERENCES users(id), " +
+                "journey_id BIGINT, " +
+                "booking_id BIGINT, " +
+                "skill_level VARCHAR(20), " +
+                "verification_note TEXT, " +
+                "featured_order INTEGER, " +
+                "verified_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                "CONSTRAINT uk_user_verified_skill UNIQUE (user_id, skill_name)" +
+                ")");
+        executeSql("ALTER TABLE user_verified_skills ADD COLUMN IF NOT EXISTS featured_order INTEGER");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_uvs_user_verified_at ON user_verified_skills(user_id, verified_at DESC)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_uvs_user_featured_order ON user_verified_skills(user_id, featured_order, verified_at DESC)");
+    }
+
+    private boolean verifyVerifiedSkillFeaturedOrder() {
+        return hasTable("user_verified_skills") && hasColumn("user_verified_skills", "featured_order");
     }
 }

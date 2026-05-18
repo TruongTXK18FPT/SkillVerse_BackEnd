@@ -14,7 +14,8 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "mentor_verification_evidences", indexes = {
-        @Index(name = "idx_mve_request", columnList = "verification_request_id")
+        @Index(name = "idx_mve_request", columnList = "verification_request_id"),
+        @Index(name = "idx_mve_batch", columnList = "batch_request_id")
 })
 @Getter
 @Setter
@@ -27,9 +28,14 @@ public class MentorVerificationEvidence {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "verification_request_id", nullable = false)
+    // Evidence can belong to either a single skill verification or a whole batch.
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "verification_request_id", nullable = true)
     private MentorSkillVerificationRequest verificationRequest;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "batch_request_id", nullable = true)
+    private MentorBatchVerificationRequest batchRequest;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "evidence_type", nullable = false, length = 30)

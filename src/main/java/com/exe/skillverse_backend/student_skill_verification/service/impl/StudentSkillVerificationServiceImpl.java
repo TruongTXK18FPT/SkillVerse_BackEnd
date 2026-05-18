@@ -3,7 +3,9 @@ package com.exe.skillverse_backend.student_skill_verification.service.impl;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.mentor_verification_service.entity.EvidenceType;
 import com.exe.skillverse_backend.portfolio_service.entity.ExternalCertificate;
+import com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill;
 import com.exe.skillverse_backend.portfolio_service.repository.ExternalCertificateRepository;
+import com.exe.skillverse_backend.portfolio_service.repository.UserVerifiedSkillRepository;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
@@ -44,6 +46,7 @@ public class StudentSkillVerificationServiceImpl implements StudentSkillVerifica
     private final StudentSkillVerificationRequestRepository requestRepository;
     private final StudentVerificationEvidenceRepository evidenceRepository;
     private final ExternalCertificateRepository certificateRepository;
+    private final UserVerifiedSkillRepository userVerifiedSkillRepository;
 
     @Override
     @Transactional
@@ -201,6 +204,7 @@ public class StudentSkillVerificationServiceImpl implements StudentSkillVerifica
                     certificateRepository.save(cert);
                 }
             }
+            syncPortfolioVerifiedSkill(verificationReq, admin);
 
             log.info("Admin {} APPROVED skill '{}' for student {}",
                     admin.getId(), verificationReq.getSkillName(), verificationReq.getUser().getId());
@@ -261,6 +265,24 @@ public class StudentSkillVerificationServiceImpl implements StudentSkillVerifica
                 .reviewedAt(request.getReviewedAt())
                 .evidences(evidenceResponses)
                 .build();
+    }
+
+    private void syncPortfolioVerifiedSkill(StudentSkillVerificationRequest request, User admin) {
+        String skillName = SkillNameUtils.normalizeRequired(request.getSkillName());
+        Long userId = request.getUser().getId();
+        UserVerifiedSkill skill = userVerifiedSkillRepository
+                .findByUserIdAndSkillName(userId, skillName)
+                .orElseGet(() -> UserVerifiedSkill.builder()
+                        .userId(userId)
+                        .skillName(skillName)
+                        .build());
+
+        skill.setVerifiedByMentorId(admin.getId());
+        skill.setVerificationNote(request.getReviewNote());
+        if (skill.getVerifiedAt() == null) {
+            skill.setVerifiedAt(java.time.Instant.now());
+        }
+        userVerifiedSkillRepository.save(skill);
     }
 
     private StudentVerificationResponse.EvidenceResponse mapEvidence(StudentVerificationEvidence evidence) {

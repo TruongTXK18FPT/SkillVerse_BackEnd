@@ -9,5 +9,8 @@ package com.exe.skillverse_backend.mentor_verification_service.entity;
 public enum VerificationStatus {
     PENDING,
     APPROVED,
-    REJECTED
+    REJECTED,
+    PARTIAL_APPROVED,
+    COMPLETED,
+    REVOKED
 }

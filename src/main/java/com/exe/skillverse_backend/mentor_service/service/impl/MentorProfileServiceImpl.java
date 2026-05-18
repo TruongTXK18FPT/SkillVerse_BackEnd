@@ -20,6 +20,7 @@ import com.exe.skillverse_backend.mentor_service.service.MentorProfileService;
 import com.exe.skillverse_backend.mentor_verification_service.repository.MentorSkillVerificationRequestRepository;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
+import com.exe.skillverse_backend.portfolio_service.repository.UserVerifiedSkillRepository;
 import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
@@ -87,6 +88,7 @@ public class MentorProfileServiceImpl implements MentorProfileService {
     private final MediaService mediaService;
     private final ObjectMapper objectMapper;
     private final MentorSkillVerificationRequestRepository verificationRequestRepository;
+    private final UserVerifiedSkillRepository userVerifiedSkillRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -840,11 +842,20 @@ public class MentorProfileServiceImpl implements MentorProfileService {
     @Override
     @Transactional(readOnly = true)
     public List<String> getVerifiedSkillsByMentorId(Long mentorId) {
-        return verificationRequestRepository.findApprovedByMentorId(mentorId)
+        List<String> orderedPortfolioSkills = userVerifiedSkillRepository
+                .findByUserIdOrderByFeaturedThenVerifiedAtDesc(mentorId)
                 .stream()
-                .map(req -> req.getSkillName())
+                .map(skill -> skill.getSkillName())
                 .distinct()
                 .collect(Collectors.toList());
+
+        Set<String> seen = new HashSet<>(orderedPortfolioSkills);
+        verificationRequestRepository.findApprovedByMentorId(mentorId)
+                .stream()
+                .map(req -> req.getSkillName())
+                .filter(seen::add)
+                .forEach(orderedPortfolioSkills::add);
+        return orderedPortfolioSkills;
     }
 
     @Override

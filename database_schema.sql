@@ -1829,12 +1829,33 @@ CREATE TABLE mentor_reviews (
 CREATE INDEX idx_mentor_reviews_user_id ON mentor_reviews(user_id);
 CREATE INDEX idx_mentor_reviews_mentor_id ON mentor_reviews(mentor_id);
 
+-- Mentor batch verification requests
+CREATE TABLE mentor_batch_verification_requests (
+    id                  BIGSERIAL PRIMARY KEY,
+    mentor_id           BIGINT NOT NULL REFERENCES users(id),
+    status              VARCHAR(30) NOT NULL DEFAULT 'PENDING'
+        CONSTRAINT chk_mbvr_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'PARTIAL_APPROVED', 'COMPLETED', 'REVOKED')),
+    github_url          VARCHAR(500),
+    portfolio_url       VARCHAR(500),
+    additional_notes    TEXT,
+    general_review_note TEXT,
+    submitted_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+    reviewed_by         BIGINT REFERENCES users(id),
+    reviewed_at         TIMESTAMP,
+    updated_at          TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_mbvr_mentor_status ON mentor_batch_verification_requests(mentor_id, status);
+CREATE INDEX idx_mbvr_status_submitted ON mentor_batch_verification_requests(status, submitted_at);
+
 -- Mentor skill verification requests
 CREATE TABLE mentor_skill_verification_requests (
     id               BIGSERIAL PRIMARY KEY,
     mentor_id        BIGINT NOT NULL REFERENCES users(id),
+    batch_request_id BIGINT REFERENCES mentor_batch_verification_requests(id) ON DELETE CASCADE,
     skill_name       VARCHAR(100) NOT NULL,
-    status           VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    status           VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+        CONSTRAINT chk_msvr_status CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'PARTIAL_APPROVED', 'COMPLETED', 'REVOKED')),
     github_url       VARCHAR(500),
     portfolio_url    VARCHAR(500),
     additional_notes TEXT,
@@ -1847,19 +1868,24 @@ CREATE TABLE mentor_skill_verification_requests (
 
 CREATE INDEX idx_msvr_mentor_status ON mentor_skill_verification_requests(mentor_id, status);
 CREATE INDEX idx_msvr_status_requested ON mentor_skill_verification_requests(status, requested_at);
+CREATE INDEX idx_msvr_batch ON mentor_skill_verification_requests(batch_request_id);
 
 -- Mentor verification evidences
 CREATE TABLE mentor_verification_evidences (
     id                      BIGSERIAL PRIMARY KEY,
-    verification_request_id BIGINT NOT NULL REFERENCES mentor_skill_verification_requests(id) ON DELETE CASCADE,
+    verification_request_id BIGINT REFERENCES mentor_skill_verification_requests(id) ON DELETE CASCADE,
+    batch_request_id        BIGINT REFERENCES mentor_batch_verification_requests(id) ON DELETE CASCADE,
     evidence_type           VARCHAR(30) NOT NULL,
     evidence_url            VARCHAR(1000),
     description             TEXT,
     certificate_id          BIGINT REFERENCES external_certificates(id),
-    created_at              TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_mve_type CHECK (evidence_type IN ('CERTIFICATE', 'GITHUB', 'PORTFOLIO_LINK', 'WORK_EXPERIENCE', 'CV')),
+    CONSTRAINT chk_mve_owner_request CHECK (verification_request_id IS NOT NULL OR batch_request_id IS NOT NULL)
 );
 
 CREATE INDEX idx_mve_request ON mentor_verification_evidences(verification_request_id);
+CREATE INDEX idx_mve_batch ON mentor_verification_evidences(batch_request_id);
 
 -- Student skill verification requests
 CREATE TABLE student_skill_verification_requests (
@@ -1888,7 +1914,8 @@ CREATE TABLE student_verification_evidences (
     evidence_url            VARCHAR(1000),
     description             TEXT,
     certificate_id          BIGINT REFERENCES external_certificates(id),
-    created_at              TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_sve_type CHECK (evidence_type IN ('CERTIFICATE', 'GITHUB', 'PORTFOLIO_LINK', 'WORK_EXPERIENCE', 'CV'))
 );
 
 CREATE INDEX idx_sve_request ON student_verification_evidences(verification_request_id);
@@ -2085,6 +2112,24 @@ CREATE TABLE journeys (
 CREATE INDEX idx_journeys_user_id ON journeys(user_id);
 CREATE INDEX idx_journeys_status ON journeys(status);
 CREATE INDEX idx_journeys_created_at ON journeys(created_at);
+
+-- Verified skills shown on portfolio and mentorship cards
+CREATE TABLE user_verified_skills (
+    id                    BIGSERIAL PRIMARY KEY,
+    user_id               BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    skill_name            VARCHAR(100) NOT NULL,
+    verified_by_mentor_id BIGINT NOT NULL REFERENCES users(id),
+    journey_id            BIGINT REFERENCES journeys(id) ON DELETE SET NULL,
+    booking_id            BIGINT,
+    skill_level           VARCHAR(20),
+    verification_note     TEXT,
+    featured_order        INTEGER,
+    verified_at           TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_user_verified_skill UNIQUE (user_id, skill_name)
+);
+
+CREATE INDEX idx_uvs_user_verified_at ON user_verified_skills(user_id, verified_at DESC);
+CREATE INDEX idx_uvs_user_featured_order ON user_verified_skills(user_id, featured_order, verified_at DESC);
 
 -- Roadmap follow-up meetings
 CREATE TABLE roadmap_follow_up_meetings (
