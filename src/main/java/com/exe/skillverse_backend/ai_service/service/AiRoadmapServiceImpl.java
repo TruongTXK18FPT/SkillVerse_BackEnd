@@ -1894,6 +1894,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                                                             "practical_exercises": [],
                                                             "suggested_resources": [],
                                                             "success_criteria": [],
+                                                            "skills": [{"skill_id": null, "skill_name": "Skill A", "canonical_key": null, "requirement_type": "REQUIRED"}, {"skill_id": null, "skill_name": "Skill B", "canonical_key": null, "requirement_type": "IMPORTANT"}],
                                                             "prerequisites": [],
                                                             "children": [],
                                                             "order_index": 1,
@@ -2068,6 +2069,8 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                           17. `confidence_score` (float 0.0–1.0 — AI confidence this node belongs in the roadmap)
                           18. `reason` (string, 1 câu: tại sao node này quan trọng với người học này cụ thể)
                           19. `evidence` (array string 1-3 items — tín hiệu cụ thể từ đầu vào: skill gap, điểm test, nhu cầu thị trường)
+                        - `skills` inside each roadmap node is REQUIRED: array object 2-5 items for normal nodes, max 7 for large nodes: {skill_id, skill_name, canonical_key, requirement_type}
+                        - Module-centric rule: a roadmap node is a practical learning module, not a single skill. Do not create a checklist where `1 skill = 1 node`; first group related skills into realistic learning modules.
                         - `roadmap_statistics`: total_nodes, main_nodes, side_nodes, total_estimated_hours
                         - `learning_tips`: array string 2-3 tips
 

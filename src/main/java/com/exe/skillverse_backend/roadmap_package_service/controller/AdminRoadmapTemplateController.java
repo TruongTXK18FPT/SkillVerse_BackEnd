@@ -1,12 +1,15 @@
 package com.exe.skillverse_backend.roadmap_package_service.controller;
 
+import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateAutoGroupRequest;
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateRequest;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateAllocationPreviewResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateCourseCandidateResponse;
+import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateNodeGroupResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateValidationResponse;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateCourseLinkPolicy;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateStatus;
+import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapSkillGroupingService;
 import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapTemplateService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -34,6 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminRoadmapTemplateController {
 
     private final RoadmapTemplateService roadmapTemplateService;
+    private final RoadmapSkillGroupingService roadmapSkillGroupingService;
 
     @GetMapping
     public ResponseEntity<List<RoadmapTemplateResponse>> listTemplates(
@@ -69,6 +73,12 @@ public class AdminRoadmapTemplateController {
             @Valid @RequestBody RoadmapTemplateRequest request) {
         Long adminId = JwtUtils.extractUserId(jwt);
         return ResponseEntity.ok(roadmapTemplateService.validateTemplate(adminId, request));
+    }
+
+    @PostMapping("/auto-group")
+    public ResponseEntity<List<RoadmapTemplateNodeGroupResponse>> autoGroup(
+            @Valid @RequestBody RoadmapTemplateAutoGroupRequest request) {
+        return ResponseEntity.ok(roadmapSkillGroupingService.autoGroup(request));
     }
 
     @GetMapping("/course-candidates")

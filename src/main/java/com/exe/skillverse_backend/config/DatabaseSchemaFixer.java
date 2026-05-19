@@ -544,6 +544,43 @@ public class DatabaseSchemaFixer {
             )
         """);
 
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS roadmap_template_node_groups (
+                id BIGSERIAL PRIMARY KEY,
+                template_id BIGINT NOT NULL,
+                node_key VARCHAR(120),
+                title VARCHAR(255) NOT NULL,
+                description TEXT,
+                learning_objectives TEXT,
+                lessons_json TEXT,
+                exercises_json TEXT,
+                completion_criteria TEXT,
+                expected_output TEXT,
+                rubric TEXT,
+                difficulty VARCHAR(30),
+                estimated_hours DOUBLE PRECISION,
+                ai_prompt_hint TEXT,
+                order_index INTEGER NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ
+            )
+        """);
+
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS roadmap_template_node_group_skills (
+                id BIGSERIAL PRIMARY KEY,
+                node_group_id BIGINT NOT NULL,
+                skill_id BIGINT NOT NULL,
+                skill_name_snapshot VARCHAR(255),
+                skill_canonical_key_snapshot VARCHAR(255),
+                requirement_type VARCHAR(30) NOT NULL DEFAULT 'REQUIRED',
+                weight_in_node DOUBLE PRECISION,
+                order_index INTEGER NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ
+            )
+        """);
+
         patchRoadmapTemplateV2Columns();
         patchRoadmapTemplateV2Indexes();
         patchRoadmapTemplateV2Constraints();
@@ -608,6 +645,10 @@ public class DatabaseSchemaFixer {
         executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_skill_blocks_skill_id ON roadmap_template_skill_blocks(skill_id)");
         executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_activities_skill_block_id ON roadmap_template_activities(skill_block_id)");
         executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_activities_template_id ON roadmap_template_activities(template_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_node_groups_template_id ON roadmap_template_node_groups(template_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_node_groups_template_order ON roadmap_template_node_groups(template_id, order_index)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_node_group_skills_node_group_id ON roadmap_template_node_group_skills(node_group_id)");
+        executeSql("CREATE INDEX IF NOT EXISTS idx_roadmap_template_node_group_skills_skill_id ON roadmap_template_node_group_skills(skill_id)");
     }
 
     private void patchRoadmapTemplateV2Constraints() {
@@ -647,6 +688,18 @@ public class DatabaseSchemaFixer {
                 "ALTER TABLE roadmap_template_activities ADD CONSTRAINT fk_roadmap_template_activities_skill_block " +
                         "FOREIGN KEY (skill_block_id) REFERENCES roadmap_template_skill_blocks(id) ON DELETE CASCADE"
         );
+        addConstraintIfMissing(
+                "roadmap_template_node_groups",
+                "fk_roadmap_template_node_groups_template",
+                "ALTER TABLE roadmap_template_node_groups ADD CONSTRAINT fk_roadmap_template_node_groups_template " +
+                        "FOREIGN KEY (template_id) REFERENCES roadmap_templates(id) ON DELETE CASCADE"
+        );
+        addConstraintIfMissing(
+                "roadmap_template_node_group_skills",
+                "fk_roadmap_template_node_group_skills_group",
+                "ALTER TABLE roadmap_template_node_group_skills ADD CONSTRAINT fk_roadmap_template_node_group_skills_group " +
+                        "FOREIGN KEY (node_group_id) REFERENCES roadmap_template_node_groups(id) ON DELETE CASCADE"
+        );
     }
 
     private boolean verifyRoadmapTemplateAdminV2() {
@@ -655,6 +708,8 @@ public class DatabaseSchemaFixer {
                 && hasTable("roadmap_template_courses")
                 && hasTable("roadmap_template_skill_blocks")
                 && hasTable("roadmap_template_activities")
+                && hasTable("roadmap_template_node_groups")
+                && hasTable("roadmap_template_node_group_skills")
                 && hasColumn("roadmap_templates", "total_node_count")
                 && hasColumn("roadmap_templates", "generation_mode")
                 && hasColumn("roadmap_templates", "knowledge_policy")
@@ -674,8 +729,12 @@ public class DatabaseSchemaFixer {
                 && hasColumn("roadmap_template_activities", "ai_prompt_hint")
                 && hasColumn("roadmap_template_activities", "min_level")
                 && hasColumn("roadmap_template_activities", "max_level")
+                && hasColumn("roadmap_template_node_groups", "completion_criteria")
+                && hasColumn("roadmap_template_node_group_skills", "requirement_type")
                 && hasIndex("idx_roadmap_template_skill_blocks_template_id")
-                && hasIndex("idx_roadmap_template_activities_skill_block_id");
+                && hasIndex("idx_roadmap_template_activities_skill_block_id")
+                && hasIndex("idx_roadmap_template_node_groups_template_id")
+                && hasIndex("idx_roadmap_template_node_group_skills_node_group_id");
     }
 
     private void patchRoadmapTemplateActivityLevelBand() {

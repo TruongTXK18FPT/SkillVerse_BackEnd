@@ -110,10 +110,10 @@ class RoadmapTemplateServiceImplTest {
 
         assertThat(validation.getValid()).isFalse();
         assertThat(validation.getErrors())
-                .anyMatch(error -> error.contains("Sum of nodeCountOverride cannot exceed totalNodeCount"))
+                .anyMatch(error -> error.contains("Total module count must equal totalNodeCount"))
                 .anyMatch(error -> error.contains("Every activity must define expectedOutput and rubric"))
                 .anyMatch(error -> error.contains("Every activity must define minLevel"));
-        assertThat(validation.getAllocation().getValid()).isFalse();
+        assertThat(validation.getAllocation().getValid()).isTrue();
     }
 
     @Test
@@ -132,6 +132,21 @@ class RoadmapTemplateServiceImplTest {
         assertThat(validation.getValid()).isFalse();
         assertThat(validation.getErrors())
                 .anyMatch(error -> error.contains("Activity minLevel cannot be greater than maxLevel"));
+    }
+
+    @Test
+    void validateTemplateBlocksWhenRequiredSkillIsNotCoveredByAnyModule() {
+        RoadmapTemplateRequest request = baseRequest(1);
+        RoadmapTemplateSkillBlockRequest java = skillBlock(101L, "Java Spring Boot", 100D, null, null, null);
+        java.setActivities(List.of(activity("REST API & Backend Practices", "Build a REST API", "API passes contract tests")));
+        request.setSkillBlocks(List.of(java));
+        stubActiveTaxonomy(List.of(101L, 102L));
+
+        RoadmapTemplateValidationResponse validation = service.validateTemplate(ADMIN_ID, request);
+
+        assertThat(validation.getValid()).isFalse();
+        assertThat(validation.getErrors())
+                .anyMatch(error -> error.contains("Required skill is not covered by any module: 102"));
     }
 
     @Test

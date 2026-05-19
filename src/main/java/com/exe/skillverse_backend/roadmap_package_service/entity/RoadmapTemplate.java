@@ -139,4 +139,10 @@ public class RoadmapTemplate {
     @ToString.Exclude
     @EqualsAndHashCode.Exclude
     private List<RoadmapTemplateSkillBlock> skillBlocks = new ArrayList<>();
+
+    @Builder.Default
+    @OneToMany(mappedBy = "template", cascade = CascadeType.ALL, orphanRemoval = true)
+    @ToString.Exclude
+    @EqualsAndHashCode.Exclude
+    private List<RoadmapTemplateNodeGroup> nodeGroups = new ArrayList<>();
 }

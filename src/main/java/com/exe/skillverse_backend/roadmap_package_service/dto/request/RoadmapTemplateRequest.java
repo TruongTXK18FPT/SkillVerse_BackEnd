@@ -46,4 +46,7 @@ public class RoadmapTemplateRequest {
 
     @Valid
     private List<RoadmapTemplateSkillBlockRequest> skillBlocks = new ArrayList<>();
+
+    @Valid
+    private List<RoadmapTemplateNodeGroupRequest> nodeGroups = new ArrayList<>();
 }

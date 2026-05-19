@@ -19,7 +19,6 @@ public class RoadmapTemplateNodeRequest {
     @NotNull
     private Integer orderIndex;
 
-    @NotNull
     private Long skillId;
     private String skillNameSnapshot;
     private String skillCanonicalKeySnapshot;

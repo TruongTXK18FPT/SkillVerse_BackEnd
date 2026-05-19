@@ -25,6 +25,8 @@ import com.exe.skillverse_backend.journey_service.node_mentoring.repository.Road
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateActivityRequest;
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateCourseRequest;
+import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateNodeGroupRequest;
+import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateNodeGroupSkillRequest;
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateNodeRequest;
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateRequest;
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateSkillBlockRequest;
@@ -32,6 +34,7 @@ import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTe
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateAllocationPreviewResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateCourseCandidateResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateCourseResponse;
+import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateNodeGroupResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateNodeResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateSkillBlockResponse;
@@ -43,10 +46,14 @@ import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplate
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateGenerationMode;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateKnowledgePolicy;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateNode;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateNodeGroup;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateNodeGroupSkill;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateSkillBlock;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateStatus;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateActivityRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateCourseRepository;
+import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeGroupRepository;
+import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeGroupSkillRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateSkillBlockRepository;
@@ -56,6 +63,7 @@ import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.shared.repository.SkillRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.Instant;
@@ -125,6 +133,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     private final RoadmapTemplateCourseRepository courseRepository;
     private final RoadmapTemplateSkillBlockRepository skillBlockRepository;
     private final RoadmapTemplateActivityRepository activityRepository;
+    private final RoadmapTemplateNodeGroupRepository nodeGroupRepository;
+    private final RoadmapTemplateNodeGroupSkillRepository nodeGroupSkillRepository;
     private final CourseRepository systemCourseRepository;
     private final JourneyRepository journeyRepository;
     private final RoadmapSessionRepository roadmapSessionRepository;
@@ -162,6 +172,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         applyTemplateFields(template, request);
         RoadmapTemplate saved = templateRepository.save(template);
         courseRepository.deleteByTemplateId(saved.getId());
+        nodeGroupRepository.deleteByTemplateId(saved.getId());
         activityRepository.deleteByTemplateId(saved.getId());
         skillBlockRepository.deleteByTemplateId(saved.getId());
         nodeRepository.deleteByTemplateId(saved.getId());
@@ -275,6 +286,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     public RoadmapTemplateValidationResponse validateTemplate(Long actorId, RoadmapTemplateRequest request) {
         requireAdmin(actorId);
         List<String> errors = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
         try {
             validateTemplateTaxonomy(request);
         } catch (ApiException ex) {
@@ -282,10 +294,11 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         }
         RoadmapTemplateAllocationPreviewResponse allocation = allocateFromRequest(request);
         errors.addAll(defaultList(allocation.getErrors()));
-        validateV2Content(request, errors, allocation);
+        validateV2Content(request, errors, warnings, allocation);
         return RoadmapTemplateValidationResponse.builder()
                 .valid(errors.isEmpty())
                 .errors(errors)
+                .warnings(warnings)
                 .allocation(allocation)
                 .build();
     }
@@ -332,6 +345,11 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         journey.getJobPositionTrackId(), RoadmapTemplateStatus.PUBLISHED)
                 .orElseThrow(() -> new ApiException(ErrorCode.CONFLICT,
                         "Admin has not published a roadmap template for this job position track"));
+
+        List<RoadmapTemplateNodeGroup> nodeGroups = nodeGroupRepository.findByTemplateIdOrderByOrderIndexAscIdAsc(template.getId());
+        if (!nodeGroups.isEmpty()) {
+            return createRoadmapSessionFromNodeGroups(template, nodeGroups, journey, testResult, skillGaps, strengths);
+        }
 
         List<RoadmapTemplateSkillBlock> v2Blocks = skillBlockRepository.findByTemplateIdOrderByIdAsc(template.getId());
         if (!v2Blocks.isEmpty()) {
@@ -443,6 +461,62 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         return session.getId();
     }
 
+    private Long createRoadmapSessionFromNodeGroups(
+            RoadmapTemplate template,
+            List<RoadmapTemplateNodeGroup> nodeGroups,
+            Journey journey,
+            TestResult testResult,
+            List<Map<String, Object>> skillGaps,
+            List<Map<String, Object>> strengths) {
+        if (roadmapSessionRepository.countActiveByUserId(journey.getUser().getId()) >= MAX_CONCURRENT_ACTIVE_ROADMAPS) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Student already has the maximum number of active roadmaps. Pause, complete, or delete one roadmap first.");
+        }
+
+        RuntimeRoadmap runtime = buildRuntimeRoadmapFromNodeGroups(template, nodeGroups, journey, testResult, skillGaps, strengths);
+        double totalHours = runtime.nodes().stream()
+                .map(RuntimeRoadmapNode::estimatedHours)
+                .filter(Objects::nonNull)
+                .mapToDouble(Double::doubleValue)
+                .sum();
+
+        RoadmapSession session = RoadmapSession.builder()
+                .user(journey.getUser())
+                .title(template.getTitle())
+                .schemaVersion(2)
+                .originalGoal(template.getTitle())
+                .validatedGoal(firstNonBlank(template.getGlobalLearningGoal(), template.getDescription(), template.getTitle()))
+                .goal(template.getTitle())
+                .duration("Admin module template guided")
+                .experienceLevel(resolveStudentLevel(journey, testResult))
+                .learningStyle("Assessment-aware admin module template")
+                .roadmapType("career")
+                .roadmapMode(GENERATION_MODE_TEMPLATE_GUIDED)
+                .roadmapTemplateId(template.getId())
+                .jobPositionTrackId(template.getJobPositionTrackId())
+                .generationMode(GENERATION_MODE_TEMPLATE_GUIDED)
+                .templateSnapshotJson(writeJson(toTemplateResponse(template)))
+                .target(resolveRuntimeTarget(template, journey))
+                .finalObjective(firstNonBlank(template.getOutputStandard(), "Complete admin-defined job-position roadmap with verified evidence"))
+                .totalNodes(runtime.nodes().size())
+                .totalEstimatedHours(totalHours)
+                .difficultyLevel(resolveDominantDifficultyRuntime(runtime.nodes()))
+                .isPremiumGenerated(false)
+                .status(RoadmapSession.RoadmapStatus.ACTIVE)
+                .roadmapJson(runtime.roadmapJson())
+                .build();
+        session = roadmapSessionRepository.save(session);
+
+        journey.setRoadmapTemplateId(template.getId());
+        journey.setJobPositionTrackId(template.getJobPositionTrackId());
+        journey.setFocusSkillIdsJson(writeJson(extractSkillIdsFromRuntime(runtime.nodes())));
+        journeyRepository.save(journey);
+
+        createRuntimeAssignmentsFromRuntime(journey, session, runtime.nodes());
+        createInitialProgressFromRuntime(session, runtime.nodes());
+        return session.getId();
+    }
+
 
 
     private void applyTemplateFields(RoadmapTemplate template, RoadmapTemplateRequest request) {
@@ -455,7 +529,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         template.setTargetLevel(request.getTargetLevel());
         template.setTargetRoleSnapshot(firstNonBlank(request.getTargetRoleSnapshot(), request.getTargetRole()));
         template.setTargetLevelSnapshot(firstNonBlank(request.getTargetLevelSnapshot(), request.getTargetLevel()));
-        boolean hasV2Blocks = request.getSkillBlocks() != null && !request.getSkillBlocks().isEmpty();
+        boolean hasV2Blocks = (request.getSkillBlocks() != null && !request.getSkillBlocks().isEmpty())
+                || (request.getNodeGroups() != null && !request.getNodeGroups().isEmpty());
         template.setTotalNodeCount(request.getTotalNodeCount());
         template.setGenerationMode(request.getGenerationMode() != null
                 ? request.getGenerationMode()
@@ -474,6 +549,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     private void replaceTemplateChildren(RoadmapTemplate template, RoadmapTemplateRequest request) {
         List<RoadmapTemplateNode> savedNodes = new ArrayList<>();
         List<RoadmapTemplateSkillBlock> savedSkillBlocks = new ArrayList<>();
+        List<RoadmapTemplateNodeGroup> savedNodeGroups = new ArrayList<>();
         if (request.getNodes() != null) {
             for (RoadmapTemplateNodeRequest nodeRequest : request.getNodes()) {
                 RoadmapTemplateNode node = buildNode(template, nodeRequest);
@@ -491,6 +567,17 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 savedSkillBlocks.add(block);
             }
         }
+        if (request.getNodeGroups() != null) {
+            for (RoadmapTemplateNodeGroupRequest groupRequest : request.getNodeGroups()) {
+                RoadmapTemplateNodeGroup group = nodeGroupRepository.save(buildNodeGroup(template, groupRequest));
+                List<RoadmapTemplateNodeGroupSkill> skills = new ArrayList<>();
+                for (RoadmapTemplateNodeGroupSkillRequest skillRequest : defaultList(groupRequest.getSkills())) {
+                    skills.add(nodeGroupSkillRepository.save(buildNodeGroupSkill(group, skillRequest)));
+                }
+                group.setSkills(skills);
+                savedNodeGroups.add(group);
+            }
+        }
         if (request.getCourses() != null) {
             for (RoadmapTemplateCourseRequest courseRequest : request.getCourses()) {
                 RoadmapTemplateCourse course = buildCourse(template, courseRequest);
@@ -499,6 +586,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         }
         template.setNodes(savedNodes);
         template.setSkillBlocks(savedSkillBlocks);
+        template.setNodeGroups(savedNodeGroups);
     }
 
     private RoadmapTemplateNode buildNode(RoadmapTemplate template, RoadmapTemplateNodeRequest request) {
@@ -573,6 +661,42 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .build();
     }
 
+    private RoadmapTemplateNodeGroup buildNodeGroup(RoadmapTemplate template, RoadmapTemplateNodeGroupRequest request) {
+        return RoadmapTemplateNodeGroup.builder()
+                .template(template)
+                .nodeKey(firstNonBlank(request.getNodeKey(), "module-" + request.getOrderIndex()))
+                .title(request.getTitle())
+                .description(request.getDescription())
+                .learningObjectives(request.getLearningObjectives())
+                .lessonsJson(request.getLessonsJson())
+                .exercisesJson(request.getExercisesJson())
+                .completionCriteria(request.getCompletionCriteria())
+                .expectedOutput(request.getExpectedOutput())
+                .rubric(request.getRubric())
+                .difficulty(firstNonBlank(request.getDifficulty(), "medium"))
+                .estimatedHours(request.getEstimatedHours())
+                .aiPromptHint(request.getAiPromptHint())
+                .orderIndex(request.getOrderIndex() != null ? request.getOrderIndex() : 1)
+                .build();
+    }
+
+    private RoadmapTemplateNodeGroupSkill buildNodeGroupSkill(
+            RoadmapTemplateNodeGroup group, RoadmapTemplateNodeGroupSkillRequest request) {
+        Skill skill = skillRepository.findById(request.getSkillId())
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Skill not found: " + request.getSkillId()));
+        return RoadmapTemplateNodeGroupSkill.builder()
+                .nodeGroup(group)
+                .skillId(request.getSkillId())
+                .skillNameSnapshot(firstNonBlank(request.getSkillNameSnapshot(), skill.getName()))
+                .skillCanonicalKeySnapshot(firstNonBlank(request.getSkillCanonicalKeySnapshot(), skill.getCanonicalKey()))
+                .requirementType(request.getRequirementType() != null
+                        ? request.getRequirementType().normalized()
+                        : RequirementType.REQUIRED)
+                .weightInNode(request.getWeightInNode())
+                .orderIndex(request.getOrderIndex() != null ? request.getOrderIndex() : 1)
+                .build();
+    }
+
     private RoadmapTemplateCourse buildCourse(RoadmapTemplate template, RoadmapTemplateCourseRequest request) {
         RoadmapTemplateNode node = null;
         if (request.getTemplateNodeId() != null) {
@@ -624,6 +748,9 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             throw new ApiException(ErrorCode.CONFLICT, "Job position track must define at least one skill first");
         }
         for (RoadmapTemplateNodeRequest node : defaultList(request.getNodes())) {
+            if (node.getSkillId() == null) {
+                continue;
+            }
             if (!allowedSkillIds.contains(node.getSkillId())) {
                 throw new ApiException(ErrorCode.BAD_REQUEST,
                         "Template node skill must belong to the selected job position track: " + node.getSkillId());
@@ -635,9 +762,26 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         "Template skill block must belong to the selected job position track: " + block.getSkillId());
             }
         }
+        for (RoadmapTemplateNodeGroupRequest group : defaultList(request.getNodeGroups())) {
+            for (RoadmapTemplateNodeGroupSkillRequest skill : defaultList(group.getSkills())) {
+                if (!allowedSkillIds.contains(skill.getSkillId())) {
+                    throw new ApiException(ErrorCode.BAD_REQUEST,
+                            "Node group skill must belong to the selected job position track: " + skill.getSkillId());
+                }
+            }
+        }
     }
 
     private void validateTemplateCanPublish(RoadmapTemplate template) {
+        List<RoadmapTemplateNodeGroup> nodeGroups = nodeGroupRepository.findByTemplateIdOrderByOrderIndexAscIdAsc(template.getId());
+        if (!nodeGroups.isEmpty()) {
+            List<String> errors = validatePersistedNodeGroupsTemplate(template, nodeGroups);
+            if (!errors.isEmpty()) {
+                throw new ApiException(ErrorCode.CONFLICT, String.join("; ", errors));
+            }
+            return;
+        }
+
         List<RoadmapTemplateSkillBlock> blocks = skillBlockRepository.findByTemplateIdOrderByIdAsc(template.getId());
         if (!blocks.isEmpty()) {
             List<String> errors = validatePersistedV2Template(template, blocks);
@@ -731,10 +875,6 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 errors.add("minNodes cannot be greater than maxNodes for skill " + input.skillId());
             }
         }
-        if (fixedTotal > totalNodeCount) {
-            errors.add("Sum of nodeCountOverride cannot exceed totalNodeCount");
-        }
-
         int remaining = Math.max(0, totalNodeCount - fixedTotal);
         List<AllocationShare> shares = inputs.stream()
                 .filter(input -> input.nodeCountOverride() == null)
@@ -781,9 +921,6 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .filter(Objects::nonNull)
                 .mapToInt(Integer::intValue)
                 .sum();
-        if (totalNodeCount > 0 && allocatedTotal != totalNodeCount) {
-            errors.add("Allocated node count must equal totalNodeCount");
-        }
         return new AllocationResult(errors.isEmpty(), errors, items);
     }
 
@@ -805,24 +942,46 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     private void validateV2Content(
             RoadmapTemplateRequest request,
             List<String> errors,
+            List<String> warnings,
             RoadmapTemplateAllocationPreviewResponse allocation) {
-        Map<Long, Integer> allocatedBySkill = defaultList(allocation != null ? allocation.getItems() : null).stream()
-                .collect(Collectors.toMap(
-                        RoadmapTemplateAllocationPreviewResponse.Item::getSkillId,
-                        item -> item.getAllocatedNodes() != null ? item.getAllocatedNodes() : 0,
-                        (a, b) -> a,
-                        LinkedHashMap::new));
+        if (request.getNodeGroups() != null && !request.getNodeGroups().isEmpty()) {
+            validateNodeGroupRequests(request, errors, warnings);
+            return;
+        }
+
+        List<ModuleSkillCoverage> moduleCoverages = new ArrayList<>();
+        int moduleCount = defaultList(request.getSkillBlocks()).stream()
+                .map(RoadmapTemplateSkillBlockRequest::getActivities)
+                .filter(Objects::nonNull)
+                .mapToInt(List::size)
+                .sum();
+        if (request.getTotalNodeCount() != null && request.getTotalNodeCount() > 0
+                && moduleCount != request.getTotalNodeCount()) {
+            errors.add("Total module count must equal totalNodeCount: totalNodeCount="
+                    + request.getTotalNodeCount() + ", modules=" + moduleCount);
+        }
+
         for (RoadmapTemplateSkillBlockRequest block : defaultList(request.getSkillBlocks())) {
             List<RoadmapTemplateActivityRequest> activities = defaultList(block.getActivities());
-            int allocatedNodes = allocatedBySkill.getOrDefault(block.getSkillId(), 0);
             if (activities.isEmpty()) {
-                errors.add("Every V2 skill block must define at least one activity: " + block.getSkillId());
-            }
-            if (allocatedNodes > 0 && activities.size() != allocatedNodes) {
-                errors.add("Activity count must equal allocated nodes for skill " + block.getSkillId()
-                        + ": allocated=" + allocatedNodes + ", activities=" + activities.size());
+                warnings.add("Skill priority has no module coverage yet: " + block.getSkillId());
             }
             for (RoadmapTemplateActivityRequest activity : activities) {
+                List<NodeSkillRef> nodeSkills = parseActivitySkillRequirements(
+                        activity.getSkillRequirementsJson(),
+                        block.getSkillId(),
+                        block.getSkillNameSnapshot(),
+                        block.getSkillCanonicalKeySnapshot());
+                moduleCoverages.add(new ModuleSkillCoverage(activity.getTitle(), nodeSkills));
+                if (nodeSkills.isEmpty()) {
+                    errors.add("Every module must include at least one skill: " + activity.getTitle());
+                }
+                if (nodeSkills.size() > 7) {
+                    errors.add("Module has too many skills and should be split: " + activity.getTitle());
+                }
+                if (nodeSkills.size() == 1 && !isSpecialSingleSkillModule(activity.getTitle())) {
+                    warnings.add("Module has only one skill; consider grouping related skills: " + activity.getTitle());
+                }
                 if (activity.getExpectedOutput() == null || activity.getExpectedOutput().isBlank()
                         || activity.getRubric() == null || activity.getRubric().isBlank()) {
                     errors.add("Every activity must define expectedOutput and rubric: " + activity.getTitle());
@@ -836,31 +995,124 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 }
             }
         }
+        validateSkillCoverage(request.getJobPositionTrackId(), moduleCoverages, errors, warnings);
+    }
+
+    private void validateNodeGroupRequests(
+            RoadmapTemplateRequest request,
+            List<String> errors,
+            List<String> warnings) {
+        List<ModuleSkillCoverage> moduleCoverages = new ArrayList<>();
+        List<RoadmapTemplateNodeGroupRequest> groups = defaultList(request.getNodeGroups());
+        if (request.getTotalNodeCount() != null && request.getTotalNodeCount() > 0
+                && groups.size() != request.getTotalNodeCount()) {
+            errors.add("Total node group count must equal totalNodeCount: totalNodeCount="
+                    + request.getTotalNodeCount() + ", nodeGroups=" + groups.size());
+        }
+        for (RoadmapTemplateNodeGroupRequest group : groups) {
+            String title = firstNonBlank(group.getTitle(), group.getNodeKey(), "Module");
+            List<NodeSkillRef> skills = defaultList(group.getSkills()).stream()
+                    .map(skill -> new NodeSkillRef(
+                            skill.getSkillId(),
+                            skill.getSkillNameSnapshot(),
+                            skill.getSkillCanonicalKeySnapshot(),
+                            skill.getRequirementType() != null ? skill.getRequirementType().normalized() : RequirementType.REQUIRED))
+                    .toList();
+            moduleCoverages.add(new ModuleSkillCoverage(title, skills));
+            if (group.getTitle() == null || group.getTitle().isBlank()) {
+                errors.add("Every node group must define title");
+            }
+            if (skills.isEmpty()) {
+                errors.add("Every node group must include at least one skill: " + title);
+            }
+            if (skills.size() > 7) {
+                errors.add("Node group has too many skills and should be split: " + title);
+            } else if (skills.size() > 5) {
+                warnings.add("Node group has more than 5 skills; review scope: " + title);
+            }
+            if (skills.size() == 1 && !isSpecialSingleSkillModule(title)) {
+                warnings.add("Node group has only one skill; consider grouping related skills: " + title);
+            }
+            if (group.getExpectedOutput() == null || group.getExpectedOutput().isBlank()) {
+                errors.add("Every node group must define expectedOutput: " + title);
+            }
+            if (group.getCompletionCriteria() == null || group.getCompletionCriteria().isBlank()) {
+                errors.add("Every node group must define completionCriteria: " + title);
+            }
+        }
+        validateSkillCoverage(request.getJobPositionTrackId(), moduleCoverages, errors, warnings);
+    }
+
+    private List<String> validatePersistedNodeGroupsTemplate(
+            RoadmapTemplate template,
+            List<RoadmapTemplateNodeGroup> groups) {
+        List<String> errors = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        List<ModuleSkillCoverage> moduleCoverages = new ArrayList<>();
+        if (template.getTotalNodeCount() != null && template.getTotalNodeCount() > 0
+                && groups.size() != template.getTotalNodeCount()) {
+            errors.add("Total node group count must equal totalNodeCount: totalNodeCount="
+                    + template.getTotalNodeCount() + ", nodeGroups=" + groups.size());
+        }
+        for (RoadmapTemplateNodeGroup group : groups) {
+            List<RoadmapTemplateNodeGroupSkill> persistedSkills =
+                    nodeGroupSkillRepository.findByNodeGroupIdOrderByOrderIndexAscIdAsc(group.getId());
+            List<NodeSkillRef> skills = persistedSkills.stream()
+                    .map(skill -> new NodeSkillRef(
+                            skill.getSkillId(),
+                            skill.getSkillNameSnapshot(),
+                            skill.getSkillCanonicalKeySnapshot(),
+                            skill.getRequirementType()))
+                    .toList();
+            moduleCoverages.add(new ModuleSkillCoverage(group.getTitle(), skills));
+            if (group.getTitle() == null || group.getTitle().isBlank()) {
+                errors.add("Every node group must define title");
+            }
+            if (skills.isEmpty()) {
+                errors.add("Every node group must include at least one skill: " + group.getTitle());
+            }
+            if (skills.size() > 7) {
+                errors.add("Node group has too many skills and should be split: " + group.getTitle());
+            }
+            if (group.getExpectedOutput() == null || group.getExpectedOutput().isBlank()) {
+                errors.add("Every node group must define expectedOutput: " + group.getTitle());
+            }
+            if (group.getCompletionCriteria() == null || group.getCompletionCriteria().isBlank()) {
+                errors.add("Every node group must define completionCriteria: " + group.getTitle());
+            }
+        }
+        validateSkillCoverage(template.getJobPositionTrackId(), moduleCoverages, errors, warnings);
+        return errors;
     }
 
     private List<String> validatePersistedV2Template(RoadmapTemplate template, List<RoadmapTemplateSkillBlock> blocks) {
         List<String> errors = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
         RoadmapTemplateAllocationPreviewResponse preview = toAllocationPreview(
                 template.getTotalNodeCount(),
                 allocateFromBlocks(template.getTotalNodeCount(), blocks));
         errors.addAll(defaultList(preview.getErrors()));
-        Map<Long, Integer> allocatedBySkill = defaultList(preview.getItems()).stream()
-                .collect(Collectors.toMap(
-                        RoadmapTemplateAllocationPreviewResponse.Item::getSkillId,
-                        item -> item.getAllocatedNodes() != null ? item.getAllocatedNodes() : 0,
-                        (a, b) -> a,
-                        LinkedHashMap::new));
+        List<ModuleSkillCoverage> moduleCoverages = new ArrayList<>();
+        int moduleCount = 0;
         for (RoadmapTemplateSkillBlock block : defaultList(blocks)) {
             List<RoadmapTemplateActivity> activities = activityRepository.findBySkillBlockIdOrderByOrderIndexAscIdAsc(block.getId());
-            int allocatedNodes = allocatedBySkill.getOrDefault(block.getSkillId(), 0);
+            moduleCount += activities.size();
             if (activities.isEmpty()) {
-                errors.add("Every V2 skill block must define at least one activity: " + block.getSkillId());
-            }
-            if (allocatedNodes > 0 && activities.size() != allocatedNodes) {
-                errors.add("Activity count must equal allocated nodes for skill " + block.getSkillId()
-                        + ": allocated=" + allocatedNodes + ", activities=" + activities.size());
+                warnings.add("Skill priority has no module coverage yet: " + block.getSkillId());
             }
             for (RoadmapTemplateActivity activity : activities) {
+                List<NodeSkillRef> nodeSkills = parseActivitySkillRequirements(
+                        activity.getSkillRequirementsJson(),
+                        block.getSkillId(),
+                        block.getSkillNameSnapshot(),
+                        block.getSkillCanonicalKeySnapshot());
+                moduleCoverages.add(new ModuleSkillCoverage(activity.getTitle(), nodeSkills));
+                if (nodeSkills.isEmpty()) {
+                    errors.add("Every module must include at least one skill: " + activity.getTitle());
+                }
+                if (nodeSkills.size() > 7) {
+                    errors.add("Module has too many skills and should be split: " + activity.getTitle());
+                }
                 if (activity.getExpectedOutput() == null || activity.getExpectedOutput().isBlank()
                         || activity.getRubric() == null || activity.getRubric().isBlank()) {
                     errors.add("Every activity must define expectedOutput and rubric: " + activity.getTitle());
@@ -874,6 +1126,12 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 }
             }
         }
+        if (template.getTotalNodeCount() != null && template.getTotalNodeCount() > 0
+                && moduleCount != template.getTotalNodeCount()) {
+            errors.add("Total module count must equal totalNodeCount: totalNodeCount="
+                    + template.getTotalNodeCount() + ", modules=" + moduleCount);
+        }
+        validateSkillCoverage(template.getJobPositionTrackId(), moduleCoverages, errors, warnings);
         return errors;
     }
 
@@ -889,8 +1147,138 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
 
     private record AllocationShare(AllocationInput input, Double rawShare) {
         double fraction() {
-            return rawShare - Math.floor(rawShare);
+            double raw = rawShare != null ? rawShare : 0D;
+            return raw - Math.floor(raw);
         }
+    }
+
+    private record NodeSkillRef(Long skillId, String skillName, String canonicalKey, RequirementType requirementType) {
+    }
+
+    private record ModuleSkillCoverage(String moduleTitle, List<NodeSkillRef> skills) {
+    }
+
+    private List<NodeSkillRef> parseActivitySkillRequirements(
+            String skillRequirementsJson,
+            Long fallbackSkillId,
+            String fallbackSkillName,
+            String fallbackCanonicalKey) {
+        List<NodeSkillRef> parsed = new ArrayList<>();
+        if (skillRequirementsJson != null && !skillRequirementsJson.isBlank()) {
+            try {
+                JsonNode root = objectMapper.readTree(skillRequirementsJson);
+                if (root != null && root.isArray()) {
+                    for (JsonNode item : root) {
+                        if (item == null || item.isNull()) {
+                            continue;
+                        }
+                        Long skillId = readLong(item, "skill_id", "skillId");
+                        String skillName = readText(item, "skill_name", "skillName", "name");
+                        String canonicalKey = readText(item, "canonical_key", "canonicalKey");
+                        if (skillId == null && skillName == null && canonicalKey == null) {
+                            continue;
+                        }
+                        parsed.add(new NodeSkillRef(
+                                skillId,
+                                skillName,
+                                canonicalKey,
+                                RequirementType.fromValue(readText(item, "requirement_type", "requirementType", "importance"))));
+                    }
+                }
+            } catch (Exception ignored) {
+                log.warn("Invalid module skillRequirementsJson; using fallback skill {}", fallbackSkillId);
+            }
+        }
+        if (parsed.isEmpty() && fallbackSkillId != null) {
+            parsed.add(new NodeSkillRef(fallbackSkillId, fallbackSkillName, fallbackCanonicalKey, RequirementType.REQUIRED));
+        }
+        return parsed;
+    }
+
+    private void validateSkillCoverage(
+            Long trackId,
+            List<ModuleSkillCoverage> modules,
+            List<String> errors,
+            List<String> warnings) {
+        if (trackId == null) {
+            return;
+        }
+        List<JobPositionTrackSkill> trackSkills = jobPositionTrackSkillRepository.findByTrackIdOrderBySortOrderAsc(trackId);
+        Set<Long> coveredSkillIds = defaultList(modules).stream()
+                .flatMap(module -> defaultList(module.skills()).stream())
+                .map(NodeSkillRef::skillId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        for (JobPositionTrackSkill trackSkill : defaultList(trackSkills)) {
+            if (trackSkill.getSkillId() == null) {
+                continue;
+            }
+            RequirementType requirementType = trackSkill.getRequirementType() != null
+                    ? trackSkill.getRequirementType().normalized()
+                    : RequirementType.REQUIRED;
+            if (requirementType == RequirementType.REQUIRED && !coveredSkillIds.contains(trackSkill.getSkillId())) {
+                errors.add("Required skill is not covered by any module: " + trackSkill.getSkillId());
+            } else if (requirementType == RequirementType.NICE_TO_HAVE && !coveredSkillIds.contains(trackSkill.getSkillId())) {
+                warnings.add("Nice-to-have skill is not covered and can be omitted if roadmap is already long: "
+                        + trackSkill.getSkillId());
+            }
+        }
+
+        long singleSkillModules = defaultList(modules).stream()
+                .filter(module -> defaultList(module.skills()).size() == 1)
+                .count();
+        if (modules.size() >= 3 && singleSkillModules >= Math.ceil(modules.size() * 0.7D)) {
+            warnings.add("Roadmap looks like a skill checklist. Group related skills into practical learning modules.");
+        }
+    }
+
+    private Long readLong(JsonNode node, String... fieldNames) {
+        if (node == null || fieldNames == null) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (value == null || value.isMissingNode() || value.isNull()) {
+                continue;
+            }
+            if (value.isNumber()) {
+                return value.asLong();
+            }
+            String text = value.asText(null);
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+            try {
+                return Long.parseLong(text.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private String readText(JsonNode node, String... fieldNames) {
+        if (node == null || fieldNames == null) {
+            return null;
+        }
+        for (String fieldName : fieldNames) {
+            JsonNode value = node.path(fieldName);
+            if (value != null && !value.isMissingNode() && !value.isNull()) {
+                String text = value.asText(null);
+                if (text != null && !text.isBlank()) {
+                    return text.trim();
+                }
+            }
+        }
+        return null;
+    }
+
+    private boolean isSpecialSingleSkillModule(String title) {
+        String normalized = title == null ? "" : title.toLowerCase();
+        return normalized.contains("testing basics")
+                || normalized.contains("kiem thu co ban")
+                || normalized.contains("onboarding")
+                || normalized.contains("capstone");
     }
 
     private void createRuntimeAssignments(Journey journey, RoadmapSession session, List<RoadmapTemplateNode> nodes) {
@@ -1050,17 +1438,6 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             TestResult testResult,
             List<Map<String, Object>> skillGaps,
             List<Map<String, Object>> strengths) {
-        AllocationResult allocation = allocateFromBlocks(template.getTotalNodeCount(), blocks);
-        if (!allocation.valid()) {
-            throw new ApiException(ErrorCode.CONFLICT, String.join("; ", allocation.errors()));
-        }
-
-        Map<Long, Integer> allocatedBySkill = allocation.items().stream()
-                .collect(Collectors.toMap(
-                        RoadmapTemplateAllocationPreviewResponse.Item::getSkillId,
-                        RoadmapTemplateAllocationPreviewResponse.Item::getAllocatedNodes,
-                        (a, b) -> a,
-                        LinkedHashMap::new));
         Map<Long, List<Long>> manualCoursesBySkill = courseRepository.findByTemplateIdOrderByDisplayOrderAscIdAsc(template.getId()).stream()
                 .filter(course -> course.getSkillId() != null)
                 .collect(Collectors.groupingBy(
@@ -1073,15 +1450,14 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         List<RuntimeRoadmapNode> runtimeNodes = new ArrayList<>();
         for (RoadmapTemplateSkillBlock block : blocks) {
             List<RoadmapTemplateActivity> activities = activityRepository.findBySkillBlockIdOrderByOrderIndexAscIdAsc(block.getId());
-            int nodeCount = Math.max(0, allocatedBySkill.getOrDefault(block.getSkillId(), 0));
             List<Long> suggestedCourseIds = resolveSuggestedCourseIds(block, manualCoursesBySkill.get(block.getSkillId()));
-            for (int i = 0; i < nodeCount; i++) {
-                RoadmapTemplateActivity activity = selectActivityForLevel(activities, studentSkillLevel, i);
+            for (RoadmapTemplateActivity activity : activities) {
                 boolean targetLevelMatch = activity == null || activityMatchesLevel(activity, studentSkillLevel);
                 String title = activity != null
                         ? activity.getTitle()
-                        : firstNonBlank(block.getSkillNameSnapshot(), "Skill") + " practice " + (i + 1);
-                String nodeId = "skill-" + block.getSkillId() + "-node-" + (i + 1);
+                        : firstNonBlank(block.getSkillNameSnapshot(), "Skill") + " module";
+                int moduleIndex = runtimeNodes.size() + 1;
+                String nodeId = "module-" + moduleIndex;
                 runtimeNodes.add(new RuntimeRoadmapNode(
                         nodeId,
                         block.getId(),
@@ -1155,11 +1531,11 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             }
             n.put("target_level_match", node.targetLevelMatch());
             n.put("activity_source", node.activitySource());
-            putArray(n, "learning_objectives", splitTemplateText(firstNonBlank(node.skillName(), node.title())));
+            putArray(n, "learning_objectives", splitTemplateText(firstNonBlank(node.expectedOutput(), node.title())));
             putArray(n, "practical_exercises", splitTemplateText(node.expectedOutput()));
             putArray(n, "success_criteria", splitTemplateText(node.rubric()));
             putArray(n, "suggested_resources", List.of());
-            putArray(n, "key_concepts", splitTemplateText(firstNonBlank(node.skillName(), node.title())));
+            putArray(n, "key_concepts", resolveRuntimeSkillNames(node));
             putArray(n, "prerequisites", i == 0 ? List.of() : List.of(runtimeNodes.get(i - 1).id()));
             putArray(n, "children", i + 1 < runtimeNodes.size() ? List.of(runtimeNodes.get(i + 1).id()) : List.of());
             putLongArray(n, "suggested_course_ids", node.suggestedCourseIds());
@@ -1183,6 +1559,146 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         putArray(root, "warnings", List.of());
         root.putObject("overview")
                 .put("purpose", "Admin V3 template with skill weights, level-banded activities, courses, and skill document permissions")
+                .put("audience", "Runtime learner profile from journey assessment")
+                .put("post_roadmap_state", firstNonBlank(template.getOutputStandard(), "Ready for job-position competency verification"));
+        return new RuntimeRoadmap(root.toString(), runtimeNodes);
+    }
+
+    private RuntimeRoadmap buildRuntimeRoadmapFromNodeGroups(
+            RoadmapTemplate template,
+            List<RoadmapTemplateNodeGroup> groups,
+            Journey journey,
+            TestResult testResult,
+            List<Map<String, Object>> skillGaps,
+            List<Map<String, Object>> strengths) {
+        Map<Long, List<Long>> manualCoursesBySkill = courseRepository.findByTemplateIdOrderByDisplayOrderAscIdAsc(template.getId()).stream()
+                .filter(course -> course.getSkillId() != null)
+                .collect(Collectors.groupingBy(
+                        RoadmapTemplateCourse::getSkillId,
+                        LinkedHashMap::new,
+                        Collectors.mapping(RoadmapTemplateCourse::getCourseId, Collectors.toList())));
+        String studentLevel = resolveStudentLevel(journey, testResult);
+        List<RuntimeRoadmapNode> runtimeNodes = new ArrayList<>();
+        for (RoadmapTemplateNodeGroup group : defaultList(groups)) {
+            List<RoadmapTemplateNodeGroupSkill> skills =
+                    nodeGroupSkillRepository.findByNodeGroupIdOrderByOrderIndexAscIdAsc(group.getId());
+            RoadmapTemplateNodeGroupSkill primarySkill = skills.isEmpty() ? null : skills.get(0);
+            List<Long> suggestedCourseIds = skills.stream()
+                    .map(RoadmapTemplateNodeGroupSkill::getSkillId)
+                    .filter(Objects::nonNull)
+                    .flatMap(skillId -> defaultList(manualCoursesBySkill.get(skillId)).stream())
+                    .distinct()
+                    .toList();
+            int moduleIndex = runtimeNodes.size() + 1;
+            runtimeNodes.add(new RuntimeRoadmapNode(
+                    firstNonBlank(group.getNodeKey(), "module-" + moduleIndex),
+                    null,
+                    primarySkill != null ? primarySkill.getSkillId() : null,
+                    primarySkill != null ? primarySkill.getSkillNameSnapshot() : null,
+                    group.getTitle(),
+                    firstNonBlank(group.getDescription(), "Module combines related skills into a practical learning topic."),
+                    firstNonBlank(group.getExpectedOutput(), group.getLearningObjectives(), group.getTitle()),
+                    firstNonBlank(group.getRubric(), group.getCompletionCriteria()),
+                    firstNonBlank(group.getDifficulty(), "medium"),
+                    null,
+                    null,
+                    true,
+                    "node_group",
+                    "Admin module template groups related skills into one learning node.",
+                    group.getEstimatedHours(),
+                    suggestedCourseIds,
+                    buildNodeGroupSkillRequirementsJson(skills)));
+        }
+        return buildRuntimeRoadmapJson(template, runtimeNodes, studentLevel, "Admin module template guided",
+                "Assessment-aware admin module template");
+    }
+
+    private RuntimeRoadmap buildRuntimeRoadmapJson(
+            RoadmapTemplate template,
+            List<RuntimeRoadmapNode> runtimeNodes,
+            String studentLevel,
+            String duration,
+            String learningStyle) {
+        ObjectNode root = objectMapper.createObjectNode();
+        ObjectNode metadata = root.putObject("roadmap_metadata");
+        metadata.put("title", template.getTitle());
+        metadata.put("original_goal", template.getTitle());
+        metadata.put("validated_goal", firstNonBlank(template.getGlobalLearningGoal(), template.getDescription(), template.getTitle()));
+        metadata.put("duration", duration);
+        metadata.put("experience_level", studentLevel);
+        metadata.put("learning_style", learningStyle);
+        metadata.put("difficulty_level", resolveDominantDifficultyRuntime(runtimeNodes));
+        metadata.put("roadmap_type", "career");
+        metadata.put("target", firstNonBlank(template.getGlobalLearningGoal(), template.getTitle()));
+        metadata.put("final_objective", firstNonBlank(template.getOutputStandard(), "Complete admin-defined roadmap evidence"));
+        metadata.put("roadmap_mode", GENERATION_MODE_TEMPLATE_GUIDED);
+        metadata.put("generation_mode", String.valueOf(template.getGenerationMode()));
+        metadata.put("knowledge_policy", String.valueOf(template.getKnowledgePolicy()));
+        metadata.put("current_level", studentLevel);
+
+        ArrayNode roadmap = root.putArray("roadmap");
+        for (int i = 0; i < runtimeNodes.size(); i++) {
+            RuntimeRoadmapNode node = runtimeNodes.get(i);
+            ObjectNode n = roadmap.addObject();
+            n.put("id", node.id());
+            n.put("title", node.title());
+            n.put("description", node.description());
+            n.put("estimated_time_minutes", toMinutes(node.estimatedHours()));
+            n.put("type", "MAIN");
+            n.put("difficulty", node.difficulty());
+            n.put("order_index", i + 1);
+            n.put("main_path_index", i + 1);
+            n.put("is_core", true);
+            if (i == 0) {
+                n.putNull("parent_id");
+            } else {
+                n.put("parent_id", runtimeNodes.get(i - 1).id());
+            }
+            n.put("node_status", i == 0 ? "AVAILABLE" : "LOCKED");
+            if (node.skillId() != null) {
+                n.put("skill_id", node.skillId());
+            } else {
+                n.putNull("skill_id");
+            }
+            n.put("skill_name", node.skillName());
+            if (node.templateSkillBlockId() != null) {
+                n.put("template_skill_block_id", node.templateSkillBlockId());
+            } else {
+                n.putNull("template_skill_block_id");
+            }
+            putSkillRequirements(n, node);
+            n.putNull("min_level");
+            n.putNull("max_level");
+            n.put("target_level_match", node.targetLevelMatch());
+            n.put("activity_source", node.activitySource());
+            putArray(n, "learning_objectives", splitTemplateText(firstNonBlank(node.expectedOutput(), node.title())));
+            putArray(n, "practical_exercises", splitTemplateText(node.expectedOutput()));
+            putArray(n, "success_criteria", splitTemplateText(node.rubric()));
+            putArray(n, "suggested_resources", List.of());
+            putArray(n, "key_concepts", resolveRuntimeSkillNames(node));
+            putArray(n, "prerequisites", i == 0 ? List.of() : List.of(runtimeNodes.get(i - 1).id()));
+            putArray(n, "children", i + 1 < runtimeNodes.size() ? List.of(runtimeNodes.get(i + 1).id()) : List.of());
+            putLongArray(n, "suggested_course_ids", node.suggestedCourseIds());
+            n.put("importance_score", 0.85);
+            n.put("confidence_score", 0.95);
+            n.put("reason", node.reason());
+            putArray(n, "evidence", List.of("admin_node_group", "module_skills", node.activitySource()));
+            n.put("importance_validation_status", "ACCEPTED");
+        }
+
+        ObjectNode stats = root.putObject("roadmap_statistics");
+        stats.put("total_nodes", runtimeNodes.size());
+        stats.put("main_nodes", runtimeNodes.size());
+        stats.put("side_nodes", 0);
+        stats.put("total_estimated_hours", runtimeNodes.stream()
+                .map(RuntimeRoadmapNode::estimatedHours)
+                .filter(Objects::nonNull)
+                .mapToDouble(Double::doubleValue)
+                .sum());
+        putArray(root, "learning_tips", List.of("Follow each module as one practical topic that combines related skills."));
+        putArray(root, "warnings", List.of());
+        root.putObject("overview")
+                .put("purpose", "Admin module-centric template with grouped skills")
                 .put("audience", "Runtime learner profile from journey assessment")
                 .put("post_roadmap_state", firstNonBlank(template.getOutputStandard(), "Ready for job-position competency verification"));
         return new RuntimeRoadmap(root.toString(), runtimeNodes);
@@ -1436,6 +1952,36 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         fallback.put("requirement_type", RequirementType.REQUIRED.name());
     }
 
+    private String buildNodeGroupSkillRequirementsJson(List<RoadmapTemplateNodeGroupSkill> skills) {
+        ArrayNode array = objectMapper.createArrayNode();
+        for (RoadmapTemplateNodeGroupSkill skill : defaultList(skills)) {
+            ObjectNode item = array.addObject();
+            item.put("skill_id", skill.getSkillId());
+            item.put("skill_name", skill.getSkillNameSnapshot());
+            item.put("canonical_key", skill.getSkillCanonicalKeySnapshot());
+            item.put("requirement_type", skill.getRequirementType() != null
+                    ? skill.getRequirementType().normalized().name()
+                    : RequirementType.REQUIRED.name());
+        }
+        return array.toString();
+    }
+
+    private List<String> resolveRuntimeSkillNames(RuntimeRoadmapNode runtimeNode) {
+        List<NodeSkillRef> skills = parseActivitySkillRequirements(
+                runtimeNode.skillRequirementsJson(),
+                runtimeNode.skillId(),
+                runtimeNode.skillName(),
+                null);
+        List<String> names = skills.stream()
+                .map(skill -> firstNonBlank(skill.skillName(), skill.canonicalKey(),
+                        skill.skillId() != null ? "Skill " + skill.skillId() : null))
+                .filter(Objects::nonNull)
+                .distinct()
+                .limit(7)
+                .toList();
+        return names.isEmpty() ? splitTemplateText(firstNonBlank(runtimeNode.skillName(), runtimeNode.title())) : names;
+    }
+
     private List<String> splitTemplateText(String value) {
         if (value == null || value.isBlank()) {
             return List.of();
@@ -1536,6 +2082,17 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .map(RoadmapTemplateSkillBlock::getSkillId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+        return new ArrayList<>(ids);
+    }
+
+    private List<Long> extractSkillIdsFromRuntime(List<RuntimeRoadmapNode> nodes) {
+        Set<Long> ids = new LinkedHashSet<>();
+        for (RuntimeRoadmapNode node : defaultList(nodes)) {
+            parseActivitySkillRequirements(node.skillRequirementsJson(), node.skillId(), node.skillName(), null).stream()
+                    .map(NodeSkillRef::skillId)
+                    .filter(Objects::nonNull)
+                    .forEach(ids::add);
+        }
         return new ArrayList<>(ids);
     }
 
@@ -1669,6 +2226,11 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         List<RoadmapTemplateSkillBlockResponse> skillBlocks = persistedBlocks.stream()
                 .map(block -> toSkillBlockResponse(block, allocatedBySkill.get(block.getSkillId())))
                 .toList();
+        List<RoadmapTemplateNodeGroupResponse> nodeGroups = nodeGroupRepository
+                .findByTemplateIdOrderByOrderIndexAscIdAsc(template.getId())
+                .stream()
+                .map(this::toNodeGroupResponse)
+                .toList();
         return RoadmapTemplateResponse.builder()
                 .id(template.getId())
                 .createdByAdminId(template.getCreatedByAdminId())
@@ -1697,6 +2259,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .nodes(nodes)
                 .courses(courses)
                 .skillBlocks(skillBlocks)
+                .nodeGroups(nodeGroups)
                 .allocationPreview(toAllocationPreview(template.getTotalNodeCount(), allocation))
                 .build();
     }
@@ -1761,6 +2324,37 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .ragEnabled(block.getRagEnabled())
                 .allocatedNodes(allocatedNodes)
                 .activities(activities)
+                .build();
+    }
+
+    private RoadmapTemplateNodeGroupResponse toNodeGroupResponse(RoadmapTemplateNodeGroup group) {
+        List<RoadmapTemplateNodeGroupResponse.SkillItem> skills = nodeGroupSkillRepository
+                .findByNodeGroupIdOrderByOrderIndexAscIdAsc(group.getId())
+                .stream()
+                .map(skill -> RoadmapTemplateNodeGroupResponse.SkillItem.builder()
+                        .skillId(skill.getSkillId())
+                        .skillName(skill.getSkillNameSnapshot())
+                        .canonicalKey(skill.getSkillCanonicalKeySnapshot())
+                        .requirementType(skill.getRequirementType())
+                        .build())
+                .toList();
+        return RoadmapTemplateNodeGroupResponse.builder()
+                .id(group.getId())
+                .templateId(group.getTemplateId())
+                .nodeKey(group.getNodeKey())
+                .title(group.getTitle())
+                .description(group.getDescription())
+                .learningObjectives(group.getLearningObjectives())
+                .lessonsJson(group.getLessonsJson())
+                .exercisesJson(group.getExercisesJson())
+                .completionCriteria(group.getCompletionCriteria())
+                .difficulty(group.getDifficulty())
+                .estimatedHours(group.getEstimatedHours())
+                .expectedOutput(group.getExpectedOutput())
+                .rubric(group.getRubric())
+                .aiPromptHint(group.getAiPromptHint())
+                .orderIndex(group.getOrderIndex())
+                .skills(skills)
                 .build();
     }
 

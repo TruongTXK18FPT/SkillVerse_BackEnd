@@ -38,5 +38,6 @@ public class RoadmapTemplateResponse {
     private List<RoadmapTemplateNodeResponse> nodes;
     private List<RoadmapTemplateCourseResponse> courses;
     private List<RoadmapTemplateSkillBlockResponse> skillBlocks;
+    private List<RoadmapTemplateNodeGroupResponse> nodeGroups;
     private RoadmapTemplateAllocationPreviewResponse allocationPreview;
 }

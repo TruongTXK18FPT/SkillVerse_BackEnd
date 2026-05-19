@@ -9,5 +9,6 @@ import lombok.Data;
 public class RoadmapTemplateValidationResponse {
     private Boolean valid;
     private List<String> errors;
+    private List<String> warnings;
     private RoadmapTemplateAllocationPreviewResponse allocation;
 }
