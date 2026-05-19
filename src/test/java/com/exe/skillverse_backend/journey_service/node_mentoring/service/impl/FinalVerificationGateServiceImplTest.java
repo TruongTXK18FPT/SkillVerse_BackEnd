@@ -59,6 +59,7 @@ class FinalVerificationGateServiceImplTest {
     @Mock private WalletService walletService;
     @Mock private NotificationService notificationService;
     @Mock private UserRepository userRepository;
+    @Mock private com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
 
     @InjectMocks
     private FinalVerificationGateServiceImpl service;
