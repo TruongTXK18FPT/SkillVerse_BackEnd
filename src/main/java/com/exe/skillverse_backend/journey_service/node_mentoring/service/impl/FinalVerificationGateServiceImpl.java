@@ -34,6 +34,7 @@ import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepos
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.portfolio_service.repository.UserVerifiedSkillRepository;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
@@ -86,6 +87,7 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
     // V3 Phase 2 dependencies
     private final VerificationEvidenceReportRepository evidenceReportRepo;
     private final UserVerifiedSkillRepository userVerifiedSkillRepo;
+    private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
     private final RoadmapNodeSubmissionRepository submissionRepo;
     private final UserRoadmapProgressRepository progressRepository;
     private final WalletService walletService;
@@ -559,7 +561,29 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
             skill.setVerifiedAt(Instant.now());
         }
         userVerifiedSkillRepo.save(skill);
+        
+        appendToPortfolioTopSkills(journey.getUser().getId(), skillName);
+        
         return skillName;
+    }
+    
+    private void appendToPortfolioTopSkills(Long userId, String skillName) {
+        portfolioExtendedProfileRepository.findByUserId(userId).ifPresent(profile -> {
+            try {
+                List<String> skills = new ArrayList<>();
+                if (profile.getTopSkills() != null && !profile.getTopSkills().isBlank()) {
+                    skills = objectMapper.readValue(profile.getTopSkills(),
+                            objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+                }
+                if (!skills.contains(skillName)) {
+                    skills.add(skillName);
+                    profile.setTopSkills(objectMapper.writeValueAsString(skills));
+                    portfolioExtendedProfileRepository.save(profile);
+                }
+            } catch (Exception e) {
+                log.error("Failed to append topSkills for user {}", userId, e);
+            }
+        });
     }
 
     private void handleVerificationFail(Journey journey, Booking booking,

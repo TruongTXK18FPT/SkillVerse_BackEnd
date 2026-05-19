@@ -1335,6 +1335,7 @@ public class PortfolioServiceImpl implements PortfolioService {
     public List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getVerifiedSkills(Long userId) {
         getUserOrThrow(userId);
         syncApprovedVerificationRequestsToPortfolio(userId);
+        syncVerifiedSkillsToTopSkills(userId);
         return enrichVerifiedSkills(
                 verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId));
     }
@@ -1344,6 +1345,7 @@ public class PortfolioServiceImpl implements PortfolioService {
     public List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getPublicVerifiedSkills(Long userId) {
         getPublicExtendedProfileOrThrow(userId);
         syncApprovedVerificationRequestsToPortfolio(userId);
+        syncVerifiedSkillsToTopSkills(userId);
         return enrichVerifiedSkills(
                 verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId));
     }
@@ -1404,6 +1406,34 @@ public class PortfolioServiceImpl implements PortfolioService {
                 .forEach(this::upsertMentorAdminVerifiedSkill);
         studentVerificationRequestRepository.findApprovedByUserId(userId)
                 .forEach(this::upsertStudentAdminVerifiedSkill);
+    }
+
+    private void syncVerifiedSkillsToTopSkills(Long userId) {
+        extendedProfileRepository.findByUserId(userId).ifPresent(profile -> {
+            List<com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill> verifiedSkills = verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId);
+            if (verifiedSkills.isEmpty()) return;
+            
+            try {
+                List<String> currentTopSkills = new ArrayList<>();
+                if (profile.getTopSkills() != null && !profile.getTopSkills().isBlank()) {
+                    currentTopSkills = objectMapper.readValue(profile.getTopSkills(),
+                            objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+                }
+                boolean modified = false;
+                for (var vs : verifiedSkills) {
+                    if (!currentTopSkills.contains(vs.getSkillName())) {
+                        currentTopSkills.add(vs.getSkillName());
+                        modified = true;
+                    }
+                }
+                if (modified) {
+                    profile.setTopSkills(objectMapper.writeValueAsString(currentTopSkills));
+                    extendedProfileRepository.save(profile);
+                }
+            } catch (Exception e) {
+                log.error("Failed to sync verified skills to topSkills for user {}", userId, e);
+            }
+        });
     }
 
     private void upsertMentorAdminVerifiedSkill(MentorSkillVerificationRequest request) {

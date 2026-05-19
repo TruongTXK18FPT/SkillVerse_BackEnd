@@ -20,10 +20,12 @@ import com.exe.skillverse_backend.portfolio_service.entity.ExternalCertificate;
 import com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill;
 import com.exe.skillverse_backend.portfolio_service.repository.ExternalCertificateRepository;
 import com.exe.skillverse_backend.portfolio_service.repository.UserVerifiedSkillRepository;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.shared.util.SkillNameUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -58,6 +60,8 @@ public class MentorVerificationServiceImpl implements MentorVerificationService 
     private final MentorVerificationEvidenceRepository evidenceRepository;
     private final ExternalCertificateRepository certificateRepository;
     private final UserVerifiedSkillRepository userVerifiedSkillRepository;
+    private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -506,6 +510,27 @@ public class MentorVerificationServiceImpl implements MentorVerificationService 
             skill.setVerifiedAt(java.time.Instant.now());
         }
         userVerifiedSkillRepository.save(skill);
+        
+        appendToPortfolioTopSkills(mentorId, skillName);
+    }
+    
+    private void appendToPortfolioTopSkills(Long userId, String skillName) {
+        portfolioExtendedProfileRepository.findByUserId(userId).ifPresent(profile -> {
+            try {
+                List<String> skills = new java.util.ArrayList<>();
+                if (profile.getTopSkills() != null && !profile.getTopSkills().isBlank()) {
+                    skills = objectMapper.readValue(profile.getTopSkills(),
+                            objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+                }
+                if (!skills.contains(skillName)) {
+                    skills.add(skillName);
+                    profile.setTopSkills(objectMapper.writeValueAsString(skills));
+                    portfolioExtendedProfileRepository.save(profile);
+                }
+            } catch (Exception e) {
+                log.error("Failed to append topSkills for user {}", userId, e);
+            }
+        });
     }
 
     private VerificationStatus resolveBatchStatus(List<MentorSkillVerificationRequest> skillRequests) {

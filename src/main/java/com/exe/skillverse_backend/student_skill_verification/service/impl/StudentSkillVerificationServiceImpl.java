@@ -10,6 +10,8 @@ import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.shared.util.SkillNameUtils;
+import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exe.skillverse_backend.student_skill_verification.dto.request.CreateStudentVerificationRequest;
 import com.exe.skillverse_backend.student_skill_verification.dto.request.ReviewStudentVerificationRequest;
 import com.exe.skillverse_backend.student_skill_verification.dto.response.StudentVerificationResponse;
@@ -47,6 +49,8 @@ public class StudentSkillVerificationServiceImpl implements StudentSkillVerifica
     private final StudentVerificationEvidenceRepository evidenceRepository;
     private final ExternalCertificateRepository certificateRepository;
     private final UserVerifiedSkillRepository userVerifiedSkillRepository;
+    private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -283,6 +287,27 @@ public class StudentSkillVerificationServiceImpl implements StudentSkillVerifica
             skill.setVerifiedAt(java.time.Instant.now());
         }
         userVerifiedSkillRepository.save(skill);
+        
+        appendToPortfolioTopSkills(userId, skillName);
+    }
+    
+    private void appendToPortfolioTopSkills(Long userId, String skillName) {
+        portfolioExtendedProfileRepository.findByUserId(userId).ifPresent(profile -> {
+            try {
+                List<String> skills = new java.util.ArrayList<>();
+                if (profile.getTopSkills() != null && !profile.getTopSkills().isBlank()) {
+                    skills = objectMapper.readValue(profile.getTopSkills(),
+                            objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+                }
+                if (!skills.contains(skillName)) {
+                    skills.add(skillName);
+                    profile.setTopSkills(objectMapper.writeValueAsString(skills));
+                    portfolioExtendedProfileRepository.save(profile);
+                }
+            } catch (Exception e) {
+                log.error("Failed to append topSkills for user {}", userId, e);
+            }
+        });
     }
 
     private StudentVerificationResponse.EvidenceResponse mapEvidence(StudentVerificationEvidence evidence) {
