@@ -92,9 +92,7 @@ public class PreChatController {
     @MessageMapping("/prechat")
     public void sendStomp(PreChatMessageRequest request, Authentication authentication) {
         Long currentUserId = extractCurrentUserId(authentication);
-        PreChatMessageResponse response = handleSendMessage(currentUserId, request);
-        messagingTemplate.convertAndSendToUser(response.getMentorId().toString(), "/queue/prechat", response);
-        messagingTemplate.convertAndSendToUser(response.getLearnerId().toString(), "/queue/prechat", response);
+        handleSendMessage(currentUserId, request);
     }
 
     @GetMapping("/history")
@@ -266,7 +264,16 @@ public class PreChatController {
                     sender.getId());
         }
 
-        return toResponse(saved, true);
+        PreChatMessageResponse response = toResponse(saved, true);
+        
+        try {
+            messagingTemplate.convertAndSendToUser(response.getMentorId().toString(), "/queue/prechat", response);
+            messagingTemplate.convertAndSendToUser(response.getLearnerId().toString(), "/queue/prechat", response);
+        } catch (Exception e) {
+            log.error("Failed to broadcast prechat message via STOMP", e);
+        }
+
+        return response;
     }
 
     private String sanitizeContent(String content) {

@@ -12,10 +12,12 @@ import org.springframework.stereotype.Controller;
 
 /**
  * WebSocket controller for family chat between parents and students
+ * @deprecated Deprecated in favor of modern real-time group/mentor chats. Use with caution.
  */
 @Controller
 @RequiredArgsConstructor
 @Slf4j
+@Deprecated
 public class FamilyChatController {
 
     private final SimpMessagingTemplate messagingTemplate;

@@ -6,9 +6,15 @@ import com.exe.skillverse_backend.business_service.dto.request.CreateRecruitment
 import com.exe.skillverse_backend.business_service.dto.request.SendRecruitmentMessageRequest;
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentMessageResponse;
 import com.exe.skillverse_backend.business_service.dto.response.RecruitmentSessionResponse;
+import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.entity.RecruitmentMessage;
 import com.exe.skillverse_backend.business_service.entity.RecruitmentSession;
+import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
+import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
+import com.exe.skillverse_backend.business_service.entity.enums.MessageType;
+import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
+import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruitmentMessageRepository;
@@ -19,26 +25,25 @@ import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
+import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
-import java.time.LocalDateTime;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import java.time.LocalDateTime;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class RecruitmentChatServiceImplTest {
@@ -67,6 +72,9 @@ class RecruitmentChatServiceImplTest {
     @Mock
     private NotificationService notificationService;
 
+    @Mock
+    private SimpMessagingTemplate messagingTemplate;
+
     private RecruitmentChatServiceImpl service;
 
     @BeforeEach
@@ -79,7 +87,8 @@ class RecruitmentChatServiceImplTest {
                 shortTermJobRepository,
                 recruiterProfileRepository,
                 portfolioExtendedProfileRepository,
-                notificationService);
+                notificationService,
+                messagingTemplate);
 
         lenient().when(sessionRepository.save(any(RecruitmentSession.class))).thenAnswer(invocation -> {
             RecruitmentSession session = invocation.getArgument(0);
@@ -218,6 +227,63 @@ class RecruitmentChatServiceImplTest {
                 eq(NotificationType.RECRUITMENT_MESSAGE),
                 eq("8"),
                 eq(2L));
+        verify(messagingTemplate).convertAndSend(eq("/topic/recruitment.8"), any(RecruitmentMessageResponse.class));
+    }
+
+    @Test
+    @DisplayName("sendMessage should reject messages when Job Posting is CLOSED")
+    void sendMessage_ShouldRejectWhenJobPostingIsClosed() {
+        User recruiter = user(1L, "recruiter@skillverse.vn", "Recruiter", "One");
+        User candidate = user(2L, "candidate@skillverse.vn", "Candidate", "One");
+        JobPosting job = new JobPosting();
+        job.setId(500L);
+        job.setStatus(JobStatus.CLOSED);
+
+        RecruitmentSession session = RecruitmentSession.builder()
+                .id(9L)
+                .recruiter(recruiter)
+                .candidate(candidate)
+                .jobPosting(job)
+                .jobContextType(RecruitmentJobContextType.JOB_POSTING)
+                .build();
+
+        when(sessionRepository.findById(9L)).thenReturn(Optional.of(session));
+
+        assertThrows(BadRequestException.class, () -> service.sendMessage(1L, SendRecruitmentMessageRequest.builder()
+                .sessionId(9L)
+                .content("Test message")
+                .build()));
+
+        verify(messageRepository, never()).save(any());
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(RecruitmentMessageResponse.class));
+    }
+
+    @Test
+    @DisplayName("sendMessage should reject messages when Short Term Job is inactive")
+    void sendMessage_ShouldRejectWhenShortTermJobIsInactive() {
+        User recruiter = user(1L, "recruiter@skillverse.vn", "Recruiter", "One");
+        User candidate = user(2L, "candidate@skillverse.vn", "Candidate", "One");
+        ShortTermJob job = new ShortTermJob();
+        job.setId(600L);
+        job.setStatus(ShortTermJobStatus.COMPLETED); // inactive
+
+        RecruitmentSession session = RecruitmentSession.builder()
+                .id(10L)
+                .recruiter(recruiter)
+                .candidate(candidate)
+                .shortTermJob(job)
+                .jobContextType(RecruitmentJobContextType.SHORT_TERM_JOB)
+                .build();
+
+        when(sessionRepository.findById(10L)).thenReturn(Optional.of(session));
+
+        assertThrows(BadRequestException.class, () -> service.sendMessage(1L, SendRecruitmentMessageRequest.builder()
+                .sessionId(10L)
+                .content("Test message")
+                .build()));
+
+        verify(messageRepository, never()).save(any());
+        verify(messagingTemplate, never()).convertAndSend(anyString(), any(RecruitmentMessageResponse.class));
     }
 
     private User user(Long id, String email, String firstName, String lastName) {

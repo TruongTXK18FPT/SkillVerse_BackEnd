@@ -7,11 +7,13 @@ import lombok.NoArgsConstructor;
 
 /**
  * DTO for family chat messages between parents and students
+ * @deprecated Deprecated in favor of modern real-time group/mentor chats. Use with caution.
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Deprecated
 public class FamilyChatMessageDTO {
     private Long id;
     private Long senderId;

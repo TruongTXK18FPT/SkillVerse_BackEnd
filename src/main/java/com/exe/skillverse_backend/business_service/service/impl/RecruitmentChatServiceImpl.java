@@ -39,6 +39,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,6 +56,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
     private final RecruiterProfileRepository recruiterProfileRepository;
     private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
     private final NotificationService notificationService;
+    private final SimpMessagingTemplate messagingTemplate;
 
     @Override
     @Transactional
@@ -249,7 +251,17 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
                 buildNotificationTitle(session, isRecruiter),
                 request.getContent());
 
-        return mapToMessageResponse(savedMessage, resolveRecruiterDisplayAvatar(session.getRecruiter()));
+        RecruitmentMessageResponse response = mapToMessageResponse(savedMessage, resolveRecruiterDisplayAvatar(session.getRecruiter()));
+        
+        try {
+            String destination = "/topic/recruitment." + session.getId();
+            messagingTemplate.convertAndSend(destination, response);
+            log.info("Broadcasted recruitment message to destination: {}", destination);
+        } catch (Exception e) {
+            log.error("Failed to broadcast recruitment message to STOMP", e);
+        }
+
+        return response;
     }
 
     @Override
