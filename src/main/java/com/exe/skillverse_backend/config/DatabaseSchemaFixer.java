@@ -179,6 +179,13 @@ public class DatabaseSchemaFixer {
                 this::patchVerifiedSkillFeaturedOrder,
                 this::verifyVerifiedSkillFeaturedOrder
             );
+            
+            applyPatch(
+                "20260522_roadmap_evidence_ai_review",
+                "Add tables and columns for roadmap evidence AI review",
+                this::patchRoadmapEvidenceAiReview,
+                this::verifyRoadmapEvidenceAiReview
+            );
 
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
@@ -1175,5 +1182,69 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyVerifiedSkillFeaturedOrder() {
         return hasTable("user_verified_skills") && hasColumn("user_verified_skills", "featured_order");
+    }
+    private void patchRoadmapEvidenceAiReview() {
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS ai_evidence_review_enabled BOOLEAN DEFAULT FALSE");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS ai_auto_pass_enabled BOOLEAN DEFAULT FALSE");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS ai_auto_pass_min_score_percent INTEGER DEFAULT 70");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS ai_auto_pass_min_confidence DOUBLE PRECISION DEFAULT 0.85");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS ai_manual_review_below_confidence DOUBLE PRECISION DEFAULT 0.75");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS ai_evidence_prompt TEXT");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS final_assignment_instructions TEXT");
+        executeSql("ALTER TABLE roadmap_templates ADD COLUMN IF NOT EXISTS final_assignment_rubric TEXT");
+
+        executeSql("""
+            CREATE TABLE IF NOT EXISTS roadmap_evidence_ai_reviews (
+                id BIGSERIAL PRIMARY KEY,
+                node_submission_id BIGINT,
+                journey_output_assessment_id BIGINT,
+                journey_id BIGINT NOT NULL,
+                roadmap_session_id BIGINT NOT NULL,
+                node_id VARCHAR(100),
+                learner_id BIGINT NOT NULL,
+                attempt_number INTEGER NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                ai_score_percent INTEGER,
+                ai_confidence DOUBLE PRECISION,
+                ai_feedback TEXT,
+                ai_rubric_breakdown_json TEXT,
+                ai_model_name VARCHAR(100),
+                ai_provider VARCHAR(50),
+                error_message TEXT,
+                admin_decision VARCHAR(50),
+                admin_review_reason TEXT,
+                admin_reviewed_by BIGINT,
+                admin_reviewed_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ
+            )
+        """);
+        executeSql("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'roadmap_evidence_ai_reviews' 
+                      AND column_name = 'node_id' 
+                      AND data_type = 'bigint'
+                ) THEN
+                    ALTER TABLE roadmap_evidence_ai_reviews ALTER COLUMN node_id TYPE VARCHAR(100) USING node_id::VARCHAR(100);
+                END IF;
+            END $$;
+        """);
+
+        executeSql("ALTER TABLE roadmap_node_submissions ADD COLUMN IF NOT EXISTS latest_ai_review_id BIGINT");
+        executeSql("ALTER TABLE roadmap_node_submissions ADD COLUMN IF NOT EXISTS latest_ai_review_status VARCHAR(50)");
+        
+        executeSql("ALTER TABLE journey_output_assessments ADD COLUMN IF NOT EXISTS latest_ai_review_id BIGINT");
+        executeSql("ALTER TABLE journey_output_assessments ADD COLUMN IF NOT EXISTS latest_ai_review_status VARCHAR(50)");
+    }
+
+    private boolean verifyRoadmapEvidenceAiReview() {
+        return hasColumn("roadmap_templates", "ai_evidence_review_enabled")
+                && hasTable("roadmap_evidence_ai_reviews")
+                && hasColumn("roadmap_node_submissions", "latest_ai_review_id")
+                && hasColumn("journey_output_assessments", "latest_ai_review_id");
     }
 }

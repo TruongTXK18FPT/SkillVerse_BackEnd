@@ -30,18 +30,27 @@ import com.exe.skillverse_backend.journey_service.node_mentoring.repository.Road
 import com.exe.skillverse_backend.journey_service.node_mentoring.repository.RoadmapNodeVerificationRepository;
 import com.exe.skillverse_backend.journey_service.node_mentoring.service.NodeMentoringService;
 import com.exe.skillverse_backend.journey_service.node_mentoring.service.RoadmapNodeResolver;
+import com.exe.skillverse_backend.journey_service.node_mentoring.service.RoadmapNodeCompletionSyncService;
 import com.exe.skillverse_backend.mentor_booking_service.entity.BookingStatus;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
+import com.exe.skillverse_backend.journey_service.node_mentoring.ai.service.RoadmapEvidenceAiReviewService;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplate;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateActivity;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateSkillBlock;
+import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionSynchronization;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -67,6 +76,9 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
     private final UserRoadmapProgressRepository progressRepository;
     private final RoadmapSessionRepository roadmapSessionRepository;
     private final JourneyRepository journeyRepository;
+    private final RoadmapEvidenceAiReviewService aiReviewService;
+    private final RoadmapTemplateRepository templateRepository;
+    private final RoadmapNodeCompletionSyncService syncService;
 
     // ─── Assignment ───────────────────────────────────────────────────────────
 
@@ -159,6 +171,77 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         RoadmapNodeSubmission saved = submissionRepo.save(s);
         boolean hasMentorCoverage = bookingRepository.existsActiveBookingCoveringNode(
                 journeyId, nodeId, ASSIGNED_MENTOR_STATUSES);
+                
+        // Trigger AI Review for unmentored learners
+        if (!hasMentorCoverage && journey.getRoadmapSessionId() != null) {
+            roadmapSessionRepository.findById(journey.getRoadmapSessionId()).ifPresent(session -> {
+                if (session.getRoadmapTemplateId() != null) {
+                    templateRepository.findById(session.getRoadmapTemplateId()).ifPresent(template -> {
+                            RoadmapResponse.RoadmapNode node = resolver.getNodeContentFromRoadmap(journey, nodeId);
+                            String nodeTitle = node != null ? node.getTitle() : "";
+                            String nodeDesc = node != null ? node.getDescription() : "";
+                            
+                            RoadmapTemplateActivity matchingActivity = resolveActivityForNode(template, node);
+
+                            String tempExpectedOutput = "";
+                            String tempRubric = "";
+                            String tempAiPromptHint = "";
+                            String tempSkillRequirementsJson = "";
+
+                            if (matchingActivity != null) {
+                                tempExpectedOutput = matchingActivity.getExpectedOutput() != null ? matchingActivity.getExpectedOutput() : "";
+                                tempRubric = matchingActivity.getRubric() != null ? matchingActivity.getRubric() : "";
+                                tempAiPromptHint = matchingActivity.getAiPromptHint() != null ? matchingActivity.getAiPromptHint() : "";
+                                tempSkillRequirementsJson = matchingActivity.getSkillRequirementsJson() != null ? matchingActivity.getSkillRequirementsJson() : "";
+                            } else if (node != null) {
+                                // Map successCriteria directly to activityRubric as it represents the evaluation rubric
+                                if (node.getSuccessCriteria() != null && !node.getSuccessCriteria().isEmpty()) {
+                                    tempRubric = String.join("\n", node.getSuccessCriteria());
+                                }
+                                // Map practicalExercises directly to activityExpectedOutput as it represents expected outputs
+                                if (node.getPracticalExercises() != null && !node.getPracticalExercises().isEmpty()) {
+                                    tempExpectedOutput = String.join("\n", node.getPracticalExercises());
+                                }
+                                // Note: aiPromptHint from template nodeGroups is not stored on the runtime RoadmapNode. 
+                                // Left as a future improvement.
+                            }
+
+                            final String activityExpectedOutput = tempExpectedOutput;
+                            final String activityRubric = tempRubric;
+                            final String activityAiPromptHint = tempAiPromptHint;
+                            final String activitySkillRequirementsJson = tempSkillRequirementsJson;
+
+                            String nodeSkillsVal = "";
+                            if (node != null && node.getSkills() != null) {
+                                List<String> skillNames = node.getSkills().stream()
+                                        .map(RoadmapResponse.NodeSkillRequirement::getSkillName)
+                                        .filter(Objects::nonNull)
+                                        .collect(Collectors.toList());
+                                nodeSkillsVal = String.join(", ", skillNames);
+                            }
+                            final String nodeSkills = nodeSkillsVal;
+                            
+                            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                                    @Override
+                                    public void afterCommit() {
+                                        aiReviewService.reviewNodeEvidence(saved, template, 
+                                                nodeTitle, nodeDesc, nodeSkills, 
+                                                activityExpectedOutput, activityRubric, 
+                                                activityAiPromptHint, activitySkillRequirementsJson);
+                                    }
+                                });
+                            } else {
+                                aiReviewService.reviewNodeEvidence(saved, template, 
+                                        nodeTitle, nodeDesc, nodeSkills, 
+                                        activityExpectedOutput, activityRubric, 
+                                        activityAiPromptHint, activitySkillRequirementsJson);
+                            }
+                    });
+                }
+            });
+        }
+                
         NodeEvidenceRecordResponse response = toEvidenceResponse(saved);
         response.setHasMentorCoverage(hasMentorCoverage);
         return response;
@@ -243,14 +326,14 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                 s.setVerificationStatus(VerificationStatus.UNDER_REVIEW);
                 s.setMentorFeedback(request.getFeedback());
                 s.setLearnerMarkedComplete(false);
-                syncNodeCompletionState(journey, nodeId, false);
+                syncService.syncNodeCompletionState(journey, nodeId, false);
             }
             case REJECTED -> {
                 s.setSubmissionStatus(SubmissionStatus.REWORK_REQUESTED);
                 s.setVerificationStatus(VerificationStatus.REJECTED);
                 s.setMentorFeedback(request.getFeedback());
                 s.setLearnerMarkedComplete(false);
-                syncNodeCompletionState(journey, nodeId, false);
+                syncService.syncNodeCompletionState(journey, nodeId, false);
             }
         }
         submissionRepo.save(s);
@@ -290,13 +373,13 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
 
         if (request.getNodeVerificationStatus() == NodeVerificationStatus.VERIFIED) {
             s.setVerificationStatus(VerificationStatus.VERIFIED);
-            syncNodeCompletionState(journey, nodeId, true);
-            recalculateAndSyncJourneyProgress(journey);
+            syncService.syncNodeCompletionState(journey, nodeId, true);
+            syncService.recalculateAndSyncJourneyProgress(journey);
         } else {
             s.setSubmissionStatus(SubmissionStatus.REWORK_REQUESTED);
             s.setVerificationStatus(VerificationStatus.REJECTED);
             s.setLearnerMarkedComplete(false);
-            syncNodeCompletionState(journey, nodeId, false);
+            syncService.syncNodeCompletionState(journey, nodeId, false);
         }
         submissionRepo.save(s);
 
@@ -324,10 +407,16 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         // Mentor coverage is an audit/display signal only — it does not block self-confirmation.
         boolean hasMentorCoverage = bookingRepository.existsActiveBookingCoveringNode(
                 journeyId, nodeId, ASSIGNED_MENTOR_STATUSES);
+
+        if (!hasMentorCoverage && s.getVerificationStatus() != VerificationStatus.VERIFIED) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Node này cần được hệ thống hoặc quản trị viên đánh giá đạt trước khi xác nhận hoàn thành.");
+        }
+
         s.setLearnerMarkedComplete(true);
         if (!hasMentorCoverage) {
-            syncNodeCompletionState(journey, nodeId, true);
-            recalculateAndSyncJourneyProgress(journey);
+            syncService.syncNodeCompletionState(journey, nodeId, true);
+            syncService.recalculateAndSyncJourneyProgress(journey);
         }
         RoadmapNodeSubmission saved = submissionRepo.save(s);
         NodeEvidenceRecordResponse response = toEvidenceResponse(saved);
@@ -355,75 +444,28 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
 
 
 
-    private void syncNodeCompletionState(Journey journey, String nodeId, boolean completed) {
-        if (journey == null || journey.getRoadmapSessionId() == null || nodeId == null || nodeId.isBlank()) {
-            return;
+    /**
+     * Resolves a matching template activity for the given roadmap node by performing
+     * a case-insensitive match on the activity title.
+     *
+     * @param template the roadmap template containing the skill blocks and activities
+     * @param node the roadmap node representing the current learning quest
+     * @return the matching RoadmapTemplateActivity, or null if no match is found or arguments are null
+     */
+    private RoadmapTemplateActivity resolveActivityForNode(RoadmapTemplate template, RoadmapResponse.RoadmapNode node) {
+        if (template == null || node == null || node.getTitle() == null || template.getSkillBlocks() == null) {
+            return null;
         }
-
-        RoadmapSession roadmapSession = roadmapSessionRepository
-                .findById(journey.getRoadmapSessionId())
-                .orElse(null);
-        if (roadmapSession == null) {
-            return;
-        }
-
-        UserRoadmapProgress progress = progressRepository
-                .findBySessionIdAndQuestId(roadmapSession.getId(), nodeId)
-                .orElse(UserRoadmapProgress.builder()
-                        .roadmapSession(roadmapSession)
-                        .questId(nodeId)
-                        .status(UserRoadmapProgress.ProgressStatus.NOT_STARTED)
-                        .progress(0)
-                        .build());
-
-        if (completed) {
-            progress.setStatus(UserRoadmapProgress.ProgressStatus.COMPLETED);
-            progress.setProgress(100);
-            if (progress.getCompletedAt() == null) {
-                progress.setCompletedAt(Instant.now());
+        for (RoadmapTemplateSkillBlock block : template.getSkillBlocks()) {
+            if (block.getActivities() != null) {
+                for (RoadmapTemplateActivity act : block.getActivities()) {
+                    if (node.getTitle().equalsIgnoreCase(act.getTitle())) {
+                        return act;
+                    }
+                }
             }
-        } else {
-            progress.setStatus(UserRoadmapProgress.ProgressStatus.NOT_STARTED);
-            progress.setProgress(0);
-            progress.setCompletedAt(null);
         }
-
-        progressRepository.save(progress);
-    }
-
-    private void recalculateAndSyncJourneyProgress(Journey journey) {
-        if (journey == null || journey.getRoadmapSessionId() == null) {
-            return;
-        }
-        RoadmapSession session = roadmapSessionRepository
-                .findById(journey.getRoadmapSessionId())
-                .orElse(null);
-        if (session == null) {
-            return;
-        }
-        List<UserRoadmapProgress> allProgress =
-                progressRepository.findBySessionId(journey.getRoadmapSessionId());
-        long completedCount = allProgress.stream()
-                .filter(p -> p.getStatus() == UserRoadmapProgress.ProgressStatus.COMPLETED)
-                .count();
-        // Use canonical totalNodes from the session so a single completed node in a
-        // 10-node roadmap reports 10% (not 100% from allProgress.size() == 1).
-        int totalNodes = (session.getTotalNodes() != null && session.getTotalNodes() > 0)
-                ? session.getTotalNodes()
-                : allProgress.size();
-        if (totalNodes == 0) {
-            return;
-        }
-        int roadmapPct = (int) Math.round(completedCount * 100.0 / totalNodes);
-        // Map roadmap completion into lifecycle range [30, 90].
-        // 0% => 30, 100% => 90. Final verification (100%) is set elsewhere.
-        int mapped = Math.min(90, Math.max(30, (int) Math.round(30 + roadmapPct * 0.6)));
-        int current = journey.getProgressPercentage() != null ? journey.getProgressPercentage() : 0;
-        int next = Math.max(current, mapped);
-        if (!Objects.equals(current, next)) {
-            journey.setProgressPercentage(next);
-            journeyRepository.save(journey);
-        }
+        return null;
     }
 
     /**

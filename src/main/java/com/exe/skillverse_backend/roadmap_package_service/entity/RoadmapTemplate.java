@@ -1,5 +1,7 @@
 package com.exe.skillverse_backend.roadmap_package_service.entity;
 
+import com.exe.skillverse_backend.roadmap_package_service.constant.RoadmapEvidenceAiReviewDefaults;
+
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -113,6 +115,35 @@ public class RoadmapTemplate {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private RoadmapTemplateStatus status = RoadmapTemplateStatus.DRAFT;
+
+    @Column(name = "ai_evidence_review_enabled")
+    @Builder.Default
+    private Boolean aiEvidenceReviewEnabled = false;
+
+    @Column(name = "ai_auto_pass_enabled")
+    @Builder.Default
+    private Boolean aiAutoPassEnabled = false;
+
+    @Column(name = "ai_auto_pass_min_score_percent")
+    @Builder.Default
+    private Integer aiAutoPassMinScorePercent = RoadmapEvidenceAiReviewDefaults.AI_AUTO_PASS_MIN_SCORE_PERCENT;
+
+    @Column(name = "ai_auto_pass_min_confidence")
+    @Builder.Default
+    private Double aiAutoPassMinConfidence = RoadmapEvidenceAiReviewDefaults.AI_AUTO_PASS_MIN_CONFIDENCE;
+
+    @Column(name = "ai_manual_review_below_confidence")
+    @Builder.Default
+    private Double aiManualReviewBelowConfidence = RoadmapEvidenceAiReviewDefaults.AI_MANUAL_REVIEW_BELOW_CONFIDENCE;
+
+    @Column(name = "ai_evidence_prompt", columnDefinition = "TEXT")
+    private String aiEvidencePrompt;
+
+    @Column(name = "final_assignment_instructions", columnDefinition = "TEXT")
+    private String finalAssignmentInstructions;
+
+    @Column(name = "final_assignment_rubric", columnDefinition = "TEXT")
+    private String finalAssignmentRubric;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

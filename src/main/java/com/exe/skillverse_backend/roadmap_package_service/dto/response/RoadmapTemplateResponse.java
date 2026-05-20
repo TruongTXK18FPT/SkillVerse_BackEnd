@@ -32,6 +32,14 @@ public class RoadmapTemplateResponse {
     private String assessmentPolicy;
     private String templateInstructions;
     private String constraintsJson;
+    private Boolean aiEvidenceReviewEnabled;
+    private Boolean aiAutoPassEnabled;
+    private Integer aiAutoPassMinScorePercent;
+    private Double aiAutoPassMinConfidence;
+    private Double aiManualReviewBelowConfidence;
+    private String aiEvidencePrompt;
+    private String finalAssignmentInstructions;
+    private String finalAssignmentRubric;
     private RoadmapTemplateStatus status;
     private Instant createdAt;
     private Instant updatedAt;

@@ -39,6 +39,7 @@ import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTe
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateSkillBlockResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateValidationResponse;
+import com.exe.skillverse_backend.roadmap_package_service.constant.RoadmapEvidenceAiReviewDefaults;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplate;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateActivity;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateCourse;
@@ -544,6 +545,27 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         template.setAssessmentPolicy(request.getAssessmentPolicy());
         template.setTemplateInstructions(request.getTemplateInstructions());
         template.setConstraintsJson(request.getConstraintsJson());
+        boolean isCreate = template.getId() == null;
+        if (request.getAiEvidenceReviewEnabled() != null) {
+            template.setAiEvidenceReviewEnabled(request.getAiEvidenceReviewEnabled());
+        } else if (isCreate) {
+            template.setAiEvidenceReviewEnabled(true);
+        }
+        if (request.getAiAutoPassEnabled() != null) {
+            template.setAiAutoPassEnabled(request.getAiAutoPassEnabled());
+        } else if (isCreate) {
+            template.setAiAutoPassEnabled(false);
+        }
+        template.setAiAutoPassMinScorePercent(request.getAiAutoPassMinScorePercent() != null ? request.getAiAutoPassMinScorePercent() : RoadmapEvidenceAiReviewDefaults.AI_AUTO_PASS_MIN_SCORE_PERCENT);
+        template.setAiAutoPassMinConfidence(request.getAiAutoPassMinConfidence() != null ? request.getAiAutoPassMinConfidence() : RoadmapEvidenceAiReviewDefaults.AI_AUTO_PASS_MIN_CONFIDENCE);
+        template.setAiManualReviewBelowConfidence(request.getAiManualReviewBelowConfidence() != null ? request.getAiManualReviewBelowConfidence() : RoadmapEvidenceAiReviewDefaults.AI_MANUAL_REVIEW_BELOW_CONFIDENCE);
+        String prompt = request.getAiEvidencePrompt();
+        if (isCreate && (prompt == null || prompt.trim().isEmpty())) {
+            prompt = RoadmapEvidenceAiReviewDefaults.DEFAULT_AI_EVIDENCE_PROMPT;
+        }
+        template.setAiEvidencePrompt(prompt);
+        template.setFinalAssignmentInstructions(request.getFinalAssignmentInstructions());
+        template.setFinalAssignmentRubric(request.getFinalAssignmentRubric());
     }
 
     private void replaceTemplateChildren(RoadmapTemplate template, RoadmapTemplateRequest request) {

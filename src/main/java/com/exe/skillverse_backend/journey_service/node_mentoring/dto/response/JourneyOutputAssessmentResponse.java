@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.journey_service.node_mentoring.dto.response;
 
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.JourneyOutputAssessment;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.JourneyOutputAssessment.AssessmentStatus;
+import com.exe.skillverse_backend.journey_service.node_mentoring.entity.AiReviewStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -29,6 +30,8 @@ public class JourneyOutputAssessmentResponse {
     private Integer score;
     private String feedback;
     private AssessmentStatus assessmentStatus;
+    private Long latestAiReviewId;
+    private AiReviewStatus latestAiReviewStatus;
     private Instant submittedAt;
     private Instant assessedAt;
 
@@ -48,6 +51,8 @@ public class JourneyOutputAssessmentResponse {
                 .score(a.getScore())
                 .feedback(a.getFeedback())
                 .assessmentStatus(a.getAssessmentStatus())
+                .latestAiReviewId(a.getLatestAiReviewId())
+                .latestAiReviewStatus(a.getLatestAiReviewStatus())
                 .submittedAt(a.getSubmittedAt())
                 .assessedAt(a.getAssessedAt())
                 .build();

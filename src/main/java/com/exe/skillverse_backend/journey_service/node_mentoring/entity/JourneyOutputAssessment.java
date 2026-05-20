@@ -9,6 +9,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import com.exe.skillverse_backend.journey_service.node_mentoring.entity.AiReviewStatus;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -81,6 +82,13 @@ public class JourneyOutputAssessment {
     @Enumerated(EnumType.STRING)
     @Column(name = "assessment_status", nullable = false, length = 30)
     private AssessmentStatus assessmentStatus = AssessmentStatus.PENDING;
+
+    @Column(name = "latest_ai_review_id")
+    private Long latestAiReviewId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "latest_ai_review_status", length = 50)
+    private AiReviewStatus latestAiReviewStatus;
 
     @CreationTimestamp
     @Column(name = "submitted_at", nullable = false, updatable = false)

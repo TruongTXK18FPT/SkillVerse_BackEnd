@@ -40,12 +40,19 @@ import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import com.exe.skillverse_backend.journey_service.node_mentoring.ai.service.RoadmapEvidenceAiReviewService;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplate;
+import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
+import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
+import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionSynchronization;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -94,6 +101,9 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
     private final NotificationService notificationService;
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
+    private final RoadmapEvidenceAiReviewService aiReviewService;
+    private final RoadmapTemplateRepository templateRepository;
+    private final RoadmapSessionRepository roadmapSessionRepository;
 
     @Value("${jitsi.base-url:https://meet.jit.si}")
     private String jitsiBaseUrl;
@@ -238,7 +248,32 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
         a.setScore(null);
         a.setFeedback(null);
 
-        return JourneyOutputAssessmentResponse.from(outputAssessmentRepo.save(a));
+        JourneyOutputAssessment saved = outputAssessmentRepo.save(a);
+        
+        // Trigger AI Review for unmentored learners
+        boolean hasMentorCoverage = bookingRepository.existsActiveJourneyBookingForAnyMentor(
+                journeyId, ASSIGNED_MENTOR_STATUSES);
+        
+        if (!hasMentorCoverage && journey.getRoadmapSessionId() != null) {
+            roadmapSessionRepository.findById(journey.getRoadmapSessionId()).ifPresent(session -> {
+                if (session.getRoadmapTemplateId() != null) {
+                    templateRepository.findById(session.getRoadmapTemplateId()).ifPresent(template -> {
+                            if (TransactionSynchronizationManager.isActualTransactionActive()) {
+                                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                                    @Override
+                                    public void afterCommit() {
+                                        aiReviewService.reviewFinalAssignment(saved, template, journey.getSkillName());
+                                    }
+                                });
+                            } else {
+                                aiReviewService.reviewFinalAssignment(saved, template, journey.getSkillName());
+                            }
+                    });
+                }
+            });
+        }
+
+        return JourneyOutputAssessmentResponse.from(saved);
     }
 
     @Override

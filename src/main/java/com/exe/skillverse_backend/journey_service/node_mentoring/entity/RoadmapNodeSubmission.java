@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import com.exe.skillverse_backend.journey_service.node_mentoring.entity.AiReviewStatus;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 import lombok.AllArgsConstructor;
@@ -109,6 +110,13 @@ public class RoadmapNodeSubmission {
     @Builder.Default
     @Column(name = "learner_marked_complete", nullable = false)
     private Boolean learnerMarkedComplete = false;
+
+    @Column(name = "latest_ai_review_id")
+    private Long latestAiReviewId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "latest_ai_review_status", length = 50)
+    private AiReviewStatus latestAiReviewStatus;
 
     @CreationTimestamp
     @Column(name = "submitted_at", nullable = false, updatable = false)

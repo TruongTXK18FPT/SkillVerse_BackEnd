@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.journey_service.node_mentoring.dto.response;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeSubmission;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeSubmission.SubmissionStatus;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeSubmission.VerificationStatus;
+import com.exe.skillverse_backend.journey_service.node_mentoring.entity.AiReviewStatus;
 import com.exe.skillverse_backend.ai_service.entity.UserRoadmapProgress;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -44,6 +45,9 @@ public class NodeEvidenceRecordResponse {
     private Instant updatedAt;
     private Boolean learnerMarkedComplete;
     private String roadmapProgressStatus;
+
+    private Long latestAiReviewId;
+    private AiReviewStatus latestAiReviewStatus;
 
     /**
      * True when an active mentor booking (NODE_MENTORING or ROADMAP_MENTORING) covers this node.
@@ -90,6 +94,8 @@ public class NodeEvidenceRecordResponse {
                                 : null)
                 .latestReview(latestReview)
                 .latestVerification(latestVerification)
+                .latestAiReviewId(s.getLatestAiReviewId())
+                .latestAiReviewStatus(s.getLatestAiReviewStatus())
                 .build();
     }
 }
