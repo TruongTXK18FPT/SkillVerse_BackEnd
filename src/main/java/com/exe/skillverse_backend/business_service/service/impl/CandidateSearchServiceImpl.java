@@ -92,9 +92,10 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         }
 
         int page = request.getPage() != null ? Math.max(0, request.getPage()) : 0;
-        int size = request.getSize() != null && request.getSize() > 0 ? request.getSize() : 20;
+        int size = request.getSize() != null && request.getSize() > 0 ? Math.min(request.getSize(), 50) : 20;
         PageRequest pageRequest = PageRequest.of(page, size);
-        Page<PortfolioExtendedProfile> profiles = portfolioRepository.findPortfoliosOpenToOffers(Pageable.unpaged());
+        int scoringWindow = Math.max(200, Math.min(500, (page + 1) * size * 5));
+        Page<PortfolioExtendedProfile> profiles = portfolioRepository.findPortfoliosOpenToOffers(PageRequest.of(0, scoringWindow));
 
         JobPosting resolvedJob = null;
         if (request.getJobId() != null) {

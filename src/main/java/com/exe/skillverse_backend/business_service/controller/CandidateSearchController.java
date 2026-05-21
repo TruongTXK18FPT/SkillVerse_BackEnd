@@ -110,7 +110,7 @@ public class CandidateSearchController {
     }
 
     /**
-     * Get AI match explanation for a specific candidate-job pair
+     * Get deterministic match explanation for a specific candidate-job pair
      * GET /api/v1/recruiter/candidates/{candidateId}/match
      */
     @GetMapping("/{candidateId}/match")
@@ -127,13 +127,13 @@ public class CandidateSearchController {
 
         return ResponseEntity.ok(Map.of(
                 "success", true,
-                "message", "AI phân tích match",
+                "message", "Phân tích match bằng thuật toán",
                 "data", result
         ));
     }
 
     /**
-     * Get AI match explanation for a specific candidate-shortTermJob pair
+     * Get deterministic match explanation for a specific candidate-shortTermJob pair
      * GET /api/v1/recruiter/candidates/{candidateId}/shortterm-match
      */
     @GetMapping("/{candidateId}/shortterm-match")
@@ -150,7 +150,7 @@ public class CandidateSearchController {
 
         return ResponseEntity.ok(Map.of(
                 "success", true,
-                "message", "AI phân tích match cho công việc ngắn hạn",
+                "message", "Phân tích match bằng thuật toán cho công việc ngắn hạn",
                 "data", result
         ));
     }

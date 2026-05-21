@@ -5,17 +5,20 @@ import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.ShortTermJob;
 import com.exe.skillverse_backend.portfolio_service.dto.CandidateFitAnalysisDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.CompletedMissionDTO;
+import com.exe.skillverse_backend.portfolio_service.entity.GeneratedCV;
 import com.exe.skillverse_backend.portfolio_service.entity.ExternalCertificate;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioProject;
 import com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill;
 import com.exe.skillverse_backend.portfolio_service.repository.ExternalCertificateRepository;
+import com.exe.skillverse_backend.portfolio_service.repository.GeneratedCVRepository;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioProjectRepository;
 import com.exe.skillverse_backend.portfolio_service.repository.UserVerifiedSkillRepository;
 import com.exe.skillverse_backend.portfolio_service.service.PortfolioService;
 import com.exe.skillverse_backend.student_skill_verification.entity.StudentSkillVerificationRequest;
 import com.exe.skillverse_backend.student_skill_verification.repository.StudentSkillVerificationRequestRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Builder;
 import lombok.Data;
@@ -66,6 +69,7 @@ public class CandidateFitScoringService {
     private final ExternalCertificateRepository certificateRepository;
     private final UserVerifiedSkillRepository verifiedSkillRepository;
     private final StudentSkillVerificationRequestRepository studentVerificationRepository;
+    private final GeneratedCVRepository cvRepository;
     private final PortfolioService portfolioService;
 
     public ScoreResult score(
@@ -76,8 +80,10 @@ public class CandidateFitScoringService {
     ) {
         CandidateContext context = buildContext(profile, job, shortTermJob, request);
 
-        double skillFit = calculateSkillFit(context);
-        double experienceFit = calculateExperienceFit(context);
+        double skillFit = calculateVerifiedSkillFit(context);
+        double yearsFit = calculateExperienceFit(context);
+        double seniorityFit = calculateSeniorityFit(context);
+        double experienceFit = clamp01((yearsFit * 0.60) + (seniorityFit * 0.40));
         double evidenceFit = calculateEvidenceFit(context);
         double deliveryFit = calculateDeliveryFit(context);
         double logisticsFit = calculateLogisticsFit(context);
@@ -90,7 +96,9 @@ public class CandidateFitScoringService {
                 + (deliveryFit * DELIVERY_WEIGHT)
                 + (logisticsFit * LOGISTICS_WEIGHT)
                 + (confidenceFit * CONFIDENCE_WEIGHT);
-        double overallScore = round(clamp01(rawScore - riskPenalty), 4);
+        double overallScore = applyProductionCaps(clamp01(rawScore - riskPenalty), context);
+        context.fitVerdict = determineFitVerdict(context, overallScore);
+        overallScore = round(overallScore, 4);
 
         List<CandidateFitAnalysisDTO.ComponentScoreDTO> components = List.of(
                 component("skillFit", "Kỹ năng bắt buộc", skillFit, SKILL_WEIGHT, buildSkillExplanation(context)),
@@ -107,6 +115,22 @@ public class CandidateFitScoringService {
                 .recommendation(buildRecommendation(overallScore, context))
                 .confidenceScore(round(confidenceFit, 4))
                 .riskPenalty(round(riskPenalty, 4))
+                .verifiedSkillMatchPercent(round(context.verifiedSkillMatchPercent, 4))
+                .evidenceBackedSkillPercent(round(context.evidenceBackedSkillPercent, 4))
+                .declaredOnlySkillPercent(round(context.declaredOnlySkillPercent, 4))
+                .missingSkillPercent(round(context.missingSkillPercent, 4))
+                .requiredSkillSignals(context.requiredSkillSignals)
+                .unverifiedSkillWarnings(context.unverifiedSkillWarnings)
+                .requiredSeniority(context.requiredSeniority)
+                .inferredSeniority(context.inferredSeniority)
+                .seniorityPass(context.seniorityPass)
+                .overqualified(context.overqualified)
+                .seniorityConfidence(round(context.seniorityConfidence, 4))
+                .senioritySummary(context.senioritySummary)
+                .seniorityDecision(context.seniorityDecision)
+                .seniorityRiskLevel(context.seniorityRiskLevel)
+                .fitVerdict(context.fitVerdict)
+                .seniorityEvidence(context.seniorityEvidence)
                 .components(components)
                 .skillBreakdown(context.skillBreakdown)
                 .evidenceHighlights(context.evidenceHighlights)
@@ -159,11 +183,14 @@ public class CandidateFitScoringService {
                 job != null ? job.getPrimarySkill() : null
         );
 
-        context.candidateSkills = parseSkillList(profile.getTopSkills());
+        Long userId = profile.getUserId();
+        context.activeCv = cvRepository.findByUserIdAndIsActiveTrue(userId).orElse(null);
+        context.profileDeclaredSkills = parseSkillList(profile.getTopSkills());
+        context.cvDeclaredSkills = parseCvSkills(context.activeCv);
+        context.candidateSkills = mergeDistinct(context.profileDeclaredSkills, context.cvDeclaredSkills);
         context.candidateSkillIndex = indexByNormalized(context.candidateSkills);
         context.requiredSkills = resolveRequiredSkills(job, shortTermJob, request, context.primarySkill);
 
-        Long userId = profile.getUserId();
         context.projects = loadSafely(() -> projectRepository.findByUserIdOrderByCompletionDateDesc(userId));
         context.certificates = loadSafely(() -> certificateRepository.findByUserIdOrderByIssueDateDesc(userId));
         context.verifiedSkills = loadSafely(() -> verifiedSkillRepository.findByUserIdOrderByVerifiedAtDesc(userId));
@@ -171,7 +198,9 @@ public class CandidateFitScoringService {
         context.completedMissions = loadSafely(() -> portfolioService.getPublicCompletedMissions(userId));
 
         context.projectSkillIndex = buildProjectSkillIndex(context.projects);
+        context.possibleProjectSkillIndex = buildPossibleProjectSkillIndex(context.projects);
         context.certificateSkillIndex = buildCertificateSkillIndex(context.certificates);
+        context.possibleCertificateSkillIndex = buildPossibleCertificateSkillIndex(context.certificates);
         context.verifiedSkillIndex = buildVerifiedSkillIndex(context.verifiedSkills, context.adminVerifiedSkills);
         context.missionSkillIndex = buildMissionSkillIndex(context.completedMissions);
         context.averageMissionRating = context.completedMissions.stream()
@@ -183,6 +212,7 @@ public class CandidateFitScoringService {
                 .boxed()
                 .findFirst()
                 .orElse(null);
+        populateSeniorityAnalysis(context);
 
         return context;
     }
@@ -214,6 +244,173 @@ public class CandidateFitScoringService {
         return new ArrayList<>(skills);
     }
 
+    private double calculateVerifiedSkillFit(CandidateContext context) {
+        if (context.requiredSkills.isEmpty()) {
+            if (context.candidateSkills.isEmpty()) {
+                context.riskFlags.add("Ung vien chua khai bao ky nang noi bat.");
+                return 0.30;
+            }
+            context.declaredOnlySkillPercent = 1.0;
+            return 0.72;
+        }
+
+        List<Double> scores = new ArrayList<>();
+        int verifiedCount = 0;
+        int evidenceCount = 0;
+        int declaredOnlyCount = 0;
+        int missingCount = 0;
+
+        for (String requiredSkill : context.requiredSkills) {
+            SkillMatch match = matchRequiredSkillWithProof(requiredSkill, context);
+            scores.add(match.score);
+
+            boolean primary = isSameSkill(requiredSkill, context.primarySkill);
+            boolean proofBacked = match.matched
+                    && ("VERIFIED".equals(match.verificationStatus) || "EVIDENCE_BACKED".equals(match.verificationStatus));
+            if (primary) {
+                context.primarySkillMatch = proofBacked;
+            }
+
+            if ("VERIFIED".equals(match.verificationStatus)) {
+                verifiedCount++;
+            } else if ("EVIDENCE_BACKED".equals(match.verificationStatus)) {
+                evidenceCount++;
+            } else if ("POSSIBLE_EVIDENCE".equals(match.verificationStatus)) {
+                context.riskFlags.add("Skill " + requiredSkill + " chi co bang chung gian tiep, can kiem tra them.");
+            } else if ("DECLARED_ONLY".equals(match.verificationStatus)) {
+                declaredOnlyCount++;
+                context.unverifiedSkillWarnings.add("Skill " + requiredSkill
+                        + " chi xuat hien trong top skills/CV tu khai, chua co mentor/admin verification hoac evidence lien quan.");
+            } else {
+                missingCount++;
+            }
+
+            if (proofBacked) {
+                context.matchedSkills.add(requiredSkill);
+            } else if (!"POSSIBLE_EVIDENCE".equals(match.verificationStatus)) {
+                context.unmatchedSkills.add(requiredSkill);
+                context.missingRequirements.add(CandidateFitAnalysisDTO.MissingRequirementDTO.builder()
+                        .skill(requiredSkill)
+                        .severity(primary ? "CRITICAL" : "IMPORTANT")
+                        .suggestion("Yeu cau ung vien cung cap mentor/admin verification, project, certificate hoac bai test chung minh skill nay.")
+                        .build());
+            }
+
+            context.requiredSkillSignals.add(CandidateFitAnalysisDTO.RequiredSkillSignalDTO.builder()
+                    .skill(requiredSkill)
+                    .primary(primary)
+                    .status(match.verificationStatus)
+                    .confidenceScore(round(match.confidence, 4))
+                    .businessMeaning(match.businessMeaning)
+                    .sources(match.evidenceSources)
+                    .build());
+
+            context.skillBreakdown.add(CandidateFitAnalysisDTO.SkillBreakdownDTO.builder()
+                    .skill(requiredSkill)
+                    .primary(primary)
+                    .required(true)
+                    .matched(proofBacked)
+                    .matchType(match.matchType)
+                    .verificationStatus(match.verificationStatus)
+                    .relevanceScore(round(match.score, 4))
+                    .confidenceScore(round(match.confidence, 4))
+                    .businessMeaning(match.businessMeaning)
+                    .evidenceSources(match.evidenceSources)
+                    .build());
+        }
+
+        int requiredCount = Math.max(1, context.requiredSkills.size());
+        context.verifiedSkillMatchPercent = (double) verifiedCount / requiredCount;
+        context.evidenceBackedSkillPercent = (double) evidenceCount / requiredCount;
+        context.declaredOnlySkillPercent = (double) declaredOnlyCount / requiredCount;
+        context.missingSkillPercent = (double) missingCount / requiredCount;
+
+        double averageSkillFit = scores.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+        if (context.primarySkill != null && !context.primarySkill.isBlank() && !context.primarySkillMatch) {
+            context.riskFlags.add("Thieu ky nang chinh: " + context.primarySkill + ".");
+            averageSkillFit = Math.min(averageSkillFit, 0.72);
+        }
+
+        return clamp01(averageSkillFit);
+    }
+
+    private SkillMatch matchRequiredSkillWithProof(String requiredSkill, CandidateContext context) {
+        String requiredNorm = normalize(requiredSkill);
+
+        SkillEvidence verifiedEvidence = findBestEvidence(requiredNorm, context.verifiedSkillIndex, "Verified skill");
+        if (verifiedEvidence != null) {
+            return SkillMatch.builder()
+                    .matched(true)
+                    .score(1.0)
+                    .confidence(verifiedEvidence.confidence())
+                    .matchType("VERIFIED_SKILL")
+                    .verificationStatus("VERIFIED")
+                    .businessMeaning("Skill " + requiredSkill + " da duoc mentor/admin xac thuc, co the dung lam bang chung chinh.")
+                    .evidenceSources(new ArrayList<>(List.of(verifiedEvidence.label())))
+                    .build();
+        }
+
+        List<SkillEvidence> evidence = new ArrayList<>();
+        Optional.ofNullable(findBestEvidence(requiredNorm, context.projectSkillIndex, "Project")).ifPresent(evidence::add);
+        Optional.ofNullable(findBestEvidence(requiredNorm, context.certificateSkillIndex, "Certificate")).ifPresent(evidence::add);
+        Optional.ofNullable(findBestEvidence(requiredNorm, context.missionSkillIndex, "Completed mission")).ifPresent(evidence::add);
+        if (!evidence.isEmpty()) {
+            double confidence = evidence.stream().mapToDouble(SkillEvidence::confidence).max().orElse(0.70);
+            List<String> sources = evidence.stream().map(SkillEvidence::label).distinct().toList();
+            return SkillMatch.builder()
+                    .matched(true)
+                    .score(0.68)
+                    .confidence(confidence)
+                    .matchType("PORTFOLIO_EVIDENCE")
+                    .verificationStatus("EVIDENCE_BACKED")
+                    .businessMeaning("Skill " + requiredSkill + " co bang chung trong portfolio/mission/certificate, nhung chua phai skill da xac thuc truc tiep.")
+                    .evidenceSources(new ArrayList<>(sources))
+                    .build();
+        }
+
+        List<SkillEvidence> possibleEvidence = new ArrayList<>();
+        Optional.ofNullable(findBestEvidence(requiredNorm, context.possibleProjectSkillIndex, "Possible project evidence")).ifPresent(possibleEvidence::add);
+        Optional.ofNullable(findBestEvidence(requiredNorm, context.possibleCertificateSkillIndex, "Possible certificate evidence")).ifPresent(possibleEvidence::add);
+        if (!possibleEvidence.isEmpty()) {
+            double confidence = possibleEvidence.stream().mapToDouble(SkillEvidence::confidence).max().orElse(0.45);
+            List<String> sources = possibleEvidence.stream().map(SkillEvidence::label).distinct().toList();
+            return SkillMatch.builder()
+                    .matched(true)
+                    .score(0.35)
+                    .confidence(confidence)
+                    .matchType("POSSIBLE_PORTFOLIO_EVIDENCE")
+                    .verificationStatus("POSSIBLE_EVIDENCE")
+                    .businessMeaning("Skill " + requiredSkill + " chi xuat hien trong noi dung mo ta portfolio, can phong van hoac yeu cau minh chung ro hon.")
+                    .evidenceSources(new ArrayList<>(sources))
+                    .build();
+        }
+
+        for (String candidateSkill : context.candidateSkills) {
+            double similarity = skillSimilarity(requiredSkill, candidateSkill);
+            if (similarity >= 0.55) {
+                return SkillMatch.builder()
+                        .matched(true)
+                        .score(0.08)
+                        .confidence(Math.min(0.50, similarity))
+                        .matchType(similarity >= 0.95 ? "DECLARED_EXACT" : "DECLARED_RELATED")
+                        .verificationStatus("DECLARED_ONLY")
+                        .businessMeaning("Skill " + requiredSkill + " chi duoc ung vien tu khai trong CV/top skills, chua chung minh duoc nang luc.")
+                        .evidenceSources(new ArrayList<>(List.of("Declared in CV/top skills: " + candidateSkill)))
+                        .build();
+            }
+        }
+
+        return SkillMatch.builder()
+                .matched(false)
+                .score(0.0)
+                .confidence(0.0)
+                .matchType("MISSING")
+                .verificationStatus("MISSING")
+                .businessMeaning("Chua tim thay skill " + requiredSkill + " trong skill da xac thuc, evidence portfolio hoac CV/top skills.")
+                .evidenceSources(new ArrayList<>())
+                .build();
+    }
+
     private double calculateSkillFit(CandidateContext context) {
         if (context.requiredSkills.isEmpty()) {
             if (context.candidateSkills.isEmpty()) {
@@ -225,7 +422,7 @@ public class CandidateFitScoringService {
 
         List<Double> scores = new ArrayList<>();
         for (String requiredSkill : context.requiredSkills) {
-            SkillMatch match = matchRequiredSkill(requiredSkill, context);
+            SkillMatch match = matchRequiredSkillWithProof(requiredSkill, context);
             scores.add(match.score);
 
             if (isSameSkill(requiredSkill, context.primarySkill)) {
@@ -264,67 +461,6 @@ public class CandidateFitScoringService {
         return clamp01(averageSkillFit);
     }
 
-    private SkillMatch matchRequiredSkill(String requiredSkill, CandidateContext context) {
-        String requiredNorm = normalize(requiredSkill);
-        SkillMatch best = SkillMatch.builder()
-                .matched(false)
-                .score(0.0)
-                .confidence(0.0)
-                .matchType("MISSING")
-                .evidenceSources(new ArrayList<>())
-                .build();
-
-        for (String candidateSkill : context.candidateSkills) {
-            double similarity = skillSimilarity(requiredSkill, candidateSkill);
-            if (similarity > best.score) {
-                best = SkillMatch.builder()
-                        .matched(similarity >= 0.55)
-                        .score(similarity)
-                        .confidence(Math.min(1.0, similarity + 0.10))
-                        .matchType(similarity >= 0.95 ? "EXACT" : "RELATED")
-                        .evidenceSources(new ArrayList<>(List.of("Top skills: " + candidateSkill)))
-                        .build();
-            }
-        }
-
-        SkillEvidence verifiedEvidence = findBestEvidence(requiredNorm, context.verifiedSkillIndex, "Verified skill");
-        best = mergeEvidence(best, verifiedEvidence, 1.0, "VERIFIED");
-
-        SkillEvidence projectEvidence = findBestEvidence(requiredNorm, context.projectSkillIndex, "Project");
-        best = mergeEvidence(best, projectEvidence, 0.88, "PROJECT_EVIDENCE");
-
-        SkillEvidence certificateEvidence = findBestEvidence(requiredNorm, context.certificateSkillIndex, "Certificate");
-        best = mergeEvidence(best, certificateEvidence, 0.82, "CERTIFICATE_EVIDENCE");
-
-        SkillEvidence missionEvidence = findBestEvidence(requiredNorm, context.missionSkillIndex, "Completed mission");
-        best = mergeEvidence(best, missionEvidence, 0.78, "MISSION_EVIDENCE");
-
-        return best;
-    }
-
-    private SkillMatch mergeEvidence(SkillMatch current, SkillEvidence evidence, double evidenceScore, String matchType) {
-        if (evidence == null) {
-            return current;
-        }
-
-        List<String> evidenceSources = new ArrayList<>(current.evidenceSources);
-        evidenceSources.add(evidence.label());
-
-        if (evidenceScore > current.score) {
-            return SkillMatch.builder()
-                    .matched(true)
-                    .score(evidenceScore)
-                    .confidence(Math.max(current.confidence, evidence.confidence()))
-                    .matchType(matchType)
-                    .evidenceSources(evidenceSources)
-                    .build();
-        }
-
-        current.evidenceSources = evidenceSources;
-        current.confidence = Math.max(current.confidence, evidence.confidence());
-        return current;
-    }
-
     private double calculateExperienceFit(CandidateContext context) {
         Integer years = context.profile.getYearsOfExperience();
         int candidateYears = years != null ? Math.max(0, years) : 0;
@@ -343,6 +479,180 @@ public class CandidateFitScoringService {
             return 0.55;
         }
         return requiredYears <= 1 ? 0.65 : 0.30;
+    }
+
+    private double calculateSeniorityFit(CandidateContext context) {
+        if (context.job == null || context.requiredSeniority == null) {
+            return 1.0;
+        }
+        return switch (Optional.ofNullable(context.seniorityDecision).orElse("NEEDS_REVIEW")) {
+            case "PASS", "NOT_APPLICABLE" -> 1.0;
+            case "NEEDS_REVIEW" -> 0.50;
+            case "FAIL_OVERQUALIFIED" -> 0.40;
+            case "FAIL_UNDERQUALIFIED" -> 0.30;
+            default -> context.seniorityPass ? 1.0 : 0.30;
+        };
+    }
+
+    private void populateSeniorityAnalysis(CandidateContext context) {
+        if (context.job == null) {
+            context.seniorityDecision = "NOT_APPLICABLE";
+            context.seniorityRiskLevel = "LOW";
+            context.senioritySummary = "Short-term job khong ap dung seniority gate full-time.";
+            return;
+        }
+
+        context.requiredSeniority = normalizeSeniority(context.job.getExperienceLevel());
+        if (context.requiredSeniority == null) {
+            context.seniorityPass = true;
+            context.seniorityDecision = "NOT_APPLICABLE";
+            context.seniorityRiskLevel = "LOW";
+            context.senioritySummary = "Job full-time khong khai bao experience level cu the.";
+            return;
+        }
+
+        List<String> titleSignals = collectSeniorityTitleSignals(context);
+        String titleLevel = titleSignals.stream()
+                .map(this::inferSeniorityFromTitle)
+                .filter(Objects::nonNull)
+                .max(Comparator.comparingInt(this::seniorityRank))
+                .orElse(null);
+        String yearsLevel = inferSeniorityFromYears(context.profile.getYearsOfExperience());
+
+        context.inferredSeniority = strongerSeniority(titleLevel, yearsLevel);
+        if (titleLevel != null) {
+            context.seniorityEvidence.add("Title/CV signal: " + String.join("; ", titleSignals.stream().limit(4).toList()));
+        }
+        if (context.profile.getYearsOfExperience() != null) {
+            context.seniorityEvidence.add("Portfolio yearsOfExperience: " + context.profile.getYearsOfExperience());
+        }
+        if (context.activeCv != null) {
+            context.seniorityEvidence.add("Active CV version " + context.activeCv.getVersion() + " was checked.");
+        }
+
+        context.seniorityConfidence = clamp01(
+                (titleLevel != null ? 0.55 : 0.0)
+                        + (yearsLevel != null ? 0.30 : 0.0)
+                        + (!titleSignals.isEmpty() ? 0.15 : 0.0)
+        );
+
+        int requiredRank = seniorityRank(context.requiredSeniority);
+        int inferredRank = seniorityRank(context.inferredSeniority);
+        if (context.inferredSeniority == null) {
+            context.seniorityPass = false;
+            context.seniorityDecision = "NEEDS_REVIEW";
+            context.seniorityRiskLevel = "MEDIUM";
+            String reason = "Chua du thong tin CV/portfolio de xac dinh ung vien co dung seniority " + context.requiredSeniority + " hay khong.";
+            context.riskFlags.add(reason);
+            context.senioritySummary = reason;
+            return;
+        }
+
+        if ("FRESHER".equals(context.requiredSeniority)) {
+            context.overqualified = inferredRank > seniorityRank("FRESHER");
+            context.seniorityPass = !context.overqualified && inferredRank <= seniorityRank("FRESHER");
+            context.seniorityDecision = context.seniorityPass ? "PASS" : "FAIL_OVERQUALIFIED";
+        } else {
+            context.seniorityPass = inferredRank >= requiredRank;
+            context.seniorityDecision = context.seniorityPass ? "PASS" : "FAIL_UNDERQUALIFIED";
+        }
+        context.seniorityRiskLevel = context.seniorityPass ? "LOW" : "HIGH";
+
+        if (!context.seniorityPass) {
+            String reason = context.overqualified
+                    ? "Job yeu cau Fresher nhung CV/portfolio cho thay ung vien da o cap " + context.inferredSeniority + "."
+                    : "Job yeu cau " + context.requiredSeniority + " nhung CV/portfolio chi suy luan duoc " + context.inferredSeniority + ".";
+            context.riskFlags.add(reason);
+            context.senioritySummary = reason;
+        } else {
+            context.senioritySummary = "Seniority phu hop: job yeu cau " + context.requiredSeniority
+                    + ", CV/portfolio suy luan " + context.inferredSeniority + ".";
+        }
+    }
+
+    private List<String> collectSeniorityTitleSignals(CandidateContext context) {
+        List<String> signals = new ArrayList<>();
+        if (notBlank(context.profile.getProfessionalTitle())) {
+            signals.add(context.profile.getProfessionalTitle());
+        }
+        if (context.activeCv != null && notBlank(context.activeCv.getCvJson())) {
+            try {
+                JsonNode root = objectMapper.readTree(context.activeCv.getCvJson());
+                JsonNode title = root.path("personalInfo").path("professionalTitle");
+                if (title.isTextual() && notBlank(title.asText())) {
+                    signals.add(title.asText());
+                }
+                JsonNode experience = root.path("experience");
+                if (experience.isArray()) {
+                    experience.forEach(node -> {
+                        JsonNode expTitle = node.path("title");
+                        if (expTitle.isTextual() && notBlank(expTitle.asText())) {
+                            signals.add(expTitle.asText());
+                        }
+                    });
+                }
+            } catch (Exception exception) {
+                log.debug("Unable to parse active CV seniority signals: {}", exception.getMessage());
+            }
+        }
+        if (notBlank(context.profile.getWorkExperiences())) {
+            try {
+                JsonNode experiences = objectMapper.readTree(context.profile.getWorkExperiences());
+                if (experiences.isArray()) {
+                    experiences.forEach(node -> {
+                        JsonNode position = node.path("position");
+                        if (position.isTextual() && notBlank(position.asText())) {
+                            signals.add(position.asText());
+                        }
+                    });
+                }
+            } catch (Exception exception) {
+                log.debug("Unable to parse portfolio work experience seniority signals: {}", exception.getMessage());
+            }
+        }
+        return signals.stream().filter(this::notBlank).distinct().toList();
+    }
+
+    private String normalizeSeniority(String value) {
+        String normalized = normalize(value);
+        if (normalized.isBlank() || normalized.contains("all")) return null;
+        if (normalized.contains("intern")) return "INTERNSHIP";
+        if (normalized.contains("fresher") || normalized.contains("entry")) return "FRESHER";
+        if (normalized.contains("junior")) return "JUNIOR";
+        if (normalized.contains("middle") || normalized.contains("mid")) return "MIDDLE";
+        if (normalized.contains("senior") || normalized.contains("lead") || normalized.contains("principal")) return "SENIOR";
+        return null;
+    }
+
+    private String inferSeniorityFromTitle(String value) {
+        return normalizeSeniority(value);
+    }
+
+    private String inferSeniorityFromYears(Integer years) {
+        if (years == null) return null;
+        if (years <= 0) return "INTERNSHIP";
+        if (years <= 1) return "FRESHER";
+        if (years <= 2) return "JUNIOR";
+        if (years <= 5) return "MIDDLE";
+        return "SENIOR";
+    }
+
+    private String strongerSeniority(String left, String right) {
+        if (left == null) return right;
+        if (right == null) return left;
+        return seniorityRank(left) >= seniorityRank(right) ? left : right;
+    }
+
+    private int seniorityRank(String level) {
+        if (level == null) return 0;
+        return switch (level) {
+            case "INTERNSHIP" -> 0;
+            case "FRESHER" -> 1;
+            case "JUNIOR" -> 2;
+            case "MIDDLE" -> 3;
+            case "SENIOR" -> 4;
+            default -> 0;
+        };
     }
 
     private double calculateEvidenceFit(CandidateContext context) {
@@ -440,11 +750,57 @@ public class CandidateFitScoringService {
             context.riskFlags.add("Điều kiện ngân sách hoặc làm việc có thể chưa phù hợp.");
         }
 
+        if (context.job != null && context.requiredSeniority != null && !context.seniorityPass) {
+            penalty += context.overqualified ? 0.06 : 0.10;
+        }
+
         if (skillFit >= 0.80 && !context.riskFlags.isEmpty()) {
             penalty *= 0.75;
         }
 
         return Math.min(0.25, penalty);
+    }
+
+    private double applyProductionCaps(double score, CandidateContext context) {
+        double capped = score;
+        if (context.primarySkill != null && !context.primarySkill.isBlank() && !context.primarySkillMatch) {
+            capped = Math.min(capped, 0.72);
+            context.riskFlags.add("Tong diem bi gioi han vi skill chinh chua co bang chung xac thuc.");
+        }
+        if (context.verifiedSkillMatchPercent == 0.0 && context.evidenceBackedSkillPercent < 0.40) {
+            capped = Math.min(capped, 0.60);
+            context.riskFlags.add("Tong diem bi gioi han vi skill bat buoc chu yeu chua duoc xac thuc.");
+        }
+        if ("FAIL_OVERQUALIFIED".equals(context.seniorityDecision) || "FAIL_UNDERQUALIFIED".equals(context.seniorityDecision)) {
+            capped = Math.min(capped, 0.70);
+        }
+        if ("NEEDS_REVIEW".equals(context.seniorityDecision)) {
+            capped = Math.min(capped, 0.75);
+        }
+        return clamp01(capped);
+    }
+
+    private String determineFitVerdict(CandidateContext context, double overallScore) {
+        if ("FAIL_OVERQUALIFIED".equals(context.seniorityDecision)
+                || "FAIL_UNDERQUALIFIED".equals(context.seniorityDecision)) {
+            return "SENIORITY_RISK";
+        }
+        if ("NEEDS_REVIEW".equals(context.seniorityDecision)) {
+            return "NEEDS_REVIEW";
+        }
+        if (context.primarySkill != null && !context.primarySkill.isBlank() && !context.primarySkillMatch) {
+            return "MISSING_CRITICAL_SKILLS";
+        }
+        if (context.verifiedSkillMatchPercent >= 0.60 && context.missingSkillPercent <= 0.20 && overallScore >= 0.68) {
+            return "STRONG_VERIFIED_FIT";
+        }
+        if (context.evidenceBackedSkillPercent > 0.0 || context.verifiedSkillMatchPercent > 0.0) {
+            return "PARTIAL_EVIDENCE_FIT";
+        }
+        if (context.declaredOnlySkillPercent > 0.0) {
+            return "UNVERIFIED_CLAIM_ONLY";
+        }
+        return "MISSING_CRITICAL_SKILLS";
     }
 
     private CandidateFitAnalysisDTO.ComponentScoreDTO component(
@@ -567,6 +923,14 @@ public class CandidateFitScoringService {
             explanation.append("Cần kiểm tra thêm: ")
                     .append(String.join(", ", context.unmatchedSkills.stream().limit(3).toList()))
                     .append(". ");
+        }
+        explanation.append("Verified skill ")
+                .append(Math.round(context.verifiedSkillMatchPercent * 100)).append("%, evidence ")
+                .append(Math.round(context.evidenceBackedSkillPercent * 100)).append("%, tu khai ")
+                .append(Math.round(context.declaredOnlySkillPercent * 100)).append("%, thieu ")
+                .append(Math.round(context.missingSkillPercent * 100)).append("%. ");
+        if (context.seniorityDecision != null && !"NOT_APPLICABLE".equals(context.seniorityDecision)) {
+            explanation.append("Seniority: ").append(context.seniorityDecision).append(". ");
         }
         explanation.append("Evidence: ").append(context.relevantProjectsCount).append(" project, ")
                 .append(context.relevantCertificatesCount).append(" chứng chỉ, ")
@@ -766,9 +1130,6 @@ public class CandidateFitScoringService {
         List<String> parts = new ArrayList<>();
         parts.add(project.getTitle());
         parts.add(project.getDescription());
-        parts.add(project.getClientName());
-        parts.add(project.getProjectUrl());
-        parts.add(project.getGithubUrl());
         if (project.getTools() != null) parts.addAll(project.getTools());
         if (project.getOutcomes() != null) parts.addAll(project.getOutcomes());
         return joinText(parts);
@@ -787,10 +1148,27 @@ public class CandidateFitScoringService {
         Map<String, List<SkillEvidence>> index = new LinkedHashMap<>();
         for (PortfolioProject project : projects) {
             String title = firstNonBlank(project.getTitle(), "Portfolio project");
-            Set<String> tokens = extractSkillTokens(projectText(project));
-            for (String token : tokens) {
+            if (project.getTools() == null) {
+                continue;
+            }
+            for (String tool : project.getTools()) {
+                putEvidence(index, tool, "Project tool: " + title + " (" + tool + ")", 0.78);
+            }
+        }
+        return index;
+    }
+
+    private Map<String, List<SkillEvidence>> buildPossibleProjectSkillIndex(List<PortfolioProject> projects) {
+        Map<String, List<SkillEvidence>> index = new LinkedHashMap<>();
+        for (PortfolioProject project : projects) {
+            String title = firstNonBlank(project.getTitle(), "Portfolio project");
+            List<String> parts = new ArrayList<>();
+            parts.add(project.getTitle());
+            parts.add(project.getDescription());
+            if (project.getOutcomes() != null) parts.addAll(project.getOutcomes());
+            for (String token : extractSkillTokens(joinText(parts))) {
                 index.computeIfAbsent(token, key -> new ArrayList<>())
-                        .add(new SkillEvidence("Project: " + title, 0.78));
+                        .add(new SkillEvidence("Project text: " + title, 0.45));
             }
         }
         return index;
@@ -800,11 +1178,27 @@ public class CandidateFitScoringService {
         Map<String, List<SkillEvidence>> index = new LinkedHashMap<>();
         for (ExternalCertificate certificate : certificates) {
             String title = firstNonBlank(certificate.getTitle(), "Certificate");
-            Set<String> tokens = extractSkillTokens(certificateText(certificate));
-            double confidence = Boolean.TRUE.equals(certificate.getIsVerified()) ? 0.92 : 0.72;
-            for (String token : tokens) {
-                index.computeIfAbsent(token, key -> new ArrayList<>())
-                        .add(new SkillEvidence("Certificate: " + title, confidence));
+            if (!Boolean.TRUE.equals(certificate.getIsVerified()) || certificate.getSkills() == null) {
+                continue;
+            }
+            for (String skill : certificate.getSkills()) {
+                putEvidence(index, skill, "Verified certificate: " + title + " (" + skill + ")", 0.92);
+            }
+        }
+        return index;
+    }
+
+    private Map<String, List<SkillEvidence>> buildPossibleCertificateSkillIndex(List<ExternalCertificate> certificates) {
+        Map<String, List<SkillEvidence>> index = new LinkedHashMap<>();
+        for (ExternalCertificate certificate : certificates) {
+            if (Boolean.TRUE.equals(certificate.getIsVerified())) {
+                continue;
+            }
+            String title = firstNonBlank(certificate.getTitle(), "Certificate");
+            if (certificate.getSkills() != null) {
+                for (String skill : certificate.getSkills()) {
+                    putEvidence(index, skill, "Unverified certificate: " + title + " (" + skill + ")", 0.50);
+                }
             }
         }
         return index;
@@ -1000,6 +1394,72 @@ public class CandidateFitScoringService {
         }
     }
 
+    private List<String> parseCvSkills(GeneratedCV activeCv) {
+        if (activeCv == null || activeCv.getCvJson() == null || activeCv.getCvJson().isBlank()) {
+            return Collections.emptyList();
+        }
+        LinkedHashSet<String> skills = new LinkedHashSet<>();
+        try {
+            JsonNode root = objectMapper.readTree(activeCv.getCvJson());
+            JsonNode skillCategories = root.path("skills");
+            if (skillCategories.isArray()) {
+                skillCategories.forEach(category -> {
+                    JsonNode categorySkills = category.path("skills");
+                    if (categorySkills.isArray()) {
+                        categorySkills.forEach(skill -> {
+                            if (skill.isTextual()) {
+                                addSkill(skills, skill.asText());
+                            } else {
+                                JsonNode name = skill.path("name");
+                                if (name.isTextual()) {
+                                    addSkill(skills, name.asText());
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+            JsonNode projects = root.path("projects");
+            if (projects.isArray()) {
+                projects.forEach(project -> {
+                    JsonNode technologies = project.path("technologies");
+                    if (technologies.isArray()) {
+                        technologies.forEach(technology -> {
+                            if (technology.isTextual()) {
+                                addSkill(skills, technology.asText());
+                            }
+                        });
+                    }
+                });
+            }
+        } catch (Exception exception) {
+            log.debug("Unable to parse CV skills: {}", exception.getMessage());
+        }
+        return new ArrayList<>(skills);
+    }
+
+    private void addSkill(Set<String> skills, String value) {
+        if (value != null && !value.isBlank()) {
+            skills.add(value.trim());
+        }
+    }
+
+    @SafeVarargs
+    private final List<String> mergeDistinct(List<String>... values) {
+        LinkedHashSet<String> merged = new LinkedHashSet<>();
+        if (values != null) {
+            for (List<String> list : values) {
+                if (list != null) {
+                    list.stream()
+                            .filter(this::notBlank)
+                            .map(String::trim)
+                            .forEach(merged::add);
+                }
+            }
+        }
+        return new ArrayList<>(merged);
+    }
+
     private <T> List<T> loadSafely(SupplierWithException<List<T>> supplier) {
         try {
             List<T> result = supplier.get();
@@ -1083,6 +1543,8 @@ public class CandidateFitScoringService {
         private double score;
         private double confidence;
         private String matchType;
+        private String verificationStatus;
+        private String businessMeaning;
         private List<String> evidenceSources;
     }
 
@@ -1091,9 +1553,12 @@ public class CandidateFitScoringService {
         private JobPosting job;
         private ShortTermJob shortTermJob;
         private CandidateSearchRequest request;
+        private GeneratedCV activeCv;
         private String primarySkill;
         private double budgetScore = 0.60;
         private Boolean primarySkillMatch = false;
+        private List<String> profileDeclaredSkills = new ArrayList<>();
+        private List<String> cvDeclaredSkills = new ArrayList<>();
         private List<String> candidateSkills = new ArrayList<>();
         private Map<String, String> candidateSkillIndex = new LinkedHashMap<>();
         private List<String> requiredSkills = new ArrayList<>();
@@ -1103,15 +1568,33 @@ public class CandidateFitScoringService {
         private List<StudentSkillVerificationRequest> adminVerifiedSkills = new ArrayList<>();
         private List<CompletedMissionDTO> completedMissions = new ArrayList<>();
         private Map<String, List<SkillEvidence>> projectSkillIndex = new LinkedHashMap<>();
+        private Map<String, List<SkillEvidence>> possibleProjectSkillIndex = new LinkedHashMap<>();
         private Map<String, List<SkillEvidence>> certificateSkillIndex = new LinkedHashMap<>();
+        private Map<String, List<SkillEvidence>> possibleCertificateSkillIndex = new LinkedHashMap<>();
         private Map<String, List<SkillEvidence>> verifiedSkillIndex = new LinkedHashMap<>();
         private Map<String, List<SkillEvidence>> missionSkillIndex = new LinkedHashMap<>();
         private List<String> matchedSkills = new ArrayList<>();
         private List<String> unmatchedSkills = new ArrayList<>();
         private List<String> riskFlags = new ArrayList<>();
         private List<CandidateFitAnalysisDTO.SkillBreakdownDTO> skillBreakdown = new ArrayList<>();
+        private List<CandidateFitAnalysisDTO.RequiredSkillSignalDTO> requiredSkillSignals = new ArrayList<>();
         private List<CandidateFitAnalysisDTO.EvidenceHighlightDTO> evidenceHighlights = new ArrayList<>();
         private List<CandidateFitAnalysisDTO.MissingRequirementDTO> missingRequirements = new ArrayList<>();
+        private List<String> unverifiedSkillWarnings = new ArrayList<>();
+        private double verifiedSkillMatchPercent;
+        private double evidenceBackedSkillPercent;
+        private double declaredOnlySkillPercent;
+        private double missingSkillPercent;
+        private String requiredSeniority;
+        private String inferredSeniority;
+        private boolean seniorityPass = true;
+        private boolean overqualified = false;
+        private double seniorityConfidence = 0.0;
+        private String senioritySummary;
+        private String seniorityDecision;
+        private String seniorityRiskLevel;
+        private String fitVerdict;
+        private List<String> seniorityEvidence = new ArrayList<>();
         private int relevantProjectsCount;
         private int relevantCertificatesCount;
         private int relevantMissionsCount;
