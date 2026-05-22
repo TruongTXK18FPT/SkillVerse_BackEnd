@@ -575,35 +575,28 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     }
 
     private void replaceTemplateChildren(RoadmapTemplate template, RoadmapTemplateRequest request) {
-        List<RoadmapTemplateNode> savedNodes = new ArrayList<>();
-        List<RoadmapTemplateSkillBlock> savedSkillBlocks = new ArrayList<>();
-        List<RoadmapTemplateNodeGroup> savedNodeGroups = new ArrayList<>();
         if (request.getNodes() != null) {
             for (RoadmapTemplateNodeRequest nodeRequest : request.getNodes()) {
                 RoadmapTemplateNode node = buildNode(template, nodeRequest);
-                savedNodes.add(nodeRepository.save(node));
+                nodeRepository.save(node);
             }
         }
         if (request.getSkillBlocks() != null) {
             for (RoadmapTemplateSkillBlockRequest blockRequest : request.getSkillBlocks()) {
                 RoadmapTemplateSkillBlock block = skillBlockRepository.save(buildSkillBlock(template, blockRequest));
-                List<RoadmapTemplateActivity> activities = new ArrayList<>();
                 for (RoadmapTemplateActivityRequest activityRequest : defaultList(blockRequest.getActivities())) {
-                    activities.add(activityRepository.save(buildActivity(template, block, activityRequest)));
+                    RoadmapTemplateActivity activity = activityRepository.save(buildActivity(template, block, activityRequest));
+                    block.getActivities().add(activity);
                 }
-                block.setActivities(activities);
-                savedSkillBlocks.add(block);
             }
         }
         if (request.getNodeGroups() != null) {
             for (RoadmapTemplateNodeGroupRequest groupRequest : request.getNodeGroups()) {
                 RoadmapTemplateNodeGroup group = nodeGroupRepository.save(buildNodeGroup(template, groupRequest));
-                List<RoadmapTemplateNodeGroupSkill> skills = new ArrayList<>();
                 for (RoadmapTemplateNodeGroupSkillRequest skillRequest : defaultList(groupRequest.getSkills())) {
-                    skills.add(nodeGroupSkillRepository.save(buildNodeGroupSkill(group, skillRequest)));
+                    RoadmapTemplateNodeGroupSkill skill = nodeGroupSkillRepository.save(buildNodeGroupSkill(group, skillRequest));
+                    group.getSkills().add(skill);
                 }
-                group.setSkills(skills);
-                savedNodeGroups.add(group);
             }
         }
         if (request.getCourses() != null) {
@@ -612,9 +605,6 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 courseRepository.save(course);
             }
         }
-        template.setNodes(savedNodes);
-        template.setSkillBlocks(savedSkillBlocks);
-        template.setNodeGroups(savedNodeGroups);
     }
 
     private RoadmapTemplateNode buildNode(RoadmapTemplate template, RoadmapTemplateNodeRequest request) {
@@ -2396,6 +2386,14 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .assessmentPolicy(template.getAssessmentPolicy())
                 .templateInstructions(template.getTemplateInstructions())
                 .constraintsJson(template.getConstraintsJson())
+                .aiEvidenceReviewEnabled(template.getAiEvidenceReviewEnabled())
+                .aiAutoPassEnabled(template.getAiAutoPassEnabled())
+                .aiAutoPassMinScorePercent(template.getAiAutoPassMinScorePercent())
+                .aiAutoPassMinConfidence(template.getAiAutoPassMinConfidence())
+                .aiManualReviewBelowConfidence(template.getAiManualReviewBelowConfidence())
+                .aiEvidencePrompt(template.getAiEvidencePrompt())
+                .finalAssignmentInstructions(template.getFinalAssignmentInstructions())
+                .finalAssignmentRubric(template.getFinalAssignmentRubric())
                 .status(template.getStatus())
                 .createdAt(template.getCreatedAt())
                 .updatedAt(template.getUpdatedAt())

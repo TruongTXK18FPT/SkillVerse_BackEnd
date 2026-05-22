@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.roadmap_package_service.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
@@ -28,13 +29,18 @@ import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTem
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateSkillBlockRequest;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateAllocationPreviewResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateCourseCandidateResponse;
+import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateValidationResponse;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplate;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateCourseLinkPolicy;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateActivityRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateCourseRepository;
+import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeGroupRepository;
+import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeGroupSkillRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateSkillBlockRepository;
+import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.shared.repository.SkillRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
@@ -64,6 +70,8 @@ class RoadmapTemplateServiceImplTest {
     @Mock private RoadmapTemplateCourseRepository courseRepository;
     @Mock private RoadmapTemplateSkillBlockRepository skillBlockRepository;
     @Mock private RoadmapTemplateActivityRepository activityRepository;
+    @Mock private RoadmapTemplateNodeGroupRepository nodeGroupRepository;
+    @Mock private RoadmapTemplateNodeGroupSkillRepository nodeGroupSkillRepository;
     @Mock private CourseRepository systemCourseRepository;
     @Mock private JourneyRepository journeyRepository;
     @Mock private RoadmapSessionRepository roadmapSessionRepository;
@@ -249,6 +257,30 @@ class RoadmapTemplateServiceImplTest {
                         && warning.contains("102"))
                 .anyMatch(warning -> warning.contains("Important skill is not covered by any module")
                         && warning.contains("103"));
+    }
+
+    @Test
+    void createTemplateReturnsAiAndFinalAssignmentFields() {
+        RoadmapTemplateRequest request = baseRequest(4);
+        request.setAiEvidencePrompt("Review Java, Spring Boot, React, and Docker evidence first.");
+        request.setFinalAssignmentInstructions("Build a fullstack task manager with React and Spring Boot.");
+        request.setFinalAssignmentRubric("100 points: Java 15; Spring Boot 20; React 20; Docker 10.");
+        stubActiveTaxonomy(List.of(101L));
+        Skill javaSkill = Skill.builder().id(101L).name("Java").canonicalKey("JAVA").build();
+        when(skillRepository.findAllById(java.util.Set.of(101L))).thenReturn(List.of(javaSkill));
+        when(skillRepository.findById(101L)).thenReturn(Optional.of(javaSkill));
+        when(templateRepository.save(any(RoadmapTemplate.class))).thenAnswer(invocation -> {
+            RoadmapTemplate template = invocation.getArgument(0);
+            template.setId(99L);
+            return template;
+        });
+        when(skillBlockRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        RoadmapTemplateResponse response = service.createTemplate(ADMIN_ID, request);
+
+        assertThat(response.getAiEvidencePrompt()).isEqualTo(request.getAiEvidencePrompt());
+        assertThat(response.getFinalAssignmentInstructions()).isEqualTo(request.getFinalAssignmentInstructions());
+        assertThat(response.getFinalAssignmentRubric()).isEqualTo(request.getFinalAssignmentRubric());
     }
 
     @Test
