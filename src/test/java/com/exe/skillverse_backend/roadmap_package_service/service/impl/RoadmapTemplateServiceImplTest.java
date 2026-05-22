@@ -22,6 +22,8 @@ import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.journey_service.node_mentoring.repository.RoadmapNodeAssignmentRepository;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateActivityRequest;
+import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateNodeGroupRequest;
+import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateNodeGroupSkillRequest;
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateRequest;
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateSkillBlockRequest;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateAllocationPreviewResponse;
@@ -97,6 +99,47 @@ class RoadmapTemplateServiceImplTest {
     }
 
     @Test
+    void previewAllocationBuildsNormalizedSkillBlocksFromTrackWhenRequestHasNone() {
+        RoadmapTemplateRequest request = baseRequest(10);
+        when(jobPositionTrackSkillRepository.findByTrackIdOrderBySortOrderAsc(30L))
+                .thenReturn(List.of(
+                        JobPositionTrackSkill.builder()
+                                .skillId(101L)
+                                .requirementType(com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType.REQUIRED)
+                                .weight(10)
+                                .sortOrder(1)
+                                .build(),
+                        JobPositionTrackSkill.builder()
+                                .skillId(102L)
+                                .requirementType(com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType.IMPORTANT)
+                                .weight(10)
+                                .sortOrder(2)
+                                .build(),
+                        JobPositionTrackSkill.builder()
+                                .skillId(103L)
+                                .requirementType(com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType.NICE_TO_HAVE)
+                                .weight(10)
+                                .sortOrder(3)
+                                .build()
+                ));
+        when(skillRepository.findAllById(java.util.Set.of(101L, 102L, 103L))).thenReturn(List.of(
+                com.exe.skillverse_backend.shared.entity.Skill.builder().id(101L).name("Java").canonicalKey("JAVA").build(),
+                com.exe.skillverse_backend.shared.entity.Skill.builder().id(102L).name("REST").canonicalKey("REST").build(),
+                com.exe.skillverse_backend.shared.entity.Skill.builder().id(103L).name("Git").canonicalKey("GIT").build()
+        ));
+
+        RoadmapTemplateAllocationPreviewResponse preview = service.previewAllocation(ADMIN_ID, request);
+
+        assertThat(preview.getItems()).hasSize(3);
+        assertThat(preview.getItems()).extracting(RoadmapTemplateAllocationPreviewResponse.Item::getWeightPercent)
+                .containsExactly(50D, 33.33D, 16.67D);
+        assertThat(preview.getItems()).extracting(RoadmapTemplateAllocationPreviewResponse.Item::getEffectiveWeight)
+                .containsExactly(30D, 20D, 10D);
+        assertThat(preview.getItems()).extracting(RoadmapTemplateAllocationPreviewResponse.Item::getAllocatedNodes)
+                .containsExactly(5, 3, 2);
+    }
+
+    @Test
     void validateTemplateReportsAllocationAndActivityErrors() {
         RoadmapTemplateRequest request = baseRequest(3);
         RoadmapTemplateSkillBlockRequest java = skillBlock(101L, "Java Spring Boot", 100D, null, null, 4);
@@ -150,6 +193,65 @@ class RoadmapTemplateServiceImplTest {
     }
 
     @Test
+    void validateTemplateNormalizesSkillBlockWeightsAndWarnsForUncoveredImportantSkills() {
+        RoadmapTemplateRequest request = baseRequest(1);
+        request.setSkillBlocks(List.of(
+                skillBlock(101L, "Java", 40D, null, null, null),
+                skillBlock(102L, "REST", 40D, null, null, null),
+                skillBlock(103L, "Testing", 40D, null, null, null)
+        ));
+        request.setNodeGroups(List.of(nodeGroup(101L)));
+
+        when(domainRepository.findById(10L)).thenReturn(Optional.of(Domain.builder()
+                .id(10L)
+                .status(TaxonomyStatus.ACTIVE)
+                .build()));
+        when(jobPositionRepository.findById(20L)).thenReturn(Optional.of(JobPosition.builder()
+                .id(20L)
+                .domainId(10L)
+                .status(TaxonomyStatus.ACTIVE)
+                .build()));
+        when(jobPositionTrackRepository.findById(30L)).thenReturn(Optional.of(JobPositionTrack.builder()
+                .id(30L)
+                .jobPositionId(20L)
+                .status(TaxonomyStatus.ACTIVE)
+                .build()));
+        when(jobPositionTrackSkillRepository.findByTrackIdOrderBySortOrderAsc(30L))
+                .thenReturn(List.of(
+                        JobPositionTrackSkill.builder()
+                                .skillId(101L)
+                                .requirementType(com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType.REQUIRED)
+                                .weight(10)
+                                .sortOrder(1)
+                                .build(),
+                        JobPositionTrackSkill.builder()
+                                .skillId(102L)
+                                .requirementType(com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType.IMPORTANT)
+                                .weight(10)
+                                .sortOrder(2)
+                                .build(),
+                        JobPositionTrackSkill.builder()
+                                .skillId(103L)
+                                .requirementType(com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType.IMPORTANT)
+                                .weight(5)
+                                .sortOrder(3)
+                                .build()
+                ));
+
+        RoadmapTemplateValidationResponse validation = service.validateTemplate(ADMIN_ID, request);
+
+        assertThat(validation.getValid()).isTrue();
+        assertThat(validation.getAllocation().getItems())
+                .extracting(RoadmapTemplateAllocationPreviewResponse.Item::getWeightPercent)
+                .containsExactly(50D, 33.33D, 16.67D);
+        assertThat(validation.getWarnings())
+                .anyMatch(warning -> warning.contains("Important skill is not covered by any module")
+                        && warning.contains("102"))
+                .anyMatch(warning -> warning.contains("Important skill is not covered by any module")
+                        && warning.contains("103"));
+    }
+
+    @Test
     void getCourseCandidatesHybridMergesNewestAndPopularPublicRows() {
         Instant createdAt = Instant.parse("2026-01-01T00:00:00Z");
         when(systemCourseRepository.findNewestPublicCourseCandidatesBySkill(101L, 3))
@@ -196,6 +298,21 @@ class RoadmapTemplateServiceImplTest {
         activity.setMinLevel(Journey.SkillLevel.BEGINNER);
         activity.setOrderIndex(0);
         return activity;
+    }
+
+    private RoadmapTemplateNodeGroupRequest nodeGroup(Long skillId) {
+        RoadmapTemplateNodeGroupSkillRequest skill = new RoadmapTemplateNodeGroupSkillRequest();
+        skill.setSkillId(skillId);
+        skill.setRequirementType(com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType.REQUIRED);
+        skill.setOrderIndex(1);
+
+        RoadmapTemplateNodeGroupRequest group = new RoadmapTemplateNodeGroupRequest();
+        group.setTitle("Core Module");
+        group.setExpectedOutput("Build a working artifact");
+        group.setCompletionCriteria("Artifact is submitted and reviewed");
+        group.setOrderIndex(1);
+        group.setSkills(List.of(skill));
+        return group;
     }
 
     private void stubActiveTaxonomy(List<Long> allowedSkillIds) {

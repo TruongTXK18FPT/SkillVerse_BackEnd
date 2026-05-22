@@ -273,9 +273,9 @@ public class RoadmapSkillGroupingService {
                     RequirementType requirementType = trackSkill != null && trackSkill.getRequirementType() != null
                             ? trackSkill.getRequirementType().normalized()
                             : RequirementType.REQUIRED;
-                    double weight = block != null && block.getWeightPercent() != null
-                            ? block.getWeightPercent()
-                            : trackSkill != null && trackSkill.getWeight() != null ? trackSkill.getWeight() : 1D;
+                    int trackWeight = RoadmapSkillPriorityCalculator.normalizeTrackWeight(
+                            trackSkill != null ? trackSkill.getWeight() : null);
+                    double weight = RoadmapSkillPriorityCalculator.effectiveWeight(requirementType, trackWeight);
                     int sortOrder = trackSkill != null && trackSkill.getSortOrder() != null ? trackSkill.getSortOrder() : 0;
                     return new SkillCandidate(skillId, name, canonicalKey, requirementType, weight, sortOrder);
                 })

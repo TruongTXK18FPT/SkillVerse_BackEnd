@@ -18,7 +18,6 @@ public class RoadmapTemplateSkillBlockRequest {
     private String skillNameSnapshot;
     private String skillCanonicalKeySnapshot;
 
-    @NotNull
     @PositiveOrZero
     private Double weightPercent;
 

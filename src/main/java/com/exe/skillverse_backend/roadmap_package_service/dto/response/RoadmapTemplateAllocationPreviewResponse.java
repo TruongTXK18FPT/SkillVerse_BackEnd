@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.roadmap_package_service.dto.response;
 
+import com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType;
 import java.util.List;
 import lombok.Builder;
 import lombok.Data;
@@ -19,6 +20,11 @@ public class RoadmapTemplateAllocationPreviewResponse {
         private Long skillId;
         private String skillName;
         private Double weightPercent;
+        private RequirementType requirementType;
+        private Integer trackWeight;
+        private Double requirementMultiplier;
+        private Double effectiveWeight;
+        private Double normalizedWeightPercent;
         private Integer minNodes;
         private Integer maxNodes;
         private Integer nodeCountOverride;

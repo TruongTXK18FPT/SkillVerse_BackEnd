@@ -58,6 +58,8 @@ import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemp
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateSkillBlockRepository;
+import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapSkillPriorityCalculator;
+import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapSkillPriorityCalculator.SkillPriority;
 import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapTemplateService;
 import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.shared.exception.ApiException;
@@ -149,6 +151,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         requireAdmin(actorId);
         User admin = requireUser(actorId);
         validateTemplateTaxonomy(request);
+        normalizeSkillBlocksFromTrack(request);
         RoadmapTemplate template = RoadmapTemplate.builder()
                 .createdByAdminId(actorId)
                 .updatedByAdminId(actorId)
@@ -165,6 +168,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     public RoadmapTemplateResponse updateTemplate(Long actorId, Long templateId, RoadmapTemplateRequest request) {
         requireAdmin(actorId);
         validateTemplateTaxonomy(request);
+        normalizeSkillBlocksFromTrack(request);
         RoadmapTemplate template = requireTemplate(templateId);
         if (template.getStatus() == RoadmapTemplateStatus.ARCHIVED) {
             throw new ApiException(ErrorCode.CONFLICT, "Archived templates cannot be edited");
@@ -279,6 +283,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     @Transactional(readOnly = true)
     public RoadmapTemplateAllocationPreviewResponse previewAllocation(Long actorId, RoadmapTemplateRequest request) {
         requireAdmin(actorId);
+        normalizeSkillBlocksFromTrack(request);
         return allocateFromRequest(request);
     }
 
@@ -290,6 +295,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         List<String> warnings = new ArrayList<>();
         try {
             validateTemplateTaxonomy(request);
+            normalizeSkillBlocksFromTrack(request);
         } catch (ApiException ex) {
             errors.add(ex.getMessage());
         }
@@ -738,6 +744,81 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .build();
     }
 
+    private void normalizeSkillBlocksFromTrack(RoadmapTemplateRequest request) {
+        if (request == null || request.getJobPositionTrackId() == null) {
+            return;
+        }
+        List<SkillPriority> priorities = skillPriorities(request.getJobPositionTrackId());
+        if (priorities.isEmpty()) {
+            return;
+        }
+        Map<Long, RoadmapTemplateSkillBlockRequest> existingBySkill = defaultList(request.getSkillBlocks()).stream()
+                .filter(block -> block.getSkillId() != null)
+                .collect(Collectors.toMap(
+                        RoadmapTemplateSkillBlockRequest::getSkillId,
+                        block -> block,
+                        (first, ignored) -> first,
+                        LinkedHashMap::new));
+        List<RoadmapTemplateSkillBlockRequest> normalized = new ArrayList<>();
+        for (SkillPriority priority : priorities) {
+            RoadmapTemplateSkillBlockRequest block = existingBySkill.get(priority.skillId());
+            if (block == null) {
+                block = new RoadmapTemplateSkillBlockRequest();
+                block.setSkillId(priority.skillId());
+            }
+            block.setSkillNameSnapshot(firstNonBlank(block.getSkillNameSnapshot(), priority.skillName()));
+            block.setSkillCanonicalKeySnapshot(firstNonBlank(block.getSkillCanonicalKeySnapshot(), priority.canonicalKey()));
+            block.setWeightPercent(priority.weightPercent());
+            if (block.getMinNodes() == null) {
+                block.setMinNodes(priority.requirementType() == RequirementType.REQUIRED ? 1 : 0);
+            }
+            if (block.getCourseLinkPolicy() == null) {
+                block.setCourseLinkPolicy(RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID);
+            }
+            if (block.getAutoCourseLimit() == null) {
+                block.setAutoCourseLimit(2);
+            }
+            if (block.getRagEnabled() == null) {
+                block.setRagEnabled(true);
+            }
+            normalized.add(block);
+        }
+        request.setSkillBlocks(normalized);
+    }
+
+    private Map<Long, SkillPriority> skillPriorityByTrack(Long trackId) {
+        return skillPriorities(trackId).stream()
+                .collect(Collectors.toMap(
+                        SkillPriority::skillId,
+                        priority -> priority,
+                        (a, b) -> a,
+                        LinkedHashMap::new));
+    }
+
+    private List<SkillPriority> skillPriorities(Long trackId) {
+        if (trackId == null) {
+            return List.of();
+        }
+        List<JobPositionTrackSkill> trackSkills = jobPositionTrackSkillRepository.findByTrackIdOrderBySortOrderAsc(trackId);
+        if (trackSkills == null || trackSkills.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> skillIds = trackSkills.stream()
+                .map(JobPositionTrackSkill::getSkillId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Iterable<Skill> foundSkills = skillRepository.findAllById(skillIds);
+        Map<Long, Skill> skillsById = new LinkedHashMap<>();
+        if (foundSkills != null) {
+            foundSkills.forEach(skill -> {
+                if (skill != null && skill.getId() != null) {
+                    skillsById.put(skill.getId(), skill);
+                }
+            });
+        }
+        return RoadmapSkillPriorityCalculator.calculate(trackSkills, skillsById);
+    }
+
     private void validateTemplateTaxonomy(RoadmapTemplateRequest request) {
         Domain domain = domainRepository.findById(request.getDomainId())
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Domain not found: " + request.getDomainId()));
@@ -843,30 +924,57 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                     .items(List.of())
                     .build();
         }
+        Map<Long, SkillPriority> priorities = skillPriorityByTrack(request.getJobPositionTrackId());
         List<AllocationInput> inputs = blocks.stream()
-                .map(block -> new AllocationInput(
+                .map(block -> allocationInput(
                         block.getSkillId(),
                         block.getSkillNameSnapshot(),
                         block.getWeightPercent(),
                         block.getMinNodes(),
                         block.getMaxNodes(),
-                        block.getNodeCountOverride()))
+                        block.getNodeCountOverride(),
+                        priorities.get(block.getSkillId())))
                 .toList();
         AllocationResult result = allocateInternal(request.getTotalNodeCount(), inputs);
         return toAllocationPreview(request.getTotalNodeCount(), result);
     }
 
-    private AllocationResult allocateFromBlocks(Integer totalNodeCount, List<RoadmapTemplateSkillBlock> blocks) {
+    private AllocationResult allocateFromBlocks(Long jobPositionTrackId, Integer totalNodeCount, List<RoadmapTemplateSkillBlock> blocks) {
+        Map<Long, SkillPriority> priorities = skillPriorityByTrack(jobPositionTrackId);
         List<AllocationInput> inputs = defaultList(blocks).stream()
-                .map(block -> new AllocationInput(
+                .map(block -> allocationInput(
                         block.getSkillId(),
                         block.getSkillNameSnapshot(),
                         block.getWeightPercent(),
                         block.getMinNodes(),
                         block.getMaxNodes(),
-                        block.getNodeCountOverride()))
+                        block.getNodeCountOverride(),
+                        priorities.get(block.getSkillId())))
                 .toList();
         return allocateInternal(totalNodeCount, inputs);
+    }
+
+    private AllocationInput allocationInput(
+            Long skillId,
+            String skillName,
+            Double weightPercent,
+            Integer minNodes,
+            Integer maxNodes,
+            Integer nodeCountOverride,
+            SkillPriority priority) {
+        Double normalizedWeightPercent = priority != null ? priority.weightPercent() : weightPercent;
+        return new AllocationInput(
+                skillId,
+                firstNonBlank(skillName, priority != null ? priority.skillName() : null),
+                normalizedWeightPercent,
+                priority != null ? priority.requirementType() : null,
+                priority != null ? priority.trackWeight() : null,
+                priority != null ? priority.requirementMultiplier() : null,
+                priority != null ? priority.effectiveWeight() : null,
+                normalizedWeightPercent,
+                minNodes,
+                maxNodes,
+                nodeCountOverride);
     }
 
     private AllocationResult allocateInternal(Integer requestedTotalNodeCount, List<AllocationInput> inputs) {
@@ -932,6 +1040,11 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         .skillId(input.skillId())
                         .skillName(input.skillName())
                         .weightPercent(input.weightPercent())
+                        .requirementType(input.requirementType())
+                        .trackWeight(input.trackWeight())
+                        .requirementMultiplier(input.requirementMultiplier())
+                        .effectiveWeight(input.effectiveWeight())
+                        .normalizedWeightPercent(input.normalizedWeightPercent())
                         .minNodes(input.minNodes())
                         .maxNodes(input.maxNodes())
                         .nodeCountOverride(input.nodeCountOverride())
@@ -1112,7 +1225,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         List<String> warnings = new ArrayList<>();
         RoadmapTemplateAllocationPreviewResponse preview = toAllocationPreview(
                 template.getTotalNodeCount(),
-                allocateFromBlocks(template.getTotalNodeCount(), blocks));
+                allocateFromBlocks(template.getJobPositionTrackId(), template.getTotalNodeCount(), blocks));
         errors.addAll(defaultList(preview.getErrors()));
         List<ModuleSkillCoverage> moduleCoverages = new ArrayList<>();
         int moduleCount = 0;
@@ -1161,6 +1274,11 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             Long skillId,
             String skillName,
             Double weightPercent,
+            RequirementType requirementType,
+            Integer trackWeight,
+            Double requirementMultiplier,
+            Double effectiveWeight,
+            Double normalizedWeightPercent,
             Integer minNodes,
             Integer maxNodes,
             Integer nodeCountOverride
@@ -1240,6 +1358,9 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                     : RequirementType.REQUIRED;
             if (requirementType == RequirementType.REQUIRED && !coveredSkillIds.contains(trackSkill.getSkillId())) {
                 errors.add("Required skill is not covered by any module: " + trackSkill.getSkillId());
+            } else if (requirementType == RequirementType.IMPORTANT && !coveredSkillIds.contains(trackSkill.getSkillId())) {
+                warnings.add("Important skill is not covered by any module and should be reviewed: "
+                        + trackSkill.getSkillId());
             } else if (requirementType == RequirementType.NICE_TO_HAVE && !coveredSkillIds.contains(trackSkill.getSkillId())) {
                 warnings.add("Nice-to-have skill is not covered and can be omitted if roadmap is already long: "
                         + trackSkill.getSkillId());
@@ -2238,7 +2359,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         List<RoadmapTemplateSkillBlock> persistedBlocks = skillBlockRepository.findByTemplateIdOrderByIdAsc(template.getId());
         AllocationResult allocation = persistedBlocks.isEmpty()
                 ? new AllocationResult(true, List.of(), List.of())
-                : allocateFromBlocks(template.getTotalNodeCount(), persistedBlocks);
+                : allocateFromBlocks(template.getJobPositionTrackId(), template.getTotalNodeCount(), persistedBlocks);
         Map<Long, Integer> allocatedBySkill = allocation.items().stream()
                 .collect(Collectors.toMap(
                         RoadmapTemplateAllocationPreviewResponse.Item::getSkillId,
