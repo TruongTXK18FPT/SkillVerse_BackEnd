@@ -4,11 +4,15 @@ import com.exe.skillverse_backend.journey_service.node_mentoring.ai.service.Road
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.JourneyOutputAssessment;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeSubmission;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplate;
+import com.exe.skillverse_backend.roadmap_package_service.dto.RoadmapRubricDto;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 @Service
 public class RoadmapEvidencePromptServiceImpl implements RoadmapEvidencePromptService {
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public String buildNodeEvidencePrompt(
@@ -55,7 +59,7 @@ public class RoadmapEvidencePromptServiceImpl implements RoadmapEvidencePromptSe
             sb.append("Expected Output: ").append(activityExpectedOutput).append("\n");
         }
         if (StringUtils.hasText(activityRubric)) {
-            sb.append("Rubric: ").append(activityRubric).append("\n");
+            sb.append("Rubrics:\n").append(formatRubric(activityRubric)).append("\n");
         }
         if (StringUtils.hasText(activitySkillRequirementsJson)) {
             sb.append("Skill Requirements: ").append(activitySkillRequirementsJson).append("\n");
@@ -108,7 +112,7 @@ public class RoadmapEvidencePromptServiceImpl implements RoadmapEvidencePromptSe
             sb.append("Instructions: ").append(template.getFinalAssignmentInstructions()).append("\n");
         }
         if (StringUtils.hasText(template.getFinalAssignmentRubric())) {
-            sb.append("Rubric: ").append(template.getFinalAssignmentRubric()).append("\n");
+            sb.append("Rubrics:\n").append(formatRubric(template.getFinalAssignmentRubric())).append("\n");
         }
         if (StringUtils.hasText(aggregatedSkills)) {
             sb.append("Aggregated Roadmap Skills: ").append(aggregatedSkills).append("\n");
@@ -128,6 +132,36 @@ public class RoadmapEvidencePromptServiceImpl implements RoadmapEvidencePromptSe
         return sb.toString();
     }
     
+    private String formatRubric(String rubricJsonOrText) {
+        if (rubricJsonOrText == null || rubricJsonOrText.trim().isEmpty()) {
+            return "";
+        }
+        try {
+            RoadmapRubricDto[] rubrics = objectMapper.readValue(rubricJsonOrText, RoadmapRubricDto[].class);
+            if (rubrics != null && rubrics.length > 0) {
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < rubrics.length; i++) {
+                    RoadmapRubricDto r = rubrics[i];
+                    sb.append(i + 1).append(". ").append(r.getName());
+                    if (r.getMaxPoints() != null) {
+                        sb.append(" (Points: ").append(r.getMaxPoints()).append(")");
+                    }
+                    if (r.getDescription() != null && !r.getDescription().isEmpty()) {
+                        sb.append(": ").append(r.getDescription());
+                    }
+                    if (i < rubrics.length - 1) {
+                        sb.append("\n");
+                    }
+                }
+                return sb.toString();
+            }
+        } catch (Exception e) {
+            // Fallback for backward compatibility with plaintext rubrics
+            return rubricJsonOrText;
+        }
+        return rubricJsonOrText;
+    }
+
     private String getJsonFormatInstructions() {
         return "### Response Format\n" +
                "You MUST respond with valid JSON only. Do not include any markdown formatting like ```json or any other text.\n" +
@@ -140,3 +174,4 @@ public class RoadmapEvidencePromptServiceImpl implements RoadmapEvidencePromptSe
                "}\n";
     }
 }
+

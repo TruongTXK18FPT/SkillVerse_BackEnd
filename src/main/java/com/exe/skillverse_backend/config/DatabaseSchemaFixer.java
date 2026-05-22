@@ -187,6 +187,13 @@ public class DatabaseSchemaFixer {
                 this::verifyRoadmapEvidenceAiReview
             );
 
+            applyPatch(
+                "20260523_migrate_legacy_rubrics_to_json",
+                "Migrate legacy plain text rubrics to standard JSON arrays",
+                this::patchMigrateLegacyRubricsToJson,
+                this::verifyMigrateLegacyRubricsToJson
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -1246,5 +1253,106 @@ public class DatabaseSchemaFixer {
                 && hasTable("roadmap_evidence_ai_reviews")
                 && hasColumn("roadmap_node_submissions", "latest_ai_review_id")
                 && hasColumn("journey_output_assessments", "latest_ai_review_id");
+    }
+
+    private void patchMigrateLegacyRubricsToJson() {
+        log.info("Migrating legacy plain text rubrics to JSON array format...");
+        
+        if (hasTable("roadmap_template_nodes") && hasColumn("roadmap_template_nodes", "rubric")) {
+            executeSql("""
+                UPDATE roadmap_template_nodes
+                SET rubric = json_build_array(
+                    json_build_object(
+                        'name', 'Tiêu chí đánh giá',
+                        'description', rubric,
+                        'maxPoints', 10
+                    )
+                )::text
+                WHERE rubric IS NOT NULL 
+                  AND rubric <> '' 
+                  AND NOT rubric LIKE '[%'
+            """);
+        }
+
+        if (hasTable("roadmap_template_activities") && hasColumn("roadmap_template_activities", "rubric")) {
+            executeSql("""
+                UPDATE roadmap_template_activities
+                SET rubric = json_build_array(
+                    json_build_object(
+                        'name', 'Tiêu chí đánh giá',
+                        'description', rubric,
+                        'maxPoints', 10
+                    )
+                )::text
+                WHERE rubric IS NOT NULL 
+                  AND rubric <> '' 
+                  AND NOT rubric LIKE '[%'
+            """);
+        }
+
+        if (hasTable("roadmap_template_node_groups") && hasColumn("roadmap_template_node_groups", "rubric")) {
+            executeSql("""
+                UPDATE roadmap_template_node_groups
+                SET rubric = json_build_array(
+                    json_build_object(
+                        'name', 'Tiêu chí đánh giá',
+                        'description', rubric,
+                        'maxPoints', 10
+                    )
+                )::text
+                WHERE rubric IS NOT NULL 
+                  AND rubric <> '' 
+                  AND NOT rubric LIKE '[%'
+            """);
+        }
+
+        if (hasTable("roadmap_templates") && hasColumn("roadmap_templates", "final_assignment_rubric")) {
+            executeSql("""
+                UPDATE roadmap_templates
+                SET final_assignment_rubric = json_build_array(
+                    json_build_object(
+                        'name', 'Tiêu chí đánh giá',
+                        'description', final_assignment_rubric,
+                        'maxPoints', 10
+                    )
+                )::text
+                WHERE final_assignment_rubric IS NOT NULL 
+                  AND final_assignment_rubric <> '' 
+                  AND NOT final_assignment_rubric LIKE '[%'
+            """);
+        }
+    }
+
+    private boolean verifyMigrateLegacyRubricsToJson() {
+        int countNodes = 0;
+        int countActivities = 0;
+        int countGroups = 0;
+        int countTemplates = 0;
+
+        if (hasTable("roadmap_template_nodes") && hasColumn("roadmap_template_nodes", "rubric")) {
+            Integer val = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM roadmap_template_nodes WHERE rubric IS NOT NULL AND rubric <> '' AND NOT rubric LIKE '[%'", Integer.class);
+            if (val != null) countNodes = val;
+        }
+
+        if (hasTable("roadmap_template_activities") && hasColumn("roadmap_template_activities", "rubric")) {
+            Integer val = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM roadmap_template_activities WHERE rubric IS NOT NULL AND rubric <> '' AND NOT rubric LIKE '[%'", Integer.class);
+            if (val != null) countActivities = val;
+        }
+
+        if (hasTable("roadmap_template_node_groups") && hasColumn("roadmap_template_node_groups", "rubric")) {
+            Integer val = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM roadmap_template_node_groups WHERE rubric IS NOT NULL AND rubric <> '' AND NOT rubric LIKE '[%'", Integer.class);
+            if (val != null) countGroups = val;
+        }
+
+        if (hasTable("roadmap_templates") && hasColumn("roadmap_templates", "final_assignment_rubric")) {
+            Integer val = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM roadmap_templates WHERE final_assignment_rubric IS NOT NULL AND final_assignment_rubric <> '' AND NOT final_assignment_rubric LIKE '[%'", Integer.class);
+            if (val != null) countTemplates = val;
+        }
+
+        return countNodes == 0 && countActivities == 0 && countGroups == 0 && countTemplates == 0;
     }
 }
