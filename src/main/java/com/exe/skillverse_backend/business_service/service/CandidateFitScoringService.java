@@ -98,6 +98,8 @@ public class CandidateFitScoringService {
                 + (confidenceFit * CONFIDENCE_WEIGHT);
         double overallScore = applyProductionCaps(clamp01(rawScore - riskPenalty), context);
         context.fitVerdict = determineFitVerdict(context, overallScore);
+        context.fitSummaryTitle = buildFitSummaryTitle(context);
+        context.fitSummaryReason = buildFitSummaryReason(context);
         overallScore = round(overallScore, 4);
 
         List<CandidateFitAnalysisDTO.ComponentScoreDTO> components = List.of(
@@ -130,6 +132,8 @@ public class CandidateFitScoringService {
                 .seniorityDecision(context.seniorityDecision)
                 .seniorityRiskLevel(context.seniorityRiskLevel)
                 .fitVerdict(context.fitVerdict)
+                .fitSummaryTitle(context.fitSummaryTitle)
+                .fitSummaryReason(context.fitSummaryReason)
                 .seniorityEvidence(context.seniorityEvidence)
                 .components(components)
                 .skillBreakdown(context.skillBreakdown)
@@ -223,9 +227,9 @@ public class CandidateFitScoringService {
             CandidateSearchRequest request,
             String primarySkill
     ) {
-        LinkedHashSet<String> skills = new LinkedHashSet<>();
+        LinkedHashMap<String, String> skills = new LinkedHashMap<>();
         if (primarySkill != null && !primarySkill.isBlank()) {
-            skills.add(primarySkill.trim());
+            addRequiredSkill(skills, primarySkill.trim(), true);
         }
 
         String rawRequiredSkills = null;
@@ -239,15 +243,25 @@ public class CandidateFitScoringService {
 
         parseSkillList(rawRequiredSkills).stream()
                 .filter(skill -> !normalize(skill).isBlank())
-                .forEach(skills::add);
+                .forEach(skill -> addRequiredSkill(skills, skill, false));
 
-        return new ArrayList<>(skills);
+        return new ArrayList<>(skills.values());
+    }
+
+    private void addRequiredSkill(LinkedHashMap<String, String> skills, String skill, boolean primary) {
+        String normalized = normalize(skill);
+        if (normalized.isBlank()) {
+            return;
+        }
+        if (primary || !skills.containsKey(normalized)) {
+            skills.put(normalized, skill.trim());
+        }
     }
 
     private double calculateVerifiedSkillFit(CandidateContext context) {
         if (context.requiredSkills.isEmpty()) {
             if (context.candidateSkills.isEmpty()) {
-                context.riskFlags.add("Ung vien chua khai bao ky nang noi bat.");
+                context.riskFlags.add("Ứng viên chưa khai báo kỹ năng nổi bật.");
                 return 0.30;
             }
             context.declaredOnlySkillPercent = 1.0;
@@ -276,11 +290,11 @@ public class CandidateFitScoringService {
             } else if ("EVIDENCE_BACKED".equals(match.verificationStatus)) {
                 evidenceCount++;
             } else if ("POSSIBLE_EVIDENCE".equals(match.verificationStatus)) {
-                context.riskFlags.add("Skill " + requiredSkill + " chi co bang chung gian tiep, can kiem tra them.");
+                context.riskFlags.add("Kỹ năng " + requiredSkill + " chỉ có bằng chứng gián tiếp, cần kiểm tra thêm.");
             } else if ("DECLARED_ONLY".equals(match.verificationStatus)) {
                 declaredOnlyCount++;
-                context.unverifiedSkillWarnings.add("Skill " + requiredSkill
-                        + " chi xuat hien trong top skills/CV tu khai, chua co mentor/admin verification hoac evidence lien quan.");
+                context.unverifiedSkillWarnings.add("Ứng viên có tự khai " + requiredSkill
+                        + ", nhưng chưa có mentor/admin xác thực hoặc minh chứng portfolio đủ rõ.");
             } else {
                 missingCount++;
             }
@@ -292,7 +306,7 @@ public class CandidateFitScoringService {
                 context.missingRequirements.add(CandidateFitAnalysisDTO.MissingRequirementDTO.builder()
                         .skill(requiredSkill)
                         .severity(primary ? "CRITICAL" : "IMPORTANT")
-                        .suggestion("Yeu cau ung vien cung cap mentor/admin verification, project, certificate hoac bai test chung minh skill nay.")
+                        .suggestion("Yêu cầu ứng viên bổ sung xác thực mentor/admin, project, chứng chỉ hoặc làm bài test ngắn để chứng minh kỹ năng này.")
                         .build());
             }
 
@@ -327,7 +341,7 @@ public class CandidateFitScoringService {
 
         double averageSkillFit = scores.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
         if (context.primarySkill != null && !context.primarySkill.isBlank() && !context.primarySkillMatch) {
-            context.riskFlags.add("Thieu ky nang chinh: " + context.primarySkill + ".");
+            context.riskFlags.add("Thiếu bằng chứng đáng tin cho kỹ năng chính: " + context.primarySkill + ".");
             averageSkillFit = Math.min(averageSkillFit, 0.72);
         }
 
@@ -345,7 +359,7 @@ public class CandidateFitScoringService {
                     .confidence(verifiedEvidence.confidence())
                     .matchType("VERIFIED_SKILL")
                     .verificationStatus("VERIFIED")
-                    .businessMeaning("Skill " + requiredSkill + " da duoc mentor/admin xac thuc, co the dung lam bang chung chinh.")
+                    .businessMeaning("Kỹ năng " + requiredSkill + " đã được mentor/admin xác thực, có thể xem là bằng chứng năng lực chính.")
                     .evidenceSources(new ArrayList<>(List.of(verifiedEvidence.label())))
                     .build();
         }
@@ -363,7 +377,7 @@ public class CandidateFitScoringService {
                     .confidence(confidence)
                     .matchType("PORTFOLIO_EVIDENCE")
                     .verificationStatus("EVIDENCE_BACKED")
-                    .businessMeaning("Skill " + requiredSkill + " co bang chung trong portfolio/mission/certificate, nhung chua phai skill da xac thuc truc tiep.")
+                    .businessMeaning("Kỹ năng " + requiredSkill + " có bằng chứng trong mission/project/chứng chỉ. Đây là bằng chứng hỗ trợ, nhưng chưa mạnh bằng skill đã xác thực trực tiếp.")
                     .evidenceSources(new ArrayList<>(sources))
                     .build();
         }
@@ -380,7 +394,7 @@ public class CandidateFitScoringService {
                     .confidence(confidence)
                     .matchType("POSSIBLE_PORTFOLIO_EVIDENCE")
                     .verificationStatus("POSSIBLE_EVIDENCE")
-                    .businessMeaning("Skill " + requiredSkill + " chi xuat hien trong noi dung mo ta portfolio, can phong van hoac yeu cau minh chung ro hon.")
+                    .businessMeaning("Kỹ năng " + requiredSkill + " chỉ xuất hiện trong mô tả portfolio, cần phỏng vấn hoặc yêu cầu minh chứng rõ hơn.")
                     .evidenceSources(new ArrayList<>(sources))
                     .build();
         }
@@ -394,8 +408,8 @@ public class CandidateFitScoringService {
                         .confidence(Math.min(0.50, similarity))
                         .matchType(similarity >= 0.95 ? "DECLARED_EXACT" : "DECLARED_RELATED")
                         .verificationStatus("DECLARED_ONLY")
-                        .businessMeaning("Skill " + requiredSkill + " chi duoc ung vien tu khai trong CV/top skills, chua chung minh duoc nang luc.")
-                        .evidenceSources(new ArrayList<>(List.of("Declared in CV/top skills: " + candidateSkill)))
+                        .businessMeaning("Kỹ năng " + requiredSkill + " chỉ do ứng viên tự khai trong CV/top skills, chưa đủ để chứng minh năng lực.")
+                        .evidenceSources(new ArrayList<>(List.of("Ứng viên tự khai trong CV/top skills: " + candidateSkill)))
                         .build();
             }
         }
@@ -406,7 +420,7 @@ public class CandidateFitScoringService {
                 .confidence(0.0)
                 .matchType("MISSING")
                 .verificationStatus("MISSING")
-                .businessMeaning("Chua tim thay skill " + requiredSkill + " trong skill da xac thuc, evidence portfolio hoac CV/top skills.")
+                .businessMeaning("Chưa tìm thấy bằng chứng đáng tin cho kỹ năng " + requiredSkill + ".")
                 .evidenceSources(new ArrayList<>())
                 .build();
     }
@@ -521,13 +535,13 @@ public class CandidateFitScoringService {
 
         context.inferredSeniority = strongerSeniority(titleLevel, yearsLevel);
         if (titleLevel != null) {
-            context.seniorityEvidence.add("Title/CV signal: " + String.join("; ", titleSignals.stream().limit(4).toList()));
+            context.seniorityEvidence.add("Tín hiệu chức danh trong CV/portfolio: " + String.join("; ", titleSignals.stream().limit(4).toList()));
         }
         if (context.profile.getYearsOfExperience() != null) {
-            context.seniorityEvidence.add("Portfolio yearsOfExperience: " + context.profile.getYearsOfExperience());
+            context.seniorityEvidence.add("Số năm kinh nghiệm trong portfolio: " + context.profile.getYearsOfExperience());
         }
         if (context.activeCv != null) {
-            context.seniorityEvidence.add("Active CV version " + context.activeCv.getVersion() + " was checked.");
+            context.seniorityEvidence.add("Đã kiểm tra CV active phiên bản " + context.activeCv.getVersion() + ".");
         }
 
         context.seniorityConfidence = clamp01(
@@ -542,7 +556,7 @@ public class CandidateFitScoringService {
             context.seniorityPass = false;
             context.seniorityDecision = "NEEDS_REVIEW";
             context.seniorityRiskLevel = "MEDIUM";
-            String reason = "Chua du thong tin CV/portfolio de xac dinh ung vien co dung seniority " + context.requiredSeniority + " hay khong.";
+            String reason = "Chưa đủ thông tin CV/portfolio để xác định ứng viên có đúng cấp bậc " + context.requiredSeniority + " hay không.";
             context.riskFlags.add(reason);
             context.senioritySummary = reason;
             return;
@@ -560,13 +574,13 @@ public class CandidateFitScoringService {
 
         if (!context.seniorityPass) {
             String reason = context.overqualified
-                    ? "Job yeu cau Fresher nhung CV/portfolio cho thay ung vien da o cap " + context.inferredSeniority + "."
-                    : "Job yeu cau " + context.requiredSeniority + " nhung CV/portfolio chi suy luan duoc " + context.inferredSeniority + ".";
+                    ? "Job yêu cầu Fresher nhưng CV/portfolio cho thấy ứng viên đã ở cấp " + context.inferredSeniority + "."
+                    : "Job yêu cầu " + context.requiredSeniority + " nhưng CV/portfolio chỉ suy luận được " + context.inferredSeniority + ".";
             context.riskFlags.add(reason);
             context.senioritySummary = reason;
         } else {
-            context.senioritySummary = "Seniority phu hop: job yeu cau " + context.requiredSeniority
-                    + ", CV/portfolio suy luan " + context.inferredSeniority + ".";
+            context.senioritySummary = "Seniority phù hợp: job yêu cầu " + context.requiredSeniority
+                    + ", CV/portfolio suy luận " + context.inferredSeniority + ".";
         }
     }
 
@@ -801,6 +815,25 @@ public class CandidateFitScoringService {
             return "UNVERIFIED_CLAIM_ONLY";
         }
         return "MISSING_CRITICAL_SKILLS";
+    }
+
+    private String buildFitSummaryTitle(CandidateContext context) {
+        return switch (Optional.ofNullable(context.fitVerdict).orElse("NEEDS_REVIEW")) {
+            case "STRONG_VERIFIED_FIT" -> "Phù hợp mạnh, có kỹ năng đã xác thực";
+            case "PARTIAL_EVIDENCE_FIT" -> "Có bằng chứng một phần, nên kiểm tra thêm";
+            case "UNVERIFIED_CLAIM_ONLY" -> "Chủ yếu là kỹ năng tự khai";
+            case "SENIORITY_RISK" -> "Có rủi ro về cấp bậc";
+            case "MISSING_CRITICAL_SKILLS" -> "Thiếu bằng chứng cho kỹ năng quan trọng";
+            default -> "Cần kiểm tra thêm trước khi quyết định";
+        };
+    }
+
+    private String buildFitSummaryReason(CandidateContext context) {
+        return "Đã xác thực " + Math.round(context.verifiedSkillMatchPercent * 100)
+                + "%, có bằng chứng " + Math.round(context.evidenceBackedSkillPercent * 100)
+                + "%, tự khai " + Math.round(context.declaredOnlySkillPercent * 100)
+                + "% và còn thiếu " + Math.round(context.missingSkillPercent * 100)
+                + "% kỹ năng yêu cầu.";
     }
 
     private CandidateFitAnalysisDTO.ComponentScoreDTO component(
@@ -1594,6 +1627,8 @@ public class CandidateFitScoringService {
         private String seniorityDecision;
         private String seniorityRiskLevel;
         private String fitVerdict;
+        private String fitSummaryTitle;
+        private String fitSummaryReason;
         private List<String> seniorityEvidence = new ArrayList<>();
         private int relevantProjectsCount;
         private int relevantCertificatesCount;

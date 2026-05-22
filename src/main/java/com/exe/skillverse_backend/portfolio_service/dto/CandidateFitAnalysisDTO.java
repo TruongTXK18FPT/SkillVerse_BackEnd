@@ -32,6 +32,8 @@ public class CandidateFitAnalysisDTO {
     private String seniorityDecision;
     private String seniorityRiskLevel;
     private String fitVerdict;
+    private String fitSummaryTitle;
+    private String fitSummaryReason;
 
     @Builder.Default
     private List<ComponentScoreDTO> components = new ArrayList<>();

@@ -267,6 +267,35 @@ class CandidateFitScoringServiceTest {
         assertThat(result.getAnalysis().getFitVerdict()).isEqualTo("MISSING_CRITICAL_SKILLS");
     }
 
+    @Test
+    void primarySkillIsDedupedAgainstRequiredSkillsCaseInsensitively() {
+        JobPosting job = JobPosting.builder()
+                .id(20L)
+                .title("Frontend Developer")
+                .description("Build frontend products")
+                .primarySkill("React")
+                .requiredSkills("[\"react\",\"node.js\"]")
+                .experienceLevel("Junior")
+                .isRemote(true)
+                .build();
+
+        var result = service.score(profile("[]"), job, null, CandidateSearchRequest.builder().build());
+
+        assertThat(result.getAnalysis().getRequiredSkillSignals())
+                .extracting(signal -> signal.getSkill().toLowerCase())
+                .containsExactly("react", "node.js");
+        assertThat(result.getAnalysis().getRequiredSkillSignals().get(0).getPrimary()).isTrue();
+    }
+
+    @Test
+    void businessMeaningUsesVietnameseCopy() {
+        var result = service.score(profile("[\"React\"]"), job("React", "Junior"), null, CandidateSearchRequest.builder().build());
+
+        assertThat(result.getAnalysis().getRequiredSkillSignals().get(0).getBusinessMeaning())
+                .contains("ứng viên tự khai")
+                .contains("chưa đủ để chứng minh năng lực");
+    }
+
     private PortfolioExtendedProfile profile(String topSkills) {
         User user = User.builder().id(10L).email("candidate@example.com").build();
         return PortfolioExtendedProfile.builder()
