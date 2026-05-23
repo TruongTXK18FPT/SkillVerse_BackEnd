@@ -356,7 +356,6 @@ public class TaxonomyServiceImpl implements TaxonomyService {
         track.setCode(normalizedCode);
         track.setName(dto.getName().trim());
         track.setDescription(dto.getDescription() != null ? dto.getDescription().trim() : null);
-        track.setTargetLevel(dto.getTargetLevel());
         if (dto.getStatus() != null) {
             track.setStatus(dto.getStatus());
         }

@@ -1,6 +1,5 @@
 package com.exe.skillverse_backend.career_taxonomy_service.entity;
 
-import com.exe.skillverse_backend.career_taxonomy_service.enums.TargetLevel;
 import com.exe.skillverse_backend.career_taxonomy_service.enums.TaxonomyStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -49,10 +48,6 @@ public class JobPositionTrack {
 
     @Column(name = "job_position_id", insertable = false, updatable = false)
     private Long jobPositionId;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "target_level", nullable = false)
-    private TargetLevel targetLevel;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

@@ -265,9 +265,7 @@ public class JourneyServiceImpl implements JourneyService {
                 .status(Journey.JourneyStatus.ASSESSMENT_PENDING)
                 .assessmentData(convertRequestToJson(request))
                 .jobPositionTrackId(jobContext != null ? jobContext.track().getId() : request.getJobPositionTrackId())
-                .targetLevel(jobContext != null && jobContext.track().getTargetLevel() != null
-                        ? jobContext.track().getTargetLevel().name()
-                        : null)
+                .targetLevel(null)
                 .focusSkillIdsJson(focusSkillIds.isEmpty() ? null : writeJson(focusSkillIds))
                 .progressPercentage(0)
                 .startedAt(Instant.now())

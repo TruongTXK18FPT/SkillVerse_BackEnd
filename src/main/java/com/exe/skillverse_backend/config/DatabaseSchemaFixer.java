@@ -194,6 +194,13 @@ public class DatabaseSchemaFixer {
                 this::verifyMigrateLegacyRubricsToJson
             );
 
+            applyPatch(
+                "20260524_drop_track_target_level",
+                "Drop target_level column from job_position_tracks table",
+                this::patchDropTrackTargetLevel,
+                this::verifyDropTrackTargetLevel
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -1354,5 +1361,14 @@ public class DatabaseSchemaFixer {
         }
 
         return countNodes == 0 && countActivities == 0 && countGroups == 0 && countTemplates == 0;
+    }
+
+    private void patchDropTrackTargetLevel() {
+        log.info("Dropping target_level column from job_position_tracks...");
+        executeSql("ALTER TABLE job_position_tracks DROP COLUMN IF EXISTS target_level");
+    }
+
+    private boolean verifyDropTrackTargetLevel() {
+        return !hasColumn("job_position_tracks", "target_level");
     }
 }
