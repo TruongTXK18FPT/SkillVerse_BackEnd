@@ -177,6 +177,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         applyTemplateFields(template, request);
         RoadmapTemplate saved = templateRepository.save(template);
         courseRepository.deleteByTemplateId(saved.getId());
+        nodeGroupSkillRepository.deleteByTemplateId(saved.getId());
         nodeGroupRepository.deleteByTemplateId(saved.getId());
         activityRepository.deleteByTemplateId(saved.getId());
         skillBlockRepository.deleteByTemplateId(saved.getId());
@@ -300,7 +301,11 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             errors.add(ex.getMessage());
         }
         RoadmapTemplateAllocationPreviewResponse allocation = allocateFromRequest(request);
-        errors.addAll(defaultList(allocation.getErrors()));
+        if (request.getNodeGroups() == null || request.getNodeGroups().isEmpty()) {
+            errors.addAll(defaultList(allocation.getErrors()));
+        } else {
+            warnings.addAll(defaultList(allocation.getErrors()));
+        }
         validateV2Content(request, errors, warnings, allocation);
         return RoadmapTemplateValidationResponse.builder()
                 .valid(errors.isEmpty())
