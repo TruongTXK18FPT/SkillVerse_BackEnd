@@ -1,6 +1,9 @@
 package com.exe.skillverse_backend.career_taxonomy_service.dto;
 
 import com.exe.skillverse_backend.career_taxonomy_service.enums.TaxonomyStatus;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -13,8 +16,16 @@ import lombok.NoArgsConstructor;
 public class JobPositionDto {
     private Long id;
     private String code;
+
+    @NotBlank(message = "Tên hiển thị không được để trống")
+    @Size(max = 255, message = "Tên hiển thị không được vượt quá 255 ký tự")
     private String name;
+
     private String description;
+
+    @NotNull(message = "Domain nghề nghiệp không được để trống")
     private Long domainId;
+
     private TaxonomyStatus status;
 }
+
