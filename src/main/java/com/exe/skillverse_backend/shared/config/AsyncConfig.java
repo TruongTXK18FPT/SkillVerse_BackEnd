@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.shared.config;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
@@ -16,6 +17,9 @@ import java.util.concurrent.Executor;
 @Configuration
 @EnableAsync
 public class AsyncConfig {
+
+    @Value("${app.roadmap.enrichment.concurrency:2}")
+    private int roadmapEnrichmentConcurrency;
 
     /**
      * Thread pool executor for email sending operations
@@ -95,6 +99,30 @@ public class AsyncConfig {
         executor.initialize();
 
         log.info("Grading Task Executor initialized with core={}, max={}, queue={}",
+                executor.getCorePoolSize(),
+                executor.getMaxPoolSize(),
+                executor.getQueueCapacity());
+
+        return executor;
+    }
+
+    /**
+     * Thread pool executor for concurrent AI roadmap node enrichment.
+     * Hard-limited pool size to prevent OpenAI/Mistral rate limits (HTTP 429).
+     */
+    @Bean(name = "roadmapEnrichmentTaskExecutor")
+    public Executor roadmapEnrichmentTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+
+        executor.setCorePoolSize(roadmapEnrichmentConcurrency);
+        executor.setMaxPoolSize(roadmapEnrichmentConcurrency);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("RoadmapEnrichment-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.initialize();
+
+        log.info("Roadmap Enrichment Task Executor initialized with core={}, max={}, queue={}",
                 executor.getCorePoolSize(),
                 executor.getMaxPoolSize(),
                 executor.getQueueCapacity());

@@ -84,6 +84,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapNodeAiEnrichmentService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.annotation.Qualifier;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 @Service
 @RequiredArgsConstructor
@@ -121,7 +127,18 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             String reason,
             Double estimatedHours,
             List<Long> suggestedCourseIds,
-            String skillRequirementsJson
+            String skillRequirementsJson,
+            List<String> learningObjectives,
+            List<String> practicalExercises,
+            List<String> successCriteria
+    ) {
+    }
+
+    private static record EnrichedRuntimeNodeV1(
+            RoadmapTemplateNode node,
+            RoadmapNodeAiEnrichmentService.EnrichedNode enriched,
+            String difficulty,
+            int estimatedMinutes
     ) {
     }
 
@@ -144,6 +161,16 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     private final RoadmapNodeAssignmentRepository assignmentRepository;
     private final UserRoadmapProgressRepository progressRepository;
     private final ObjectMapper objectMapper;
+    private final RoadmapNodeAiEnrichmentService nodeAiEnrichmentService;
+
+    @Autowired
+    @Lazy
+    private RoadmapTemplateServiceImpl self;
+
+    @Autowired
+    @Qualifier("roadmapEnrichmentTaskExecutor")
+    private Executor roadmapEnrichmentTaskExecutor;
+
 
     @Override
     @Transactional
@@ -341,7 +368,6 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     }
 
     @Override
-    @Transactional
     public Long createRoadmapSessionFromPublishedTemplate(Journey journey, TestResult testResult,
                                                           List<Map<String, Object>> skillGaps,
                                                           List<Map<String, Object>> strengths) {
@@ -378,7 +404,52 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                     "Bạn đang học tối đa 5 lộ trình cùng lúc. Hãy hoàn thành, tạm dừng hoặc xóa một lộ trình trước khi tạo mới.");
         }
 
-        String roadmapJson = buildRoadmapJson(template, nodes, journey, testResult, skillGaps, strengths);
+        String studentLevel = resolveStudentLevel(journey, testResult);
+        Set<String> gapNames = extractProfileSkillNames(skillGaps);
+        Set<String> strengthNames = extractProfileSkillNames(strengths);
+        
+        List<CompletableFuture<EnrichedRuntimeNodeV1>> futures = new ArrayList<>();
+        for (int i = 0; i < nodes.size(); i++) {
+            RoadmapTemplateNode node = nodes.get(i);
+            boolean gapMatched = profileMatchesNode(gapNames, node);
+            boolean strengthMatched = profileMatchesNode(strengthNames, node);
+
+            final int index = i;
+            CompletableFuture<EnrichedRuntimeNodeV1> future = CompletableFuture.supplyAsync(() -> {
+                if (index > 0) {
+                    try {
+                        Thread.sleep(2500L * index);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
+                        node.getTitle(),
+                        node.getDescription(),
+                        node.getExpectedOutput(),
+                        node.getRubric(),
+                        node.getSkillNameSnapshot(),
+                        studentLevel,
+                        journey.getGoal(),
+                        gapMatched,
+                        strengthMatched
+                );
+                int personalizedMinutes = personalizeMinutes(node, studentLevel, gapMatched);
+                String difficulty = personalizeDifficulty(node, studentLevel, gapMatched, strengthMatched);
+                return new EnrichedRuntimeNodeV1(node, enriched, difficulty, personalizedMinutes);
+            }, roadmapEnrichmentTaskExecutor);
+
+            futures.add(future);
+        }
+
+        // Chờ tất cả hoàn thành song song (ThreadPoolTaskExecutor khống chế 3 luồng đồng thời)
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        List<EnrichedRuntimeNodeV1> enrichedNodes = futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList());
+
+        String roadmapJson = buildEnrichedRoadmapJson(template, enrichedNodes, journey, testResult, skillGaps, strengths);
         RoadmapSession session = RoadmapSession.builder()
                 .user(journey.getUser())
                 .title(template.getTitle())
@@ -387,7 +458,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .validatedGoal(firstNonBlank(template.getDescription(), template.getTitle()))
                 .goal(template.getTitle())
                 .duration("Admin template guided")
-                .experienceLevel(resolveStudentLevel(journey, testResult))
+                .experienceLevel(studentLevel)
                 .learningStyle("Assessment-aware admin template")
                 .roadmapType("career")
                 .roadmapMode(GENERATION_MODE_TEMPLATE_GUIDED)
@@ -405,16 +476,40 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .status(RoadmapSession.RoadmapStatus.ACTIVE)
                 .roadmapJson(roadmapJson)
                 .build();
-        session = roadmapSessionRepository.save(session);
 
-        journey.setRoadmapTemplateId(template.getId());
-        journey.setJobPositionTrackId(template.getJobPositionTrackId());
-        journey.setFocusSkillIdsJson(writeJson(extractSkillIds(nodes)));
-        journeyRepository.save(journey);
+        List<RoadmapNodeAssignment> assignments = buildRuntimeAssignmentsV1(journey, session, enrichedNodes);
+        List<UserRoadmapProgress> progresses = buildInitialProgress(session, nodes);
 
-        createRuntimeAssignments(journey, session, nodes);
-        createInitialProgress(session, nodes);
-        return session.getId();
+        return self.saveRoadmapSessionAndData(
+                session,
+                journey,
+                assignments,
+                progresses,
+                template.getId(),
+                template.getJobPositionTrackId(),
+                writeJson(extractSkillIds(nodes))
+        );
+    }
+
+    private List<RoadmapNodeAssignment> buildRuntimeAssignmentsV1(
+            Journey journey, 
+            RoadmapSession session, 
+            List<EnrichedRuntimeNodeV1> enrichedNodes) {
+        return enrichedNodes.stream()
+                .map(ern -> RoadmapNodeAssignment.builder()
+                        .journeyId(journey.getId())
+                        .roadmapSessionId(session != null ? session.getId() : null)
+                        .nodeId(resolveNodeId(ern.node()))
+                        .nodeSkillId(ern.node().getSkillId())
+                        .roadmapTemplateNodeId(ern.node().getId())
+                        .assignmentSource(RoadmapNodeAssignment.AssignmentSource.TEMPLATE)
+                        .title(ern.node().getTitle())
+                        .description(formatExercisesToMarkdown(ern.enriched().getPracticalExercises(), ern.enriched().getDescription()))
+                        .expectedOutput(ern.enriched().getExpectedOutput())
+                        .rubric(ern.enriched().getRubric())
+                        .createdBy(journey.getUser().getId())
+                        .build())
+                .toList();
     }
 
     private Long createRoadmapSessionFromV2Template(
@@ -461,16 +556,19 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .status(RoadmapSession.RoadmapStatus.ACTIVE)
                 .roadmapJson(runtime.roadmapJson())
                 .build();
-        session = roadmapSessionRepository.save(session);
 
-        journey.setRoadmapTemplateId(template.getId());
-        journey.setJobPositionTrackId(template.getJobPositionTrackId());
-        journey.setFocusSkillIdsJson(writeJson(extractSkillIdsFromBlocks(blocks)));
-        journeyRepository.save(journey);
+        List<RoadmapNodeAssignment> assignments = buildRuntimeAssignmentsFromRuntime(journey, session, runtime.nodes());
+        List<UserRoadmapProgress> progresses = buildInitialProgressFromRuntime(session, runtime.nodes());
 
-        createRuntimeAssignmentsFromRuntime(journey, session, runtime.nodes());
-        createInitialProgressFromRuntime(session, runtime.nodes());
-        return session.getId();
+        return self.saveRoadmapSessionAndData(
+                session,
+                journey,
+                assignments,
+                progresses,
+                template.getId(),
+                template.getJobPositionTrackId(),
+                writeJson(extractSkillIdsFromBlocks(blocks))
+        );
     }
 
     private Long createRoadmapSessionFromNodeGroups(
@@ -517,16 +615,19 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .status(RoadmapSession.RoadmapStatus.ACTIVE)
                 .roadmapJson(runtime.roadmapJson())
                 .build();
-        session = roadmapSessionRepository.save(session);
 
-        journey.setRoadmapTemplateId(template.getId());
-        journey.setJobPositionTrackId(template.getJobPositionTrackId());
-        journey.setFocusSkillIdsJson(writeJson(extractSkillIdsFromRuntime(runtime.nodes())));
-        journeyRepository.save(journey);
+        List<RoadmapNodeAssignment> assignments = buildRuntimeAssignmentsFromRuntime(journey, session, runtime.nodes());
+        List<UserRoadmapProgress> progresses = buildInitialProgressFromRuntime(session, runtime.nodes());
 
-        createRuntimeAssignmentsFromRuntime(journey, session, runtime.nodes());
-        createInitialProgressFromRuntime(session, runtime.nodes());
-        return session.getId();
+        return self.saveRoadmapSessionAndData(
+                session,
+                journey,
+                assignments,
+                progresses,
+                template.getId(),
+                template.getJobPositionTrackId(),
+                writeJson(extractSkillIdsFromRuntime(runtime.nodes()))
+        );
     }
 
 
@@ -1419,8 +1520,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 || normalized.contains("capstone");
     }
 
-    private void createRuntimeAssignments(Journey journey, RoadmapSession session, List<RoadmapTemplateNode> nodes) {
-        List<RoadmapNodeAssignment> assignments = nodes.stream()
+    private List<RoadmapNodeAssignment> buildRuntimeAssignments(Journey journey, RoadmapSession session, List<RoadmapTemplateNode> nodes) {
+        return nodes.stream()
                 .map(node -> RoadmapNodeAssignment.builder()
                         .journeyId(journey.getId())
                         .roadmapSessionId(session.getId())
@@ -1435,11 +1536,10 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         .createdBy(journey.getUser().getId())
                         .build())
                 .toList();
-        assignmentRepository.saveAll(assignments);
     }
 
-    private void createInitialProgress(RoadmapSession session, List<RoadmapTemplateNode> nodes) {
-        List<UserRoadmapProgress> progress = nodes.stream()
+    private List<UserRoadmapProgress> buildInitialProgress(RoadmapSession session, List<RoadmapTemplateNode> nodes) {
+        return nodes.stream()
                 .map(node -> UserRoadmapProgress.builder()
                         .roadmapSession(session)
                         .questId(resolveNodeId(node))
@@ -1447,11 +1547,10 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         .progress(0)
                         .build())
                 .toList();
-        progressRepository.saveAll(progress);
     }
 
-    private void createRuntimeAssignmentsFromRuntime(Journey journey, RoadmapSession session, List<RuntimeRoadmapNode> nodes) {
-        List<RoadmapNodeAssignment> assignments = nodes.stream()
+    private List<RoadmapNodeAssignment> buildRuntimeAssignmentsFromRuntime(Journey journey, RoadmapSession session, List<RuntimeRoadmapNode> nodes) {
+        return nodes.stream()
                 .map(node -> RoadmapNodeAssignment.builder()
                         .journeyId(journey.getId())
                         .roadmapSessionId(session.getId())
@@ -1460,17 +1559,25 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         .roadmapTemplateNodeId(null)
                         .assignmentSource(RoadmapNodeAssignment.AssignmentSource.TEMPLATE)
                         .title(node.title())
-                        .description(node.description())
+                        .description(formatExercisesToMarkdown(node.practicalExercises(), node.description()))
                         .expectedOutput(node.expectedOutput())
                         .rubric(node.rubric())
                         .createdBy(journey.getUser().getId())
                         .build())
                 .toList();
-        assignmentRepository.saveAll(assignments);
     }
 
-    private void createInitialProgressFromRuntime(RoadmapSession session, List<RuntimeRoadmapNode> nodes) {
-        List<UserRoadmapProgress> progress = nodes.stream()
+    private String formatExercisesToMarkdown(List<String> exercises, String fallbackDescription) {
+        if (exercises == null || exercises.isEmpty()) {
+            return fallbackDescription != null ? fallbackDescription : "";
+        }
+        return exercises.stream()
+                .map(ex -> "- " + ex.trim())
+                .collect(Collectors.joining("\n"));
+    }
+
+    private List<UserRoadmapProgress> buildInitialProgressFromRuntime(RoadmapSession session, List<RuntimeRoadmapNode> nodes) {
+        return nodes.stream()
                 .map(node -> UserRoadmapProgress.builder()
                         .roadmapSession(session)
                         .questId(node.id())
@@ -1478,8 +1585,38 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         .progress(0)
                         .build())
                 .toList();
-        progressRepository.saveAll(progress);
     }
+
+    @Transactional
+    public Long saveRoadmapSessionAndData(
+            RoadmapSession session,
+            Journey journey,
+            List<RoadmapNodeAssignment> assignments,
+            List<UserRoadmapProgress> progresses,
+            Long templateId,
+            Long trackId,
+            String focusSkillIdsJson) {
+        
+        RoadmapSession saved = roadmapSessionRepository.save(session);
+        
+        for (RoadmapNodeAssignment a : assignments) {
+            a.setRoadmapSessionId(saved.getId());
+        }
+        assignmentRepository.saveAll(assignments);
+        
+        for (UserRoadmapProgress p : progresses) {
+            p.setRoadmapSession(saved);
+        }
+        progressRepository.saveAll(progresses);
+        
+        journey.setRoadmapTemplateId(templateId);
+        journey.setJobPositionTrackId(trackId);
+        journey.setFocusSkillIdsJson(focusSkillIdsJson);
+        journeyRepository.save(journey);
+        
+        return saved.getId();
+    }
+
 
     private String buildRoadmapJson(RoadmapTemplate template, List<RoadmapTemplateNode> nodes) {
         return buildRoadmapJson(template, nodes, null, null, List.of(), List.of());
@@ -1569,13 +1706,101 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         return root.toString();
     }
 
-    private RuntimeRoadmap buildRuntimeRoadmapFromSkillBlocks(
+    private String buildEnrichedRoadmapJson(
             RoadmapTemplate template,
-            List<RoadmapTemplateSkillBlock> blocks,
+            List<EnrichedRuntimeNodeV1> enrichedNodes,
             Journey journey,
             TestResult testResult,
             List<Map<String, Object>> skillGaps,
             List<Map<String, Object>> strengths) {
+        String studentLevel = resolveStudentLevel(journey, testResult);
+        Set<String> gapNames = extractProfileSkillNames(skillGaps);
+        Set<String> strengthNames = extractProfileSkillNames(strengths);
+        ObjectNode root = objectMapper.createObjectNode();
+        ObjectNode metadata = root.putObject("roadmap_metadata");
+        metadata.put("title", template.getTitle());
+        metadata.put("original_goal", template.getTitle());
+        metadata.put("validated_goal", firstNonBlank(template.getDescription(), template.getTitle()));
+        metadata.put("duration", "Admin template guided");
+        metadata.put("experience_level", studentLevel);
+        metadata.put("learning_style", "Assessment-aware admin template");
+        metadata.put("difficulty_level", resolveDominantDifficulty(enrichedNodes.stream().map(EnrichedRuntimeNodeV1::node).toList()));
+        metadata.put("roadmap_type", "career");
+        metadata.put("target", resolveRuntimeTarget(template, journey));
+        metadata.put("final_objective", "Complete admin-defined job-position roadmap with verified evidence");
+        metadata.put("roadmap_mode", GENERATION_MODE_TEMPLATE_GUIDED);
+        metadata.put("current_level", studentLevel);
+        metadata.put("desired_duration", "Admin template guided");
+        if (testResult != null) {
+            metadata.put("assessment_score", testResult.getScorePercentage());
+        }
+
+        List<RoadmapTemplateNode> nodes = enrichedNodes.stream().map(EnrichedRuntimeNodeV1::node).toList();
+        Map<Long, String> nodeIdsByTemplateId = nodes.stream()
+                .collect(Collectors.toMap(RoadmapTemplateNode::getId, this::resolveNodeId, (a, b) -> a, LinkedHashMap::new));
+        ArrayNode roadmap = root.putArray("roadmap");
+        for (EnrichedRuntimeNodeV1 ern : enrichedNodes) {
+            RoadmapTemplateNode node = ern.node();
+            RoadmapNodeAiEnrichmentService.EnrichedNode enriched = ern.enriched();
+            ObjectNode n = roadmap.addObject();
+            String nodeId = resolveNodeId(node);
+            String parentId = node.getParentNodeId() != null ? nodeIdsByTemplateId.get(node.getParentNodeId()) : null;
+            boolean gapMatched = profileMatchesNode(gapNames, node);
+            boolean strengthMatched = profileMatchesNode(strengthNames, node);
+            n.put("id", nodeId);
+            n.put("title", node.getTitle());
+            n.put("description", enriched.getDescription());
+            n.put("estimated_time_minutes", ern.estimatedMinutes());
+            n.put("type", "MAIN");
+            n.put("difficulty", ern.difficulty());
+            n.put("order_index", node.getOrderIndex());
+            n.put("main_path_index", node.getOrderIndex());
+            n.put("is_core", true);
+            if (parentId != null) {
+                n.put("parent_id", parentId);
+            } else {
+                n.putNull("parent_id");
+            }
+            n.put("node_status", node.getOrderIndex() != null && node.getOrderIndex() == 1 ? "AVAILABLE" : "LOCKED");
+            putArray(n, "learning_objectives", enriched.getLearningObjectives());
+            putArray(n, "practical_exercises", enriched.getPracticalExercises());
+            putArray(n, "success_criteria", enriched.getSuccessCriteria());
+            putArray(n, "suggested_resources", List.of());
+            putArray(n, "key_concepts", personalizedKeyConcepts(node, studentLevel));
+            putArray(n, "prerequisites", parentId != null ? List.of(parentId) : List.of());
+            putArray(n, "children", childrenOf(node, nodes, nodeIdsByTemplateId));
+            n.put("importance_score", importanceScore(node));
+            n.put("confidence_score", 0.9);
+            n.put("reason", personalizationReason(node, studentLevel, gapMatched, strengthMatched));
+            putArray(n, "evidence", List.of("admin_template", "assessment_profile", "job_position_track"));
+            n.put("importance_validation_status", "ACCEPTED");
+        }
+
+        ObjectNode stats = root.putObject("roadmap_statistics");
+        stats.put("total_nodes", nodes.size());
+        stats.put("main_nodes", nodes.size());
+        stats.put("side_nodes", 0);
+        stats.put("total_estimated_hours", nodes.stream().map(RoadmapTemplateNode::getEstimatedHours).filter(Objects::nonNull)
+                .mapToDouble(Double::doubleValue).sum());
+        ObjectNode distribution = stats.putObject("difficulty_distribution");
+        nodes.stream().map(n -> firstNonBlank(n.getDifficulty(), "medium"))
+                .collect(Collectors.groupingBy(d -> d, LinkedHashMap::new, Collectors.counting()))
+                .forEach((difficulty, count) -> distribution.put(difficulty, count.intValue()));
+
+        putArray(root, "learning_tips", List.of("Follow the admin-defined sequence and submit evidence for each node."));
+        putArray(root, "warnings", List.of());
+        root.putObject("overview")
+                .put("purpose", "Admin template with AI-personalized learning guidance")
+                .put("audience", "Student targeting a specific job position track")
+                .put("post_roadmap_state", "Ready for job-position competency verification");
+        return root.toString();
+    }
+
+    private List<RuntimeRoadmapNode> buildInitialRuntimeNodesFromSkillBlocks(
+            RoadmapTemplate template,
+            List<RoadmapTemplateSkillBlock> blocks,
+            Journey journey,
+            TestResult testResult) {
         Map<Long, List<Long>> manualCoursesBySkill = courseRepository.findByTemplateIdOrderByDisplayOrderAscIdAsc(template.getId()).stream()
                 .filter(course -> course.getSkillId() != null)
                 .collect(Collectors.groupingBy(
@@ -1613,109 +1838,49 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         buildRuntimeReason(block, activity, studentSkillLevel, targetLevelMatch),
                         activity != null ? activity.getEstimatedHours() : null,
                         suggestedCourseIds,
-                        activity != null ? activity.getSkillRequirementsJson() : null));
+                        activity != null ? activity.getSkillRequirementsJson() : null,
+                        null, null, null
+                ));
             }
         }
-
-        ObjectNode root = objectMapper.createObjectNode();
-        ObjectNode metadata = root.putObject("roadmap_metadata");
-        metadata.put("title", template.getTitle());
-        metadata.put("original_goal", template.getTitle());
-        metadata.put("validated_goal", firstNonBlank(template.getGlobalLearningGoal(), template.getDescription(), template.getTitle()));
-        metadata.put("duration", "Admin V3 template guided");
-        metadata.put("experience_level", studentLevel);
-        metadata.put("learning_style", "Assessment-aware admin template allocation");
-        metadata.put("difficulty_level", resolveDominantDifficultyRuntime(runtimeNodes));
-        metadata.put("roadmap_type", "career");
-        metadata.put("target", resolveRuntimeTarget(template, journey));
-        metadata.put("final_objective", firstNonBlank(template.getOutputStandard(), "Complete admin-defined roadmap evidence"));
-        metadata.put("roadmap_mode", GENERATION_MODE_TEMPLATE_GUIDED);
-        metadata.put("generation_mode", String.valueOf(template.getGenerationMode()));
-        metadata.put("knowledge_policy", String.valueOf(template.getKnowledgePolicy()));
-        metadata.put("current_level", studentLevel);
-
-        ArrayNode roadmap = root.putArray("roadmap");
-        for (int i = 0; i < runtimeNodes.size(); i++) {
-            RuntimeRoadmapNode node = runtimeNodes.get(i);
-            ObjectNode n = roadmap.addObject();
-            n.put("id", node.id());
-            n.put("title", node.title());
-            n.put("description", node.description());
-            n.put("estimated_time_minutes", toMinutes(node.estimatedHours()));
-            n.put("type", "MAIN");
-            n.put("difficulty", node.difficulty());
-            n.put("order_index", i + 1);
-            n.put("main_path_index", i + 1);
-            n.put("is_core", true);
-            if (i == 0) {
-                n.putNull("parent_id");
-            } else {
-                n.put("parent_id", runtimeNodes.get(i - 1).id());
-            }
-            n.put("node_status", i == 0 ? "AVAILABLE" : "LOCKED");
-            n.put("skill_id", node.skillId());
-            n.put("skill_name", node.skillName());
-            n.put("template_skill_block_id", node.templateSkillBlockId());
-            putSkillRequirements(n, node);
-            if (node.minLevel() != null) {
-                n.put("min_level", node.minLevel().name());
-            } else {
-                n.putNull("min_level");
-            }
-            if (node.maxLevel() != null) {
-                n.put("max_level", node.maxLevel().name());
-            } else {
-                n.putNull("max_level");
-            }
-            n.put("target_level_match", node.targetLevelMatch());
-            n.put("activity_source", node.activitySource());
-            putArray(n, "learning_objectives", splitTemplateText(firstNonBlank(node.expectedOutput(), node.title())));
-            putArray(n, "practical_exercises", splitTemplateText(node.expectedOutput()));
-            putArray(n, "success_criteria", splitTemplateText(node.rubric()));
-            putArray(n, "suggested_resources", List.of());
-            putArray(n, "key_concepts", resolveRuntimeSkillNames(node));
-            putArray(n, "prerequisites", i == 0 ? List.of() : List.of(runtimeNodes.get(i - 1).id()));
-            putArray(n, "children", i + 1 < runtimeNodes.size() ? List.of(runtimeNodes.get(i + 1).id()) : List.of());
-            putLongArray(n, "suggested_course_ids", node.suggestedCourseIds());
-            n.put("importance_score", 0.85);
-            n.put("confidence_score", 0.95);
-            n.put("reason", node.reason());
-            putArray(n, "evidence", List.of("admin_template_v3", "skill_weight", node.activitySource(), "assessment_level"));
-            n.put("importance_validation_status", "ACCEPTED");
-        }
-
-        ObjectNode stats = root.putObject("roadmap_statistics");
-        stats.put("total_nodes", runtimeNodes.size());
-        stats.put("main_nodes", runtimeNodes.size());
-        stats.put("side_nodes", 0);
-        stats.put("total_estimated_hours", runtimeNodes.stream()
-                .map(RuntimeRoadmapNode::estimatedHours)
-                .filter(Objects::nonNull)
-                .mapToDouble(Double::doubleValue)
-                .sum());
-        putArray(root, "learning_tips", List.of("Follow the admin-defined skill allocation and submit evidence for each node."));
-        putArray(root, "warnings", List.of());
-        root.putObject("overview")
-                .put("purpose", "Admin V3 template with skill weights, level-banded activities, courses, and skill document permissions")
-                .put("audience", "Runtime learner profile from journey assessment")
-                .put("post_roadmap_state", firstNonBlank(template.getOutputStandard(), "Ready for job-position competency verification"));
-        return new RuntimeRoadmap(root.toString(), runtimeNodes);
+        return runtimeNodes;
     }
 
-    private RuntimeRoadmap buildRuntimeRoadmapFromNodeGroups(
+    private String formatRubricToMarkdown(String rubricJson) {
+        if (rubricJson == null || rubricJson.isBlank()) {
+            return "";
+        }
+        String trimmed = rubricJson.trim();
+        if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) {
+            return rubricJson;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(trimmed);
+            if (root.isArray() && root.size() > 0) {
+                StringBuilder sb = new StringBuilder();
+                for (JsonNode item : root) {
+                    String name = item.path("name").asText("Tiêu chí");
+                    String desc = item.path("description").asText("");
+                    int points = item.path("maxPoints").asInt(10);
+                    sb.append("- **").append(name).append(" (").append(points).append("đ)**: ").append(desc).append("\n");
+                }
+                return sb.toString().trim();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse rubric JSON: {}", rubricJson, e);
+        }
+        return rubricJson;
+    }
+
+    private List<RuntimeRoadmapNode> buildInitialRuntimeNodesFromNodeGroups(
             RoadmapTemplate template,
-            List<RoadmapTemplateNodeGroup> groups,
-            Journey journey,
-            TestResult testResult,
-            List<Map<String, Object>> skillGaps,
-            List<Map<String, Object>> strengths) {
+            List<RoadmapTemplateNodeGroup> groups) {
         Map<Long, List<Long>> manualCoursesBySkill = courseRepository.findByTemplateIdOrderByDisplayOrderAscIdAsc(template.getId()).stream()
                 .filter(course -> course.getSkillId() != null)
                 .collect(Collectors.groupingBy(
                         RoadmapTemplateCourse::getSkillId,
                         LinkedHashMap::new,
                         Collectors.mapping(RoadmapTemplateCourse::getCourseId, Collectors.toList())));
-        String studentLevel = resolveStudentLevel(journey, testResult);
         List<RuntimeRoadmapNode> runtimeNodes = new ArrayList<>();
         for (RoadmapTemplateNodeGroup group : defaultList(groups)) {
             List<RoadmapTemplateNodeGroupSkill> skills =
@@ -1727,6 +1892,58 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                     .flatMap(skillId -> defaultList(manualCoursesBySkill.get(skillId)).stream())
                     .distinct()
                     .toList();
+
+            String exInstruction = group.getDescription();
+            String exExpectedOutput = group.getExpectedOutput();
+            String exRubric = group.getRubric();
+            List<String> listPracticalExercises = new ArrayList<>();
+            List<String> listSuccessCriteria = new ArrayList<>();
+
+            if (group.getExercisesJson() != null && !group.getExercisesJson().isBlank()) {
+                try {
+                    JsonNode exercisesArr = objectMapper.readTree(group.getExercisesJson());
+                    if (exercisesArr.isArray() && exercisesArr.size() > 0) {
+                        JsonNode ex = exercisesArr.get(0);
+                        if (ex.has("instruction") && !ex.path("instruction").asText().isBlank()) {
+                            exInstruction = ex.path("instruction").asText();
+                            listPracticalExercises.add(exInstruction);
+                        }
+                        if (ex.has("expectedOutput") && !ex.path("expectedOutput").asText().isBlank()) {
+                            exExpectedOutput = ex.path("expectedOutput").asText();
+                        }
+                        if (ex.has("rubric") && !ex.path("rubric").asText().isBlank()) {
+                            String rawRubric = ex.path("rubric").asText();
+                            exRubric = formatRubricToMarkdown(rawRubric);
+                            
+                            String trimmedRubric = rawRubric.trim();
+                            if (!trimmedRubric.startsWith("[") && !trimmedRubric.startsWith("{")) {
+                                listSuccessCriteria.add(rawRubric);
+                            } else {
+                                try {
+                                    JsonNode rubricArr = objectMapper.readTree(trimmedRubric);
+                                    if (rubricArr.isArray()) {
+                                        for (JsonNode crit : rubricArr) {
+                                            String critName = crit.path("name").asText("");
+                                            String critDesc = crit.path("description").asText("");
+                                            int maxPts = crit.path("maxPoints").asInt(10);
+                                            if (!critDesc.isBlank()) {
+                                                listSuccessCriteria.add(critName + " (" + maxPts + "đ): " + critDesc);
+                                            } else if (!critName.isBlank()) {
+                                                listSuccessCriteria.add(critName + " (" + maxPts + "đ)");
+                                            }
+                                        }
+                                    }
+                                } catch (Exception ignored) {
+                                    listSuccessCriteria.add(rawRubric);
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to parse exercisesJson for node group template ID: {}", group.getId(), e);
+                }
+            }
+
             int moduleIndex = runtimeNodes.size() + 1;
             runtimeNodes.add(new RuntimeRoadmapNode(
                     firstNonBlank(group.getNodeKey(), "module-" + moduleIndex),
@@ -1734,9 +1951,9 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                     primarySkill != null ? primarySkill.getSkillId() : null,
                     primarySkill != null ? primarySkill.getSkillNameSnapshot() : null,
                     group.getTitle(),
-                    firstNonBlank(group.getDescription(), "Module combines related skills into a practical learning topic."),
-                    firstNonBlank(group.getExpectedOutput(), group.getLearningObjectives(), group.getTitle()),
-                    firstNonBlank(group.getRubric(), group.getCompletionCriteria()),
+                    firstNonBlank(exInstruction, group.getDescription(), "Module combines related skills into a practical learning topic."),
+                    firstNonBlank(exExpectedOutput, group.getExpectedOutput(), group.getLearningObjectives(), group.getTitle()),
+                    firstNonBlank(exRubric, group.getRubric(), group.getCompletionCriteria()),
                     firstNonBlank(group.getDifficulty(), "medium"),
                     null,
                     null,
@@ -1745,9 +1962,222 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                     "Admin module template groups related skills into one learning node.",
                     group.getEstimatedHours(),
                     suggestedCourseIds,
-                    buildNodeGroupSkillRequirementsJson(skills)));
+                    buildNodeGroupSkillRequirementsJson(skills),
+                    group.getLearningObjectives() != null && !group.getLearningObjectives().isBlank()
+                            ? List.of(group.getLearningObjectives().split("\n"))
+                            : null,
+                    listPracticalExercises.isEmpty() ? null : listPracticalExercises,
+                    listSuccessCriteria.isEmpty() ? null : listSuccessCriteria
+            ));
         }
-        return buildRuntimeRoadmapJson(template, runtimeNodes, studentLevel, "Admin module template guided",
+        return runtimeNodes;
+    }
+
+    private RuntimeRoadmap buildRuntimeRoadmapFromSkillBlocks(
+            RoadmapTemplate template,
+            List<RoadmapTemplateSkillBlock> blocks,
+            Journey journey,
+            TestResult testResult,
+            List<Map<String, Object>> skillGaps,
+            List<Map<String, Object>> strengths) {
+
+        List<RuntimeRoadmapNode> initialNodes = buildInitialRuntimeNodesFromSkillBlocks(template, blocks, journey, testResult);
+        String studentLevel = resolveStudentLevel(journey, testResult);
+        Set<String> gapNames = extractProfileSkillNames(skillGaps);
+        Set<String> strengthNames = extractProfileSkillNames(strengths);
+        
+        List<CompletableFuture<RuntimeRoadmapNode>> futures = new ArrayList<>();
+        for (int i = 0; i < initialNodes.size(); i++) {
+            RuntimeRoadmapNode node = initialNodes.get(i);
+            boolean gapMatched = false;
+            boolean strengthMatched = false;
+            if (node.skillName() != null) {
+                String normSkill = node.skillName().toLowerCase();
+                boolean finalGapMatched = gapNames.stream().anyMatch(val -> normSkill.contains(val) || val.contains(normSkill));
+                boolean finalStrengthMatched = strengthNames.stream().anyMatch(val -> normSkill.contains(val) || val.contains(normSkill));
+                gapMatched = finalGapMatched;
+                strengthMatched = finalStrengthMatched;
+            }
+
+            final boolean isGap = gapMatched;
+            final boolean isStrength = strengthMatched;
+            final int index = i;
+
+            CompletableFuture<RuntimeRoadmapNode> future = CompletableFuture.supplyAsync(() -> {
+                if (index > 0) {
+                    try {
+                        Thread.sleep(2500L * index);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
+                        node.title(),
+                        node.description(),
+                        node.expectedOutput(),
+                        node.rubric(),
+                        node.skillName(),
+                        studentLevel,
+                        journey.getGoal(),
+                        isGap,
+                        isStrength
+                );
+
+                String expectedOutputVal = (node.expectedOutput() != null && !node.expectedOutput().isBlank())
+                        ? node.expectedOutput()
+                        : enriched.getExpectedOutput();
+
+                String rubricVal = (node.rubric() != null && !node.rubric().isBlank())
+                        ? node.rubric()
+                        : enriched.getRubric();
+
+                List<String> practicalExercisesVal = (node.practicalExercises() != null && !node.practicalExercises().isEmpty())
+                        ? node.practicalExercises()
+                        : enriched.getPracticalExercises();
+
+                List<String> successCriteriaVal = (node.successCriteria() != null && !node.successCriteria().isEmpty())
+                        ? node.successCriteria()
+                        : enriched.getSuccessCriteria();
+
+                return new RuntimeRoadmapNode(
+                        node.id(),
+                        node.templateSkillBlockId(),
+                        node.skillId(),
+                        node.skillName(),
+                        node.title(),
+                        enriched.getDescription(),
+                        expectedOutputVal,
+                        rubricVal,
+                        node.difficulty(),
+                        node.minLevel(),
+                        node.maxLevel(),
+                        node.targetLevelMatch(),
+                        node.activitySource(),
+                        node.reason(),
+                        node.estimatedHours(),
+                        node.suggestedCourseIds(),
+                        node.skillRequirementsJson(),
+                        enriched.getLearningObjectives(),
+                        practicalExercisesVal,
+                        successCriteriaVal
+                );
+            }, roadmapEnrichmentTaskExecutor);
+
+            futures.add(future);
+        }
+
+        // Chờ tất cả hoàn thành song song (ThreadPoolTaskExecutor khống chế 3 luồng đồng thời)
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        List<RuntimeRoadmapNode> enrichedNodes = futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList());
+
+        return buildRuntimeRoadmapJson(template, enrichedNodes, studentLevel, "Admin V3 template guided",
+                "Assessment-aware admin template allocation");
+    }
+
+    private RuntimeRoadmap buildRuntimeRoadmapFromNodeGroups(
+            RoadmapTemplate template,
+            List<RoadmapTemplateNodeGroup> groups,
+            Journey journey,
+            TestResult testResult,
+            List<Map<String, Object>> skillGaps,
+            List<Map<String, Object>> strengths) {
+
+        List<RuntimeRoadmapNode> initialNodes = buildInitialRuntimeNodesFromNodeGroups(template, groups);
+        String studentLevel = resolveStudentLevel(journey, testResult);
+        Set<String> gapNames = extractProfileSkillNames(skillGaps);
+        Set<String> strengthNames = extractProfileSkillNames(strengths);
+        
+        List<CompletableFuture<RuntimeRoadmapNode>> futures = new ArrayList<>();
+        for (int i = 0; i < initialNodes.size(); i++) {
+            RuntimeRoadmapNode node = initialNodes.get(i);
+            boolean gapMatched = false;
+            boolean strengthMatched = false;
+            if (node.skillName() != null) {
+                String normSkill = node.skillName().toLowerCase();
+                boolean finalGapMatched = gapNames.stream().anyMatch(val -> normSkill.contains(val) || val.contains(normSkill));
+                boolean finalStrengthMatched = strengthNames.stream().anyMatch(val -> normSkill.contains(val) || val.contains(normSkill));
+                gapMatched = finalGapMatched;
+                strengthMatched = finalStrengthMatched;
+            }
+
+            final boolean isGap = gapMatched;
+            final boolean isStrength = strengthMatched;
+            final int index = i;
+
+            CompletableFuture<RuntimeRoadmapNode> future = CompletableFuture.supplyAsync(() -> {
+                if (index > 0) {
+                    try {
+                        Thread.sleep(2500L * index);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+                RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
+                        node.title(),
+                        node.description(),
+                        node.expectedOutput(),
+                        node.rubric(),
+                        node.skillName(),
+                        studentLevel,
+                        journey.getGoal(),
+                        isGap,
+                        isStrength
+                );
+
+                String expectedOutputVal = (node.expectedOutput() != null && !node.expectedOutput().isBlank())
+                        ? node.expectedOutput()
+                        : enriched.getExpectedOutput();
+
+                String rubricVal = (node.rubric() != null && !node.rubric().isBlank())
+                        ? node.rubric()
+                        : enriched.getRubric();
+
+                List<String> practicalExercisesVal = (node.practicalExercises() != null && !node.practicalExercises().isEmpty())
+                        ? node.practicalExercises()
+                        : enriched.getPracticalExercises();
+
+                List<String> successCriteriaVal = (node.successCriteria() != null && !node.successCriteria().isEmpty())
+                        ? node.successCriteria()
+                        : enriched.getSuccessCriteria();
+
+                return new RuntimeRoadmapNode(
+                        node.id(),
+                        node.templateSkillBlockId(),
+                        node.skillId(),
+                        node.skillName(),
+                        node.title(),
+                        enriched.getDescription(),
+                        expectedOutputVal,
+                        rubricVal,
+                        node.difficulty(),
+                        node.minLevel(),
+                        node.maxLevel(),
+                        node.targetLevelMatch(),
+                        node.activitySource(),
+                        node.reason(),
+                        node.estimatedHours(),
+                        node.suggestedCourseIds(),
+                        node.skillRequirementsJson(),
+                        enriched.getLearningObjectives(),
+                        practicalExercisesVal,
+                        successCriteriaVal
+                );
+            }, roadmapEnrichmentTaskExecutor);
+
+            futures.add(future);
+        }
+
+        // Chờ tất cả hoàn thành song song (ThreadPoolTaskExecutor khống chế 3 luồng đồng thời)
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        List<RuntimeRoadmapNode> enrichedNodes = futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList());
+
+        return buildRuntimeRoadmapJson(template, enrichedNodes, studentLevel, "Admin module template guided",
                 "Assessment-aware admin module template");
     }
 
@@ -1805,13 +2235,37 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 n.putNull("template_skill_block_id");
             }
             putSkillRequirements(n, node);
-            n.putNull("min_level");
-            n.putNull("max_level");
+            if (node.minLevel() != null) {
+                n.put("min_level", node.minLevel().name());
+            } else {
+                n.putNull("min_level");
+            }
+            if (node.maxLevel() != null) {
+                n.put("max_level", node.maxLevel().name());
+            } else {
+                n.putNull("max_level");
+            }
             n.put("target_level_match", node.targetLevelMatch());
             n.put("activity_source", node.activitySource());
-            putArray(n, "learning_objectives", splitTemplateText(firstNonBlank(node.expectedOutput(), node.title())));
-            putArray(n, "practical_exercises", splitTemplateText(node.expectedOutput()));
-            putArray(n, "success_criteria", splitTemplateText(node.rubric()));
+
+            if (node.learningObjectives() != null) {
+                putArray(n, "learning_objectives", node.learningObjectives());
+            } else {
+                putArray(n, "learning_objectives", splitTemplateText(firstNonBlank(node.expectedOutput(), node.title())));
+            }
+
+            if (node.practicalExercises() != null) {
+                putArray(n, "practical_exercises", node.practicalExercises());
+            } else {
+                putArray(n, "practical_exercises", splitTemplateText(node.expectedOutput()));
+            }
+
+            if (node.successCriteria() != null) {
+                putArray(n, "success_criteria", node.successCriteria());
+            } else {
+                putArray(n, "success_criteria", splitTemplateText(node.rubric()));
+            }
+
             putArray(n, "suggested_resources", List.of());
             putArray(n, "key_concepts", resolveRuntimeSkillNames(node));
             putArray(n, "prerequisites", i == 0 ? List.of() : List.of(runtimeNodes.get(i - 1).id()));
@@ -1820,7 +2274,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             n.put("importance_score", 0.85);
             n.put("confidence_score", 0.95);
             n.put("reason", node.reason());
-            putArray(n, "evidence", List.of("admin_node_group", "module_skills", node.activitySource()));
+            putArray(n, "evidence", List.of("admin_template_v3", "skill_weight", node.activitySource(), "assessment_level"));
             n.put("importance_validation_status", "ACCEPTED");
         }
 
@@ -1836,7 +2290,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         putArray(root, "learning_tips", List.of("Follow each module as one practical topic that combines related skills."));
         putArray(root, "warnings", List.of());
         root.putObject("overview")
-                .put("purpose", "Admin module-centric template with grouped skills")
+                .put("purpose", "Admin V3 template with skill weights, level-banded activities, courses, and skill document permissions")
                 .put("audience", "Runtime learner profile from journey assessment")
                 .put("post_roadmap_state", firstNonBlank(template.getOutputStandard(), "Ready for job-position competency verification"));
         return new RuntimeRoadmap(root.toString(), runtimeNodes);

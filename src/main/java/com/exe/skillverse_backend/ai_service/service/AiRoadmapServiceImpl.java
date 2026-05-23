@@ -86,6 +86,12 @@ import com.exe.skillverse_backend.ai_service.service.impl.MultiLevelCourseMatche
 /**
  * Service for AI-powered roadmap generation using Spring AI with Gemini
  * Using Spring AI OpenAI client with Gemini's OpenAI-compatible API
+ *
+ * @deprecated [LEGACY] This class contains legacy monolithic dynamic generation from scratch.
+ * For the new standardized template-guided sequential AI enrichment loop,
+ * please use {@link com.exe.skillverse_backend.roadmap_package_service.service.impl.RoadmapNodeAiEnrichmentServiceImpl}
+ * and {@link com.exe.skillverse_backend.roadmap_package_service.service.impl.RoadmapTemplateServiceImpl} instead.
+ * Pending cleanup or migration.
  */
 @Service
 @Slf4j

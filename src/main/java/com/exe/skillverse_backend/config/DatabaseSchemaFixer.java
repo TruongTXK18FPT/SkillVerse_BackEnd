@@ -201,6 +201,13 @@ public class DatabaseSchemaFixer {
                 this::verifyDropTrackTargetLevel
             );
 
+            applyPatch(
+                "20260525_drop_roadmap_node_assignments_check_constraint",
+                "Drop check constraint on assignment_source in roadmap_node_assignments table",
+                this::patchDropAssignmentSourceCheckConstraint,
+                this::verifyDropAssignmentSourceCheckConstraint
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -1370,5 +1377,23 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyDropTrackTargetLevel() {
         return !hasColumn("job_position_tracks", "target_level");
+    }
+
+    private void patchDropAssignmentSourceCheckConstraint() {
+        if (!hasTable("roadmap_node_assignments")) {
+            log.info("Table roadmap_node_assignments does not exist yet; skipping constraint drop");
+            return;
+        }
+        if (hasConstraint("roadmap_node_assignments", "roadmap_node_assignments_assignment_source_check")) {
+            log.info("Dropping legacy assignment_source check constraint from roadmap_node_assignments...");
+            executeSql("ALTER TABLE roadmap_node_assignments DROP CONSTRAINT roadmap_node_assignments_assignment_source_check");
+        }
+    }
+
+    private boolean verifyDropAssignmentSourceCheckConstraint() {
+        if (!hasTable("roadmap_node_assignments")) {
+            return true;
+        }
+        return !hasConstraint("roadmap_node_assignments", "roadmap_node_assignments_assignment_source_check");
     }
 }

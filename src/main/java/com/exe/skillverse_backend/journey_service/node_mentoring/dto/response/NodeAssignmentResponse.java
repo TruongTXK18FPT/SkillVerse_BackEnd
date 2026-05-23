@@ -23,6 +23,8 @@ public class NodeAssignmentResponse {
     private AssignmentSource assignmentSource;
     private String title;
     private String description;
+    private String expectedOutput;
+    private String rubric;
     private Long createdBy;
     private Instant createdAt;
     private Instant updatedAt;
@@ -37,6 +39,8 @@ public class NodeAssignmentResponse {
                 .assignmentSource(a.getAssignmentSource())
                 .title(a.getTitle())
                 .description(a.getDescription())
+                .expectedOutput(a.getExpectedOutput())
+                .rubric(a.getRubric())
                 .createdBy(a.getCreatedBy())
                 .createdAt(a.getCreatedAt())
                 .updatedAt(a.getUpdatedAt())

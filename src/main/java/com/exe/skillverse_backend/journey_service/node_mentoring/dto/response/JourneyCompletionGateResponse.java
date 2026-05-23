@@ -35,6 +35,9 @@ public class JourneyCompletionGateResponse {
     private Boolean hasPassCompletionReport;
     private Boolean outputAssessmentApproved;
 
+    private String finalAssignmentInstructions;
+    private String finalAssignmentRubric;
+
     /** Human-readable reasons explaining why the gate is BLOCKED, if any. */
     private List<String> blockingReasons;
 }

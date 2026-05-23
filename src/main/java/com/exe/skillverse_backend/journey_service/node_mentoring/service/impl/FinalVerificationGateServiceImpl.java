@@ -46,6 +46,7 @@ import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemp
 import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -127,9 +128,48 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
         }
     }
 
+    private String formatRubricToMarkdown(String rubricJson) {
+        if (rubricJson == null || rubricJson.isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode root = objectMapper.readTree(rubricJson);
+            if (root.isArray() && root.size() > 0) {
+                StringBuilder sb = new StringBuilder();
+                for (JsonNode item : root) {
+                    String name = item.path("name").asText("Tiêu chí");
+                    String desc = item.path("description").asText("");
+                    int points = item.path("maxPoints").asInt(10);
+                    sb.append("- **").append(name).append(" (").append(points).append("đ)**: ").append(desc).append("\n");
+                }
+                return sb.toString().trim();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse rubric JSON: {}", rubricJson, e);
+        }
+        return rubricJson;
+    }
+
     private JourneyCompletionGateResponse buildGateResponse(Journey journey) {
         boolean requireFinal = Boolean.TRUE.equals(journey.getFinalVerificationRequired());
         boolean requireOutput = Boolean.TRUE.equals(journey.getJourneyOutputVerificationRequired());
+
+        String instructions = null;
+        String rubric = null;
+        if (journey.getRoadmapSessionId() != null) {
+            try {
+                RoadmapSession session = roadmapSessionRepository.findById(journey.getRoadmapSessionId()).orElse(null);
+                if (session != null && session.getRoadmapTemplateId() != null) {
+                    RoadmapTemplate template = templateRepository.findById(session.getRoadmapTemplateId()).orElse(null);
+                    if (template != null) {
+                        instructions = template.getFinalAssignmentInstructions();
+                        rubric = formatRubricToMarkdown(template.getFinalAssignmentRubric());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to load template final assignment for journey: {}", journey.getId(), e);
+            }
+        }
 
         if (!requireFinal) {
             return JourneyCompletionGateResponse.builder()
@@ -139,6 +179,8 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
                     .journeyOutputVerificationRequired(requireOutput)
                     .hasPassCompletionReport(false)
                     .outputAssessmentApproved(false)
+                    .finalAssignmentInstructions(instructions)
+                    .finalAssignmentRubric(rubric)
                     .blockingReasons(List.of())
                     .build();
         }
@@ -166,6 +208,8 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
                 .journeyOutputVerificationRequired(requireOutput)
                 .hasPassCompletionReport(hasPass)
                 .outputAssessmentApproved(outputApproved)
+                .finalAssignmentInstructions(instructions)
+                .finalAssignmentRubric(rubric)
                 .blockingReasons(reasons)
                 .build();
     }

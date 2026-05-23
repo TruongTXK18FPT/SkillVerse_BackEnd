@@ -323,6 +323,9 @@ server:
 
 # Course revision feature flags
 app:
+  roadmap:
+    enrichment:
+      concurrency: ${APP_ROADMAP_ENRICHMENT_CONCURRENCY:2}
   course:
     revision:
       read-enabled: ${APP_COURSE_REVISION_READ_ENABLED:true}

@@ -1236,22 +1236,7 @@ public class JourneyServiceImpl implements JourneyService {
     /**
      * Fallback: Generate test entirely via AI (original behavior).
      */
-    private GenerateTestResponse generateTestFromAI(Journey journey, User user, String domain,
-            StartJourneyRequest assessmentData, long generatedTestCount, AssessmentGenerationContext generationContext) {
-
-        normalizeJourneyRequestDefaults(assessmentData);
-        assessmentData.setLevel(generationContext.testedLevel().name());
-        UserAssessmentInfo userInfo = buildUserAssessmentInfo(assessmentData);
-
-        String prompt = assessmentPromptService.getTestGenerationPrompt(
-                domain,
-                assessmentData.getIndustry(),
-                assessmentData.getJobRole(),
-                userInfo
-        );
-
-        log.info("Calling AI to generate specialized test for domain: {}", domain);
-
+    private String callChatApiWithRetry(String prompt) {
         String aiResponse = null;
         int maxAttempts = 2;
         Exception lastException = null;
@@ -1279,29 +1264,120 @@ public class JourneyServiceImpl implements JourneyService {
             throw new RuntimeException(
                     "Dịch vụ AI hiện đang bận hoặc mất kết nối. Vui lòng thử lại sau vài phút.", lastException);
         }
+        return aiResponse;
+    }
 
-        Map<String, Object> testData;
-        try {
-            String jsonStr = extractJsonFromResponse(aiResponse);
-            testData = objectMapper.readValue(jsonStr, Map.class);
-        } catch (Exception e) {
-            log.error("Failed to parse AI test generation response: {}", aiResponse);
-            throw new RuntimeException("Failed to generate test: Invalid AI response", e);
-        }
+    private GenerateTestResponse generateTestFromAI(Journey journey, User user, String domain,
+            StartJourneyRequest assessmentData, long generatedTestCount, AssessmentGenerationContext generationContext) {
+
+        normalizeJourneyRequestDefaults(assessmentData);
+        assessmentData.setLevel(generationContext.testedLevel().name());
 
         int requestedQuestionCount = resolveAssessmentQuestionCount(assessmentData);
         int requestedTimeLimitMinutes = resolveAssessmentTimeLimitMinutes(assessmentData);
-        List<Object> normalizedQuestions = normalizeGeneratedQuestions(testData.get("questions"), requestedQuestionCount);
-        if (normalizedQuestions.isEmpty()) {
-            throw new RuntimeException("Failed to generate test: AI response missing questions");
+
+        log.info("Calling AI to generate specialized test for domain in 2 batches of 25 questions. Domain: {}", domain);
+
+        List<Object> allQuestions = new ArrayList<>();
+        Map<String, Object> finalTestData = new LinkedHashMap<>();
+
+        // Batch 1: Request 25 questions
+        UserAssessmentInfo userInfo1 = new UserAssessmentInfo(
+                assessmentData.getDomain(),
+                assessmentData.getGoal(),
+                assessmentData.getLevel(),
+                assessmentData.getSkills(),
+                assessmentData.getExistingSkills(),
+                assessmentData.getFocusAreas(),
+                assessmentData.getLanguage(),
+                "STANDARD",
+                25
+        );
+        String prompt1 = assessmentPromptService.getTestGenerationPrompt(
+                domain,
+                assessmentData.getIndustry(),
+                assessmentData.getJobRole(),
+                userInfo1
+        );
+
+        String response1 = callChatApiWithRetry(prompt1);
+        Map<String, Object> testData1;
+        try {
+            String jsonStr = extractJsonFromResponse(response1);
+            testData1 = objectMapper.readValue(jsonStr, Map.class);
+        } catch (Exception e) {
+            log.error("Failed to parse Batch 1 AI response: {}", response1);
+            throw new RuntimeException("Failed to generate test: Invalid AI response in Batch 1", e);
         }
-        int finalQuestionCount = Math.min(requestedQuestionCount, normalizedQuestions.size());
+
+        List<Object> questions1 = normalizeGeneratedQuestions(testData1.get("questions"), 25);
+        if (questions1.isEmpty()) {
+            throw new RuntimeException("Failed to generate test: Batch 1 AI response missing questions");
+        }
+        allQuestions.addAll(questions1);
+
+        finalTestData.put("title", testData1.get("title"));
+        finalTestData.put("description", testData1.get("description"));
+        finalTestData.put("targetField", testData1.get("targetField"));
+
+        // Extract generated skill areas to exclude in Batch 2
+        String excludeSkills = questions1.stream()
+                .filter(Map.class::isInstance)
+                .map(q -> (String) ((Map<?, ?>) q).get("skillArea"))
+                .filter(Objects::nonNull)
+                .distinct()
+                .collect(Collectors.joining(", "));
+
+        // Batch 2: Request 25 questions
+        UserAssessmentInfo userInfo2 = new UserAssessmentInfo(
+                assessmentData.getDomain(),
+                assessmentData.getGoal(),
+                assessmentData.getLevel(),
+                assessmentData.getSkills(),
+                assessmentData.getExistingSkills(),
+                assessmentData.getFocusAreas(),
+                assessmentData.getLanguage(),
+                "STANDARD",
+                25
+        );
+        String prompt2 = assessmentPromptService.getTestGenerationPrompt(
+                domain,
+                assessmentData.getIndustry(),
+                assessmentData.getJobRole(),
+                userInfo2
+        ) + "\n\nYÊU CẦU BỔ SUNG: Đây là phần 2 của bài kiểm tra. Vui lòng tạo 25 câu hỏi KHÁC BIỆT hoàn toàn với các chủ đề sau đã có trong phần 1: " + excludeSkills + ". Bắt đầu ID câu hỏi từ " + (questions1.size() + 1) + " đến " + (questions1.size() + 25) + ".";
+
+        String response2 = callChatApiWithRetry(prompt2);
+        Map<String, Object> testData2;
+        try {
+            String jsonStr = extractJsonFromResponse(response2);
+            testData2 = objectMapper.readValue(jsonStr, Map.class);
+        } catch (Exception e) {
+            log.error("Failed to parse Batch 2 AI response: {}", response2);
+            throw new RuntimeException("Failed to generate test: Invalid AI response in Batch 2", e);
+        }
+
+        List<Object> questions2 = normalizeGeneratedQuestions(testData2.get("questions"), 25);
+        if (questions2.isEmpty()) {
+            throw new RuntimeException("Failed to generate test: Batch 2 AI response missing questions");
+        }
+
+        // Correct question IDs for Batch 2 so they are sequential
+        int startId = questions1.size() + 1;
+        for (Object q : questions2) {
+            if (q instanceof Map) {
+                ((Map<String, Object>) q).put("questionId", startId++);
+            }
+        }
+        allQuestions.addAll(questions2);
+
+        int finalQuestionCount = allQuestions.size();
 
         AssessmentTest test = AssessmentTest.builder()
                 .journey(journey)
-                .title((String) testData.get("title"))
-                .description((String) testData.get("description"))
-                .targetField((String) testData.get("targetField"))
+                .title((String) finalTestData.get("title"))
+                .description((String) finalTestData.get("description"))
+                .targetField((String) finalTestData.get("targetField"))
                 .status(AssessmentTest.TestStatus.PENDING)
                 .questionCount(finalQuestionCount)
                 .timeLimitMinutes(requestedTimeLimitMinutes)
@@ -1311,8 +1387,8 @@ public class JourneyServiceImpl implements JourneyService {
                 .testedLevel(generationContext.testedLevel().name())
                 .parentTestId(generationContext.parentTestId())
                 .questionSource(QUESTION_SOURCE_AI)
-                .questionsJson(objectMapper.valueToTree(normalizedQuestions).toString())
-                .generationPrompt(prompt)
+                .questionsJson(objectMapper.valueToTree(allQuestions).toString())
+                .generationPrompt(prompt1 + "\n\n=== BATCH 2 ===\n\n" + prompt2)
                 .build();
 
         test = assessmentTestRepository.save(test);

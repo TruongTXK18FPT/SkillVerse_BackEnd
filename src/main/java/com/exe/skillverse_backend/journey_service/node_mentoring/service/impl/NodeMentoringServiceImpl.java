@@ -38,6 +38,10 @@ import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplate
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateActivity;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateSkillBlock;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
+import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeGroupRepository;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateNodeGroup;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -79,6 +83,8 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
     private final RoadmapEvidenceAiReviewService aiReviewService;
     private final RoadmapTemplateRepository templateRepository;
     private final RoadmapNodeCompletionSyncService syncService;
+    private final RoadmapTemplateNodeGroupRepository nodeGroupRepository;
+    private final ObjectMapper objectMapper;
 
     // ─── Assignment ───────────────────────────────────────────────────────────
 
@@ -468,19 +474,83 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         return null;
     }
 
-    /**
-     * Auto-creates a SYSTEM_GENERATED assignment from roadmap node content.
-     * Used when free learner submits evidence without a mentor-created assignment.
-     */
     private RoadmapNodeAssignment createSystemGeneratedAssignment(Journey journey, String nodeId) {
         RoadmapResponse.RoadmapNode nodeContent = resolver.getNodeContentFromRoadmap(journey, nodeId);
+
+        // Find the matching template node group to extract structured exercises & rubrics
+        RoadmapTemplateNodeGroup matchedGroup = null;
+        if (journey.getRoadmapSessionId() != null) {
+            try {
+                RoadmapSession session = roadmapSessionRepository.findById(journey.getRoadmapSessionId()).orElse(null);
+                if (session != null && session.getRoadmapTemplateId() != null) {
+                    List<RoadmapTemplateNodeGroup> groups = nodeGroupRepository.findByTemplateIdOrderByOrderIndexAscIdAsc(session.getRoadmapTemplateId());
+                    for (int i = 0; i < groups.size(); i++) {
+                        RoadmapTemplateNodeGroup g = groups.get(i);
+                        String key = g.getNodeKey();
+                        if (key == null || key.isBlank()) {
+                            key = "module-" + (i + 1);
+                        }
+                        if (key.equalsIgnoreCase(nodeId)) {
+                            matchedGroup = g;
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to match roadmap template node group for journey ID: {}", journey.getId(), e);
+            }
+        }
+
+        String title = nodeContent != null ? nodeContent.getTitle() : "Node " + nodeId;
+        String description = "";
+        String expectedOutput = "";
+        String rubric = "";
+
+        if (matchedGroup != null && matchedGroup.getExercisesJson() != null && !matchedGroup.getExercisesJson().isBlank()) {
+            try {
+                JsonNode exercisesArr = objectMapper.readTree(matchedGroup.getExercisesJson());
+                if (exercisesArr.isArray() && exercisesArr.size() > 0) {
+                    // Extract first/main exercise
+                    JsonNode ex = exercisesArr.get(0);
+                    title = ex.path("title").asText(title);
+                    description = ex.path("instruction").asText("");
+                    expectedOutput = ex.path("expectedOutput").asText("");
+                    rubric = ex.path("rubric").asText("");
+                }
+            } catch (Exception e) {
+                log.warn("Failed to parse exercisesJson for template group ID: {}", matchedGroup.getId(), e);
+            }
+        }
+
+        // Fallbacks for empty fields
+        if (description.isBlank()) {
+            if (nodeContent != null && nodeContent.getPracticalExercises() != null && !nodeContent.getPracticalExercises().isEmpty()) {
+                description = nodeContent.getPracticalExercises().stream()
+                        .map(ex -> "- " + ex.trim())
+                        .collect(Collectors.joining("\n"));
+            } else {
+                description = formatNodeContentToDescription(nodeContent);
+            }
+        }
+        if (expectedOutput.isBlank()) {
+            expectedOutput = nodeContent != null && nodeContent.getPracticalExercises() != null 
+                    ? String.join("\n", nodeContent.getPracticalExercises()) 
+                    : "";
+        }
+        if (rubric.isBlank()) {
+            rubric = nodeContent != null && nodeContent.getSuccessCriteria() != null 
+                    ? String.join("\n", nodeContent.getSuccessCriteria()) 
+                    : "";
+        }
 
         RoadmapNodeAssignment assignment = RoadmapNodeAssignment.builder()
                 .journeyId(journey.getId())
                 .roadmapSessionId(journey.getRoadmapSessionId())
                 .nodeId(nodeId)
-                .title(nodeContent != null ? nodeContent.getTitle() : "Node " + nodeId)
-                .description(formatNodeContentToDescription(nodeContent))
+                .title(title)
+                .description(description)
+                .expectedOutput(expectedOutput)
+                .rubric(rubric)
                 .assignmentSource(AssignmentSource.SYSTEM_GENERATED)
                 .createdBy(null) // System created
                 .build();
