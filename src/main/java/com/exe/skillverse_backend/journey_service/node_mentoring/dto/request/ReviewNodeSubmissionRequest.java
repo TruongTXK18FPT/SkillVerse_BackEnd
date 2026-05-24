@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.journey_service.node_mentoring.dto.request;
 
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeReview.ReviewResult;
+import com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionScoreDto;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -8,6 +9,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.util.List;
 
 /**
  * Mentor review request for a node submission.
@@ -30,4 +32,6 @@ public class ReviewNodeSubmissionRequest {
 
     /** Optional link to the booking under which this review happened. */
     private Long bookingId;
+
+    private List<GradingCriterionScoreDto> criteriaScores;
 }

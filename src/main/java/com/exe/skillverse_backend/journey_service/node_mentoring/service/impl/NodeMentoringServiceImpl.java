@@ -111,6 +111,14 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                 ? request.getAssignmentSource()
                 : AssignmentSource.MENTOR_REFINED);
 
+        if (request.getCriteria() != null) {
+            try {
+                a.setCriteriaJson(objectMapper.writeValueAsString(request.getCriteria()));
+            } catch (Exception ex) {
+                log.error("Failed to serialize criteria to JSON", ex);
+            }
+        }
+
         RoadmapNodeAssignment saved = assignmentRepo.save(a);
         return NodeAssignmentResponse.from(saved);
     }
@@ -309,7 +317,28 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
 
         // requireLearnerMarkedNodeCompleted(journey, nodeId);
 
-        Integer score = request.getReviewResult() == ReviewResult.APPROVED ? request.getScore() : null;
+        Integer score = null;
+        String criteriaScoresJson = null;
+        if (request.getReviewResult() == ReviewResult.APPROVED) {
+            if (request.getCriteriaScores() != null && !request.getCriteriaScores().isEmpty()) {
+                double totalEarned = 0.0;
+                double totalMax = 0.0;
+                for (com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionScoreDto cs : request.getCriteriaScores()) {
+                    totalEarned += cs.getScore() != null ? cs.getScore() : 0.0;
+                    totalMax += cs.getMaxScore() != null ? cs.getMaxScore() : 10.0;
+                }
+                if (totalMax > 0) {
+                    score = (int) Math.round((totalEarned / totalMax) * 100.0);
+                }
+                try {
+                    criteriaScoresJson = objectMapper.writeValueAsString(request.getCriteriaScores());
+                } catch (Exception ex) {
+                    log.error("Failed to serialize criteria scores to JSON", ex);
+                }
+            } else {
+                score = request.getScore();
+            }
+        }
 
         RoadmapNodeReview review = RoadmapNodeReview.builder()
                 .submissionId(s.getId())
@@ -317,6 +346,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                 .bookingId(request.getBookingId())
                 .score(score)
                 .feedback(request.getFeedback())
+                .criteriaScoresJson(criteriaScoresJson)
                 .reviewResult(request.getReviewResult())
                 .build();
         RoadmapNodeReview savedReview = reviewRepo.save(review);
@@ -543,6 +573,18 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                     : "";
         }
 
+        List<com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto> defaultCriteria = List.of(
+            com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto.builder().id("c1").title("Completeness (Hoàn thành bài tập)").maxScore(10).build(),
+            com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto.builder().id("c2").title("Accuracy (Độ chính xác kỹ thuật)").maxScore(10).build(),
+            com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto.builder().id("c3").title("Quality (Chất lượng giải trình)").maxScore(10).build()
+        );
+        String defaultCriteriaJson = null;
+        try {
+            defaultCriteriaJson = objectMapper.writeValueAsString(defaultCriteria);
+        } catch (Exception ex) {
+            log.error("Failed to serialize system default criteria to JSON", ex);
+        }
+
         RoadmapNodeAssignment assignment = RoadmapNodeAssignment.builder()
                 .journeyId(journey.getId())
                 .roadmapSessionId(journey.getRoadmapSessionId())
@@ -551,6 +593,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                 .description(description)
                 .expectedOutput(expectedOutput)
                 .rubric(rubric)
+                .criteriaJson(defaultCriteriaJson)
                 .assignmentSource(AssignmentSource.SYSTEM_GENERATED)
                 .createdBy(null) // System created
                 .build();

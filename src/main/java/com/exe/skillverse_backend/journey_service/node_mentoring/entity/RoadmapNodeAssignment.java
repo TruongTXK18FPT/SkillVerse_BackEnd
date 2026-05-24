@@ -74,6 +74,9 @@ public class RoadmapNodeAssignment {
     @Column(name = "rubric", columnDefinition = "TEXT")
     private String rubric;
 
+    @Column(name = "criteria_json", columnDefinition = "TEXT")
+    private String criteriaJson;
+
     @Column(name = "created_by")
     private Long createdBy;
 

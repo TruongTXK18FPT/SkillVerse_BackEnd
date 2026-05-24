@@ -57,6 +57,9 @@ public class RoadmapNodeReview {
     @Column(name = "feedback", columnDefinition = "TEXT")
     private String feedback;
 
+    @Column(name = "criteria_scores_json", columnDefinition = "TEXT")
+    private String criteriaScoresJson;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "review_result", nullable = false, length = 30)
     private ReviewResult reviewResult;

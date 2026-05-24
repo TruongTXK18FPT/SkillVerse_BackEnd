@@ -190,7 +190,18 @@ public class CloudinaryServiceImpl implements CloudinaryService {
                     String.format("Invalid file type: %s. Allowed: %s", contentType, ALLOWED_RAW_TYPES));
         }
 
-        Map<String, Object> params = buildUploadParams(folder, "auto");
+        Map<String, Object> params = buildUploadParams(folder, "raw");
+
+        // Cloudinary requires public_id for raw files to preserve the original extension
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename != null && originalFilename.contains(".")) {
+            String baseName = originalFilename.substring(0, originalFilename.lastIndexOf("."));
+            String extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+            // Replace non-alphanumeric characters to avoid Cloudinary public_id restrictions
+            baseName = baseName.replaceAll("[^a-zA-Z0-9_-]", "_");
+            String uniqueId = baseName + "_" + (System.currentTimeMillis() % 1000000) + extension;
+            params.put("public_id", uniqueId);
+        }
 
         Map<String, Object> result = cloudinary.uploader().upload(file.getBytes(), params);
 

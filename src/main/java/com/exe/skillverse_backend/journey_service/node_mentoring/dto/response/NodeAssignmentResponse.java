@@ -2,18 +2,21 @@ package com.exe.skillverse_backend.journey_service.node_mentoring.dto.response;
 
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeAssignment;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeAssignment.AssignmentSource;
+import com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-
 import java.time.Instant;
+import java.util.List;
 
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 public class NodeAssignmentResponse {
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     private Long id;
     private Long journeyId;
@@ -28,8 +31,18 @@ public class NodeAssignmentResponse {
     private Long createdBy;
     private Instant createdAt;
     private Instant updatedAt;
+    private List<GradingCriterionDto> criteria;
 
     public static NodeAssignmentResponse from(RoadmapNodeAssignment a) {
+        List<GradingCriterionDto> criteriaList = null;
+        if (a.getCriteriaJson() != null && !a.getCriteriaJson().isBlank()) {
+            try {
+                criteriaList = java.util.Arrays.asList(mapper.readValue(a.getCriteriaJson(), GradingCriterionDto[].class));
+            } catch (Exception ex) {
+                // Ignore parse errors
+            }
+        }
+
         return NodeAssignmentResponse.builder()
                 .id(a.getId())
                 .journeyId(a.getJourneyId())
@@ -44,6 +57,7 @@ public class NodeAssignmentResponse {
                 .createdBy(a.getCreatedBy())
                 .createdAt(a.getCreatedAt())
                 .updatedAt(a.getUpdatedAt())
+                .criteria(criteriaList)
                 .build();
     }
 }

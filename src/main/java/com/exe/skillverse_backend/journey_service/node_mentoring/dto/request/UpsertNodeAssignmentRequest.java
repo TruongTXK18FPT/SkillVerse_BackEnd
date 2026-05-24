@@ -1,11 +1,13 @@
 package com.exe.skillverse_backend.journey_service.node_mentoring.dto.request;
 
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeAssignment.AssignmentSource;
+import com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto;
 import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.util.List;
 
 /**
  * Request to create or update the current assignment snapshot for a node.
@@ -27,4 +29,6 @@ public class UpsertNodeAssignmentRequest {
 
     /** Defaults to MENTOR_REFINED when invoked by a mentor. */
     private AssignmentSource assignmentSource;
+
+    private List<GradingCriterionDto> criteria;
 }
