@@ -130,7 +130,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             String skillRequirementsJson,
             List<String> learningObjectives,
             List<String> practicalExercises,
-            List<String> successCriteria
+            List<String> successCriteria,
+            String pinnedDocumentIds
     ) {
     }
 
@@ -432,7 +433,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         studentLevel,
                         journey.getGoal(),
                         gapMatched,
-                        strengthMatched
+                        strengthMatched,
+                        node.getPinnedDocumentIds()
                 );
                 int personalizedMinutes = personalizeMinutes(node, studentLevel, gapMatched);
                 String difficulty = personalizeDifficulty(node, studentLevel, gapMatched, strengthMatched);
@@ -1839,7 +1841,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         activity != null ? activity.getEstimatedHours() : null,
                         suggestedCourseIds,
                         activity != null ? activity.getSkillRequirementsJson() : null,
-                        null, null, null
+                        null, null, null, null
                 ));
             }
         }
@@ -1967,7 +1969,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                             ? List.of(group.getLearningObjectives().split("\n"))
                             : null,
                     listPracticalExercises.isEmpty() ? null : listPracticalExercises,
-                    listSuccessCriteria.isEmpty() ? null : listSuccessCriteria
+                    listSuccessCriteria.isEmpty() ? null : listSuccessCriteria,
+                    group.getPinnedDocumentIds()
             ));
         }
         return runtimeNodes;
@@ -2020,7 +2023,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         studentLevel,
                         journey.getGoal(),
                         isGap,
-                        isStrength
+                        isStrength,
+                        node.pinnedDocumentIds()
                 );
 
                 String expectedOutputVal = (node.expectedOutput() != null && !node.expectedOutput().isBlank())
@@ -2059,7 +2063,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         node.skillRequirementsJson(),
                         enriched.getLearningObjectives(),
                         practicalExercisesVal,
-                        successCriteriaVal
+                        successCriteriaVal,
+                        node.pinnedDocumentIds()
                 );
             }, roadmapEnrichmentTaskExecutor);
 
@@ -2124,7 +2129,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         studentLevel,
                         journey.getGoal(),
                         isGap,
-                        isStrength
+                        isStrength,
+                        node.pinnedDocumentIds()
                 );
 
                 String expectedOutputVal = (node.expectedOutput() != null && !node.expectedOutput().isBlank())
@@ -2163,7 +2169,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         node.skillRequirementsJson(),
                         enriched.getLearningObjectives(),
                         practicalExercisesVal,
-                        successCriteriaVal
+                        successCriteriaVal,
+                        node.pinnedDocumentIds()
                 );
             }, roadmapEnrichmentTaskExecutor);
 

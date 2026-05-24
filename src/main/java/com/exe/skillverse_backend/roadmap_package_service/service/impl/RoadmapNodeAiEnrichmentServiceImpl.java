@@ -5,6 +5,8 @@ import com.exe.skillverse_backend.ai_rag_service.service.AiRagGateway;
 import com.exe.skillverse_backend.shared.repository.SkillRepository;
 import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.ai_knowledge_service.util.AiKnowledgeSlugUtils;
+import com.exe.skillverse_backend.ai_knowledge_service.entity.AiKnowledgeDocument;
+import com.exe.skillverse_backend.ai_knowledge_service.repository.AiKnowledgeDocumentRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +45,9 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
     @Autowired(required = false)
     private SkillRepository skillRepository;
 
+    @Autowired(required = false)
+    private AiKnowledgeDocumentRepository aiKnowledgeDocumentRepository;
+
     private static final int MAX_RETRIES = 2;
     private static final long RETRY_BACKOFF_MS = 5000;
 
@@ -64,42 +69,123 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
             String studentGoal,
             boolean isGap,
             boolean isStrength) {
+        return enrichNode(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric, skillName, studentLevel, studentGoal, isGap, isStrength, null);
+    }
+
+    @Override
+    public EnrichedNode enrichNode(
+            String nodeTitle,
+            String nodeDescription,
+            String baselineExpectedOutput,
+            String baselineRubric,
+            String skillName,
+            String studentLevel,
+            String studentGoal,
+            boolean isGap,
+            boolean isStrength,
+            String pinnedDocumentIdsJson) {
 
         String translatedGoal = translateStudentGoal(studentGoal);
 
-        String skillSlug = null;
-        if (skillRepository != null && skillName != null && !skillName.isBlank()) {
+        // ─── TẦNG 1: XỬ LÝ TÀI LIỆU GHIM (PINNED DOCUMENTS) ─────────────────────
+        String ragContext = "";
+        if (aiKnowledgeDocumentRepository != null && pinnedDocumentIdsJson != null && !pinnedDocumentIdsJson.isBlank()) {
             try {
-                Optional<Skill> skillOpt = skillRepository.findByNameIgnoreCase(skillName.trim());
-                if (skillOpt.isPresent()) {
-                    String canonical = skillOpt.get().getCanonicalKey();
-                    if (canonical != null && !canonical.isBlank()) {
-                        skillSlug = AiKnowledgeSlugUtils.toRoadmapSkillSlug(canonical);
+                List<Long> docIds = new ArrayList<>();
+                JsonNode arr = objectMapper.readTree(pinnedDocumentIdsJson);
+                if (arr.isArray()) {
+                    for (JsonNode item : arr) {
+                        docIds.add(item.asLong());
+                    }
+                }
+
+                if (!docIds.isEmpty()) {
+                    List<AiKnowledgeDocument> pinnedDocs =
+                            aiKnowledgeDocumentRepository.findAllById(docIds);
+
+                    if (pinnedDocs != null && !pinnedDocs.isEmpty()) {
+                        long totalWords = 0;
+                        for (var doc : pinnedDocs) {
+                            String txt = doc.getExtractedText();
+                            if (txt != null) {
+                                totalWords += countWords(txt);
+                            }
+                        }
+
+                        if (totalWords < 3000) {
+                            // A. Tài liệu ngắn -> Nạp full text trực tiếp (Bypass Vector DB)
+                            StringBuilder sb = new StringBuilder();
+                            for (var doc : pinnedDocs) {
+                                String txt = doc.getExtractedText();
+                                if (txt != null && !txt.isBlank()) {
+                                    sb.append("--- TÀI LIỆU RÀNG BUỘC: ").append(doc.getTitle()).append(" ---\n")
+                                      .append(txt.trim()).append("\n\n");
+                                }
+                            }
+                            ragContext = sb.toString();
+                            log.info("📌 Pinned Short Doc: Direct full text inject for node '{}' (Words: {})", nodeTitle, totalWords);
+                        } else {
+                            // B. Tài liệu dài -> Semantic Search khóa cứng trong tài liệu ghim
+                            StringBuilder sb = new StringBuilder();
+                            String ragQuery = nodeTitle + (nodeDescription != null && !nodeDescription.isBlank() ? " " + nodeDescription : "");
+                            for (var doc : pinnedDocs) {
+                                Map<String, String> filters = Map.of(
+                                    "doc_type", "skill",
+                                    "document_id", String.valueOf(doc.getId())
+                                );
+                                if (aiRagGateway != null) {
+                                    String docContext = aiRagGateway.fetchRagContext(ragQuery, filters, 3);
+                                    if (docContext != null && !docContext.isBlank()) {
+                                        sb.append("--- RÀNG BUỘC TỪ TÀI LIỆU: ").append(doc.getTitle()).append(" ---\n")
+                                          .append(docContext.trim()).append("\n\n");
+                                    }
+                                }
+                            }
+                            ragContext = sb.toString();
+                            log.info("📌 Pinned Long Doc: Scoped Semantic Search for node '{}' (Words: {})", nodeTitle, totalWords);
+                        }
                     }
                 }
             } catch (Exception e) {
-                log.warn("Database lookup failed for skillName '{}': {}", skillName, e.getMessage());
+                log.warn("Failed to process pinned documents for node '{}': {}", nodeTitle, e.getMessage());
             }
         }
 
-        if (skillSlug == null && skillName != null && !skillName.isBlank()) {
-            skillSlug = AiKnowledgeSlugUtils.toRoadmapSkillSlug(skillName);
-        }
-
-        String ragContext = "";
-        if (aiRagGateway != null && skillSlug != null && !skillSlug.isBlank()) {
-            try {
-                String domain = AiKnowledgeSlugUtils.toRoadmapDomain(skillSlug);
-                String ragQuery = nodeTitle + (nodeDescription != null && !nodeDescription.isBlank() ? " " + nodeDescription : "");
-                log.info("🔍 RAG Context Lookup - Query: '{}' | Domain: '{}'", ragQuery, domain);
-                ragContext = aiRagGateway.fetchRagContext(ragQuery, Map.of("doc_type", "skill", "domain", domain), 5);
-                if (ragContext != null && !ragContext.isBlank()) {
-                    log.info("✅ RAG Context Found for skillSlug '{}'", skillSlug);
-                } else {
-                    log.info("⚠️ RAG Context Empty for skillSlug '{}'", skillSlug);
+        // ─── TẦNG 2: FALLBACK VỀ RAG ĐỘNG THEO SKILL NẾU RỖNG ──────────────────
+        if (ragContext.isBlank()) {
+            String skillSlug = null;
+            if (skillRepository != null && skillName != null && !skillName.isBlank()) {
+                try {
+                    Optional<Skill> skillOpt = skillRepository.findByNameIgnoreCase(skillName.trim());
+                    if (skillOpt.isPresent()) {
+                        String canonical = skillOpt.get().getCanonicalKey();
+                        if (canonical != null && !canonical.isBlank()) {
+                            skillSlug = AiKnowledgeSlugUtils.toRoadmapSkillSlug(canonical);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Database lookup failed for skillName '{}': {}", skillName, e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("Failed to fetch RAG context for skillSlug '{}': {}", skillSlug, e.getMessage());
+            }
+
+            if (skillSlug == null && skillName != null && !skillName.isBlank()) {
+                skillSlug = AiKnowledgeSlugUtils.toRoadmapSkillSlug(skillName);
+            }
+
+            if (aiRagGateway != null && skillSlug != null && !skillSlug.isBlank()) {
+                try {
+                    String domain = AiKnowledgeSlugUtils.toRoadmapDomain(skillSlug);
+                    String ragQuery = nodeTitle + (nodeDescription != null && !nodeDescription.isBlank() ? " " + nodeDescription : "");
+                    log.info("🔍 RAG Context Lookup - Query: '{}' | Domain: '{}'", ragQuery, domain);
+                    ragContext = aiRagGateway.fetchRagContext(ragQuery, Map.of("doc_type", "skill", "domain", domain), 5);
+                    if (ragContext != null && !ragContext.isBlank()) {
+                        log.info("✅ RAG Context Found for skillSlug '{}'", skillSlug);
+                    } else {
+                        log.info("⚠️ RAG Context Empty for skillSlug '{}'", skillSlug);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to fetch RAG context for skillSlug '{}': {}", skillSlug, e.getMessage());
+                }
             }
         }
 
@@ -382,5 +468,12 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 baselineExpectedOutput != null ? baselineExpectedOutput : "Checklist sản phẩm hoàn thiện theo yêu cầu bài học.",
                 baselineRubric != null ? baselineRubric : "Đánh giá đạt khi hoàn thành đầy đủ các yêu cầu bài tập thực hành."
         );
+    }
+
+    private long countWords(String text) {
+        if (text == null || text.isBlank()) {
+            return 0;
+        }
+        return text.trim().split("\\s+").length;
     }
 }

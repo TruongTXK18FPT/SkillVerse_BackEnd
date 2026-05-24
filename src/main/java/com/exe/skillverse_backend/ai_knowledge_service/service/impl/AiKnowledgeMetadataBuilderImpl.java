@@ -53,6 +53,11 @@ public class AiKnowledgeMetadataBuilderImpl implements AiKnowledgeMetadataBuilde
         Map<String, Object> metadata = new HashMap<>();
         String ragDocType = resolveRagDocType(document);
         
+        // Dual-write document_id for scoped semantic searching
+        if (document.getId() != null) {
+            metadata.put("document_id", String.valueOf(document.getId()));
+        }
+
         // Dual-write doc_type
         metadata.put("doc_type", ragDocType);
         

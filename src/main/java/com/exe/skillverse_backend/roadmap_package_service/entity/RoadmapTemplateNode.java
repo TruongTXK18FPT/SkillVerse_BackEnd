@@ -88,6 +88,9 @@ public class RoadmapTemplateNode {
     @Column(columnDefinition = "TEXT")
     private String rubric;
 
+    @Column(name = "pinned_document_ids", columnDefinition = "TEXT")
+    private String pinnedDocumentIds;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

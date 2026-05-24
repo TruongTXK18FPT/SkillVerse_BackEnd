@@ -91,6 +91,9 @@ public class RoadmapTemplateNodeGroup {
     @EqualsAndHashCode.Exclude
     private List<RoadmapTemplateNodeGroupSkill> skills = new ArrayList<>();
 
+    @Column(name = "pinned_document_ids", columnDefinition = "TEXT")
+    private String pinnedDocumentIds;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

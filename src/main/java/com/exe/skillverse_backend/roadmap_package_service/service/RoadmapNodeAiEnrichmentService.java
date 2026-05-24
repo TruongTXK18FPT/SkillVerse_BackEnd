@@ -62,4 +62,19 @@ public interface RoadmapNodeAiEnrichmentService {
             boolean isGap,
             boolean isStrength
     );
+
+    default EnrichedNode enrichNode(
+            String nodeTitle,
+            String nodeDescription,
+            String baselineExpectedOutput,
+            String baselineRubric,
+            String skillName,
+            String studentLevel,
+            String studentGoal,
+            boolean isGap,
+            boolean isStrength,
+            String pinnedDocumentIdsJson
+    ) {
+        return enrichNode(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric, skillName, studentLevel, studentGoal, isGap, isStrength);
+    }
 }

@@ -209,6 +209,13 @@ public class DatabaseSchemaFixer {
                 this::verifyDropAssignmentSourceCheckConstraint
             );
 
+            applyPatch(
+                "20260526_add_roadmap_node_pinned_documents",
+                "Add pinned_document_ids column to roadmap template nodes and node groups",
+                this::patchAddRoadmapNodePinnedDocuments,
+                this::verifyAddRoadmapNodePinnedDocuments
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -1396,5 +1403,21 @@ public class DatabaseSchemaFixer {
             return true;
         }
         return !hasConstraint("roadmap_node_assignments", "roadmap_node_assignments_assignment_source_check");
+    }
+
+    private void patchAddRoadmapNodePinnedDocuments() {
+        log.info("Adding pinned_document_ids column to roadmap template nodes and node groups...");
+        if (hasTable("roadmap_template_nodes")) {
+            executeSql("ALTER TABLE roadmap_template_nodes ADD COLUMN IF NOT EXISTS pinned_document_ids TEXT");
+        }
+        if (hasTable("roadmap_template_node_groups")) {
+            executeSql("ALTER TABLE roadmap_template_node_groups ADD COLUMN IF NOT EXISTS pinned_document_ids TEXT");
+        }
+    }
+
+    private boolean verifyAddRoadmapNodePinnedDocuments() {
+        boolean okNodes = !hasTable("roadmap_template_nodes") || hasColumn("roadmap_template_nodes", "pinned_document_ids");
+        boolean okGroups = !hasTable("roadmap_template_node_groups") || hasColumn("roadmap_template_node_groups", "pinned_document_ids");
+        return okNodes && okGroups;
     }
 }
