@@ -12,6 +12,7 @@ import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTem
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateNodeGroupResponse;
 import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.shared.repository.SkillRepository;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -58,6 +59,45 @@ class RoadmapSkillGroupingServiceTest {
                             .contains(1L, 2L);
                 });
         assertThat(groups).allSatisfy(group -> assertThat(group.getSkills()).isNotEmpty());
+    }
+
+    @Test
+    void repairAiGroupingBackfillsMissedSkillsCorrectly() {
+        RoadmapTemplateAutoGroupRequest request = new RoadmapTemplateAutoGroupRequest();
+        request.setJobPositionTrackId(30L);
+        request.setTotalNodeCount(2);
+
+        List<RoadmapSkillGroupingService.SkillCandidate> candidates = List.of(
+                new RoadmapSkillGroupingService.SkillCandidate(1L, "Java", "java", RequirementType.REQUIRED, 10D, 1),
+                new RoadmapSkillGroupingService.SkillCandidate(2L, "OOP", "oop", RequirementType.REQUIRED, 8D, 2),
+                new RoadmapSkillGroupingService.SkillCandidate(3L, "Docker", "docker", RequirementType.NICE_TO_HAVE, 5D, 3)
+        );
+
+        List<RoadmapTemplateNodeGroupResponse> groups = new ArrayList<>(List.of(
+                RoadmapTemplateNodeGroupResponse.builder()
+                        .title("Java basics")
+                        .skills(new ArrayList<>(List.of(
+                                RoadmapTemplateNodeGroupResponse.SkillItem.builder().skillId(1L).skillName("Java").build()
+                        )))
+                        .build(),
+                RoadmapTemplateNodeGroupResponse.builder()
+                        .title("OOP Advanced")
+                        .skills(new ArrayList<>(List.of(
+                                RoadmapTemplateNodeGroupResponse.SkillItem.builder().skillId(2L).skillName("OOP").build()
+                        )))
+                        .build()
+        ));
+
+        List<RoadmapTemplateNodeGroupResponse> repaired = service.repairAiGrouping(groups, request, candidates);
+
+        assertThat(repaired).hasSize(2);
+
+        List<Long> allSkillIds = repaired.stream()
+                .flatMap(g -> g.getSkills().stream())
+                .map(RoadmapTemplateNodeGroupResponse.SkillItem::getSkillId)
+                .toList();
+
+        assertThat(allSkillIds).containsExactlyInAnyOrder(1L, 2L, 3L);
     }
 
     private JobPositionTrackSkill trackSkill(Long skillId, RequirementType requirementType, int weight, int sortOrder) {

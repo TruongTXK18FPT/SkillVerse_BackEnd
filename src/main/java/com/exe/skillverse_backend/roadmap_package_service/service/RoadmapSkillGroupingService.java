@@ -118,6 +118,7 @@ public class RoadmapSkillGroupingService {
                     new HttpEntity<>(payload, headers),
                     String.class);
             List<RoadmapTemplateNodeGroupResponse> parsed = parseAiGroupingResponse(response, candidates);
+            parsed = repairAiGrouping(parsed, request, candidates);
             if (isValidAiGrouping(parsed, request, candidates)) {
                 return parsed;
             }
@@ -150,7 +151,7 @@ public class RoadmapSkillGroupingService {
                 - total nodeGroups must equal %d.
                 - Each module should combine related skills; do not make 1 skill = 1 node unless unavoidable.
                 - Use only skillIds from the input. Do not create new skills.
-                - REQUIRED skills must be covered.
+                - ALL skills from the input list (including REQUIRED, IMPORTANT, NICE_TO_HAVE, and OPTIONAL) MUST be covered without exception. Every single skillId from the input list must appear in the skillIds list of exactly one node group. Do not omit any skill.
                 Skills: %s
                 """.formatted(Math.max(1, request.getTotalNodeCount()), skillsJson);
     }
@@ -229,10 +230,86 @@ public class RoadmapSkillGroupingService {
                 covered.add(skill.getSkillId());
             }
         }
-        boolean missingRequired = candidates.stream()
-                .anyMatch(candidate -> candidate.requirementType() == RequirementType.REQUIRED
-                        && !covered.contains(candidate.skillId()));
-        return !missingRequired && singleSkillCount < Math.ceil(groups.size() * 0.7);
+        boolean missingAnySkill = candidates.stream()
+                .anyMatch(candidate -> !covered.contains(candidate.skillId()));
+        return !missingAnySkill && singleSkillCount < Math.ceil(groups.size() * 0.7);
+    }
+
+    List<RoadmapTemplateNodeGroupResponse> repairAiGrouping(
+            List<RoadmapTemplateNodeGroupResponse> groups,
+            RoadmapTemplateAutoGroupRequest request,
+            List<SkillCandidate> candidates) {
+        if (groups == null || groups.isEmpty()) {
+            return groups;
+        }
+
+        Set<Long> allowedIds = candidates.stream().map(SkillCandidate::skillId).collect(Collectors.toSet());
+        Map<Long, SkillCandidate> candidateMap = candidates.stream()
+                .collect(Collectors.toMap(SkillCandidate::skillId, Function.identity(), (a, b) -> a));
+
+        // 1. Filter out hallucinated skill IDs
+        for (RoadmapTemplateNodeGroupResponse group : groups) {
+            if (group.getSkills() != null) {
+                List<RoadmapTemplateNodeGroupResponse.SkillItem> validSkills = group.getSkills().stream()
+                        .filter(s -> s.getSkillId() != null && allowedIds.contains(s.getSkillId()))
+                        .collect(Collectors.toCollection(ArrayList::new));
+                group.setSkills(validSkills);
+            } else {
+                group.setSkills(new ArrayList<>());
+            }
+        }
+
+        // 2. Identify missing skills
+        Set<Long> coveredIds = groups.stream()
+                .flatMap(g -> g.getSkills().stream())
+                .map(RoadmapTemplateNodeGroupResponse.SkillItem::getSkillId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        List<SkillCandidate> missedCandidates = candidates.stream()
+                .filter(c -> !coveredIds.contains(c.skillId()))
+                .collect(Collectors.toList());
+
+        if (missedCandidates.isEmpty()) {
+            return groups; // Perfect coverage!
+        }
+
+        log.info("🛠️ Auto-repairing AI grouping: Found {} missed skills to backfill", missedCandidates.size());
+
+        // 3. Intelligently map each missed skill to the best matching AI node group
+        for (SkillCandidate missed : missedCandidates) {
+            String missedBucket = resolveBucket(missed);
+            RoadmapTemplateNodeGroupResponse bestGroup = null;
+            int bestScore = -1000;
+
+            for (RoadmapTemplateNodeGroupResponse group : groups) {
+                int score = 0;
+                for (RoadmapTemplateNodeGroupResponse.SkillItem skillItem : group.getSkills()) {
+                    SkillCandidate groupSkill = candidateMap.get(skillItem.getSkillId());
+                    if (groupSkill != null && Objects.equals(resolveBucket(groupSkill), missedBucket)) {
+                        score += 15; // Semantic match weight
+                    }
+                }
+                score -= group.getSkills().size() * 2; // Balance penalty
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestGroup = group;
+                }
+            }
+
+            if (bestGroup == null) {
+                bestGroup = groups.get(0);
+            }
+
+            List<RoadmapTemplateNodeGroupResponse.SkillItem> updatedSkills = new ArrayList<>(bestGroup.getSkills());
+            updatedSkills.add(toSkillItem(missed));
+            bestGroup.setSkills(updatedSkills);
+            log.info("Successfully repaired: assigned missed skill '{}' into AI node '{}'", 
+                    missed.skillName(), bestGroup.getTitle());
+        }
+
+        return groups;
     }
 
     private List<SkillCandidate> resolveCandidates(RoadmapTemplateAutoGroupRequest request) {
@@ -460,7 +537,7 @@ public class RoadmapSkillGroupingService {
         return String.join("\n", values);
     }
 
-    private record SkillCandidate(
+    record SkillCandidate(
             Long skillId,
             String skillName,
             String canonicalKey,
