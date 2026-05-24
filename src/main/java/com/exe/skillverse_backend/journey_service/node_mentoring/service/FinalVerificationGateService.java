@@ -3,10 +3,14 @@ package com.exe.skillverse_backend.journey_service.node_mentoring.service;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.AssessJourneyOutputRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.ConfirmJourneyCompletionRequest;
+import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitEvidenceReportRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitJourneyOutputAssessmentRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.JourneyCompletionGateResponse;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.JourneyCompletionReportResponse;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.JourneyOutputAssessmentResponse;
+import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.VerificationEvidenceReportResponse;
+
+import java.util.List;
 
 /**
  * Final verification gate for a journey.
@@ -85,13 +89,13 @@ public interface FinalVerificationGateService {
      * On FAIL: resets weak nodes, sets 7-day cooldown, increments attempt count.
      * On 3rd FAIL: auto-cancels booking and refunds.
      */
-    com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.VerificationEvidenceReportResponse
+    VerificationEvidenceReportResponse
     submitEvidenceReportAndVerdict(Long mentorId, Long journeyId,
-                                   com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitEvidenceReportRequest request);
+                                   SubmitEvidenceReportRequest request);
 
     /**
      * Get the full verification history (all attempts) for a journey.
      */
-    java.util.List<com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.VerificationEvidenceReportResponse>
+    List<VerificationEvidenceReportResponse>
     getVerificationHistory(Long callerId, Long journeyId);
 }

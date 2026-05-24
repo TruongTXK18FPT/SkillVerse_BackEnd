@@ -47,6 +47,7 @@ import com.exe.skillverse_backend.study_service.dto.response.TaskColumnResponse;
 import com.exe.skillverse_backend.study_service.dto.response.TaskResponse;
 import com.exe.skillverse_backend.study_service.entity.TaskPriority;
 import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
+import com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest;
 import com.exe.skillverse_backend.question_bank_service.dto.response.QuestionBankResponse;
 import com.exe.skillverse_backend.question_bank_service.entity.QuestionBank;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
@@ -1897,7 +1898,7 @@ public class JourneyServiceImpl implements JourneyService {
                 return roleBank.get();
             }
 
-            var createRequest = com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
+            var createRequest = CreateQuestionBankRequest.builder()
                     .domainId(jobContext.domain().getId())
                     .jobPositionId(jobContext.jobPosition().getId())
                     .domain(jobContext.domain().getCode())
@@ -1925,7 +1926,7 @@ public class JourneyServiceImpl implements JourneyService {
                 journey != null ? journey.getSubCategory() : null);
         String resolvedJobRole = firstNonBlank(jobRole, journey != null ? journey.getJobRole() : null);
 
-        var createRequest = com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
+        var createRequest = CreateQuestionBankRequest.builder()
                 .domain(domain)
                 .title("Auto bank: " + domain + " / general")
                 .description("Auto-generated question bank from AI test submissions")
@@ -2103,7 +2104,7 @@ public class JourneyServiceImpl implements JourneyService {
                 if (bankOpt.isEmpty()) {
                     log.info("No question bank found for domain={}, jobRole={} — auto-creating one",
                             domain, jobRole);
-                    var createRequest = com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
+                    var createRequest = CreateQuestionBankRequest.builder()
                             .domain(domain)
                             .title("Auto bank: " + domain + " / " + (jobRole != null ? jobRole : "general"))
                             .description("Auto-generated question bank from AI test submissions")

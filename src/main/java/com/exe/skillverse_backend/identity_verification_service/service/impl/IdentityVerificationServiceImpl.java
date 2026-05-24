@@ -16,7 +16,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.text.Normalizer;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 @RequiredArgsConstructor
@@ -71,7 +73,7 @@ public class IdentityVerificationServiceImpl implements IdentityVerificationServ
         log.info("Successfully accepted identity verification request for userId: {}. Processing async...", userId);
 
         // Process FPT.AI in background
-        java.util.concurrent.CompletableFuture.runAsync(() -> {
+        CompletableFuture.runAsync(() -> {
             try {
                 log.info("Async FPT.AI extraction started for userId: {}", userId);
                 IdCardExtractionResult frontResult = fptAiEkycService.extractIdCardInfo(frontBytes, frontName);
@@ -95,7 +97,7 @@ public class IdentityVerificationServiceImpl implements IdentityVerificationServ
 
                 // Check for duplicates
                 if (frontResult.getIdNumber() != null) {
-                    java.util.List<com.exe.skillverse_backend.mentor_service.entity.MentorProfile> existingMentors = mentorProfileRepository.findByCccdNumber(frontResult.getIdNumber());
+                    List<MentorProfile> existingMentors = mentorProfileRepository.findByCccdNumber(frontResult.getIdNumber());
                     if (existingMentors != null && existingMentors.stream().anyMatch(m -> !m.getUserId().equals(userId))) {
                         log.warn("Duplicate CCCD detected during legacy upload: {}", frontResult.getIdNumber());
                         combinedData.put("isDuplicate", true);

@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.mentor_booking_service.service.impl;
 import com.exe.skillverse_backend.ai_service.dto.response.RoadmapResponse;
 import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
+import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.mentor_booking_service.dto.request.RoadmapMentorNodeReorderRequest;
@@ -529,7 +530,7 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
         return value.format(DateTimeFormatter.ofPattern("HH:mm, dd/MM/yyyy"));
     }
 
-    private String displayName(com.exe.skillverse_backend.auth_service.entity.User user, String fallback) {
+    private String displayName(User user, String fallback) {
         if (user == null) {
             return fallback;
         }

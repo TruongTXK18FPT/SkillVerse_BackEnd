@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.shared.controller;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import com.exe.skillverse_backend.shared.dto.SkillSuggestionDto;
 import com.exe.skillverse_backend.shared.service.SkillSuggestionService;
+import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -12,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -41,8 +44,8 @@ public class SkillSuggestionAdminController {
     @Operation(summary = "Approve a skill suggestion (creates or merges)")
     public ResponseEntity<SkillSuggestionDto> approveSuggestion(
             @Parameter(description = "Suggestion ID") @PathVariable @NotNull Long id,
-            @org.springframework.security.core.annotation.AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt) {
-        Long adminId = com.exe.skillverse_backend.shared.util.JwtUtils.extractUserId(jwt);
+            @AuthenticationPrincipal Jwt jwt) {
+        Long adminId = JwtUtils.extractUserId(jwt);
         return ResponseEntity.ok(skillSuggestionService.approve(id, adminId));
     }
 
@@ -51,8 +54,8 @@ public class SkillSuggestionAdminController {
     public ResponseEntity<SkillSuggestionDto> mergeSuggestion(
             @Parameter(description = "Suggestion ID") @PathVariable @NotNull Long id,
             @Parameter(description = "Existing target skill ID") @RequestParam @NotNull Long matchedSkillId,
-            @org.springframework.security.core.annotation.AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt) {
-        Long adminId = com.exe.skillverse_backend.shared.util.JwtUtils.extractUserId(jwt);
+            @AuthenticationPrincipal Jwt jwt) {
+        Long adminId = JwtUtils.extractUserId(jwt);
         return ResponseEntity.ok(skillSuggestionService.merge(id, matchedSkillId, adminId));
     }
 
@@ -61,8 +64,8 @@ public class SkillSuggestionAdminController {
     public ResponseEntity<SkillSuggestionDto> rejectSuggestion(
             @Parameter(description = "Suggestion ID") @PathVariable @NotNull Long id,
             @Parameter(description = "Review note") @RequestParam(required = false) String reviewNote,
-            @org.springframework.security.core.annotation.AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt) {
-        Long adminId = com.exe.skillverse_backend.shared.util.JwtUtils.extractUserId(jwt);
+            @AuthenticationPrincipal Jwt jwt) {
+        Long adminId = JwtUtils.extractUserId(jwt);
         return ResponseEntity.ok(skillSuggestionService.reject(id, reviewNote, adminId));
     }
 }

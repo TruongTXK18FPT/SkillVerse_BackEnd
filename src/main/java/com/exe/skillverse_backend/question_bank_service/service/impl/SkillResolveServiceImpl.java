@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.ai_service.repository.ExpertPromptConfigReposi
 import com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest;
 import com.exe.skillverse_backend.question_bank_service.dto.response.QuestionBankResponse;
 import com.exe.skillverse_backend.question_bank_service.dto.response.SkillResolveResponse;
+import com.exe.skillverse_backend.question_bank_service.entity.QuestionBank;
 import com.exe.skillverse_backend.question_bank_service.repository.QuestionBankRepository;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
 import com.exe.skillverse_backend.question_bank_service.service.SkillResolveService;
@@ -117,7 +118,7 @@ public class SkillResolveServiceImpl implements SkillResolveService {
         List<ResolveMatch> matches = rankMatches(skillName, configs);
         ResolveMatch best = matches.getFirst();
 
-        Optional<com.exe.skillverse_backend.question_bank_service.entity.QuestionBank> existingBank =
+        Optional<QuestionBank> existingBank =
                 questionBankRepository.findByDomainAndIsActiveTrue(best.domain()).stream()
                         .filter(b -> {
                             String bankSkill = b.getSkillName();

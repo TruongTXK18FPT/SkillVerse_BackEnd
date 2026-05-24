@@ -34,6 +34,7 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -2188,7 +2189,7 @@ public class PremiumServiceImpl implements PremiumService {
                         });
                 } catch (Exception e) {
                         log.warn("Failed to parse premium plan features as JSON: {}", e.getMessage());
-                        return java.util.Arrays.stream(rawFeatures
+                        return Arrays.stream(rawFeatures
                                         .replace("[", "")
                                         .replace("]", "")
                                         .replace("\"", "")

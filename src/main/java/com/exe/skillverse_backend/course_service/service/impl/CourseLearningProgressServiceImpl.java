@@ -11,6 +11,7 @@ import com.exe.skillverse_backend.course_service.entity.Course;
 import com.exe.skillverse_backend.course_service.entity.CourseEnrollment;
 import com.exe.skillverse_backend.course_service.entity.CourseRevision;
 import com.exe.skillverse_backend.course_service.entity.Lesson;
+import com.exe.skillverse_backend.course_service.entity.QuizAttempt;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.QuizAttemptSessionStatus;
 import com.exe.skillverse_backend.course_service.repository.AssignmentRepository;
@@ -539,7 +540,7 @@ public class CourseLearningProgressServiceImpl implements CourseLearningProgress
     }
 
     private List<LearningResultHistoryItemDTO> mapLegacyQuizResultsFromEntities(
-            List<com.exe.skillverse_backend.course_service.entity.QuizAttempt> attempts,
+            List<QuizAttempt> attempts,
             Set<Long> activeQuizIds,
             Long sourceRevisionId
     ) {
@@ -548,7 +549,7 @@ public class CourseLearningProgressServiceImpl implements CourseLearningProgress
         }
 
         Map<Long, LearningResultHistoryItemDTO> deduped = new LinkedHashMap<>();
-        for (com.exe.skillverse_backend.course_service.entity.QuizAttempt attempt : attempts) {
+        for (QuizAttempt attempt : attempts) {
             if (attempt == null
                     || attempt.getQuiz() == null
                     || attempt.getQuiz().getId() == null) {

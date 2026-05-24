@@ -16,6 +16,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -68,7 +70,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         String skillSlug = null;
         if (skillRepository != null && skillName != null && !skillName.isBlank()) {
             try {
-                java.util.Optional<Skill> skillOpt = skillRepository.findByNameIgnoreCase(skillName.trim());
+                Optional<Skill> skillOpt = skillRepository.findByNameIgnoreCase(skillName.trim());
                 if (skillOpt.isPresent()) {
                     String canonical = skillOpt.get().getCanonicalKey();
                     if (canonical != null && !canonical.isBlank()) {
@@ -90,7 +92,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 String domain = AiKnowledgeSlugUtils.toRoadmapDomain(skillSlug);
                 String ragQuery = nodeTitle + (nodeDescription != null && !nodeDescription.isBlank() ? " " + nodeDescription : "");
                 log.info("🔍 RAG Context Lookup - Query: '{}' | Domain: '{}'", ragQuery, domain);
-                ragContext = aiRagGateway.fetchRagContext(ragQuery, java.util.Map.of("doc_type", "skill", "domain", domain), 5);
+                ragContext = aiRagGateway.fetchRagContext(ragQuery, Map.of("doc_type", "skill", "domain", domain), 5);
                 if (ragContext != null && !ragContext.isBlank()) {
                     log.info("✅ RAG Context Found for skillSlug '{}'", skillSlug);
                 } else {

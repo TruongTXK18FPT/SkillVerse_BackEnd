@@ -9,6 +9,8 @@ import com.exe.skillverse_backend.business_service.entity.InterviewSchedule.Meet
 import com.exe.skillverse_backend.business_service.entity.JobApplication;
 import com.exe.skillverse_backend.business_service.entity.JobPosting;
 import com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus;
+import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
+import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.business_service.repository.InterviewScheduleRepository;
 import com.exe.skillverse_backend.business_service.repository.JobApplicationRepository;
 import com.exe.skillverse_backend.business_service.service.InterviewScheduleService;
@@ -63,7 +65,7 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
         }
 
         // 2.5 Guard: Check if job is CLOSED
-        if (job.getStatus() == com.exe.skillverse_backend.business_service.entity.enums.JobStatus.CLOSED) {
+        if (job.getStatus() == JobStatus.CLOSED) {
             throw new BadRequestException("Job đã đóng, không thể tạo lịch phỏng vấn.");
         }
 
@@ -408,7 +410,7 @@ public class InterviewScheduleServiceImpl implements InterviewScheduleService {
         }
     }
 
-    private String getUserFullName(com.exe.skillverse_backend.auth_service.entity.User user) {
+    private String getUserFullName(User user) {
         String firstName = user.getFirstName() != null ? user.getFirstName() : "";
         String lastName = user.getLastName() != null ? user.getLastName() : "";
         return (firstName + " " + lastName).trim();

@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.shared.util;
 
+import com.exe.skillverse_backend.shared.exception.AuthenticationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
@@ -32,7 +33,7 @@ public final class JwtUtils {
      */
     public static Long extractUserId(Jwt jwt) {
         if (jwt == null) {
-            throw new com.exe.skillverse_backend.shared.exception.AuthenticationException("Unauthorized");
+            throw new AuthenticationException("Unauthorized");
         }
         try {
             String userId = jwt.getClaimAsString("userId");
@@ -47,7 +48,7 @@ public final class JwtUtils {
         } catch (Exception e) {
             // Log if we had a logger, or just let it fall through to throw AuthenticationException
         }
-        throw new com.exe.skillverse_backend.shared.exception.AuthenticationException("JWT contains no valid userId");
+        throw new AuthenticationException("JWT contains no valid userId");
     }
 
     /**

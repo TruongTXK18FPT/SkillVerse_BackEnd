@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import java.util.List;
+import java.util.Map;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -95,7 +96,7 @@ public class NotificationController {
     @GetMapping("/device-tokens/status")
     public ResponseEntity<Object> getDeviceTokenStatus(Authentication auth) {
         Long userId = Long.parseLong(auth.getName());
-        return ResponseEntity.ok(java.util.Map.of(
+        return ResponseEntity.ok(Map.of(
                 "firebaseEnabled", fcmService.isFirebaseEnabled(),
                 "activeTokens", fcmService.getActiveTokens(userId).size()
         ));

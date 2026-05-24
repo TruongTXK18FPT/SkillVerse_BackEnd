@@ -20,12 +20,19 @@ import com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionS
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
+import com.exe.skillverse_backend.business_service.entity.JobApplication;
+import com.exe.skillverse_backend.business_service.entity.JobContract;
+import com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus;
+import com.exe.skillverse_backend.business_service.enums.ContractStatus;
+import com.exe.skillverse_backend.business_service.exception.JobCloseBlockedException;
+import com.exe.skillverse_backend.business_service.exception.JobFlowBlockingItem;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -283,23 +290,23 @@ public class JobPostingServiceImpl implements JobPostingService {
 
         // --- Guard đóng job khi còn applicant đang trong flow ---
         if (newStatus == JobStatus.CLOSED && currentStatus == JobStatus.OPEN) {
-            List<com.exe.skillverse_backend.business_service.exception.JobFlowBlockingItem> blockingItems = new java.util.ArrayList<>();
+            List<JobFlowBlockingItem> blockingItems = new ArrayList<>();
 
             // Check applications
-            List<com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus> unresolvedStatuses = List.of(
-                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.PENDING,
-                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.REVIEWED,
-                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.ACCEPTED,
-                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.INTERVIEW_SCHEDULED,
-                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.INTERVIEWED,
-                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.OFFER_SENT,
-                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.OFFER_REJECTED,
-                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.OFFER_ACCEPTED,
-                    com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus.AWAITING_ONBOARDING_INFO
+            List<JobApplicationStatus> unresolvedStatuses = List.of(
+                    JobApplicationStatus.PENDING,
+                    JobApplicationStatus.REVIEWED,
+                    JobApplicationStatus.ACCEPTED,
+                    JobApplicationStatus.INTERVIEW_SCHEDULED,
+                    JobApplicationStatus.INTERVIEWED,
+                    JobApplicationStatus.OFFER_SENT,
+                    JobApplicationStatus.OFFER_REJECTED,
+                    JobApplicationStatus.OFFER_ACCEPTED,
+                    JobApplicationStatus.AWAITING_ONBOARDING_INFO
             );
 
-            List<com.exe.skillverse_backend.business_service.entity.JobApplication> unresolvedApplications = jobApplicationRepository.findByJobPostingIdAndStatusIn(jobId, unresolvedStatuses);
-            for (com.exe.skillverse_backend.business_service.entity.JobApplication app : unresolvedApplications) {
+            List<JobApplication> unresolvedApplications = jobApplicationRepository.findByJobPostingIdAndStatusIn(jobId, unresolvedStatuses);
+            for (JobApplication app : unresolvedApplications) {
                 String requiredAction = "";
                 switch (app.getStatus()) {
                     case PENDING:
@@ -328,7 +335,7 @@ public class JobPostingServiceImpl implements JobPostingService {
                 }
 
                 String displayName = app.getUser().getFirstName() + " " + app.getUser().getLastName();
-                blockingItems.add(com.exe.skillverse_backend.business_service.exception.JobFlowBlockingItem.builder()
+                blockingItems.add(JobFlowBlockingItem.builder()
                         .scope("APPLICATION")
                         .applicationId(app.getId())
                         .applicantName(displayName)
@@ -339,15 +346,15 @@ public class JobPostingServiceImpl implements JobPostingService {
             }
 
             // Check contracts
-            List<com.exe.skillverse_backend.business_service.enums.ContractStatus> pendingContractStatuses = List.of(
-                    com.exe.skillverse_backend.business_service.enums.ContractStatus.DRAFT,
-                    com.exe.skillverse_backend.business_service.enums.ContractStatus.PENDING_SIGNER,
-                    com.exe.skillverse_backend.business_service.enums.ContractStatus.PENDING_EMPLOYER
+            List<ContractStatus> pendingContractStatuses = List.of(
+                    ContractStatus.DRAFT,
+                    ContractStatus.PENDING_SIGNER,
+                    ContractStatus.PENDING_EMPLOYER
             );
 
-            List<com.exe.skillverse_backend.business_service.entity.JobContract> pendingContracts = jobContractRepository.findByApplicationJobPostingIdAndStatusIn(jobId, pendingContractStatuses);
-            for (com.exe.skillverse_backend.business_service.entity.JobContract contract : pendingContracts) {
-                blockingItems.add(com.exe.skillverse_backend.business_service.exception.JobFlowBlockingItem.builder()
+            List<JobContract> pendingContracts = jobContractRepository.findByApplicationJobPostingIdAndStatusIn(jobId, pendingContractStatuses);
+            for (JobContract contract : pendingContracts) {
+                blockingItems.add(JobFlowBlockingItem.builder()
                         .scope("CONTRACT")
                         .applicationId(contract.getApplication().getId())
                         .contractId(contract.getId())
@@ -359,7 +366,7 @@ public class JobPostingServiceImpl implements JobPostingService {
             }
 
             if (!blockingItems.isEmpty()) {
-                throw new com.exe.skillverse_backend.business_service.exception.JobCloseBlockedException(
+                throw new JobCloseBlockedException(
                         "Không thể đóng job vì còn " + blockingItems.size() + " ứng viên chưa hoàn tất flow",
                         blockingItems
                 );

@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -235,11 +236,11 @@ public class QuestionImportServiceImpl implements QuestionImportService {
             int lineNumber = 1;
 
             for (Object item : rawList) {
-                if (!(item instanceof java.util.Map)) {
+                if (!(item instanceof Map)) {
                     throw new ApiException(ErrorCode.BAD_REQUEST, "Invalid JSON format at item " + lineNumber);
                 }
 
-                java.util.Map<String, Object> map = (java.util.Map<String, Object>) item;
+                Map<String, Object> map = (Map<String, Object>) item;
                 lineNumber++;
 
                 String questionText = (String) map.get("questionText");

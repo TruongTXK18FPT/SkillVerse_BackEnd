@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -53,7 +54,7 @@ public class AiGatewayController {
     }
 
     private List<EmbeddingResponse.EmbeddingData> buildData(List<List<Double>> vectors) {
-        var result = new java.util.ArrayList<EmbeddingResponse.EmbeddingData>(vectors.size());
+        var result = new ArrayList<EmbeddingResponse.EmbeddingData>(vectors.size());
         for (int i = 0; i < vectors.size(); i++) {
             result.add(EmbeddingResponse.EmbeddingData.builder()
                     .object("embedding")

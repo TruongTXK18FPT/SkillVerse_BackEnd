@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.business_service.service.impl;
 
 import com.exe.skillverse_backend.auth_service.entity.User;
+import com.exe.skillverse_backend.admin_service.dto.request.ResolveDisputeAdminRequest;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.business_service.dto.request.OpenDisputeRequest;
 import com.exe.skillverse_backend.business_service.dto.request.ResolveDisputeRequest;
@@ -298,7 +299,7 @@ public class DisputeServiceImpl implements DisputeService {
     public Dispute resolveDisputeFromAdmin(
             Long adminId,
             Long disputeId,
-            com.exe.skillverse_backend.admin_service.dto.request.ResolveDisputeAdminRequest request) {
+            ResolveDisputeAdminRequest request) {
         ResolveDisputeRequest mappedRequest = ResolveDisputeRequest.builder()
                 .resolution(request.getResolution())
                 .resolutionNotes(request.getResolutionNotes())

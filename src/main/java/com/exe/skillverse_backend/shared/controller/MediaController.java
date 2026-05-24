@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.shared.controller;
 
 import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.exe.skillverse_backend.shared.service.MediaService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -39,7 +40,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class MediaController {
 
     private final MediaService mediaService;
-    private final com.exe.skillverse_backend.shared.service.CloudinaryService cloudinaryService;
+    private final CloudinaryService cloudinaryService;
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(

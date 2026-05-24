@@ -17,6 +17,7 @@ import com.exe.skillverse_backend.business_service.entity.RecruiterProfile;
 import com.exe.skillverse_backend.business_service.entity.enums.JobApplicationStatus;
 import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
 import com.exe.skillverse_backend.business_service.enums.ContractStatus;
+import com.exe.skillverse_backend.business_service.enums.ContractType;
 import com.exe.skillverse_backend.business_service.enums.SignatureStatus;
 import com.exe.skillverse_backend.business_service.repository.JobApplicationRepository;
 import com.exe.skillverse_backend.business_service.repository.JobContractRepository;
@@ -887,7 +888,7 @@ public class JobContractServiceImpl implements JobContractService {
             contract = JobContract.builder()
                     .application(application)
                     .status(ContractStatus.DRAFT)
-                    .contractType(com.exe.skillverse_backend.business_service.enums.ContractType.FULL_TIME)
+                    .contractType(ContractType.FULL_TIME)
                     .jobTitle(job.getTitle())
                     .startDate(LocalDate.now().plusDays(30)) // Default, recruiter will update
                     .employerId(employer.getId())

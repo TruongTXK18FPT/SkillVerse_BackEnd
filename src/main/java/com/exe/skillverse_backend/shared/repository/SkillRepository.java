@@ -23,7 +23,7 @@ public interface SkillRepository extends JpaRepository<Skill, Long>, JpaSpecific
     boolean existsByCanonicalKey(String canonicalKey);
     
     // Find active skills
-    List<Skill> findByStatus(com.exe.skillverse_backend.shared.enums.SkillStatus status);
+    List<Skill> findByStatus(SkillStatus status);
 
     @Query("""
        select s from Skill s
@@ -54,9 +54,9 @@ public interface SkillRepository extends JpaRepository<Skill, Long>, JpaSpecific
     Page<Skill> findByParentSkillIdIsNull(Pageable pageable);
 
     // ACTIVE-only variants for public APIs
-    Page<Skill> findByParentSkillIdIsNullAndStatus(com.exe.skillverse_backend.shared.enums.SkillStatus status, Pageable pageable);
-    List<Skill> findByParentSkillIdAndStatusOrderByNameAsc(Long parentSkillId, com.exe.skillverse_backend.shared.enums.SkillStatus status);
-    Page<Skill> findByNameContainingIgnoreCaseAndStatus(String name, com.exe.skillverse_backend.shared.enums.SkillStatus status, Pageable pageable);
+    Page<Skill> findByParentSkillIdIsNullAndStatus(SkillStatus status, Pageable pageable);
+    List<Skill> findByParentSkillIdAndStatusOrderByNameAsc(Long parentSkillId, SkillStatus status);
+    Page<Skill> findByNameContainingIgnoreCaseAndStatus(String name, SkillStatus status, Pageable pageable);
     
     // Tìm nhanh theo từ khóa (name/description) — chỉ ACTIVE
     @Query("""
@@ -65,7 +65,7 @@ public interface SkillRepository extends JpaRepository<Skill, Long>, JpaSpecific
          and (lower(s.name) like lower(concat('%', :q, '%'))
            or lower(s.description) like lower(concat('%', :q, '%')))
     """)
-    Page<Skill> searchActive(@Param("q") String q, @Param("status") com.exe.skillverse_backend.shared.enums.SkillStatus status, Pageable pageable);
+    Page<Skill> searchActive(@Param("q") String q, @Param("status") SkillStatus status, Pageable pageable);
 
     // Tìm nhanh theo từ khóa (name/description) — legacy không filter status
     @Query("""

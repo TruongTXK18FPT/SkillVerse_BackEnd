@@ -3,11 +3,13 @@ package com.exe.skillverse_backend.journey_service.node_mentoring.dto.response;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeAssignment;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeAssignment.AssignmentSource;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 
 @Data
@@ -16,7 +18,7 @@ import java.util.List;
 @Builder
 public class NodeAssignmentResponse {
 
-    private static final com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+    private static final ObjectMapper mapper = new ObjectMapper();
 
     private Long id;
     private Long journeyId;
@@ -37,7 +39,7 @@ public class NodeAssignmentResponse {
         List<GradingCriterionDto> criteriaList = null;
         if (a.getCriteriaJson() != null && !a.getCriteriaJson().isBlank()) {
             try {
-                criteriaList = java.util.Arrays.asList(mapper.readValue(a.getCriteriaJson(), GradingCriterionDto[].class));
+                criteriaList = Arrays.asList(mapper.readValue(a.getCriteriaJson(), GradingCriterionDto[].class));
             } catch (Exception ex) {
                 // Ignore parse errors
             }

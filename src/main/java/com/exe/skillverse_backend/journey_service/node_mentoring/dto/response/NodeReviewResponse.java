@@ -3,11 +3,13 @@ package com.exe.skillverse_backend.journey_service.node_mentoring.dto.response;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeReview;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeReview.ReviewResult;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionScoreDto;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 
 @Data
@@ -16,7 +18,7 @@ import java.util.List;
 @Builder
 public class NodeReviewResponse {
 
-    private static final com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+    private static final ObjectMapper mapper = new ObjectMapper();
 
     private Long id;
     private Long submissionId;
@@ -32,7 +34,7 @@ public class NodeReviewResponse {
         List<GradingCriterionScoreDto> scoresList = null;
         if (r.getCriteriaScoresJson() != null && !r.getCriteriaScoresJson().isBlank()) {
             try {
-                scoresList = java.util.Arrays.asList(mapper.readValue(r.getCriteriaScoresJson(), GradingCriterionScoreDto[].class));
+                scoresList = Arrays.asList(mapper.readValue(r.getCriteriaScoresJson(), GradingCriterionScoreDto[].class));
             } catch (Exception ex) {
                 // Ignore parse errors
             }

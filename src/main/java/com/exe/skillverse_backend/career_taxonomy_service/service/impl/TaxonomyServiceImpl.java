@@ -20,13 +20,20 @@ import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.repository.SkillRepository;
+import com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType;
+import com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest;
+import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
+import com.exe.skillverse_backend.shared.enums.SkillStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -39,7 +46,7 @@ public class TaxonomyServiceImpl implements TaxonomyService {
     private final JobPositionTrackRepository trackRepository;
     private final JobPositionTrackSkillRepository trackSkillRepository;
     private final SkillRepository skillRepository;
-    private final com.exe.skillverse_backend.question_bank_service.service.QuestionBankService questionBankService;
+    private final QuestionBankService questionBankService;
     private final TaxonomyMapper mapper;
 
     // --- READ APIs ---
@@ -113,7 +120,7 @@ public class TaxonomyServiceImpl implements TaxonomyService {
         // Single JOIN query — only ACTIVE skills, no post-fetch filter, no N+1
         return mapper.toTrackSkillDtos(
                 trackSkillRepository.findActiveSkillsByTrackId(
-                        trackId, com.exe.skillverse_backend.shared.enums.SkillStatus.ACTIVE));
+                        trackId, SkillStatus.ACTIVE));
     }
 
     // --- READ APIs FOR ADMIN (ALL) ---
@@ -240,8 +247,8 @@ public class TaxonomyServiceImpl implements TaxonomyService {
         
         // Auto-create a Question Bank for this Job Position
         try {
-            com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest qbRequest = 
-                com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
+            CreateQuestionBankRequest qbRequest = 
+                CreateQuestionBankRequest.builder()
                     .domainId(domain.getId())
                     .jobPositionId(savedJp.getId())
                     .domain(domain.getCode())
@@ -411,7 +418,7 @@ public class TaxonomyServiceImpl implements TaxonomyService {
         });
 
         List<JobPositionTrackSkill> newEntities = new ArrayList<>();
-        java.util.Set<Long> seenSkillIds = new java.util.HashSet<>();
+        Set<Long> seenSkillIds = new HashSet<>();
         
         for (int i = 0; i < skillDtos.size(); i++) {
             JobPositionTrackSkillDto dto = skillDtos.get(i);
@@ -424,7 +431,7 @@ public class TaxonomyServiceImpl implements TaxonomyService {
             Skill skill = skillRepository.findById(dto.getSkillId())
                     .orElseThrow(() -> new BadRequestException("SKILL_NOT_FOUND: " + dto.getSkillId()));
             
-            if (skill.getStatus() != com.exe.skillverse_backend.shared.enums.SkillStatus.ACTIVE) {
+            if (skill.getStatus() != SkillStatus.ACTIVE) {
                 throw new BadRequestException("SKILL_NOT_ACTIVE: " + skill.getId());
             }
                     
@@ -433,7 +440,7 @@ public class TaxonomyServiceImpl implements TaxonomyService {
             ts.setSkill(skill);
             ts.setRequirementType(dto.getRequirementType() != null
                     ? dto.getRequirementType().normalized()
-                    : com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType.REQUIRED);
+                    : RequirementType.REQUIRED);
             ts.setSortOrder(dto.getSortOrder() != null ? dto.getSortOrder() : i);
             int rawWeight = dto.getWeight() != null ? dto.getWeight() : 1;
             ts.setWeight(Math.max(1, Math.min(10, rawWeight)));
@@ -460,7 +467,7 @@ public class TaxonomyServiceImpl implements TaxonomyService {
     private static String normalizeCode(String raw) {
         if (raw == null) return null;
         return raw.trim()
-                  .toUpperCase(java.util.Locale.ROOT)
+                  .toUpperCase(Locale.ROOT)
                   .replaceAll("[\\s\\-\\.]+", "_")
                   .replaceAll("_+", "_")
                   .replaceAll("^_|_$", "");

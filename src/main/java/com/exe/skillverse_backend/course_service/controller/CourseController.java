@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.service.CourseRevisionService;
 import com.exe.skillverse_backend.course_service.service.CourseService;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
+import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -330,7 +331,7 @@ public class CourseController {
         Long currentUserId = JwtUtils.extractUserId(jwt);
         if (currentUserId == null || !currentUserId.equals(authorId)) {
             log.warn("Unauthorized attempt to {} for author {} by user {}", operation, authorId, currentUserId);
-            throw new com.exe.skillverse_backend.shared.exception.AccessDeniedException(
+            throw new AccessDeniedException(
                     "You are not authorized to " + operation + " for author " + authorId);
         }
     }

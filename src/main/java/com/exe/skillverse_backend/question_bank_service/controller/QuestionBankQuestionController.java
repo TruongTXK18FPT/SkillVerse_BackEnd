@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/admin/question-banks/{bankId}/questions")
@@ -97,7 +98,7 @@ public class QuestionBankQuestionController {
             @RequestBody List<CreateQuestionRequest> questions,
             @RequestParam(required = false, defaultValue = "MANUAL") String source) {
         int count = questionService.bulkAddQuestions(bankId, questions, source);
-        return ResponseEntity.ok(java.util.Map.of("savedCount", count, "message", "Added " + count + " questions"));
+        return ResponseEntity.ok(Map.of("savedCount", count, "message", "Added " + count + " questions"));
     }
 
     // ==================== Import ====================

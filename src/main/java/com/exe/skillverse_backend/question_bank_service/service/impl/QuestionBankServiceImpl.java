@@ -188,15 +188,15 @@ public class QuestionBankServiceImpl implements QuestionBankService {
     @Override
     @Transactional
     public void syncJobPositionBanks() {
-        List<com.exe.skillverse_backend.career_taxonomy_service.entity.JobPosition> activeJobs = 
-            jobPositionRepository.findAllActiveWithActiveDomain(com.exe.skillverse_backend.career_taxonomy_service.enums.TaxonomyStatus.ACTIVE);
+        List<JobPosition> activeJobs = 
+            jobPositionRepository.findAllActiveWithActiveDomain(TaxonomyStatus.ACTIVE);
         
         int createdCount = 0;
         for (var jp : activeJobs) {
             boolean exists = questionBankRepository.existsActiveByTaxonomyScope(jp.getDomainId(), jp.getId(), null);
             if (!exists) {
-                com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest request = 
-                    com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest.builder()
+                CreateQuestionBankRequest request = 
+                    CreateQuestionBankRequest.builder()
                         .domainId(jp.getDomainId())
                         .jobPositionId(jp.getId())
                         .domain(jp.getDomain().getCode())

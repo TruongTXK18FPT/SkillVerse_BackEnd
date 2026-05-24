@@ -33,11 +33,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -278,7 +280,7 @@ public class MentorVerificationServiceImpl implements MentorVerificationService 
                             return null;
                         }
                     })
-                    .filter(java.util.Objects::nonNull)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.toList());
             if (statusEnums.isEmpty()) {
                 statusEnums = List.of(VerificationStatus.values());
@@ -475,7 +477,7 @@ public class MentorVerificationServiceImpl implements MentorVerificationService 
                         return null;
                     }
                 })
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         return parsed.isEmpty() ? List.of(VerificationStatus.values()) : parsed;
@@ -507,7 +509,7 @@ public class MentorVerificationServiceImpl implements MentorVerificationService 
         skill.setVerifiedByMentorId(admin.getId());
         skill.setVerificationNote(request.getReviewNote());
         if (skill.getVerifiedAt() == null) {
-            skill.setVerifiedAt(java.time.Instant.now());
+            skill.setVerifiedAt(Instant.now());
         }
         userVerifiedSkillRepository.save(skill);
         
@@ -517,7 +519,7 @@ public class MentorVerificationServiceImpl implements MentorVerificationService 
     private void appendToPortfolioTopSkills(Long userId, String skillName) {
         portfolioExtendedProfileRepository.findByUserId(userId).ifPresent(profile -> {
             try {
-                List<String> skills = new java.util.ArrayList<>();
+                List<String> skills = new ArrayList<>();
                 if (profile.getTopSkills() != null && !profile.getTopSkills().isBlank()) {
                     skills = objectMapper.readValue(profile.getTopSkills(),
                             objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));

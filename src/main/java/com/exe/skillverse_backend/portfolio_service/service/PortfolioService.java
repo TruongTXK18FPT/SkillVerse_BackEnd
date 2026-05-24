@@ -10,8 +10,10 @@ import com.exe.skillverse_backend.portfolio_service.dto.ExternalCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.GeneratedCVDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.MentorReviewDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.PortfolioProjectDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.PortfolioVerifiedSkillDetailDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.SystemCertificateDTO;
 import com.exe.skillverse_backend.portfolio_service.dto.UserProfileDTO;
+import com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO;
 
 public interface PortfolioService {
         // User Profile (Extended)
@@ -90,13 +92,13 @@ public interface PortfolioService {
         void deleteCV(Long cvId, Long userId);
 
     // V3 Phase 2: Verified skills (from ROADMAP_MENTORING verification)
-    List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getVerifiedSkills(Long userId);
+    List<UserVerifiedSkillDTO> getVerifiedSkills(Long userId);
 
-    List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getPublicVerifiedSkills(Long userId);
+    List<UserVerifiedSkillDTO> getPublicVerifiedSkills(Long userId);
 
-    List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> updateVerifiedSkillFeaturedOrder(Long userId, List<String> skillNames);
+    List<UserVerifiedSkillDTO> updateVerifiedSkillFeaturedOrder(Long userId, List<String> skillNames);
 
-    List<com.exe.skillverse_backend.portfolio_service.dto.PortfolioVerifiedSkillDetailDTO> getVerifiedSkillDetails(Long userId);
+    List<PortfolioVerifiedSkillDetailDTO> getVerifiedSkillDetails(Long userId);
 
-    List<com.exe.skillverse_backend.portfolio_service.dto.PortfolioVerifiedSkillDetailDTO> getPublicVerifiedSkillDetails(Long userId);
+    List<PortfolioVerifiedSkillDetailDTO> getPublicVerifiedSkillDetails(Long userId);
 }

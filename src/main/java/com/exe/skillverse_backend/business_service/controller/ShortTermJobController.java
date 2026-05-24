@@ -8,6 +8,7 @@ import com.exe.skillverse_backend.shared.util.JwtUtils;
 import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -455,7 +456,7 @@ public class ShortTermJobController {
         // Delegate to dispute service for eligibility check
         // This endpoint returns a simple status; the actual dispute opening
         // is handled by the dispute controller
-        return ResponseEntity.ok(java.util.Map.of(
+        return ResponseEntity.ok(Map.of(
                 "applicationId", id,
                 "userId", userId,
                 "message", "Please use the dispute API to open a dispute if eligible"

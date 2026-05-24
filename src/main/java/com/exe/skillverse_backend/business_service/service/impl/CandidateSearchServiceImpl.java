@@ -29,6 +29,8 @@ import com.exe.skillverse_backend.premium_service.service.RecruiterSubscriptionS
 import com.exe.skillverse_backend.premium_service.service.UsageLimitService;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
+import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
+import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -68,7 +70,7 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
     private final SearchAnalyticsService searchAnalyticsService;
     private final CandidateFitScoringService candidateFitScoringService;
     private final ObjectMapper objectMapper;
-    private final com.exe.skillverse_backend.journey_service.repository.JourneyRepository journeyRepository;
+    private final JourneyRepository journeyRepository;
 
     // Deterministic scoring weights (Standardized for filtering)
     private static final BigDecimal SKILL_WEIGHT = new BigDecimal("0.50"); // 50% - Core requirement
@@ -934,7 +936,7 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         try {
             completedMissions = journeyRepository.countByUserIdAndStatus(
                     profile.getUser().getId(), 
-                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED
+                    Journey.JourneyStatus.COMPLETED
             );
         } catch (Exception e) {
             log.warn("Error counting missions", e);
@@ -1023,7 +1025,7 @@ public class CandidateSearchServiceImpl implements CandidateSearchService {
         try {
             missions = journeyRepository.countByUserIdAndStatus(
                     profile.getUser().getId(),
-                    com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED
+                    Journey.JourneyStatus.COMPLETED
             );
         } catch (Exception e) {
             log.warn("Error counting missions for breakdown", e);

@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.shared.dto;
 
+import com.exe.skillverse_backend.shared.enums.SkillStatus;
 import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,7 +17,7 @@ public class SkillDto {
     private String canonicalKey;
     private String description;
     private Long parentSkillId;
-    private com.exe.skillverse_backend.shared.enums.SkillStatus status;
+    private SkillStatus status;
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

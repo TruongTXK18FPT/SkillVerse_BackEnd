@@ -1,5 +1,6 @@
 package com.exe.skillverse_backend.business_service.service;
 
+import com.exe.skillverse_backend.admin_service.dto.request.ResolveDisputeAdminRequest;
 import com.exe.skillverse_backend.business_service.entity.Dispute;
 import com.exe.skillverse_backend.business_service.entity.DisputeEvidence;
 import com.exe.skillverse_backend.business_service.entity.DisputeResponseEntity;
@@ -21,7 +22,7 @@ public interface DisputeService {
      * to ensure identical financial logic as the business endpoint.
      */
     Dispute resolveDisputeFromAdmin(Long adminId, Long disputeId,
-            com.exe.skillverse_backend.admin_service.dto.request.ResolveDisputeAdminRequest request);
+            ResolveDisputeAdminRequest request);
     Dispute getDispute(Long disputeId);
     List<Dispute> getDisputesByJob(Long jobId);
     Page<Dispute> getMyDisputes(Long userId, Pageable pageable);

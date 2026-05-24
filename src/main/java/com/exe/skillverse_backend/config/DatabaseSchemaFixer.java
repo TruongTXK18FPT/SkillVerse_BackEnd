@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
 
 import java.security.MessageDigest;
 
@@ -241,7 +242,7 @@ public class DatabaseSchemaFixer {
         for (var skill : skills) {
             Long id = ((Number) skill.get("id")).longValue();
             String name = (String) skill.get("name");
-            String canonicalKey = com.exe.skillverse_backend.shared.util.SkillNameUtils.normalize(name);
+            String canonicalKey = SkillNameUtils.normalize(name);
             if (hasStatusColumn) {
                 jdbcTemplate.update("UPDATE skills SET canonical_key = ?, status = 'ACTIVE' WHERE id = ?", canonicalKey, id);
             } else {

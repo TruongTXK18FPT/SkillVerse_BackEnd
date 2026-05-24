@@ -82,7 +82,7 @@ public interface AdminShortTermJobService {
      * [Nghiệp vụ] Admin từ chối yêu cầu hủy job từ recruiter.
      * Job quay về IN_PROGRESS, worker được thông báo để tiếp tục làm việc.
      */
-    com.exe.skillverse_backend.business_service.dto.response.ShortTermJobResponse
+     ShortTermJobResponse
             rejectCancellation(Long adminId, Long disputeId, RejectCancellationRequest request);
 
     // ==================== DASHBOARD STATS ====================

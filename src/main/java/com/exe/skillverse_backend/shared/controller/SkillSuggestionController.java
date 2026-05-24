@@ -15,6 +15,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.exe.skillverse_backend.shared.util.JwtUtils;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+
 @RestController
 @RequestMapping("/api/skill-suggestions")
 @RequiredArgsConstructor
@@ -29,9 +33,9 @@ public class SkillSuggestionController {
     @Operation(summary = "Suggest a new skill")
     public ResponseEntity<SkillSuggestionDto> suggestSkill(
             @Valid @RequestBody SkillSuggestionDto dto,
-            @org.springframework.security.core.annotation.AuthenticationPrincipal org.springframework.security.oauth2.jwt.Jwt jwt) {
+            @AuthenticationPrincipal Jwt jwt) {
         log.info("User suggesting skill: {}", dto.getSuggestedName());
-        Long userId = jwt != null ? com.exe.skillverse_backend.shared.util.JwtUtils.extractUserId(jwt) : 1L; 
+        Long userId = jwt != null ? JwtUtils.extractUserId(jwt) : 1L; 
         SkillSuggestionDto created = skillSuggestionService.createSuggestion(dto, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }

@@ -29,6 +29,7 @@ import com.exe.skillverse_backend.wallet_service.service.WithdrawalService;
 import com.exe.skillverse_backend.wallet_service.service.WalletService;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
 import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
+import com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
@@ -543,7 +544,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                                        .taxCode(recruiter.getTaxCodeOrBusinessRegistrationNumber())
                                        .industry(recruiter.getIndustry())
                                        .businessLicenseUrl(recruiter.getCompanyDocumentsUrl())
-                                       .companyVerified(com.exe.skillverse_backend.mentor_service.entity.ApplicationStatus.APPROVED.equals(recruiter.getApplicationStatus()))
+                                       .companyVerified(ApplicationStatus.APPROVED.equals(recruiter.getApplicationStatus()))
                                        .bio(recruiter.getCompanyAddress());
                         });
                 }

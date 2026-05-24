@@ -3,9 +3,11 @@ package com.exe.skillverse_backend.journey_service.node_mentoring.controller;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.AssessJourneyOutputRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.ConfirmJourneyCompletionRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitJourneyOutputAssessmentRequest;
+import com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitEvidenceReportRequest;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.JourneyCompletionGateResponse;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.JourneyCompletionReportResponse;
 import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.JourneyOutputAssessmentResponse;
+import com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.VerificationEvidenceReportResponse;
 import com.exe.skillverse_backend.journey_service.node_mentoring.service.FinalVerificationGateService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
 import jakarta.validation.Valid;
@@ -22,6 +24,9 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * Final verification gate endpoints at journey level.
@@ -115,27 +120,27 @@ public class FinalVerificationController {
 
     @PostMapping("/final-meeting/create")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<java.util.Map<String, String>> createFinalMeeting(
+    public ResponseEntity<Map<String, String>> createFinalMeeting(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long journeyId) {
         Long callerId = JwtUtils.extractUserId(jwt);
         String meetingLink = gateService.createFinalMeetingLink(callerId, journeyId);
-        return ResponseEntity.ok(java.util.Map.of("meetingLink", meetingLink));
+        return ResponseEntity.ok(Map.of("meetingLink", meetingLink));
     }
 
     @PostMapping("/final-meeting/verdict")
     @PreAuthorize("hasRole('MENTOR')")
-    public ResponseEntity<com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.VerificationEvidenceReportResponse> submitVerdict(
+    public ResponseEntity<VerificationEvidenceReportResponse> submitVerdict(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long journeyId,
-            @Valid @RequestBody com.exe.skillverse_backend.journey_service.node_mentoring.dto.request.SubmitEvidenceReportRequest request) {
+            @Valid @RequestBody SubmitEvidenceReportRequest request) {
         Long mentorId = JwtUtils.extractUserId(jwt);
         return ResponseEntity.ok(gateService.submitEvidenceReportAndVerdict(mentorId, journeyId, request));
     }
 
     @GetMapping("/verification-history")
     @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<java.util.List<com.exe.skillverse_backend.journey_service.node_mentoring.dto.response.VerificationEvidenceReportResponse>> getVerificationHistory(
+    public ResponseEntity<List<VerificationEvidenceReportResponse>> getVerificationHistory(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable Long journeyId) {
         Long callerId = JwtUtils.extractUserId(jwt);

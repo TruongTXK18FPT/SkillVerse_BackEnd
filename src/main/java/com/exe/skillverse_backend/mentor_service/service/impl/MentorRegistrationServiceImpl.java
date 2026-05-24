@@ -30,7 +30,9 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
@@ -209,7 +211,7 @@ public class MentorRegistrationServiceImpl
                     request.setCccdFullName(frontResult.getFullName());
                     request.setCccdDob(frontResult.getDob());
 
-                    java.util.Map<String, Object> combinedData = new java.util.HashMap<>();
+                    Map<String, Object> combinedData = new HashMap<>();
                     combinedData.put("front", objectMapper.readTree(frontResult.getRawJson() != null ? frontResult.getRawJson() : "{}"));
                     combinedData.put("back", objectMapper.readTree(backResult.getRawJson() != null ? backResult.getRawJson() : "{}"));
 
@@ -217,7 +219,7 @@ public class MentorRegistrationServiceImpl
                     // Note: at this point the current user's profile hasn't been saved yet,
                     // so any existing record belongs to a different mentor
                     if (frontResult.getIdNumber() != null) {
-                        java.util.List<com.exe.skillverse_backend.mentor_service.entity.MentorProfile> existingMentors = mentorProfileRepository.findByCccdNumber(frontResult.getIdNumber());
+                        List<MentorProfile> existingMentors = mentorProfileRepository.findByCccdNumber(frontResult.getIdNumber());
                         if (existingMentors != null && !existingMentors.isEmpty()) {
                             // Filter to only count genuinely different users
                             boolean hasDifferentOwner = existingMentors.stream()

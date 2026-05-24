@@ -53,6 +53,10 @@ import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.exception.ForbiddenException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.exe.skillverse_backend.shared.util.SkillNameUtils;
+import com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO;
+import com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill;
+import com.exe.skillverse_backend.portfolio_service.repository.UserVerifiedSkillRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -60,8 +64,10 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -101,7 +107,7 @@ public class PortfolioServiceImpl implements PortfolioService {
     private final GamificationUserBadgeRepository badgeRepository;
     private final ShortTermJobApplicationRepository jobApplicationRepository;
     private final JobReviewRepository jobReviewRepository;
-    private final com.exe.skillverse_backend.portfolio_service.repository.UserVerifiedSkillRepository verifiedSkillRepository;
+    private final UserVerifiedSkillRepository verifiedSkillRepository;
     private final MentorSkillVerificationRequestRepository mentorVerificationRequestRepository;
     private final StudentSkillVerificationRequestRepository studentVerificationRequestRepository;
     private final VerificationEvidenceReportRepository verificationEvidenceReportRepository;
@@ -610,7 +616,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                     .source("COURSE")
                     .title(cert.getCourseTitleSnapshot())
                     .issuer("SkillVerse")
-                    .issueDate(cert.getIssuedAt() != null ? cert.getIssuedAt().atZone(java.time.ZoneId.systemDefault()).toLocalDate() : null)
+                    .issueDate(cert.getIssuedAt() != null ? cert.getIssuedAt().atZone(ZoneId.systemDefault()).toLocalDate() : null)
                     .credentialId(serial)
                     .credentialUrl("/api/certificates/verify/" + serial)
                     .category("TECHNICAL")
@@ -668,7 +674,7 @@ public class PortfolioServiceImpl implements PortfolioService {
                             .user(user)
                             .title(cert.getCourseTitleSnapshot() + " - Certificate of Completion")
                             .issuingOrganization("SkillVerse")
-                            .issueDate(cert.getIssuedAt() != null ? cert.getIssuedAt().atZone(java.time.ZoneId.systemDefault()).toLocalDate() : null)
+                            .issueDate(cert.getIssuedAt() != null ? cert.getIssuedAt().atZone(ZoneId.systemDefault()).toLocalDate() : null)
                             .credentialId(serial)
                             .credentialUrl("/api/certificates/verify/" + serial)
                             .category(ExternalCertificate.CertificateCategory.TECHNICAL)
@@ -757,7 +763,7 @@ public class PortfolioServiceImpl implements PortfolioService {
             List<String> requiredSkills = new ArrayList<>();
             if (shortTermJob != null && shortTermJob.getRequiredSkills() != null) {
                 try {
-                    var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    var mapper = new ObjectMapper();
                     requiredSkills = mapper.readValue(shortTermJob.getRequiredSkills(),
                             mapper.getTypeFactory().constructCollectionType(List.class, String.class));
                 } catch (Exception e) {
@@ -1332,7 +1338,7 @@ public class PortfolioServiceImpl implements PortfolioService {
 
     @Override
     @Transactional
-    public List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getVerifiedSkills(Long userId) {
+    public List<UserVerifiedSkillDTO> getVerifiedSkills(Long userId) {
         getUserOrThrow(userId);
         syncApprovedVerificationRequestsToPortfolio(userId);
         syncVerifiedSkillsToTopSkills(userId);
@@ -1342,7 +1348,7 @@ public class PortfolioServiceImpl implements PortfolioService {
 
     @Override
     @Transactional
-    public List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> getPublicVerifiedSkills(Long userId) {
+    public List<UserVerifiedSkillDTO> getPublicVerifiedSkills(Long userId) {
         getPublicExtendedProfileOrThrow(userId);
         syncApprovedVerificationRequestsToPortfolio(userId);
         syncVerifiedSkillsToTopSkills(userId);
@@ -1352,21 +1358,21 @@ public class PortfolioServiceImpl implements PortfolioService {
 
     @Override
     @Transactional
-    public List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> updateVerifiedSkillFeaturedOrder(
+    public List<UserVerifiedSkillDTO> updateVerifiedSkillFeaturedOrder(
             Long userId, List<String> skillNames) {
         getUserOrThrow(userId);
         syncApprovedVerificationRequestsToPortfolio(userId);
         List<String> normalizedSkillNames = skillNames == null ? List.of() : skillNames.stream()
-                .map(com.exe.skillverse_backend.shared.util.SkillNameUtils::normalizeRequired)
+                .map(SkillNameUtils::normalizeRequired)
                 .distinct()
                 .toList();
 
-        Map<String, Integer> featuredOrderBySkill = new java.util.HashMap<>();
+        Map<String, Integer> featuredOrderBySkill = new HashMap<>();
         for (int i = 0; i < Math.min(5, normalizedSkillNames.size()); i++) {
             featuredOrderBySkill.put(normalizedSkillNames.get(i), i + 1);
         }
 
-        List<com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill> skills =
+        List<UserVerifiedSkill> skills =
                 verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId);
         for (var skill : skills) {
             skill.setFeaturedOrder(featuredOrderBySkill.get(skill.getSkillName()));
@@ -1391,10 +1397,10 @@ public class PortfolioServiceImpl implements PortfolioService {
         return resolveVerifiedSkillDetails(user);
     }
 
-    private List<com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO> enrichVerifiedSkills(
-            List<com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill> skills) {
+    private List<UserVerifiedSkillDTO> enrichVerifiedSkills(
+            List<UserVerifiedSkill> skills) {
         return skills.stream().map(s -> {
-            var dto = com.exe.skillverse_backend.portfolio_service.dto.UserVerifiedSkillDTO.from(s);
+            var dto = UserVerifiedSkillDTO.from(s);
             userRepository.findById(s.getVerifiedByMentorId()).ifPresent(mentor ->
                     dto.setVerifiedByMentorName(mentor.getFullName()));
             return dto;
@@ -1410,7 +1416,7 @@ public class PortfolioServiceImpl implements PortfolioService {
 
     private void syncVerifiedSkillsToTopSkills(Long userId) {
         extendedProfileRepository.findByUserId(userId).ifPresent(profile -> {
-            List<com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill> verifiedSkills = verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId);
+            List<UserVerifiedSkill> verifiedSkills = verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId);
             if (verifiedSkills.isEmpty()) return;
             
             try {
@@ -1437,9 +1443,9 @@ public class PortfolioServiceImpl implements PortfolioService {
     }
 
     private void upsertMentorAdminVerifiedSkill(MentorSkillVerificationRequest request) {
-        String skillName = com.exe.skillverse_backend.shared.util.SkillNameUtils.normalizeRequired(request.getSkillName());
+        String skillName = SkillNameUtils.normalizeRequired(request.getSkillName());
         var existing = verifiedSkillRepository.findByUserIdAndSkillName(request.getMentor().getId(), skillName);
-        var skill = existing.orElseGet(() -> com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill.builder()
+        var skill = existing.orElseGet(() -> UserVerifiedSkill.builder()
                 .userId(request.getMentor().getId())
                 .skillName(skillName)
                 .build());
@@ -1457,9 +1463,9 @@ public class PortfolioServiceImpl implements PortfolioService {
     }
 
     private void upsertStudentAdminVerifiedSkill(StudentSkillVerificationRequest request) {
-        String skillName = com.exe.skillverse_backend.shared.util.SkillNameUtils.normalizeRequired(request.getSkillName());
+        String skillName = SkillNameUtils.normalizeRequired(request.getSkillName());
         var existing = verifiedSkillRepository.findByUserIdAndSkillName(request.getUser().getId(), skillName);
-        var skill = existing.orElseGet(() -> com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill.builder()
+        var skill = existing.orElseGet(() -> UserVerifiedSkill.builder()
                 .userId(request.getUser().getId())
                 .skillName(skillName)
                 .build());
@@ -1529,7 +1535,7 @@ public class PortfolioServiceImpl implements PortfolioService {
     }
 
     private PortfolioVerifiedSkillDetailDTO mapRoadmapVerifiedSkillDetail(
-            com.exe.skillverse_backend.portfolio_service.entity.UserVerifiedSkill skill) {
+            UserVerifiedSkill skill) {
         User reviewer = userRepository.findById(skill.getVerifiedByMentorId()).orElse(null);
         VerificationEvidenceReport report = skill.getJourneyId() == null
                 ? null

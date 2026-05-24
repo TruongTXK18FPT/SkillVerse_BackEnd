@@ -44,6 +44,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
+import com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto;
+import com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionScoreDto;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -72,6 +77,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
             BookingStatus.PENDING_COMPLETION);
 
     private final RoadmapNodeResolver resolver;
+    private final CloudinaryService cloudinaryService;
     private final RoadmapNodeAssignmentRepository assignmentRepo;
     private final RoadmapNodeSubmissionRepository submissionRepo;
     private final RoadmapNodeReviewRepository reviewRepo;
@@ -323,7 +329,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
             if (request.getCriteriaScores() != null && !request.getCriteriaScores().isEmpty()) {
                 double totalEarned = 0.0;
                 double totalMax = 0.0;
-                for (com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionScoreDto cs : request.getCriteriaScores()) {
+                for (GradingCriterionScoreDto cs : request.getCriteriaScores()) {
                     totalEarned += cs.getScore() != null ? cs.getScore() : 0.0;
                     totalMax += cs.getMaxScore() != null ? cs.getMaxScore() : 10.0;
                 }
@@ -573,10 +579,10 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                     : "";
         }
 
-        List<com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto> defaultCriteria = List.of(
-            com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto.builder().id("c1").title("Completeness (Hoàn thành bài tập)").maxScore(10).build(),
-            com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto.builder().id("c2").title("Accuracy (Độ chính xác kỹ thuật)").maxScore(10).build(),
-            com.exe.skillverse_backend.journey_service.node_mentoring.dto.GradingCriterionDto.builder().id("c3").title("Quality (Chất lượng giải trình)").maxScore(10).build()
+        List<GradingCriterionDto> defaultCriteria = List.of(
+            GradingCriterionDto.builder().id("c1").title("Completeness (Hoàn thành bài tập)").maxScore(10).build(),
+            GradingCriterionDto.builder().id("c2").title("Accuracy (Độ chính xác kỹ thuật)").maxScore(10).build(),
+            GradingCriterionDto.builder().id("c3").title("Quality (Chất lượng giải trình)").maxScore(10).build()
         );
         String defaultCriteriaJson = null;
         try {
@@ -647,6 +653,63 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         UserRoadmapProgress roadmapProgress = s.getRoadmapSessionId() != null
                 ? progressRepository.findBySessionIdAndQuestId(s.getRoadmapSessionId(), s.getNodeId()).orElse(null)
                 : null;
-        return NodeEvidenceRecordResponse.from(s, latestReview, latestVerification, roadmapProgress);
+        
+        NodeEvidenceRecordResponse response = NodeEvidenceRecordResponse.from(s, latestReview, latestVerification, roadmapProgress);
+        
+        // Auto-sign URLs if needed to prevent 401 Unauthorized for secure assets (PDF, DOCX etc)
+        if (response.getEvidenceUrl() != null) {
+            response.setEvidenceUrl(signCloudinaryUrlIfNeeded(response.getEvidenceUrl()));
+        }
+        if (response.getAttachmentUrl() != null) {
+            response.setAttachmentUrl(signCloudinaryUrlIfNeeded(response.getAttachmentUrl()));
+        }
+        
+        return response;
+    }
+
+    /**
+     * Parses a Cloudinary URL and generates a secure signed URL using the Cloudinary configuration.
+     * Prevents HTTP ERROR 401 Unauthorized for Restricted/Authenticated assets.
+     */
+    private String signCloudinaryUrlIfNeeded(String originalUrl) {
+        if (originalUrl == null || originalUrl.trim().isEmpty() || !originalUrl.contains("res.cloudinary.com")) {
+            return originalUrl;
+        }
+
+        try {
+            // RegEx matching pattern: https://res.cloudinary.com/<cloud_name>/<resource_type>/upload/(?:v\d+/)?(<public_id_path>)
+            Pattern pattern = Pattern.compile(
+                "https?://res\\.cloudinary\\.com/[^/]+/([^/]+)/upload/(?:v\\d+/)?([^?#]+)"
+            );
+            Matcher matcher = pattern.matcher(originalUrl);
+            if (matcher.find()) {
+                String resourceType = matcher.group(1); // e.g. "image" or "raw"
+                String publicIdWithExt = matcher.group(2); // e.g. "skillverse/documents/user_5/file_xbkx9a.pdf"
+                
+                String publicId = publicIdWithExt;
+                String filename = null;
+                
+                // For image/video, the public_id should NOT include the extension (Cloudinary treats extension as format)
+                if ("image".equals(resourceType) || "video".equals(resourceType)) {
+                    if (publicIdWithExt.contains(".")) {
+                        publicId = publicIdWithExt.substring(0, publicIdWithExt.lastIndexOf("."));
+                        filename = publicIdWithExt.substring(publicIdWithExt.lastIndexOf("/") + 1);
+                    }
+                } else {
+                    // For raw files, keep the extension in public_id, and extract filename
+                    if (publicIdWithExt.contains("/")) {
+                        filename = publicIdWithExt.substring(publicIdWithExt.lastIndexOf("/") + 1);
+                    }
+                }
+                
+                log.info("[CLOUDINARY_SIGN] Successfully parsed and signing URL: resourceType={}, publicId={}, filename={}",
+                        resourceType, publicId, filename);
+                
+                return cloudinaryService.generateSignedUrl(publicId, resourceType, filename);
+            }
+        } catch (Exception e) {
+            log.warn("[CLOUDINARY_SIGN] Failed to generate signed URL for: {}, error: {}", originalUrl, e.getMessage());
+        }
+        return originalUrl;
     }
 }

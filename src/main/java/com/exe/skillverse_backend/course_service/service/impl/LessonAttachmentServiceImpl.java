@@ -15,6 +15,7 @@ import com.exe.skillverse_backend.shared.exception.AccessDeniedException;
 import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.NotFoundException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -46,7 +47,7 @@ public class LessonAttachmentServiceImpl implements LessonAttachmentService {
     private final MediaRepository mediaRepository;
     private final CourseEnrollmentRepository enrollmentRepository;
     private final UserRepository userRepository;
-    private final com.exe.skillverse_backend.shared.service.CloudinaryService cloudinaryService;
+    private final CloudinaryService cloudinaryService;
 
     @Override
     @Transactional

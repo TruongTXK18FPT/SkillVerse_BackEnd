@@ -16,6 +16,7 @@ import com.exe.skillverse_backend.business_service.entity.enums.JobStatus;
 import com.exe.skillverse_backend.business_service.entity.enums.MessageType;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentJobContextType;
 import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionSource;
+import com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionStatus;
 import com.exe.skillverse_backend.business_service.entity.enums.ShortTermJobStatus;
 import com.exe.skillverse_backend.business_service.repository.JobPostingRepository;
 import com.exe.skillverse_backend.business_service.repository.RecruiterProfileRepository;
@@ -105,7 +106,7 @@ public class RecruitmentChatServiceImpl implements RecruitmentChatService {
                 .shortTermJob(jobContext.shortTermJob)
                 .jobContextType(jobContext.contextType)
                 .jobContextId(jobContext.jobId)
-                .status(com.exe.skillverse_backend.business_service.entity.enums.RecruitmentSessionStatus.CONTACTED)
+                .status(RecruitmentSessionStatus.CONTACTED)
                 .sourceType(request.getSourceType() != null ? request.getSourceType() : RecruitmentSessionSource.MANUAL)
                 .matchScore(request.getMatchScore())
                 .skillMatchPercent(request.getSkillMatchPercent())

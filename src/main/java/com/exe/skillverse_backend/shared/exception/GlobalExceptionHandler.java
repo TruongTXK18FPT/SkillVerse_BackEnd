@@ -19,11 +19,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import com.exe.skillverse_backend.business_service.exception.JobCloseBlockedException;
 
-/**
- * Global exception handler for REST controllers.
- * Handles various types of exceptions and returns appropriate error responses.
- */
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
@@ -408,9 +405,9 @@ public class GlobalExceptionHandler {
         /**
          * Handles JobCloseBlockedException when closing a job is blocked by pending applicants.
          */
-        @ExceptionHandler(com.exe.skillverse_backend.business_service.exception.JobCloseBlockedException.class)
+        @ExceptionHandler(JobCloseBlockedException.class)
         public ResponseEntity<ErrorResponse> handleJobCloseBlockedException(
-                        com.exe.skillverse_backend.business_service.exception.JobCloseBlockedException ex,
+                        JobCloseBlockedException ex,
                         HttpServletRequest req) {
                 Map<String, Object> details = new HashMap<>();
                 details.put("blockingItems", ex.getBlockingItems());
