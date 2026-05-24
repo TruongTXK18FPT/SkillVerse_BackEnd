@@ -1,11 +1,16 @@
 package com.exe.skillverse_backend.roadmap_package_service.service.impl;
 
 import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapNodeAiEnrichmentService;
+import com.exe.skillverse_backend.ai_rag_service.service.AiRagGateway;
+import com.exe.skillverse_backend.shared.repository.SkillRepository;
+import com.exe.skillverse_backend.shared.entity.Skill;
+import com.exe.skillverse_backend.ai_knowledge_service.util.AiKnowledgeSlugUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +34,12 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
     private final ChatModel mistralChatModel;
     private final ObjectMapper objectMapper;
     private final AtomicLong nextAllowedRequestTime = new AtomicLong(0);
+
+    @Autowired(required = false)
+    private AiRagGateway aiRagGateway;
+
+    @Autowired(required = false)
+    private SkillRepository skillRepository;
 
     private static final int MAX_RETRIES = 2;
     private static final long RETRY_BACKOFF_MS = 5000;
@@ -54,8 +65,44 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
 
         String translatedGoal = translateStudentGoal(studentGoal);
 
+        String skillSlug = null;
+        if (skillRepository != null && skillName != null && !skillName.isBlank()) {
+            try {
+                java.util.Optional<Skill> skillOpt = skillRepository.findByNameIgnoreCase(skillName.trim());
+                if (skillOpt.isPresent()) {
+                    String canonical = skillOpt.get().getCanonicalKey();
+                    if (canonical != null && !canonical.isBlank()) {
+                        skillSlug = AiKnowledgeSlugUtils.toRoadmapSkillSlug(canonical);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Database lookup failed for skillName '{}': {}", skillName, e.getMessage());
+            }
+        }
+
+        if (skillSlug == null && skillName != null && !skillName.isBlank()) {
+            skillSlug = AiKnowledgeSlugUtils.toRoadmapSkillSlug(skillName);
+        }
+
+        String ragContext = "";
+        if (aiRagGateway != null && skillSlug != null && !skillSlug.isBlank()) {
+            try {
+                String domain = AiKnowledgeSlugUtils.toRoadmapDomain(skillSlug);
+                String ragQuery = nodeTitle + (nodeDescription != null && !nodeDescription.isBlank() ? " " + nodeDescription : "");
+                log.info("🔍 RAG Context Lookup - Query: '{}' | Domain: '{}'", ragQuery, domain);
+                ragContext = aiRagGateway.fetchRagContext(ragQuery, java.util.Map.of("doc_type", "skill", "domain", domain), 5);
+                if (ragContext != null && !ragContext.isBlank()) {
+                    log.info("✅ RAG Context Found for skillSlug '{}'", skillSlug);
+                } else {
+                    log.info("⚠️ RAG Context Empty for skillSlug '{}'", skillSlug);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to fetch RAG context for skillSlug '{}': {}", skillSlug, e.getMessage());
+            }
+        }
+
         String prompt = buildPrompt(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric,
-                skillName, studentLevel, translatedGoal, isGap, isStrength);
+                skillName, studentLevel, translatedGoal, isGap, isStrength, ragContext);
 
         long start = System.currentTimeMillis();
         log.info("📤 Sequential AI Enrichment - Node: '{}' (Level: {}, Gap: {}, Strength: {})", 
@@ -155,7 +202,8 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
             String studentLevel,
             String studentGoal,
             boolean isGap,
-            boolean isStrength) {
+            boolean isStrength,
+            String ragContext) {
 
         String evaluatedSkillLabel = "Kỹ năng tiêu chuẩn cần được phát triển";
         if (isGap) {
@@ -169,6 +217,13 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         String safeOutput = baselineExpectedOutput != null && !baselineExpectedOutput.isBlank() ? baselineExpectedOutput : "Sản phẩm thực hành hoàn thiện đáp ứng yêu cầu bài học.";
         String safeRubric = baselineRubric != null && !baselineRubric.isBlank() ? baselineRubric : "Hoàn thành đầy đủ các yêu cầu bài học, nộp sản phẩm đúng hạn.";
 
+        String ragSection = "";
+        if (ragContext != null && !ragContext.isBlank()) {
+            ragSection = "=== TÀI LIỆU THAM KHẢO CHUYÊN MÔN (RAG CONTEXT) ===\n" +
+                    "Sử dụng các tài liệu chuyên môn chính thức sau đây từ chuyên gia để thiết kế chi tiết hướng dẫn học tập, mục tiêu, bài tập và tiêu chí đánh giá:\n" +
+                    ragContext + "\n\n";
+        }
+
         return "Bạn là một chuyên gia đào tạo lập trình thực tế cho SkillVerse.\n" +
                 "Nhiệm vụ của bạn là cá nhân hóa và làm giàu chi tiết (enrich) nội dung học cho một Node (Bài học) dựa trên Lộ trình mẫu (Template) và hồ sơ năng lực của học viên.\n\n" +
                 "=== SƯỜN BÀI HỌC (BLUEPRINT TEMPLATE) ===\n" +
@@ -177,15 +232,16 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 "- Kỹ năng trọng tâm: " + safeSkill + "\n" +
                 "- Khung bài tập mẫu có sẵn: " + safeOutput + "\n" +
                 "- Tiêu chí đánh giá có sẵn (Rubric): " + safeRubric + "\n\n" +
+                ragSection +
                 "=== HỒ SƠ NĂNG LỰC HỌC VIÊN ===\n" +
                 "- Trình độ hiện tại: " + studentLevel + "\n" +
                 "- Mục tiêu học tập: " + (studentGoal != null ? studentGoal : "Phát triển năng lực cốt lõi") + "\n" +
                 "- Đánh giá kỹ năng này: " + evaluatedSkillLabel + "\n\n" +
                 "=== YÊU CẦU ĐẦU RA ===\n" +
                 "Hãy biên soạn chi tiết và chất lượng cao bằng tiếng Việt (định dạng Markdown):\n" +
-                "1. Hướng dẫn học tập cá nhân hóa (description): Viết một hướng dẫn chi tiết và sâu sắc từ 150 đến 250 từ (tối thiểu 150 từ, chia làm 2-3 đoạn văn ngắn), giải thích cụ thể lý do tại sao học viên ở trình độ " + studentLevel + " cần học phần này dựa trên mục tiêu '" + (studentGoal != null ? studentGoal : "Phát triển") + "' và vị thế kỹ năng (" + evaluatedSkillLabel + "). TUYỆT ĐỐI không lặp lại phần 'Mô tả ban đầu' đã có sẵn của Admin, mà chỉ viết thêm phần cá nhân hóa. Cấm viết quá ngắn, sơ sài hoặc dưới 120 từ.\n" +
+                "1. Hướng dẫn học tập cá nhân hóa (description): Viết một hướng dẫn chi tiết và sâu sắc từ 150 đến 250 từ (tối thiểu 150 từ, chia làm 2-3 đoạn văn ngắn), giải thích cụ thể lý do tại sao học viên ở trình độ " + studentLevel + " cần học phần này dựa trên mục tiêu '" + (studentGoal != null ? studentGoal : "Phát triển") + "' và vị thế kỹ năng (" + evaluatedSkillLabel + "). TUYỆT ĐỐI không lặp lại phần 'Mô tả ban đầu' đã có sẵn của Admin, mà chỉ viết thêm phần cá nhân hóa. Cấm viết quá ngắn, sơ sài hoặc dưới 120 từ. Ngoài ra, nếu có phần 'TÀI LIỆU THAM KHẢO CHUYÊN MÔN' ở trên, hãy tích hợp sâu sắc kiến thức chuyên môn từ tài liệu đó để giải thích và làm phong phú thêm bài học.\n" +
                 "2. Mục tiêu học tập cụ thể (learningObjectives): Danh sách tối thiểu 3 mục tiêu cụ thể, đo lường được.\n" +
-                "3. Bài tập thực hành thực tế (practicalExercises): Thiết kế bài tập thực hành chi tiết, mô tả cụ thể từng bước thực hiện với độ khó tương thích với cấp độ học viên (Beginner/Intermediate/Advanced) và bám sát theo Khung bài tập mẫu có sẵn của chuyên gia. Bài tập phải thực tiễn và không được viết chung chung.\n" +
+                "3. Bài tập thực hành thực tế (practicalExercises): Thiết kế bài tập thực hành chi tiết, mô tả cụ thể từng bước thực hiện với độ khó tương thích với cấp độ học viên (Beginner/Intermediate/Advanced) và bám sát theo Khung bài tập mẫu có sẵn của chuyên gia. Nếu có tài liệu chuyên môn, hãy lồng ghép các bài thực hành/ví dụ thực tế từ tài liệu đó.\n" +
                 "4. Tiêu chí thành công (successCriteria): Danh sách các chỉ số kỹ thuật cụ thể đánh giá mức độ thành công.\n" +
                 "5. Mô tả sản phẩm phải nộp (expectedOutput): Nếu Khung bài tập mẫu của Admin đã có sẵn và chi tiết, hãy chỉ trả về chuỗi rỗng (\"\") để kế thừa. Chỉ thiết kế checklist sản phẩm chi tiết dạng Markdown nếu Khung mẫu ban đầu trống hoặc quá sơ sài.\n" +
                 "6. Rubric chấm điểm chi tiết (rubric): Nếu Tiêu chí đánh giá (Rubric) của Admin đã có sẵn và chi tiết, hãy chỉ trả về chuỗi rỗng (\"\") để kế thừa. Chỉ thiết kế bảng điểm chi tiết dạng Markdown khi Rubric mẫu ban đầu trống.\n\n" +
