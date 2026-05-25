@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -40,6 +41,17 @@ public class QuestionBankQuestionServiceImpl implements QuestionBankQuestionServ
     public QuestionResponse addQuestion(Long bankId, CreateQuestionRequest request) {
         QuestionBank bank = questionBankRepository.findById(bankId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Question bank not found: " + bankId));
+
+        String normalizedIncoming = normalizeForCompare(request.getQuestionText());
+        if (normalizedIncoming != null && !normalizedIncoming.isBlank()) {
+            boolean exists = questionBankQuestionRepository.findByQuestionBankIdAndIsActiveTrue(bankId,
+                    org.springframework.data.domain.Pageable.unpaged())
+                    .stream()
+                    .anyMatch(q -> normalizedIncoming.equals(normalizeForCompare(q.getQuestionText())));
+            if (exists) {
+                throw new ApiException(ErrorCode.BAD_REQUEST, "Câu hỏi này đã tồn tại trong ngân hàng câu hỏi.");
+            }
+        }
 
         QuestionBankQuestion question = QuestionBankQuestion.builder()
                 .questionBank(bank)
@@ -120,27 +132,55 @@ public class QuestionBankQuestionServiceImpl implements QuestionBankQuestionServ
         QuestionBank bank = questionBankRepository.findById(bankId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Question bank not found: " + bankId));
 
-        List<QuestionBankQuestion> entities = questions.stream()
-                .map(req -> QuestionBankQuestion.builder()
-                        .questionBank(bank)
-                        .questionText(req.getQuestionText())
-                        .options(toOptionsJson(req.getOptions()))
-                        .correctAnswer(req.getCorrectAnswer().toUpperCase())
-                        .explanation(req.getExplanation())
-                        .difficulty(req.getDifficulty())
-                        .skillArea(req.getSkillArea())
-                        .category(req.getCategory())
-                        .source(source != null ? source : "MANUAL")
-                        .isActive(true)
-                        .usedCount(0)
-                        .isVerified(true)
-                        .verifiedAt(LocalDateTime.now())
-                        .verificationSource(resolveVerificationSource(source))
-                        .build())
-                .collect(Collectors.toList());
+        // Fetch existing question texts for deduplication
+        Set<String> existingTexts = new HashSet<>();
+        questionBankQuestionRepository.findByQuestionBankIdAndIsActiveTrue(bankId,
+                org.springframework.data.domain.Pageable.unpaged())
+                .forEach(q -> {
+                    String norm = normalizeForCompare(q.getQuestionText());
+                    if (norm != null) {
+                        existingTexts.add(norm);
+                    }
+                });
 
-        questionBankQuestionRepository.saveAll(entities);
-        log.info("Bulk added {} questions to bank {}", entities.size(), bankId);
+        List<QuestionBankQuestion> entities = new ArrayList<>();
+        int duplicateCount = 0;
+        Set<String> incomingTextsInBatch = new HashSet<>();
+
+        for (CreateQuestionRequest req : questions) {
+            String normalized = normalizeForCompare(req.getQuestionText());
+            if (normalized == null || normalized.isBlank()) {
+                continue;
+            }
+            // Check if duplicate in DB or duplicate in the current batch
+            if (existingTexts.contains(normalized) || incomingTextsInBatch.contains(normalized)) {
+                duplicateCount++;
+                continue;
+            }
+            incomingTextsInBatch.add(normalized);
+
+            entities.add(QuestionBankQuestion.builder()
+                    .questionBank(bank)
+                    .questionText(req.getQuestionText())
+                    .options(toOptionsJson(req.getOptions()))
+                    .correctAnswer(req.getCorrectAnswer().toUpperCase())
+                    .explanation(req.getExplanation())
+                    .difficulty(req.getDifficulty())
+                    .skillArea(req.getSkillArea())
+                    .category(req.getCategory())
+                    .source(source != null ? source : "MANUAL")
+                    .isActive(true)
+                    .usedCount(0)
+                    .isVerified(true)
+                    .verifiedAt(LocalDateTime.now())
+                    .verificationSource(resolveVerificationSource(source))
+                    .build());
+        }
+
+        if (!entities.isEmpty()) {
+            questionBankQuestionRepository.saveAll(entities);
+        }
+        log.info("Bulk added {} questions to bank {} (filtered {} duplicates)", entities.size(), bankId, duplicateCount);
         return entities.size();
     }
 
