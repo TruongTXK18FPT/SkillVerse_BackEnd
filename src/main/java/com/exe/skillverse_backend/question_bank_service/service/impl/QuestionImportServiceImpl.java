@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.question_bank_service.service.impl;
 import com.exe.skillverse_backend.question_bank_service.dto.request.BulkImportRequest;
 import com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionRequest;
 import com.exe.skillverse_backend.question_bank_service.dto.response.ImportResultResponse;
+import com.exe.skillverse_backend.question_bank_service.repository.QuestionBankQuestionRepository;
 import com.exe.skillverse_backend.question_bank_service.repository.QuestionBankRepository;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionImportService;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankQuestionService;
@@ -31,6 +32,7 @@ public class QuestionImportServiceImpl implements QuestionImportService {
 
     private final QuestionBankRepository questionBankRepository;
     private final QuestionBankQuestionService questionBankQuestionService;
+    private final QuestionBankQuestionRepository questionBankQuestionRepository;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -54,8 +56,35 @@ public class QuestionImportServiceImpl implements QuestionImportService {
             throw new ApiException(ErrorCode.BAD_REQUEST, "Unsupported file format. Use CSV or JSON");
         }
 
+        // Fetch existing question texts for duplicate detection in preview
+        java.util.Set<String> existingTexts = new java.util.HashSet<>();
+        questionBankQuestionRepository.findActiveQuestionTextsByBankId(bankId)
+                .forEach(text -> {
+                    String norm = normalizeForCompare(text);
+                    if (norm != null) {
+                        existingTexts.add(norm);
+                    }
+                });
+
+        java.util.Set<String> seenInBatch = new java.util.HashSet<>();
         for (int i = 0; i < items.size(); i++) {
-            validateItem(items.get(i), i + 1);
+            BulkImportRequest.QuestionImportItem item = items.get(i);
+            validateItem(item, i + 1);
+
+            if (item.isValid()) {
+                String norm = normalizeForCompare(item.getQuestionText());
+                if (norm != null && !norm.isBlank()) {
+                    if (existingTexts.contains(norm)) {
+                        item.setValid(false);
+                        item.getErrors().add("Câu hỏi này đã tồn tại trong ngân hàng câu hỏi");
+                    } else if (seenInBatch.contains(norm)) {
+                        item.setValid(false);
+                        item.getErrors().add("Câu hỏi này bị trùng lặp trong file import");
+                    } else {
+                        seenInBatch.add(norm);
+                    }
+                }
+            }
         }
 
         log.info("Preview import for bank {}: {} rows", bankId, items.size());
@@ -322,5 +351,13 @@ public class QuestionImportServiceImpl implements QuestionImportService {
 
         item.setValid(errors.isEmpty());
         item.setErrors(errors);
+    }
+
+    private String normalizeForCompare(String text) {
+        if (text == null) return null;
+        return text.toLowerCase()
+                .replaceAll("\\s+", " ")
+                .replaceAll("[.,;:'\"!?()\\[\\]{}]", "")
+                .trim();
     }
 }

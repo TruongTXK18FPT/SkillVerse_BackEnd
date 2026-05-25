@@ -44,10 +44,9 @@ public class QuestionBankQuestionServiceImpl implements QuestionBankQuestionServ
 
         String normalizedIncoming = normalizeForCompare(request.getQuestionText());
         if (normalizedIncoming != null && !normalizedIncoming.isBlank()) {
-            boolean exists = questionBankQuestionRepository.findByQuestionBankIdAndIsActiveTrue(bankId,
-                    org.springframework.data.domain.Pageable.unpaged())
+            boolean exists = questionBankQuestionRepository.findActiveQuestionTextsByBankId(bankId)
                     .stream()
-                    .anyMatch(q -> normalizedIncoming.equals(normalizeForCompare(q.getQuestionText())));
+                    .anyMatch(text -> normalizedIncoming.equals(normalizeForCompare(text)));
             if (exists) {
                 throw new ApiException(ErrorCode.BAD_REQUEST, "Câu hỏi này đã tồn tại trong ngân hàng câu hỏi.");
             }
@@ -134,10 +133,9 @@ public class QuestionBankQuestionServiceImpl implements QuestionBankQuestionServ
 
         // Fetch existing question texts for deduplication
         Set<String> existingTexts = new HashSet<>();
-        questionBankQuestionRepository.findByQuestionBankIdAndIsActiveTrue(bankId,
-                org.springframework.data.domain.Pageable.unpaged())
-                .forEach(q -> {
-                    String norm = normalizeForCompare(q.getQuestionText());
+        questionBankQuestionRepository.findActiveQuestionTextsByBankId(bankId)
+                .forEach(text -> {
+                    String norm = normalizeForCompare(text);
                     if (norm != null) {
                         existingTexts.add(norm);
                     }
@@ -192,9 +190,8 @@ public class QuestionBankQuestionServiceImpl implements QuestionBankQuestionServ
 
         // Normalize incoming question texts for deduplication check
         Set<String> existingTexts = new HashSet<>();
-        questionBankQuestionRepository.findByQuestionBankIdAndIsActiveTrue(bankId,
-                org.springframework.data.domain.Pageable.unpaged())
-                .forEach(q -> existingTexts.add(normalizeForCompare(q.getQuestionText())));
+        questionBankQuestionRepository.findActiveQuestionTextsByBankId(bankId)
+                .forEach(text -> existingTexts.add(normalizeForCompare(text)));
 
         List<QuestionBankQuestion> entities = questions.stream()
                 .filter(q -> {
