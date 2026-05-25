@@ -57,6 +57,7 @@ import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemp
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeGroupSkillRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
+import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapNodeSkillWeightCalculator;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateSkillBlockRepository;
 import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapSkillPriorityCalculator;
 import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapSkillPriorityCalculator.SkillPriority;
@@ -689,6 +690,17 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 nodeRepository.save(node);
             }
         }
+
+        // Build global weights map for dynamic calculation
+        java.util.Map<Long, Double> globalWeights = new java.util.HashMap<>();
+        if (request.getSkillBlocks() != null) {
+            for (RoadmapTemplateSkillBlockRequest blockRequest : request.getSkillBlocks()) {
+                if (blockRequest.getSkillId() != null) {
+                    globalWeights.put(blockRequest.getSkillId(), blockRequest.getWeightPercent() != null ? blockRequest.getWeightPercent() : 10.0D);
+                }
+            }
+        }
+
         if (request.getSkillBlocks() != null) {
             for (RoadmapTemplateSkillBlockRequest blockRequest : request.getSkillBlocks()) {
                 RoadmapTemplateSkillBlock block = skillBlockRepository.save(buildSkillBlock(template, blockRequest));
@@ -701,8 +713,33 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         if (request.getNodeGroups() != null) {
             for (RoadmapTemplateNodeGroupRequest groupRequest : request.getNodeGroups()) {
                 RoadmapTemplateNodeGroup group = nodeGroupRepository.save(buildNodeGroup(template, groupRequest));
+                
+                // 1. Gather all skills inside this Node Group for calculation
+                List<RoadmapNodeSkillWeightCalculator.SkillInput> inputs = new java.util.ArrayList<>();
                 for (RoadmapTemplateNodeGroupSkillRequest skillRequest : defaultList(groupRequest.getSkills())) {
-                    RoadmapTemplateNodeGroupSkill skill = nodeGroupSkillRepository.save(buildNodeGroupSkill(group, skillRequest));
+                    Double globalWeight = globalWeights.getOrDefault(skillRequest.getSkillId(), 10.0D);
+                    inputs.add(new RoadmapNodeSkillWeightCalculator.SkillInput(
+                            skillRequest.getSkillId(),
+                            globalWeight,
+                            skillRequest.getRequirementType()
+                    ));
+                }
+                
+                // 2. Perform the auto-weight calculation
+                List<RoadmapNodeSkillWeightCalculator.CalculatedWeight> calculatedWeights = 
+                        RoadmapNodeSkillWeightCalculator.calculate(groupRequest.getDifficulty(), inputs);
+                
+                java.util.Map<Long, Double> calculatedMap = calculatedWeights.stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                RoadmapNodeSkillWeightCalculator.CalculatedWeight::skillId,
+                                RoadmapNodeSkillWeightCalculator.CalculatedWeight::weightInNode,
+                                (a, b) -> a
+                        ));
+                
+                // 3. Save Node Group Skills with calculated weights
+                for (RoadmapTemplateNodeGroupSkillRequest skillRequest : defaultList(groupRequest.getSkills())) {
+                    Double calculatedWeight = calculatedMap.getOrDefault(skillRequest.getSkillId(), 100.0D / Math.max(1, groupRequest.getSkills().size()));
+                    RoadmapTemplateNodeGroupSkill skill = nodeGroupSkillRepository.save(buildNodeGroupSkill(group, skillRequest, calculatedWeight));
                     group.getSkills().add(skill);
                 }
             }
@@ -807,7 +844,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     }
 
     private RoadmapTemplateNodeGroupSkill buildNodeGroupSkill(
-            RoadmapTemplateNodeGroup group, RoadmapTemplateNodeGroupSkillRequest request) {
+            RoadmapTemplateNodeGroup group, RoadmapTemplateNodeGroupSkillRequest request, Double calculatedWeight) {
         Skill skill = skillRepository.findById(request.getSkillId())
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Skill not found: " + request.getSkillId()));
         return RoadmapTemplateNodeGroupSkill.builder()
@@ -818,7 +855,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .requirementType(request.getRequirementType() != null
                         ? request.getRequirementType().normalized()
                         : RequirementType.REQUIRED)
-                .weightInNode(request.getWeightInNode())
+                .weightInNode(calculatedWeight)
                 .orderIndex(request.getOrderIndex() != null ? request.getOrderIndex() : 1)
                 .build();
     }
