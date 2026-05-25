@@ -177,6 +177,16 @@ public class MentorRoadmapWorkspaceController {
         return ResponseEntity.ok(workspaceService.rejectFollowUp(callerId, bookingId, meetingId, reason));
     }
 
+    @PostMapping("/{bookingId}/follow-ups/{meetingId}/complete")
+    @Operation(summary = "Mentor kết thúc buổi họp sau khi đã diễn ra")
+    public ResponseEntity<RoadmapFollowUpMeetingDTO> completeFollowUp(
+            @PathVariable Long bookingId,
+            @PathVariable Long meetingId,
+            Authentication authentication) {
+        Long callerId = getUserId(authentication);
+        return ResponseEntity.ok(workspaceService.completeFollowUp(callerId, bookingId, meetingId));
+    }
+
     /** Inline record DTO để chứa lý do từ chối. */
     public record RejectFollowUpRequest(String reason) {
     }

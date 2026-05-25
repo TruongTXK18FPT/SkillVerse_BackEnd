@@ -34,6 +34,7 @@ public class NodeAssignmentResponse {
     private Instant createdAt;
     private Instant updatedAt;
     private List<GradingCriterionDto> criteria;
+    private String verificationStatus;
 
     public static NodeAssignmentResponse from(RoadmapNodeAssignment a) {
         List<GradingCriterionDto> criteriaList = null;
@@ -60,6 +61,7 @@ public class NodeAssignmentResponse {
                 .createdAt(a.getCreatedAt())
                 .updatedAt(a.getUpdatedAt())
                 .criteria(criteriaList)
+                .verificationStatus(a.getVerificationStatus())
                 .build();
     }
 }

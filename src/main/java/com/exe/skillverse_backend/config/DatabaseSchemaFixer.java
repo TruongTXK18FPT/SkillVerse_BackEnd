@@ -216,6 +216,13 @@ public class DatabaseSchemaFixer {
                 this::verifyAddRoadmapNodePinnedDocuments
             );
 
+            applyPatch(
+                "20260527_add_roadmap_node_assignment_verification_status",
+                "Add verification_status column to roadmap_node_assignments table",
+                this::patchAddRoadmapNodeAssignmentVerificationStatus,
+                this::verifyAddRoadmapNodeAssignmentVerificationStatus
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -1419,5 +1426,19 @@ public class DatabaseSchemaFixer {
         boolean okNodes = !hasTable("roadmap_template_nodes") || hasColumn("roadmap_template_nodes", "pinned_document_ids");
         boolean okGroups = !hasTable("roadmap_template_node_groups") || hasColumn("roadmap_template_node_groups", "pinned_document_ids");
         return okNodes && okGroups;
+    }
+
+    private void patchAddRoadmapNodeAssignmentVerificationStatus() {
+        if (!hasTable("roadmap_node_assignments")) {
+            log.info("Table roadmap_node_assignments does not exist yet; skipping verification_status patch");
+            return;
+        }
+        log.info("Adding verification_status column to roadmap_node_assignments...");
+        executeSql("ALTER TABLE roadmap_node_assignments ADD COLUMN IF NOT EXISTS verification_status VARCHAR(30) DEFAULT 'PENDING_REVIEW'");
+        executeSql("UPDATE roadmap_node_assignments SET verification_status = 'PENDING_REVIEW' WHERE verification_status IS NULL");
+    }
+
+    private boolean verifyAddRoadmapNodeAssignmentVerificationStatus() {
+        return !hasTable("roadmap_node_assignments") || hasColumn("roadmap_node_assignments", "verification_status");
     }
 }

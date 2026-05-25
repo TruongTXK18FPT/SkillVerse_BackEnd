@@ -318,6 +318,11 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
         if (request.getScheduledAt() == null) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, "scheduledAt là bắt buộc");
         }
+        // Time validation: scheduledAt must be at least 30 minutes from now
+        if (request.getScheduledAt().isBefore(LocalDateTime.now().plusMinutes(30))) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "Thời gian meeting phải cách ít nhất 30 phút kể từ bây giờ. Vui lòng chọn thời gian phù hợp.");
+        }
         String purpose = request.getPurpose();
         if (purpose == null || purpose.isBlank()) {
             purpose = request.getAgenda();
@@ -599,6 +604,11 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
             entity.setPurpose(request.getPurpose());
         }
         if (request.getScheduledAt() != null) {
+            // Time validation: updated scheduledAt must be at least 15 minutes from now
+            if (request.getScheduledAt().isBefore(LocalDateTime.now().plusMinutes(15))) {
+                throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                        "Thời gian meeting cập nhật phải cách ít nhất 15 phút kể từ bây giờ.");
+            }
             entity.setScheduledAt(request.getScheduledAt());
         }
         if (request.getDurationMinutes() != null && request.getDurationMinutes() > 0) {
@@ -651,6 +661,12 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
             throw new ApiException(ErrorCode.CONFLICT,
                     "Bạn không phải phía cần chấp nhận meeting này (trạng thái hiện tại: " + entity.getStatus() + ")");
         }
+        // Time validation: cannot accept a meeting whose scheduled time has already passed
+        if (entity.getScheduledAt() != null && entity.getScheduledAt().isBefore(LocalDateTime.now())) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Meeting đã qua thời gian dự kiến (" + formatMeetingDateTime(entity.getScheduledAt())
+                            + "). Vui lòng tạo lịch hẹn mới thay vì chấp nhận lịch cũ.");
+        }
         entity.setStatus("ACCEPTED");
         entity.setAcceptedAt(LocalDateTime.now());
         if (entity.getMeetingLink() == null || entity.getMeetingLink().isBlank()) {
@@ -677,6 +693,147 @@ public class MentorRoadmapWorkspaceServiceImpl implements MentorRoadmapWorkspace
             entity.setRejectReason(reason.length() > 500 ? reason.substring(0, 500) : reason);
         }
         return RoadmapFollowUpMeetingDTO.from(followUpMeetingRepository.save(entity));
+    }
+
+    @Override
+    @Transactional
+    public RoadmapFollowUpMeetingDTO completeFollowUp(Long callerId, Long bookingId, Long meetingId) {
+        Booking booking = getRoadmapBookingOrThrow(bookingId);
+        ensureReadAccess(callerId, booking);
+
+        RoadmapFollowUpMeeting entity = followUpMeetingRepository.findByIdAndBookingId(meetingId, bookingId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Không tìm thấy follow-up meeting"));
+
+        if (!"ACCEPTED".equalsIgnoreCase(entity.getStatus())) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Chỉ có thể kết thúc meeting đang ở trạng thái ACCEPTED (hiện tại: " + entity.getStatus() + ")");
+        }
+
+        // Only mentor or either party can complete
+        boolean isMentor = Objects.equals(callerId, booking.getMentor().getId());
+        if (!isMentor) {
+            throw new ApiException(ErrorCode.FORBIDDEN,
+                    "Chỉ mentor mới có thể đánh dấu hoàn tất buổi họp.");
+        }
+
+        // Time validation: meeting must have started (allow 15 min buffer before scheduled time)
+        if (entity.getScheduledAt() != null && entity.getScheduledAt().minusMinutes(15).isAfter(LocalDateTime.now())) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Chưa đến giờ họp. Bạn chỉ có thể kết thúc meeting khi buổi họp đã bắt đầu hoặc sắp bắt đầu (trước 15 phút).");
+        }
+
+        entity.setStatus("COMPLETED");
+        RoadmapFollowUpMeeting saved = followUpMeetingRepository.save(entity);
+
+        // Notify the learner that the meeting has been completed
+        notifyMeetingCompleted(booking, saved);
+
+        return RoadmapFollowUpMeetingDTO.from(saved);
+    }
+
+    private void notifyMeetingCompleted(Booking booking, RoadmapFollowUpMeeting meeting) {
+        var recipient = booking.getLearner();
+        String mentorName = displayName(booking.getMentor(), "Mentor");
+        String recipientName = displayName(recipient, "bạn");
+        String title = safeText(meeting.getTitle(), "Buổi họp roadmap");
+        String scheduledAt = formatMeetingDateTime(meeting.getScheduledAt());
+
+        String notificationTitle = "Buổi họp roadmap đã kết thúc";
+        String notificationMessage = truncateForNotification(String.format(
+                "Mentor %s đã kết thúc buổi họp \"%s\" (lúc %s). Hãy tiếp tục roadmap theo hướng dẫn từ buổi họp.",
+                mentorName, truncateForNotification(title, 48), scheduledAt), 240);
+
+        try {
+            notificationService.createNotification(
+                    recipient.getId(),
+                    notificationTitle,
+                    notificationMessage,
+                    NotificationType.FOLLOW_UP_MEETING_COMPLETED,
+                    booking.getId().toString(),
+                    booking.getMentor().getId());
+        } catch (Exception ex) {
+            log.warn("Could not create meeting completed notification for user {}", recipient.getId(), ex);
+        }
+
+        if (recipient.getEmail() != null && !recipient.getEmail().isBlank()) {
+            try {
+                String subject = "Buổi họp roadmap đã kết thúc — SkillVerse";
+                String html = buildMeetingCompletedEmailHtml(
+                        recipientName, mentorName, title, scheduledAt, booking.getId());
+                emailService.sendHtmlEmail(recipient.getEmail(), subject, html);
+            } catch (Exception ex) {
+                log.warn("Could not send meeting completed email to {}", recipient.getEmail(), ex);
+            }
+        }
+    }
+
+    private String buildMeetingCompletedEmailHtml(
+            String recipientName, String mentorName, String meetingTitle,
+            String scheduledAt, Long bookingId) {
+        return """
+                <!doctype html>
+                <html lang="vi">
+                <head>
+                    <meta charset="UTF-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1" />
+                    <title>SkillVerse Meeting Completed</title>
+                    <style>
+                        body { margin:0; padding:0; background:#f3f6fb; font-family:Arial, Helvetica, sans-serif; color:#132238; }
+                        .wrapper { width:100%%; background:#f3f6fb; }
+                        .container { width:640px; max-width:640px; background:#ffffff; border-radius:16px; overflow:hidden; border:1px solid #d9e4f1; }
+                        .header { padding:22px 18px; background:#061322; background-image:linear-gradient(120deg,#071321 0%%,#0a1f35 52%%,#0f3b63 100%%); border-bottom:1px solid #1c4d7a; text-align:center; }
+                        .logo { width:138px; max-width:138px; height:auto; display:block; margin:0 auto; }
+                        .badge { display:inline-block; margin-top:12px; padding:6px 12px; border-radius:999px; background:#0c3020; color:#6dffa0; border:1px solid #24f56b; font-size:11px; font-weight:700; letter-spacing:0.4px; }
+                        .content { padding:24px; }
+                        h1 { margin:0 0 12px 0; font-size:24px; line-height:1.3; color:#10263f; }
+                        p { margin:0 0 10px 0; line-height:1.7; font-size:14px; color:#344a63; }
+                        .detail-card { width:100%%; border:1px solid #dbe6f3; border-radius:12px; border-collapse:separate; border-spacing:0; margin-top:14px; background:#ffffff; }
+                        .detail-card tr + tr td { border-top:1px solid #e8eff8; }
+                        .detail-card td { padding:12px 14px; font-size:14px; vertical-align:top; }
+                        .detail-card .label { color:#617991; width:42%%; }
+                        .detail-card .value { color:#163352; font-weight:700; text-align:right; }
+                        .note { margin-top:14px; background:#eaf6ff; border:1px solid #cae8ff; border-left:4px solid #24c8f5; color:#1f5f92; border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.6; }
+                        .footer { padding:14px 20px 20px; font-size:12px; text-align:center; color:#6c8098; border-top:1px solid #e6eef8; background:#fbfdff; }
+                    </style>
+                </head>
+                <body>
+                    <table role="presentation" class="wrapper" cellpadding="0" cellspacing="0">
+                        <tr>
+                            <td align="center" style="padding:24px 12px;">
+                                <table role="presentation" class="container" cellpadding="0" cellspacing="0">
+                                    <tr>
+                                        <td class="header">
+                                            <img class="logo" src="cid:skillverse-logo" alt="SkillVerse" />
+                                            <div class="badge">MEETING COMPLETED ✓</div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="content">
+                                            <h1>Buổi họp roadmap đã kết thúc</h1>
+                                            <p>Xin chào <strong>%s</strong>, mentor <strong>%s</strong> đã đánh dấu buổi họp hoàn tất.</p>
+                                            <table role="presentation" class="detail-card" cellpadding="0" cellspacing="0">
+                                                <tr><td class="label">Buổi họp</td><td class="value">%s</td></tr>
+                                                <tr><td class="label">Thời gian</td><td class="value">%s</td></tr>
+                                                <tr><td class="label">Booking</td><td class="value">#%s</td></tr>
+                                            </table>
+                                            <div class="note">Hãy tiếp tục roadmap theo hướng dẫn từ buổi họp. Nếu cần trao đổi thêm, bạn có thể đề xuất lịch hẹn mới trong workspace.</div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td class="footer">© 2026 SkillVerse. Email này được gửi tự động từ hệ thống.</td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+                </body>
+                </html>
+                """.formatted(
+                escapeHtml(recipientName),
+                escapeHtml(mentorName),
+                escapeHtml(meetingTitle),
+                escapeHtml(scheduledAt),
+                bookingId);
     }
 
     private String generateJitsiLink(Long bookingId, Long meetingId) {

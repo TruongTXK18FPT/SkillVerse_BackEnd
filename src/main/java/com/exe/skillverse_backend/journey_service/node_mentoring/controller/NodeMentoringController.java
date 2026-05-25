@@ -64,6 +64,16 @@ public class NodeMentoringController {
         return ResponseEntity.ok(nodeMentoringService.upsertAssignment(mentorId, journeyId, nodeId, request));
     }
 
+    @PostMapping("/assignment/approve")
+    @PreAuthorize("hasRole('MENTOR')")
+    public ResponseEntity<NodeAssignmentResponse> approveAssignment(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable Long journeyId,
+            @PathVariable String nodeId) {
+        Long mentorId = JwtUtils.extractUserId(jwt);
+        return ResponseEntity.ok(nodeMentoringService.approveAssignment(mentorId, journeyId, nodeId));
+    }
+
     // ─── Evidence ─────────────────────────────────────────────────────────────
 
     @GetMapping("/evidence")

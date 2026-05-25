@@ -34,6 +34,12 @@ public interface NodeMentoringService {
     /** Read the current assignment if any. */
     NodeAssignmentResponse getCurrentAssignment(Long journeyId, String nodeId);
 
+    /**
+     * Mentor approves an existing assignment (typically SYSTEM_GENERATED) without editing.
+     * Sets verificationStatus to APPROVED so the student can start working.
+     */
+    NodeAssignmentResponse approveAssignment(Long actingMentorId, Long journeyId, String nodeId);
+
     // ─── Evidence ─────────────────────────────────────────────────────────────
 
     /**

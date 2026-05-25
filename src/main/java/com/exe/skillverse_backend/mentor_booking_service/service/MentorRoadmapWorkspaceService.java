@@ -53,4 +53,6 @@ public interface MentorRoadmapWorkspaceService {
     RoadmapFollowUpMeetingDTO acceptFollowUp(Long callerId, Long bookingId, Long meetingId);
 
     RoadmapFollowUpMeetingDTO rejectFollowUp(Long callerId, Long bookingId, Long meetingId, String reason);
+
+    RoadmapFollowUpMeetingDTO completeFollowUp(Long callerId, Long bookingId, Long meetingId);
 }

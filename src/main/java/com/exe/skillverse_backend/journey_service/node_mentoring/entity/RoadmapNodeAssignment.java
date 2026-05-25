@@ -77,6 +77,16 @@ public class RoadmapNodeAssignment {
     @Column(name = "criteria_json", columnDefinition = "TEXT")
     private String criteriaJson;
 
+    /**
+     * Tracks whether the mentor has explicitly approved this assignment.
+     * PENDING_REVIEW = awaiting mentor approval (default for SYSTEM_GENERATED).
+     * APPROVED = mentor has reviewed and approved (auto-set for MENTOR_REFINED).
+     * REVISION_REQUESTED = mentor requested changes to the auto-generated assignment.
+     */
+    @Column(name = "verification_status", length = 30)
+    @Builder.Default
+    private String verificationStatus = "PENDING_REVIEW";
+
     @Column(name = "created_by")
     private Long createdBy;
 

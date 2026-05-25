@@ -77,5 +77,11 @@ public enum NotificationType {
     INTERVIEW_COMPLETED,
     OFFER_SENT,
     OFFER_ACCEPTED,
-    OFFER_REJECTED
+    OFFER_REJECTED,
+    // Assessment verification workflow (mentor ↔ student)
+    ASSESSMENT_APPROVED,
+    ASSESSMENT_ASSIGNED,
+    ASSESSMENT_SUBMITTED_FOR_REVIEW,
+    // Follow-up meeting lifecycle
+    FOLLOW_UP_MEETING_COMPLETED
 }

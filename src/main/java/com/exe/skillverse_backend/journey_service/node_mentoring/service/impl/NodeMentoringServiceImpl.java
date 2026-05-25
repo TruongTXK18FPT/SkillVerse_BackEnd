@@ -91,6 +91,8 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
     private final RoadmapNodeCompletionSyncService syncService;
     private final RoadmapTemplateNodeGroupRepository nodeGroupRepository;
     private final ObjectMapper objectMapper;
+    private final com.exe.skillverse_backend.notification_service.service.NotificationService notificationService;
+    private final com.exe.skillverse_backend.shared.service.EmailService emailService;
 
     // ─── Assignment ───────────────────────────────────────────────────────────
 
@@ -117,6 +119,11 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                 ? request.getAssignmentSource()
                 : AssignmentSource.MENTOR_REFINED);
 
+        // Auto-approve when mentor explicitly refines the assignment
+        if (a.getAssignmentSource() == AssignmentSource.MENTOR_REFINED) {
+            a.setVerificationStatus("APPROVED");
+        }
+
         if (request.getCriteria() != null) {
             try {
                 a.setCriteriaJson(objectMapper.writeValueAsString(request.getCriteria()));
@@ -126,6 +133,10 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         }
 
         RoadmapNodeAssignment saved = assignmentRepo.save(a);
+
+        // Notify student that mentor has assigned/updated the assessment
+        notifyStudentAssessmentAssigned(journey, saved, actingMentorId);
+
         return NodeAssignmentResponse.from(saved);
     }
 
@@ -135,6 +146,30 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         return assignmentRepo.findFirstByJourneyIdAndNodeIdOrderByCreatedAtDesc(journeyId, nodeId)
                 .map(NodeAssignmentResponse::from)
                 .orElse(null);
+    }
+
+    @Override
+    @Transactional
+    public NodeAssignmentResponse approveAssignment(Long actingMentorId, Long journeyId, String nodeId) {
+        Journey journey = resolver.resolveJourneyWithRoadmap(journeyId);
+        requireAssignedMentor(actingMentorId, journeyId, nodeId);
+
+        RoadmapNodeAssignment a = assignmentRepo
+                .findFirstByJourneyIdAndNodeIdOrderByCreatedAtDesc(journeyId, nodeId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND,
+                        "Chưa có assignment cho node " + nodeId + " trong journey " + journeyId));
+
+        if ("APPROVED".equals(a.getVerificationStatus())) {
+            throw new ApiException(ErrorCode.CONFLICT, "Assessment đã được duyệt trước đó.");
+        }
+
+        a.setVerificationStatus("APPROVED");
+        RoadmapNodeAssignment saved = assignmentRepo.save(a);
+
+        // Notify student that mentor has approved the assessment
+        notifyStudentAssessmentApproved(journey, saved, actingMentorId);
+
+        return NodeAssignmentResponse.from(saved);
     }
 
     // ─── Evidence ─────────────────────────────────────────────────────────────
@@ -177,6 +212,16 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                 .orElseGet(() -> createSystemGeneratedAssignment(journey, nodeId));
         s.setAssignmentId(assignment.getId());
 
+        boolean hasMentorCoverage = bookingRepository.existsActiveBookingCoveringNode(
+                journeyId, nodeId, ASSIGNED_MENTOR_STATUSES);
+
+        // Block submit if mentor-covered but assignment not approved
+        if (hasMentorCoverage && assignment.getVerificationStatus() != null
+                && !"APPROVED".equals(assignment.getVerificationStatus())) {
+            throw new ApiException(ErrorCode.CONFLICT,
+                    "Assessment chưa được mentor duyệt. Vui lòng chờ mentor xác nhận hoặc cập nhật bài tập trước khi nộp minh chứng.");
+        }
+
         boolean isRework = !isNewSubmission
                 && (s.getSubmissionStatus() == SubmissionStatus.REWORK_REQUESTED
                 || s.getSubmissionStatus() == SubmissionStatus.DRAFT
@@ -189,8 +234,6 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         s.setLearnerMarkedComplete(false);
 
         RoadmapNodeSubmission saved = submissionRepo.save(s);
-        boolean hasMentorCoverage = bookingRepository.existsActiveBookingCoveringNode(
-                journeyId, nodeId, ASSIGNED_MENTOR_STATUSES);
                 
         // Trigger AI Review for unmentored learners
         if (!hasMentorCoverage && journey.getRoadmapSessionId() != null) {
@@ -264,6 +307,12 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                 
         NodeEvidenceRecordResponse response = toEvidenceResponse(saved);
         response.setHasMentorCoverage(hasMentorCoverage);
+
+        // Notify mentor that student has submitted evidence
+        if (hasMentorCoverage) {
+            notifyMentorEvidenceSubmitted(journey, nodeId, learnerId);
+        }
+
         return response;
     }
 
@@ -711,5 +760,78 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
             log.warn("[CLOUDINARY_SIGN] Failed to generate signed URL for: {}, error: {}", originalUrl, e.getMessage());
         }
         return originalUrl;
+    }
+
+    // ─── Notification helpers ────────────────────────────────────────────────
+
+    private void notifyStudentAssessmentAssigned(Journey journey, RoadmapNodeAssignment assignment, Long mentorId) {
+        try {
+            Long learnerId = journey.getUser() != null ? journey.getUser().getId() : null;
+            if (learnerId == null) return;
+            String nodeTitle = assignment.getTitle() != null ? assignment.getTitle() : "Node " + assignment.getNodeId();
+            String msg = "Mentor đã giao/cập nhật assessment cho node \"" + truncate(nodeTitle, 60) + "\". Bạn có thể bắt đầu làm bài.";
+            notificationService.createNotification(
+                    learnerId,
+                    "Assessment mới từ Mentor",
+                    msg,
+                    com.exe.skillverse_backend.notification_service.entity.NotificationType.ASSESSMENT_ASSIGNED,
+                    journey.getId().toString(),
+                    mentorId);
+        } catch (Exception ex) {
+            log.warn("Failed to notify student about assessment assigned for journey {}", journey.getId(), ex);
+        }
+    }
+
+    private void notifyStudentAssessmentApproved(Journey journey, RoadmapNodeAssignment assignment, Long mentorId) {
+        try {
+            Long learnerId = journey.getUser() != null ? journey.getUser().getId() : null;
+            if (learnerId == null) return;
+            String nodeTitle = assignment.getTitle() != null ? assignment.getTitle() : "Node " + assignment.getNodeId();
+            String msg = "Mentor đã duyệt assessment cho node \"" + truncate(nodeTitle, 60) + "\". Bạn đã có thể nộp minh chứng.";
+            notificationService.createNotification(
+                    learnerId,
+                    "Assessment đã được duyệt",
+                    msg,
+                    com.exe.skillverse_backend.notification_service.entity.NotificationType.ASSESSMENT_APPROVED,
+                    journey.getId().toString(),
+                    mentorId);
+        } catch (Exception ex) {
+            log.warn("Failed to notify student about assessment approved for journey {}", journey.getId(), ex);
+        }
+    }
+
+    private void notifyMentorEvidenceSubmitted(Journey journey, String nodeId, Long learnerId) {
+        try {
+            // Find the mentor via active booking
+            var mentorBookings = bookingRepository.findActiveBookingsCoveringNode(
+                    journey.getId(), nodeId, ASSIGNED_MENTOR_STATUSES);
+            if (mentorBookings.isEmpty()) {
+                // Fallback: try journey-level bookings
+                mentorBookings = bookingRepository.findActiveJourneyBookingsForJourney(
+                        journey.getId(), ASSIGNED_MENTOR_STATUSES);
+            }
+            for (var booking : mentorBookings) {
+                Long mentorId = booking.getMentor() != null ? booking.getMentor().getId() : null;
+                if (mentorId == null) continue;
+                String learnerName = journey.getUser() != null && journey.getUser().getFullName() != null
+                        ? journey.getUser().getFullName() : "Học viên";
+                String msg = learnerName + " đã nộp minh chứng cho node \"" + truncate(nodeId, 40)
+                        + "\". Vui lòng kiểm tra và đánh giá.";
+                notificationService.createNotification(
+                        mentorId,
+                        "Học viên nộp bài cần chấm",
+                        msg,
+                        com.exe.skillverse_backend.notification_service.entity.NotificationType.ASSESSMENT_SUBMITTED_FOR_REVIEW,
+                        journey.getId().toString(),
+                        learnerId);
+            }
+        } catch (Exception ex) {
+            log.warn("Failed to notify mentor about evidence submitted for journey {} node {}", journey.getId(), nodeId, ex);
+        }
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null) return "";
+        return value.length() <= maxLength ? value : value.substring(0, maxLength - 3) + "...";
     }
 }

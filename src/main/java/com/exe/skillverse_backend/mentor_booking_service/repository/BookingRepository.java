@@ -156,4 +156,27 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
             @Param("journeyId") Long journeyId,
             @Param("nodeId") String nodeId,
             @Param("statuses") Collection<BookingStatus> statuses);
+
+    // Find active bookings covering a specific node (returns entities for notification lookup)
+    @Query("""
+            select b from Booking b
+            where b.journeyId = :journeyId
+              and (b.nodeId = :nodeId or b.nodeId is null)
+              and b.status in :statuses
+            """)
+    List<Booking> findActiveBookingsCoveringNode(
+            @Param("journeyId") Long journeyId,
+            @Param("nodeId") String nodeId,
+            @Param("statuses") Collection<BookingStatus> statuses);
+
+    // Find active journey-level bookings (nodeId IS NULL) for notification
+    @Query("""
+            select b from Booking b
+            where b.journeyId = :journeyId
+              and b.nodeId is null
+              and b.status in :statuses
+            """)
+    List<Booking> findActiveJourneyBookingsForJourney(
+            @Param("journeyId") Long journeyId,
+            @Param("statuses") Collection<BookingStatus> statuses);
 }
