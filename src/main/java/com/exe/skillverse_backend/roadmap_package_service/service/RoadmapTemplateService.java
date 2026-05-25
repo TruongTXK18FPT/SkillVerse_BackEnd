@@ -32,4 +32,5 @@ public interface RoadmapTemplateService {
     Long createRoadmapSessionFromPublishedTemplate(Journey journey, TestResult testResult,
                                                    List<Map<String, Object>> skillGaps,
                                                    List<Map<String, Object>> strengths);
+    void deleteTemplate(Long adminId, Long templateId);
 }

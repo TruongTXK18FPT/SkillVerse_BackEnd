@@ -310,6 +310,17 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     }
 
     @Override
+    @Transactional
+    public void deleteTemplate(Long adminId, Long templateId) {
+        requireAdmin(adminId);
+        RoadmapTemplate template = requireTemplate(templateId);
+        if (template.getStatus() != RoadmapTemplateStatus.ARCHIVED) {
+            throw new ApiException(ErrorCode.CONFLICT, "Chỉ có thể xóa vĩnh viễn mẫu lộ trình đã lưu trữ");
+        }
+        templateRepository.delete(template);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public RoadmapTemplateAllocationPreviewResponse previewAllocation(Long actorId, RoadmapTemplateRequest request) {
         requireAdmin(actorId);
