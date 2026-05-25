@@ -1191,10 +1191,6 @@ public class JourneyServiceImpl implements JourneyService {
         if (question == null) {
             return "";
         }
-        Long questionId = question.questionId();
-        if (questionId != null && questionId > 0) {
-            return "id:" + questionId;
-        }
         String normalizedQuestion = canonicalizeSkillKey(question.question());
         return normalizedQuestion.isBlank() ? "" : "text:" + normalizedQuestion;
     }
