@@ -237,6 +237,13 @@ public class DatabaseSchemaFixer {
                 this::verifyDropChkRnaSourceConstraint
             );
 
+            applyPatch(
+                "20260530_add_roadmap_node_groups_type_and_parent",
+                "Add node_type and parent_node_key columns to roadmap_template_node_groups table",
+                this::patchAddRoadmapNodeGroupsTypeAndParent,
+                this::verifyAddRoadmapNodeGroupsTypeAndParent
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -617,6 +624,8 @@ public class DatabaseSchemaFixer {
                 difficulty VARCHAR(30),
                 estimated_hours DOUBLE PRECISION,
                 ai_prompt_hint TEXT,
+                node_type VARCHAR(30) DEFAULT 'MAIN',
+                parent_node_key VARCHAR(120),
                 order_index INTEGER NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ
@@ -1490,5 +1499,20 @@ public class DatabaseSchemaFixer {
             return true;
         }
         return !hasConstraint("roadmap_node_assignments", "chk_rna_source");
+    }
+
+    private void patchAddRoadmapNodeGroupsTypeAndParent() {
+        log.info("Adding node_type and parent_node_key columns to roadmap_template_node_groups...");
+        if (hasTable("roadmap_template_node_groups")) {
+            executeSql("ALTER TABLE roadmap_template_node_groups ADD COLUMN IF NOT EXISTS node_type VARCHAR(30) DEFAULT 'MAIN'");
+            executeSql("ALTER TABLE roadmap_template_node_groups ADD COLUMN IF NOT EXISTS parent_node_key VARCHAR(120)");
+            executeSql("UPDATE roadmap_template_node_groups SET node_type = 'MAIN' WHERE node_type IS NULL");
+        }
+    }
+
+    private boolean verifyAddRoadmapNodeGroupsTypeAndParent() {
+        boolean hasNodeType = !hasTable("roadmap_template_node_groups") || hasColumn("roadmap_template_node_groups", "node_type");
+        boolean hasParentNodeKey = !hasTable("roadmap_template_node_groups") || hasColumn("roadmap_template_node_groups", "parent_node_key");
+        return hasNodeType && hasParentNodeKey;
     }
 }
