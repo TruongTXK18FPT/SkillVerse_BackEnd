@@ -57,6 +57,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionSynchronization;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -245,29 +246,37 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                             String nodeTitle = node != null ? node.getTitle() : "";
                             String nodeDesc = node != null ? node.getDescription() : "";
                             
-                            RoadmapTemplateActivity matchingActivity = resolveActivityForNode(template, node);
+                            // Retrieve expected output and rubric directly from the active assignment setup by admin/mentor
+                            RoadmapNodeAssignment activeAssignment = assignmentRepo.findById(saved.getAssignmentId()).orElse(null);
 
-                            String tempExpectedOutput = "";
-                            String tempRubric = "";
+                            String tempExpectedOutput = activeAssignment != null && activeAssignment.getExpectedOutput() != null 
+                                    ? activeAssignment.getExpectedOutput() : "";
+                            String tempRubric = activeAssignment != null && activeAssignment.getRubric() != null 
+                                    ? activeAssignment.getRubric() : "";
                             String tempAiPromptHint = "";
                             String tempSkillRequirementsJson = "";
 
+                            // Attempt to resolve matching template activity to extract supplementary AI hints and skill requirements
+                            RoadmapTemplateActivity matchingActivity = resolveActivityForNode(template, node);
                             if (matchingActivity != null) {
-                                tempExpectedOutput = matchingActivity.getExpectedOutput() != null ? matchingActivity.getExpectedOutput() : "";
-                                tempRubric = matchingActivity.getRubric() != null ? matchingActivity.getRubric() : "";
+                                if (tempExpectedOutput.isBlank()) {
+                                    tempExpectedOutput = matchingActivity.getExpectedOutput() != null ? matchingActivity.getExpectedOutput() : "";
+                                }
+                                if (tempRubric.isBlank()) {
+                                    tempRubric = matchingActivity.getRubric() != null ? matchingActivity.getRubric() : "";
+                                }
                                 tempAiPromptHint = matchingActivity.getAiPromptHint() != null ? matchingActivity.getAiPromptHint() : "";
                                 tempSkillRequirementsJson = matchingActivity.getSkillRequirementsJson() != null ? matchingActivity.getSkillRequirementsJson() : "";
-                            } else if (node != null) {
-                                // Map successCriteria directly to activityRubric as it represents the evaluation rubric
-                                if (node.getSuccessCriteria() != null && !node.getSuccessCriteria().isEmpty()) {
+                            }
+                            
+                            // [SAFE FALLBACK] Always check and fall back to raw node criteria if fields are still blank after resolving template activity
+                            if (node != null) {
+                                if (tempRubric.isBlank() && node.getSuccessCriteria() != null && !node.getSuccessCriteria().isEmpty()) {
                                     tempRubric = String.join("\n", node.getSuccessCriteria());
                                 }
-                                // Map practicalExercises directly to activityExpectedOutput as it represents expected outputs
-                                if (node.getPracticalExercises() != null && !node.getPracticalExercises().isEmpty()) {
+                                if (tempExpectedOutput.isBlank() && node.getPracticalExercises() != null && !node.getPracticalExercises().isEmpty()) {
                                     tempExpectedOutput = String.join("\n", node.getPracticalExercises());
                                 }
-                                // Note: aiPromptHint from template nodeGroups is not stored on the runtime RoadmapNode. 
-                                // Left as a future improvement.
                             }
 
                             final String activityExpectedOutput = tempExpectedOutput;
@@ -562,11 +571,25 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         if (template == null || node == null || node.getTitle() == null || template.getSkillBlocks() == null) {
             return null;
         }
+        
+        // Extract the skill IDs associated with this node to strictly bound the search scope
+        List<Long> nodeSkillIds = new ArrayList<>();
+        if (node.getSkills() != null) {
+            for (RoadmapResponse.NodeSkillRequirement req : node.getSkills()) {
+                if (req.getSkillId() != null) {
+                    nodeSkillIds.add(req.getSkillId());
+                }
+            }
+        }
+
         for (RoadmapTemplateSkillBlock block : template.getSkillBlocks()) {
-            if (block.getActivities() != null) {
-                for (RoadmapTemplateActivity act : block.getActivities()) {
-                    if (node.getTitle().equalsIgnoreCase(act.getTitle())) {
-                        return act;
+            // Match within the correct skill block that meets the node's skill requirements
+            if (nodeSkillIds.isEmpty() || nodeSkillIds.contains(block.getSkillId())) {
+                if (block.getActivities() != null) {
+                    for (RoadmapTemplateActivity act : block.getActivities()) {
+                        if (node.getTitle().equalsIgnoreCase(act.getTitle())) {
+                            return act;
+                        }
                     }
                 }
             }
