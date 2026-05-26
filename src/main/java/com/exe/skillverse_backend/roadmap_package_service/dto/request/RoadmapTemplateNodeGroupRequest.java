@@ -25,6 +25,8 @@ public class RoadmapTemplateNodeGroupRequest {
     private String difficulty;
     private Double estimatedHours;
     private String aiPromptHint;
+    private String nodeType;
+    private String parentNodeKey;
 
     @NotNull
     private Integer orderIndex;

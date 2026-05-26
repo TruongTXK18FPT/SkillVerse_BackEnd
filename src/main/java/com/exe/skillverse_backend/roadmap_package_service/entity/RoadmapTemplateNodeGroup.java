@@ -94,6 +94,12 @@ public class RoadmapTemplateNodeGroup {
     @Column(name = "pinned_document_ids", columnDefinition = "TEXT")
     private String pinnedDocumentIds;
 
+    @Column(name = "node_type", length = 30)
+    private String nodeType;
+
+    @Column(name = "parent_node_key", length = 120)
+    private String parentNodeKey;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

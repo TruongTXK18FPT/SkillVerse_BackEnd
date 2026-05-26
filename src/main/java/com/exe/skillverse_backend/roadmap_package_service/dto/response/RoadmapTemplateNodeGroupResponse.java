@@ -26,6 +26,8 @@ public class RoadmapTemplateNodeGroupResponse {
     private String expectedOutput;
     private String rubric;
     private String aiPromptHint;
+    private String nodeType;
+    private String parentNodeKey;
     private Integer orderIndex;
     private List<SkillItem> skills;
 

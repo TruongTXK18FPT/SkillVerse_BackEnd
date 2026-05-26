@@ -69,7 +69,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
             String studentGoal,
             boolean isGap,
             boolean isStrength) {
-        return enrichNode(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric, skillName, studentLevel, studentGoal, isGap, isStrength, null);
+        return enrichNode(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric, skillName, studentLevel, studentGoal, isGap, isStrength, null, null);
     }
 
     @Override
@@ -84,6 +84,22 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
             boolean isGap,
             boolean isStrength,
             String pinnedDocumentIdsJson) {
+        return enrichNode(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric, skillName, studentLevel, studentGoal, isGap, isStrength, pinnedDocumentIdsJson, null);
+    }
+
+    @Override
+    public EnrichedNode enrichNode(
+            String nodeTitle,
+            String nodeDescription,
+            String baselineExpectedOutput,
+            String baselineRubric,
+            String skillName,
+            String studentLevel,
+            String studentGoal,
+            boolean isGap,
+            boolean isStrength,
+            String pinnedDocumentIdsJson,
+            String lessonsJson) {
 
         String translatedGoal = translateStudentGoal(studentGoal);
 
@@ -190,7 +206,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         }
 
         String prompt = buildPrompt(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric,
-                skillName, studentLevel, translatedGoal, isGap, isStrength, ragContext);
+                skillName, studentLevel, translatedGoal, isGap, isStrength, ragContext, lessonsJson);
 
         long start = System.currentTimeMillis();
         log.info("📤 Sequential AI Enrichment - Node: '{}' (Level: {}, Gap: {}, Strength: {})", 
@@ -227,7 +243,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                     throw new RuntimeException("Mistral AI returned an empty response");
                 }
 
-                EnrichedNode enriched = parseAndValidateResponse(responseText);
+                EnrichedNode enriched = parseAndValidateResponse(responseText, lessonsJson);
                 
                 // Smart description merge: keep the original rich description from admin
                 // and append the AI's personalized learning notes at the end
@@ -278,7 +294,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 MAX_RETRIES + 1, nodeTitle, duration, lastException);
         
         return buildStaticFallback(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric, 
-                skillName, studentLevel, isGap, isStrength);
+                skillName, studentLevel, isGap, isStrength, lessonsJson);
     }
 
     private String buildPrompt(
@@ -291,7 +307,8 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
             String studentGoal,
             boolean isGap,
             boolean isStrength,
-            String ragContext) {
+            String ragContext,
+            String lessonsJson) {
 
         String evaluatedSkillLabel = "Kỹ năng tiêu chuẩn cần được phát triển";
         if (isGap) {
@@ -312,14 +329,22 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                     ragContext + "\n\n";
         }
 
+        String lessonsSection = "";
+        if (lessonsJson != null && !lessonsJson.isBlank()) {
+            lessonsSection = "=== KHUNG BÀI HỌC BAN ĐẦU CỦA ADMIN TEMPLATE (SKELETAL LESSONS) ===\n" +
+                    "Đây là danh sách bài học khung do Quản trị viên thiết kế làm sườn cốt lõi. Tuyệt đối không xóa bỏ hay thay đổi các chủ đề cốt lõi này:\n" +
+                    lessonsJson + "\n\n";
+        }
+
         return "Bạn là một chuyên gia đào tạo lập trình thực tế cho SkillVerse.\n" +
-                "Nhiệm vụ của bạn là cá nhân hóa và làm giàu chi tiết (enrich) nội dung học cho một Node (Bài học) dựa trên Lộ trình mẫu (Template) và hồ sơ năng lực của học viên.\n\n" +
+                "Nhiệm vụ của bạn là cá nhân hóa và làm giàu chi tiết (enrich/elaborate) nội dung học cho một Node (Bài học) dựa trên Lộ trình mẫu (Template) và hồ sơ năng lực của học viên.\n\n" +
                 "=== SƯỜN BÀI HỌC (BLUEPRINT TEMPLATE) ===\n" +
                 "- Tiêu đề: " + nodeTitle + "\n" +
                 "- Mô tả ban đầu: " + safeDesc + "\n" +
                 "- Kỹ năng trọng tâm: " + safeSkill + "\n" +
                 "- Khung bài tập mẫu có sẵn: " + safeOutput + "\n" +
                 "- Tiêu chí đánh giá có sẵn (Rubric): " + safeRubric + "\n\n" +
+                lessonsSection +
                 ragSection +
                 "=== HỒ SƠ NĂNG LỰC HỌC VIÊN ===\n" +
                 "- Trình độ hiện tại: " + studentLevel + "\n" +
@@ -332,7 +357,8 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 "3. Bài tập thực hành thực tế (practicalExercises): Thiết kế bài tập thực hành chi tiết, mô tả cụ thể từng bước thực hiện với độ khó tương thích với cấp độ học viên (Beginner/Intermediate/Advanced) và bám sát theo Khung bài tập mẫu có sẵn của chuyên gia. Nếu có tài liệu chuyên môn, hãy lồng ghép các bài thực hành/ví dụ thực tế từ tài liệu đó.\n" +
                 "4. Tiêu chí thành công (successCriteria): Danh sách các chỉ số kỹ thuật cụ thể đánh giá mức độ thành công.\n" +
                 "5. Mô tả sản phẩm phải nộp (expectedOutput): Nếu Khung bài tập mẫu của Admin đã có sẵn và chi tiết, hãy chỉ trả về chuỗi rỗng (\"\") để kế thừa. Chỉ thiết kế checklist sản phẩm chi tiết dạng Markdown nếu Khung mẫu ban đầu trống hoặc quá sơ sài.\n" +
-                "6. Rubric chấm điểm chi tiết (rubric): Nếu Tiêu chí đánh giá (Rubric) của Admin đã có sẵn và chi tiết, hãy chỉ trả về chuỗi rỗng (\"\") để kế thừa. Chỉ thiết kế bảng điểm chi tiết dạng Markdown khi Rubric mẫu ban đầu trống.\n\n" +
+                "6. Rubric chấm điểm chi tiết (rubric): Nếu Tiêu chí đánh giá (Rubric) của Admin đã có sẵn và chi tiết, hãy chỉ trả về chuỗi rỗng (\"\") để kế thừa. Chỉ thiết kế bảng điểm chi tiết dạng Markdown khi Rubric mẫu ban đầu trống.\n" +
+                "7. Chi tiết hóa khung bài học (lessons): Dựa trên KHUNG BÀI HỌC BAN ĐẦU (Skeletal Lessons) của Admin ở trên, hãy GIỮ NGUYÊN chủ đề cốt lõi nhưng CHI TIẾT HÓA/LÀM PHONG PHÚ nội dung từng bài học. Hãy biến mỗi gạch đầu dòng ngắn của Admin thành một bài học chi tiết bao gồm: tiêu đề rõ ràng, mô tả cụ thể người học cần hành động làm gì, mục tiêu bài học cụ thể, và ước tính thời lượng phút học phù hợp với trình độ " + studentLevel + ".\n\n" +
                 "Chỉ phản hồi bằng một chuỗi JSON duy nhất, hợp lệ, không chứa ký tự thừa hay giải thích ngoài lề, có định dạng chính xác sau:\n" +
                 "{\n" +
                 "  \"description\": \"(Phần hướng dẫn cá nhân hóa chi tiết, tối thiểu 150 từ)\",\n" +
@@ -340,11 +366,19 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 "  \"practicalExercises\": [\"Bài tập thực hành chi tiết\"],\n" +
                 "  \"successCriteria\": [\"Tiêu chí 1\", \"Tiêu chí 2\"],\n" +
                 "  \"expectedOutput\": \"(Checklist sản phẩm dạng Markdown hoặc để rỗng)\",\n" +
-                "  \"rubric\": \"(Bảng rubric Markdown hoặc để rỗng)\"\n" +
+                "  \"rubric\": \"(Bảng rubric Markdown hoặc để rỗng)\",\n" +
+                "  \"lessons\": [\n" +
+                "    {\n" +
+                "      \"title\": \"(Tiêu đề bài học đã được chi tiết hóa)\",\n" +
+                "      \"description\": \"(Mô tả hành động học chi tiết cho bài học này, khoảng 30-50 từ)\",\n" +
+                "      \"learningObjective\": \"(Mục tiêu cụ thể của bài học này)\",\n" +
+                "      \"estimatedMinutes\": 60\n" +
+                "    }\n" +
+                "  ]\n" +
                 "}";
     }
 
-    private EnrichedNode parseAndValidateResponse(String responseText) throws Exception {
+    private EnrichedNode parseAndValidateResponse(String responseText, String lessonsJsonFallback) throws Exception {
         String cleanJson = extractJson(responseText);
         JsonNode rootNode = objectMapper.readTree(cleanJson);
 
@@ -376,11 +410,40 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
             }
         }
 
+        List<EnrichedLesson> lessons = new ArrayList<>();
+        JsonNode lesNode = rootNode.path("lessons");
+        if (lesNode.isArray() && lesNode.size() > 0) {
+            for (JsonNode item : lesNode) {
+                String title = item.path("title").asText("");
+                String desc = item.path("description").asText("");
+                String obj = item.path("learningObjective").asText("");
+                Integer mins = item.has("estimatedMinutes") ? item.path("estimatedMinutes").asInt() : null;
+                lessons.add(new EnrichedLesson(title, desc, obj, mins));
+            }
+        }
+
+        // Fallback if lessons array is empty and lessonsJsonFallback is provided
+        if (lessons.isEmpty() && lessonsJsonFallback != null && !lessonsJsonFallback.isBlank()) {
+            try {
+                JsonNode fallbackArr = objectMapper.readTree(lessonsJsonFallback);
+                if (fallbackArr.isArray()) {
+                    for (JsonNode item : fallbackArr) {
+                        lessons.add(new EnrichedLesson(
+                                item.path("title").asText(""),
+                                item.path("description").asText(""),
+                                item.path("learningObjective").asText(""),
+                                item.has("estimatedMinutes") ? item.path("estimatedMinutes").asInt(60) : null
+                        ));
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+
         if (description.isBlank()) {
             throw new IllegalArgumentException("AI output is missing mandatory field: 'description'");
         }
 
-        return new EnrichedNode(description, objectives, exercises, criteria, expectedOutput, rubric);
+        return new EnrichedNode(description, objectives, exercises, criteria, expectedOutput, rubric, lessons);
     }
 
     private String extractJson(String text) {
@@ -425,7 +488,8 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
             String skillName,
             String studentLevel,
             boolean isGap,
-            boolean isStrength) {
+            boolean isStrength,
+            String lessonsJson) {
 
         String fallbackDesc = nodeDescription != null && !nodeDescription.isBlank() ? nodeDescription : "Khóa học thực hành dựa trên template.";
         if (isGap) {
@@ -458,6 +522,23 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         } else {
             criteria.add("Sản phẩm chạy ổn định không lỗi cú pháp");
             criteria.add("Đáp ứng đầy đủ các checklist yêu cầu của đề bài");
+        }
+
+        List<EnrichedLesson> lessons = new ArrayList<>();
+        if (lessonsJson != null && !lessonsJson.isBlank()) {
+            try {
+                JsonNode arr = objectMapper.readTree(lessonsJson);
+                if (arr.isArray()) {
+                    for (JsonNode item : arr) {
+                        lessons.add(new EnrichedLesson(
+                                item.path("title").asText(""),
+                                item.path("description").asText(""),
+                                item.path("learningObjective").asText(""),
+                                item.has("estimatedMinutes") ? item.path("estimatedMinutes").asInt(60) : null
+                        ));
+                    }
+                }
+            } catch (Exception ignored) {}
         }
 
         return new EnrichedNode(

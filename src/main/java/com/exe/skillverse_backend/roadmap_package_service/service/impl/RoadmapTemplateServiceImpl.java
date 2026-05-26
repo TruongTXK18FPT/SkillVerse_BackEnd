@@ -132,7 +132,10 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             List<String> learningObjectives,
             List<String> practicalExercises,
             List<String> successCriteria,
-            String pinnedDocumentIds
+            String pinnedDocumentIds,
+            String nodeType,
+            String parentNodeKey,
+            List<RoadmapNodeAiEnrichmentService.EnrichedLesson> lessons
     ) {
     }
 
@@ -842,6 +845,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .difficulty(firstNonBlank(request.getDifficulty(), "medium"))
                 .estimatedHours(request.getEstimatedHours())
                 .aiPromptHint(request.getAiPromptHint())
+                .nodeType(request.getNodeType())
+                .parentNodeKey(request.getParentNodeKey())
                 .orderIndex(request.getOrderIndex() != null ? request.getOrderIndex() : 1)
                 .build();
     }
@@ -1881,7 +1886,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         activity != null ? activity.getEstimatedHours() : null,
                         suggestedCourseIds,
                         activity != null ? activity.getSkillRequirementsJson() : null,
-                        null, null, null, null
+                        null, null, null, null,
+                        "MAIN", null, null
                 ));
             }
         }
@@ -1986,6 +1992,27 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 }
             }
 
+            if (listSuccessCriteria.isEmpty() && group.getCompletionCriteria() != null && !group.getCompletionCriteria().isBlank()) {
+                listSuccessCriteria.addAll(splitTemplateText(group.getCompletionCriteria()));
+            }
+
+            List<RoadmapNodeAiEnrichmentService.EnrichedLesson> initialLessons = new ArrayList<>();
+            if (group.getLessonsJson() != null && !group.getLessonsJson().isBlank()) {
+                try {
+                    JsonNode originalArr = objectMapper.readTree(group.getLessonsJson());
+                    if (originalArr.isArray()) {
+                        for (JsonNode item : originalArr) {
+                            initialLessons.add(new RoadmapNodeAiEnrichmentService.EnrichedLesson(
+                                    item.path("title").asText(""),
+                                    item.path("description").asText(""),
+                                    item.path("learningObjective").asText(""),
+                                    item.has("estimatedMinutes") ? item.path("estimatedMinutes").asInt(60) : null
+                            ));
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+
             int moduleIndex = runtimeNodes.size() + 1;
             runtimeNodes.add(new RuntimeRoadmapNode(
                     firstNonBlank(group.getNodeKey(), "module-" + moduleIndex),
@@ -2010,7 +2037,10 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                             : null,
                     listPracticalExercises.isEmpty() ? null : listPracticalExercises,
                     listSuccessCriteria.isEmpty() ? null : listSuccessCriteria,
-                    group.getPinnedDocumentIds()
+                    group.getPinnedDocumentIds(),
+                    group.getNodeType() != null ? group.getNodeType() : "MAIN",
+                    group.getParentNodeKey(),
+                    initialLessons
             ));
         }
         return runtimeNodes;
@@ -2096,7 +2126,10 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         enriched.getLearningObjectives(),
                         practicalExercisesVal,
                         successCriteriaVal,
-                        node.pinnedDocumentIds()
+                        node.pinnedDocumentIds(),
+                        node.nodeType(),
+                        node.parentNodeKey(),
+                        node.lessons()
                 );
             }, roadmapEnrichmentTaskExecutor);
 
@@ -2144,6 +2177,13 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             final boolean isStrength = strengthMatched;
 
             CompletableFuture<RuntimeRoadmapNode> future = CompletableFuture.supplyAsync(() -> {
+                String lessonsJson = null;
+                if (node.lessons() != null && !node.lessons().isEmpty()) {
+                    try {
+                        lessonsJson = objectMapper.writeValueAsString(node.lessons());
+                    } catch (Exception ignored) {}
+                }
+
                 RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
                         node.title(),
                         node.description(),
@@ -2154,7 +2194,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         journey.getGoal(),
                         isGap,
                         isStrength,
-                        node.pinnedDocumentIds()
+                        node.pinnedDocumentIds(),
+                        lessonsJson
                 );
 
                 String expectedOutputVal = (node.expectedOutput() != null && !node.expectedOutput().isBlank())
@@ -2172,6 +2213,10 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 List<String> successCriteriaVal = (node.successCriteria() != null && !node.successCriteria().isEmpty())
                         ? node.successCriteria()
                         : enriched.getSuccessCriteria();
+
+                List<RoadmapNodeAiEnrichmentService.EnrichedLesson> lessonsVal = (enriched.getLessons() != null && !enriched.getLessons().isEmpty())
+                        ? enriched.getLessons()
+                        : node.lessons();
 
                 return new RuntimeRoadmapNode(
                         node.id(),
@@ -2194,7 +2239,10 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         enriched.getLearningObjectives(),
                         practicalExercisesVal,
                         successCriteriaVal,
-                        node.pinnedDocumentIds()
+                        node.pinnedDocumentIds(),
+                        node.nodeType(),
+                        node.parentNodeKey(),
+                        lessonsVal
                 );
             }, roadmapEnrichmentTaskExecutor);
 
@@ -2212,6 +2260,25 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 "Assessment-aware admin module template");
     }
 
+    private String estimateFriendlyDuration(List<RuntimeRoadmapNode> nodes) {
+        double totalHours = 0;
+        for (RuntimeRoadmapNode node : nodes) {
+            if (node.estimatedHours() != null) {
+                totalHours += node.estimatedHours();
+            }
+        }
+        if (totalHours <= 0) {
+            totalHours = nodes.size() * 4.0;
+        }
+        double weeks = totalHours / 7.0;
+        long approxWeeks = Math.round(weeks);
+        if (approxWeeks <= 4) {
+            return Math.max(1, approxWeeks) + " tuần";
+        }
+        long approxMonths = Math.round(weeks / 4.3);
+        return Math.max(1, approxMonths) + " tháng";
+    }
+
     private RuntimeRoadmap buildRuntimeRoadmapJson(
             RoadmapTemplate template,
             List<RuntimeRoadmapNode> runtimeNodes,
@@ -2223,7 +2290,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         metadata.put("title", template.getTitle());
         metadata.put("original_goal", template.getTitle());
         metadata.put("validated_goal", firstNonBlank(template.getGlobalLearningGoal(), template.getDescription(), template.getTitle()));
-        metadata.put("duration", duration);
+        metadata.put("duration", estimateFriendlyDuration(runtimeNodes));
         metadata.put("experience_level", studentLevel);
         metadata.put("learning_style", learningStyle);
         metadata.put("difficulty_level", resolveDominantDifficultyRuntime(runtimeNodes));
@@ -2243,16 +2310,38 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             n.put("title", node.title());
             n.put("description", node.description());
             n.put("estimated_time_minutes", toMinutes(node.estimatedHours()));
-            n.put("type", "MAIN");
+            
+            String nodeType = node.nodeType() != null ? node.nodeType() : "MAIN";
+            n.put("type", nodeType);
             n.put("difficulty", node.difficulty());
             n.put("order_index", i + 1);
             n.put("main_path_index", i + 1);
-            n.put("is_core", true);
-            if (i == 0) {
-                n.putNull("parent_id");
-            } else {
-                n.put("parent_id", runtimeNodes.get(i - 1).id());
+            n.put("is_core", "MAIN".equals(nodeType));
+
+            String parentId = null;
+            if (node.parentNodeKey() != null && !node.parentNodeKey().isBlank()) {
+                for (RuntimeRoadmapNode other : runtimeNodes) {
+                    if (node.parentNodeKey().equals(other.id())) {
+                        parentId = other.id();
+                        break;
+                    }
+                }
             }
+            if (parentId == null && i > 0) {
+                for (int j = i - 1; j >= 0; j--) {
+                    String otherType = runtimeNodes.get(j).nodeType();
+                    if (otherType == null || "MAIN".equals(otherType)) {
+                        parentId = runtimeNodes.get(j).id();
+                        break;
+                    }
+                }
+            }
+            if (parentId != null) {
+                n.put("parent_id", parentId);
+            } else {
+                n.putNull("parent_id");
+            }
+
             n.put("node_status", i == 0 ? "AVAILABLE" : "LOCKED");
             if (node.skillId() != null) {
                 n.put("skill_id", node.skillId());
@@ -2297,10 +2386,40 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 putArray(n, "success_criteria", splitTemplateText(node.rubric()));
             }
 
+            ArrayNode lessonsArr = n.putArray("lessons");
+            if (node.lessons() != null) {
+                for (RoadmapNodeAiEnrichmentService.EnrichedLesson lesson : node.lessons()) {
+                    ObjectNode les = lessonsArr.addObject();
+                    les.put("title", lesson.getTitle());
+                    les.put("description", lesson.getDescription());
+                    les.put("learningObjective", lesson.getLearningObjective());
+                    if (lesson.getEstimatedMinutes() != null) {
+                        les.put("estimatedMinutes", lesson.getEstimatedMinutes());
+                    } else {
+                        les.putNull("estimatedMinutes");
+                    }
+                }
+            }
+
             putArray(n, "suggested_resources", List.of());
             putArray(n, "key_concepts", resolveRuntimeSkillNames(node));
-            putArray(n, "prerequisites", i == 0 ? List.of() : List.of(runtimeNodes.get(i - 1).id()));
-            putArray(n, "children", i + 1 < runtimeNodes.size() ? List.of(runtimeNodes.get(i + 1).id()) : List.of());
+            putArray(n, "prerequisites", parentId != null ? List.of(parentId) : List.of());
+            
+            List<String> children = new ArrayList<>();
+            for (RuntimeRoadmapNode other : runtimeNodes) {
+                if (node.id().equals(other.parentNodeKey())) {
+                    children.add(other.id());
+                }
+            }
+            if (children.isEmpty() && i + 1 < runtimeNodes.size()) {
+                String nextType = runtimeNodes.get(i + 1).nodeType();
+                String nextParent = runtimeNodes.get(i + 1).parentNodeKey();
+                if ((nextType == null || "MAIN".equals(nextType)) && (nextParent == null || nextParent.isBlank())) {
+                    children.add(runtimeNodes.get(i + 1).id());
+                }
+            }
+            putArray(n, "children", children);
+
             putLongArray(n, "suggested_course_ids", node.suggestedCourseIds());
             n.put("importance_score", 0.85);
             n.put("confidence_score", 0.95);
@@ -2984,6 +3103,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .expectedOutput(group.getExpectedOutput())
                 .rubric(group.getRubric())
                 .aiPromptHint(group.getAiPromptHint())
+                .nodeType(group.getNodeType())
+                .parentNodeKey(group.getParentNodeKey())
                 .orderIndex(group.getOrderIndex())
                 .skills(skills)
                 .build();
