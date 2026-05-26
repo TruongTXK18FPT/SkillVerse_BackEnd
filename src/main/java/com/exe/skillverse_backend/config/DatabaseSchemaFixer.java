@@ -230,6 +230,13 @@ public class DatabaseSchemaFixer {
                 this::verifyExtendRoadmapSessionsFinalObjective
             );
 
+            applyPatch(
+                "20260529_drop_chk_rna_source_constraint",
+                "Drop legacy chk_rna_source check constraint from roadmap_node_assignments",
+                this::patchDropChkRnaSourceConstraint,
+                this::verifyDropChkRnaSourceConstraint
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -1410,13 +1417,18 @@ public class DatabaseSchemaFixer {
             log.info("Dropping legacy assignment_source check constraint from roadmap_node_assignments...");
             executeSql("ALTER TABLE roadmap_node_assignments DROP CONSTRAINT roadmap_node_assignments_assignment_source_check");
         }
+        if (hasConstraint("roadmap_node_assignments", "chk_rna_source")) {
+            log.info("Dropping legacy chk_rna_source check constraint from roadmap_node_assignments...");
+            executeSql("ALTER TABLE roadmap_node_assignments DROP CONSTRAINT chk_rna_source");
+        }
     }
 
     private boolean verifyDropAssignmentSourceCheckConstraint() {
         if (!hasTable("roadmap_node_assignments")) {
             return true;
         }
-        return !hasConstraint("roadmap_node_assignments", "roadmap_node_assignments_assignment_source_check");
+        return !hasConstraint("roadmap_node_assignments", "roadmap_node_assignments_assignment_source_check")
+                && !hasConstraint("roadmap_node_assignments", "chk_rna_source");
     }
 
     private void patchAddRoadmapNodePinnedDocuments() {
@@ -1460,5 +1472,23 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyExtendRoadmapSessionsFinalObjective() {
         return true;
+    }
+
+    private void patchDropChkRnaSourceConstraint() {
+        if (!hasTable("roadmap_node_assignments")) {
+            log.info("Table roadmap_node_assignments does not exist yet; skipping constraint drop");
+            return;
+        }
+        if (hasConstraint("roadmap_node_assignments", "chk_rna_source")) {
+            log.info("Dropping chk_rna_source check constraint from roadmap_node_assignments...");
+            executeSql("ALTER TABLE roadmap_node_assignments DROP CONSTRAINT chk_rna_source");
+        }
+    }
+
+    private boolean verifyDropChkRnaSourceConstraint() {
+        if (!hasTable("roadmap_node_assignments")) {
+            return true;
+        }
+        return !hasConstraint("roadmap_node_assignments", "chk_rna_source");
     }
 }
