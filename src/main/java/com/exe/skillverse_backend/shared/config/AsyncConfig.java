@@ -18,7 +18,7 @@ import java.util.concurrent.Executor;
 @EnableAsync
 public class AsyncConfig {
 
-    @Value("${app.roadmap.enrichment.concurrency:2}")
+    @Value("${app.roadmap.enrichment.concurrency:5}")
     private int roadmapEnrichmentConcurrency;
 
     /**

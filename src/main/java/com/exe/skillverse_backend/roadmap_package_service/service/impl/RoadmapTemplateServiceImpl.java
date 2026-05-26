@@ -427,15 +427,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             boolean gapMatched = profileMatchesNode(gapNames, node);
             boolean strengthMatched = profileMatchesNode(strengthNames, node);
 
-            final int index = i;
             CompletableFuture<EnrichedRuntimeNodeV1> future = CompletableFuture.supplyAsync(() -> {
-                if (index > 0) {
-                    try {
-                        Thread.sleep(2500L * index);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
                 RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
                         node.getTitle(),
                         node.getDescription(),
@@ -2052,16 +2044,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
 
             final boolean isGap = gapMatched;
             final boolean isStrength = strengthMatched;
-            final int index = i;
 
             CompletableFuture<RuntimeRoadmapNode> future = CompletableFuture.supplyAsync(() -> {
-                if (index > 0) {
-                    try {
-                        Thread.sleep(2500L * index);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
                 RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
                         node.title(),
                         node.description(),
@@ -2158,16 +2142,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
 
             final boolean isGap = gapMatched;
             final boolean isStrength = strengthMatched;
-            final int index = i;
 
             CompletableFuture<RuntimeRoadmapNode> future = CompletableFuture.supplyAsync(() -> {
-                if (index > 0) {
-                    try {
-                        Thread.sleep(2500L * index);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
                 RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
                         node.title(),
                         node.description(),

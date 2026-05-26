@@ -199,13 +199,13 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         Exception lastException = null;
         for (int attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
             try {
-                // Thread-safe progressive Ticket-based Rate Limiter (2.5s minimum gap between ANY Mistral requests)
+                // Thread-safe progressive Ticket-based Rate Limiter (1.0s minimum gap between ANY Mistral requests)
                 long now = System.currentTimeMillis();
                 long scheduledTime;
                 while (true) {
                     long currentNext = nextAllowedRequestTime.get();
                     scheduledTime = Math.max(now, currentNext);
-                    long next = scheduledTime + 2500L;
+                    long next = scheduledTime + 1000L;
                     if (nextAllowedRequestTime.compareAndSet(currentNext, next)) {
                         break;
                     }
