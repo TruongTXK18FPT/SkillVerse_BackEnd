@@ -240,6 +240,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
             roadmapSessionRepository.findById(journey.getRoadmapSessionId()).ifPresent(session -> {
                 if (session.getRoadmapTemplateId() != null) {
                     templateRepository.findById(session.getRoadmapTemplateId()).ifPresent(template -> {
+                        if (Boolean.TRUE.equals(template.getAiEvidenceReviewEnabled())) {
                             RoadmapResponse.RoadmapNode node = resolver.getNodeContentFromRoadmap(journey, nodeId);
                             String nodeTitle = node != null ? node.getTitle() : "";
                             String nodeDesc = node != null ? node.getDescription() : "";
@@ -300,6 +301,9 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
                                         activityExpectedOutput, activityRubric, 
                                         activityAiPromptHint, activitySkillRequirementsJson);
                             }
+                        } else {
+                            log.info("AI review is disabled for template {}. Skipping automatic AI review trigger for node submission.", template.getId());
+                        }
                     });
                 }
             });
@@ -499,7 +503,18 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         boolean hasMentorCoverage = bookingRepository.existsActiveBookingCoveringNode(
                 journeyId, nodeId, ASSIGNED_MENTOR_STATUSES);
 
-        if (!hasMentorCoverage && s.getVerificationStatus() != VerificationStatus.VERIFIED) {
+        // Check if template has AI review enabled
+        boolean aiReviewEnabled = false;
+        if (journey.getRoadmapSessionId() != null) {
+            aiReviewEnabled = roadmapSessionRepository.findById(journey.getRoadmapSessionId())
+                    .flatMap(session -> session.getRoadmapTemplateId() != null 
+                            ? templateRepository.findById(session.getRoadmapTemplateId()) 
+                            : java.util.Optional.empty())
+                    .map(RoadmapTemplate::getAiEvidenceReviewEnabled)
+                    .orElse(false);
+        }
+
+        if (!hasMentorCoverage && aiReviewEnabled && s.getVerificationStatus() != VerificationStatus.VERIFIED) {
             throw new ApiException(ErrorCode.CONFLICT,
                     "Node này cần được hệ thống hoặc quản trị viên đánh giá đạt trước khi xác nhận hoàn thành.");
         }

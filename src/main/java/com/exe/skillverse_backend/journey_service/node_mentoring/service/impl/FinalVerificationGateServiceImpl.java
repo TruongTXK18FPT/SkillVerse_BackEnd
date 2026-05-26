@@ -302,6 +302,7 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
             roadmapSessionRepository.findById(journey.getRoadmapSessionId()).ifPresent(session -> {
                 if (session.getRoadmapTemplateId() != null) {
                     templateRepository.findById(session.getRoadmapTemplateId()).ifPresent(template -> {
+                        if (Boolean.TRUE.equals(template.getAiEvidenceReviewEnabled())) {
                             if (TransactionSynchronizationManager.isActualTransactionActive()) {
                                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                                     @Override
@@ -312,6 +313,9 @@ public class FinalVerificationGateServiceImpl implements FinalVerificationGateSe
                             } else {
                                 aiReviewService.reviewFinalAssignment(saved, template, journey.getSkillName());
                             }
+                        } else {
+                            log.info("AI review is disabled for template {}. Skipping automatic AI review trigger for final assessment.", template.getId());
+                        }
                     });
                 }
             });
