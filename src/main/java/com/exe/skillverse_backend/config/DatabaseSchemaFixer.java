@@ -223,6 +223,13 @@ public class DatabaseSchemaFixer {
                 this::verifyAddRoadmapNodeAssignmentVerificationStatus
             );
 
+            applyPatch(
+                "20260528_extend_roadmap_sessions_final_objective",
+                "Extend final_objective column to TEXT in roadmap_sessions table",
+                this::patchExtendRoadmapSessionsFinalObjective,
+                this::verifyExtendRoadmapSessionsFinalObjective
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -1440,5 +1447,18 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyAddRoadmapNodeAssignmentVerificationStatus() {
         return !hasTable("roadmap_node_assignments") || hasColumn("roadmap_node_assignments", "verification_status");
+    }
+
+    private void patchExtendRoadmapSessionsFinalObjective() {
+        if (!hasTable("roadmap_sessions")) {
+            log.info("Table roadmap_sessions does not exist yet; skipping final_objective type alter");
+            return;
+        }
+        log.info("Altering roadmap_sessions.final_objective type to TEXT...");
+        executeSql("ALTER TABLE roadmap_sessions ALTER COLUMN final_objective TYPE TEXT");
+    }
+
+    private boolean verifyExtendRoadmapSessionsFinalObjective() {
+        return true;
     }
 }

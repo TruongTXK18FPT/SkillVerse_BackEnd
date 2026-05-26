@@ -1973,7 +1973,7 @@ CREATE TABLE roadmap_sessions (
     roadmap_type            VARCHAR(20),
     roadmap_mode            VARCHAR(20),
     target                  TEXT,
-    final_objective         VARCHAR(100),
+    final_objective         TEXT,
     total_nodes             INTEGER,
     total_estimated_hours   DOUBLE PRECISION,
     difficulty_level        VARCHAR(20),

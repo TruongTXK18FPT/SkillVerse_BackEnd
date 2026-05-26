@@ -147,7 +147,7 @@ public class RoadmapSession {
     @Column(name = "target", columnDefinition = "TEXT")
     private String target;
 
-    @Column(name = "final_objective", length = 100)
+    @Column(name = "final_objective", columnDefinition = "TEXT")
     private String finalObjective;
 
     /**
