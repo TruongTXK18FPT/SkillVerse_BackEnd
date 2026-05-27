@@ -1812,6 +1812,22 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             putArray(n, "learning_objectives", enriched.getLearningObjectives());
             putArray(n, "practical_exercises", enriched.getPracticalExercises());
             putArray(n, "success_criteria", enriched.getSuccessCriteria());
+
+            ArrayNode lessonsArr = n.putArray("lessons");
+            if (enriched.getLessons() != null) {
+                for (RoadmapNodeAiEnrichmentService.EnrichedLesson lesson : enriched.getLessons()) {
+                    ObjectNode les = lessonsArr.addObject();
+                    les.put("title", lesson.getTitle());
+                    les.put("description", lesson.getDescription());
+                    les.put("learningObjective", lesson.getLearningObjective());
+                    if (lesson.getEstimatedMinutes() != null) {
+                        les.put("estimatedMinutes", lesson.getEstimatedMinutes());
+                    } else {
+                        les.putNull("estimatedMinutes");
+                    }
+                }
+            }
+
             putArray(n, "suggested_resources", List.of());
             putArray(n, "key_concepts", personalizedKeyConcepts(node, studentLevel));
             putArray(n, "prerequisites", parentId != null ? List.of(parentId) : List.of());
@@ -2089,21 +2105,25 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         node.pinnedDocumentIds()
                 );
 
-                String expectedOutputVal = (node.expectedOutput() != null && !node.expectedOutput().isBlank())
-                        ? node.expectedOutput()
-                        : enriched.getExpectedOutput();
+                String expectedOutputVal = (enriched.getExpectedOutput() != null && !enriched.getExpectedOutput().isBlank())
+                        ? enriched.getExpectedOutput()
+                        : node.expectedOutput();
 
-                String rubricVal = (node.rubric() != null && !node.rubric().isBlank())
-                        ? node.rubric()
-                        : enriched.getRubric();
+                String rubricVal = (enriched.getRubric() != null && !enriched.getRubric().isBlank())
+                        ? enriched.getRubric()
+                        : node.rubric();
 
-                List<String> practicalExercisesVal = (node.practicalExercises() != null && !node.practicalExercises().isEmpty())
-                        ? node.practicalExercises()
-                        : enriched.getPracticalExercises();
+                List<String> practicalExercisesVal = (enriched.getPracticalExercises() != null && !enriched.getPracticalExercises().isEmpty())
+                        ? enriched.getPracticalExercises()
+                        : node.practicalExercises();
 
-                List<String> successCriteriaVal = (node.successCriteria() != null && !node.successCriteria().isEmpty())
-                        ? node.successCriteria()
-                        : enriched.getSuccessCriteria();
+                List<String> successCriteriaVal = (enriched.getSuccessCriteria() != null && !enriched.getSuccessCriteria().isEmpty())
+                        ? enriched.getSuccessCriteria()
+                        : node.successCriteria();
+
+                List<RoadmapNodeAiEnrichmentService.EnrichedLesson> lessonsVal = (enriched.getLessons() != null && !enriched.getLessons().isEmpty())
+                        ? enriched.getLessons()
+                        : node.lessons();
 
                 return new RuntimeRoadmapNode(
                         node.id(),
@@ -2129,7 +2149,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         node.pinnedDocumentIds(),
                         node.nodeType(),
                         node.parentNodeKey(),
-                        node.lessons()
+                        lessonsVal
                 );
             }, roadmapEnrichmentTaskExecutor);
 
@@ -2198,21 +2218,21 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         lessonsJson
                 );
 
-                String expectedOutputVal = (node.expectedOutput() != null && !node.expectedOutput().isBlank())
-                        ? node.expectedOutput()
-                        : enriched.getExpectedOutput();
+                String expectedOutputVal = (enriched.getExpectedOutput() != null && !enriched.getExpectedOutput().isBlank())
+                        ? enriched.getExpectedOutput()
+                        : node.expectedOutput();
 
-                String rubricVal = (node.rubric() != null && !node.rubric().isBlank())
-                        ? node.rubric()
-                        : enriched.getRubric();
+                String rubricVal = (enriched.getRubric() != null && !enriched.getRubric().isBlank())
+                        ? enriched.getRubric()
+                        : node.rubric();
 
-                List<String> practicalExercisesVal = (node.practicalExercises() != null && !node.practicalExercises().isEmpty())
-                        ? node.practicalExercises()
-                        : enriched.getPracticalExercises();
+                List<String> practicalExercisesVal = (enriched.getPracticalExercises() != null && !enriched.getPracticalExercises().isEmpty())
+                        ? enriched.getPracticalExercises()
+                        : node.practicalExercises();
 
-                List<String> successCriteriaVal = (node.successCriteria() != null && !node.successCriteria().isEmpty())
-                        ? node.successCriteria()
-                        : enriched.getSuccessCriteria();
+                List<String> successCriteriaVal = (enriched.getSuccessCriteria() != null && !enriched.getSuccessCriteria().isEmpty())
+                        ? enriched.getSuccessCriteria()
+                        : node.successCriteria();
 
                 List<RoadmapNodeAiEnrichmentService.EnrichedLesson> lessonsVal = (enriched.getLessons() != null && !enriched.getLessons().isEmpty())
                         ? enriched.getLessons()

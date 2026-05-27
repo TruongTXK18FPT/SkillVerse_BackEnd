@@ -330,10 +330,14 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         }
 
         String lessonsSection = "";
+        String lessonsInstruction = "";
         if (lessonsJson != null && !lessonsJson.isBlank()) {
             lessonsSection = "=== KHUNG BÀI HỌC BAN ĐẦU CỦA ADMIN TEMPLATE (SKELETAL LESSONS) ===\n" +
                     "Đây là danh sách bài học khung do Quản trị viên thiết kế làm sườn cốt lõi. Tuyệt đối không xóa bỏ hay thay đổi các chủ đề cốt lõi này:\n" +
                     lessonsJson + "\n\n";
+            lessonsInstruction = "7. Chi tiết hóa khung bài học (lessons): Dựa trên KHUNG BÀI HỌC BAN ĐẦU (Skeletal Lessons) của Admin ở trên, hãy GIỮ NGUYÊN các chủ đề cốt lõi nhưng làm phong phú nội dung từng bài học. Hãy biến mỗi bài học khung của Admin thành một bài học con chi tiết trong mảng JSON 'lessons' (bao gồm: tiêu đề rõ ràng, mô tả cụ thể người học cần thực hành hành động làm gì, mục tiêu bài học cụ thể, và ước tính thời lượng phút học phù hợp với trình độ " + studentLevel + ").\n\n";
+        } else {
+            lessonsInstruction = "7. Tự thiết kế danh sách bài học chi tiết (lessons): Vì Admin chưa thiết kế khung bài học ban đầu cho Node này, bạn hãy tự thiết kế từ 3 đến 5 bài học con (lessons) tuần tự, logic để bao phủ toàn bộ mục tiêu học tập của Node này. Mỗi bài học con phải được trả về trong mảng JSON 'lessons' (bao gồm: tiêu đề rõ ràng, mô tả cụ thể người học cần hành động thực hành làm gì từ 30-50 từ, mục tiêu bài học cụ thể, và ước tính thời lượng phút học phù hợp với trình độ " + studentLevel + ").\n\n";
         }
 
         return "Bạn là một chuyên gia đào tạo lập trình thực tế cho SkillVerse.\n" +
@@ -353,20 +357,21 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 "=== YÊU CẦU ĐẦU RA ===\n" +
                 "Hãy biên soạn chi tiết và chất lượng cao bằng tiếng Việt (định dạng Markdown):\n" +
                 "1. Hướng dẫn học tập cá nhân hóa (description): Viết một hướng dẫn chi tiết và sâu sắc từ 150 đến 250 từ (tối thiểu 150 từ, chia làm 2-3 đoạn văn ngắn), giải thích cụ thể lý do tại sao học viên ở trình độ " + studentLevel + " cần học phần này dựa trên mục tiêu '" + (studentGoal != null ? studentGoal : "Phát triển") + "' và vị thế kỹ năng (" + evaluatedSkillLabel + "). TUYỆT ĐỐI không lặp lại phần 'Mô tả ban đầu' đã có sẵn của Admin, mà chỉ viết thêm phần cá nhân hóa. Cấm viết quá ngắn, sơ sài hoặc dưới 120 từ. Ngoài ra, nếu có phần 'TÀI LIỆU THAM KHẢO CHUYÊN MÔN' ở trên, hãy tích hợp sâu sắc kiến thức chuyên môn từ tài liệu đó để giải thích và làm phong phú thêm bài học.\n" +
+                "⚠️ CẢNH BÁO QUAN TRỌNG: Tuyệt đối KHÔNG ĐƯỢC tự ý gạch đầu dòng liệt kê danh sách các bài học con hay lộ trình chi tiết vào trường 'description' này. Trường này CHỈ để viết đoạn văn hướng dẫn học tập cá nhân hóa tổng quan. Toàn bộ thông tin các bài học con BẮT BUỘC phải đưa vào mảng JSON 'lessons' ở phần 7.\n" +
                 "2. Mục tiêu học tập cụ thể (learningObjectives): Danh sách tối thiểu 3 mục tiêu cụ thể, đo lường được.\n" +
-                "3. Bài tập thực hành thực tế (practicalExercises): Thiết kế bài tập thực hành chi tiết, mô tả cụ thể từng bước thực hiện với độ khó tương thích với cấp độ học viên (Beginner/Intermediate/Advanced) và bám sát theo Khung bài tập mẫu có sẵn của chuyên gia. Nếu có tài liệu chuyên môn, hãy lồng ghép các bài thực hành/ví dụ thực tế từ tài liệu đó.\n" +
-                "4. Tiêu chí thành công (successCriteria): Danh sách các chỉ số kỹ thuật cụ thể đánh giá mức độ thành công.\n" +
-                "5. Mô tả sản phẩm phải nộp (expectedOutput): Nếu Khung bài tập mẫu của Admin đã có sẵn và chi tiết, hãy chỉ trả về chuỗi rỗng (\"\") để kế thừa. Chỉ thiết kế checklist sản phẩm chi tiết dạng Markdown nếu Khung mẫu ban đầu trống hoặc quá sơ sài.\n" +
-                "6. Rubric chấm điểm chi tiết (rubric): Nếu Tiêu chí đánh giá (Rubric) của Admin đã có sẵn và chi tiết, hãy chỉ trả về chuỗi rỗng (\"\") để kế thừa. Chỉ thiết kế bảng điểm chi tiết dạng Markdown khi Rubric mẫu ban đầu trống.\n" +
-                "7. Chi tiết hóa khung bài học (lessons): Dựa trên KHUNG BÀI HỌC BAN ĐẦU (Skeletal Lessons) của Admin ở trên, hãy GIỮ NGUYÊN chủ đề cốt lõi nhưng CHI TIẾT HÓA/LÀM PHONG PHÚ nội dung từng bài học. Hãy biến mỗi gạch đầu dòng ngắn của Admin thành một bài học chi tiết bao gồm: tiêu đề rõ ràng, mô tả cụ thể người học cần hành động làm gì, mục tiêu bài học cụ thể, và ước tính thời lượng phút học phù hợp với trình độ " + studentLevel + ".\n\n" +
+                "3. Bài tập thực hành thực tế (practicalExercises): Thiết kế bài tập thực hành chi tiết, mô tả cụ thể từng bước thực hiện với độ khó tương thích với trình độ " + studentLevel + " của học viên, bám sát theo Khung bài tập mẫu có sẵn của Admin nhưng được làm chi tiết và bổ dung hướng dẫn thực hành thực tế.\n" +
+                "4. Tiêu chí thành công (successCriteria): Danh sách các chỉ số kỹ thuật cụ thể để đánh giá mức độ hoàn thành bài tập của học viên ở cấp độ " + studentLevel + ".\n" +
+                "5. Mô tả sản phẩm phải nộp (expectedOutput): Hãy dựa trên Khung bài tập mẫu của Admin và thiết kế một checklist sản phẩm bàn giao chi tiết (định dạng Markdown). Hãy ghi rõ sản phẩm gồm những file gì, cấu trúc ra sao, yêu cầu chức năng tối thiểu là gì để phù hợp với trình độ " + studentLevel + " của học viên. Không được trả về chuỗi rỗng.\n" +
+                "6. Rubric chấm điểm chi tiết (rubric): Thiết kế một bảng tiêu chí đánh giá chi tiết (rubric) định dạng bảng Markdown (gồm cột: Tiêu chí, Trọng số/Điểm, Mô tả chi tiết cho mức Đạt/Không Đạt). Hãy tùy biến tiêu chí và thang điểm để đánh giá đúng năng lực của học viên ở trình độ " + studentLevel + " (đặc biệt chú ý nếu học viên bị hổng kiến thức thì tập trung vào tính đúng đắn cơ bản, nếu là thế mạnh thì nâng cao tiêu chí tối ưu/performance). Không được trả về chuỗi rỗng.\n" +
+                lessonsInstruction +
                 "Chỉ phản hồi bằng một chuỗi JSON duy nhất, hợp lệ, không chứa ký tự thừa hay giải thích ngoài lề, có định dạng chính xác sau:\n" +
                 "{\n" +
-                "  \"description\": \"(Phần hướng dẫn cá nhân hóa chi tiết, tối thiểu 150 từ)\",\n" +
+                "  \"description\": \"(Phần hướng dẫn cá nhân hóa chi tiết, tối thiểu 150 từ, dạng đoạn văn, KHÔNG chứa list bài học con)\",\n" +
                 "  \"learningObjectives\": [\"Mục tiêu 1\", \"Mục tiêu 2\", \"Mục tiêu 3\"],\n" +
                 "  \"practicalExercises\": [\"Bài tập thực hành chi tiết\"],\n" +
                 "  \"successCriteria\": [\"Tiêu chí 1\", \"Tiêu chí 2\"],\n" +
-                "  \"expectedOutput\": \"(Checklist sản phẩm dạng Markdown hoặc để rỗng)\",\n" +
-                "  \"rubric\": \"(Bảng rubric Markdown hoặc để rỗng)\",\n" +
+                "  \"expectedOutput\": \"(Checklist sản phẩm dạng Markdown bắt buộc)\",\n" +
+                "  \"rubric\": \"(Bảng rubric Markdown bắt buộc)\",\n" +
                 "  \"lessons\": [\n" +
                 "    {\n" +
                 "      \"title\": \"(Tiêu đề bài học đã được chi tiết hóa)\",\n" +
