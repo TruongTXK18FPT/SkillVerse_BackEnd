@@ -34,4 +34,6 @@ public class AssessmentTestResponse {
 
     // Only include for completed tests
     private Boolean showResults;
+
+    private String userAnswersJson;
 }

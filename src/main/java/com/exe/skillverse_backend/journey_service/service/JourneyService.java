@@ -3,6 +3,7 @@ package com.exe.skillverse_backend.journey_service.service;
 import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.journey_service.dto.request.StartJourneyRequest;
 import com.exe.skillverse_backend.journey_service.dto.request.SubmitTestRequest;
+import com.exe.skillverse_backend.journey_service.dto.request.SaveTestProgressRequest;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.study_service.dto.request.GenerateScheduleRequest;
 import java.util.List;
@@ -93,6 +94,11 @@ public interface JourneyService {
      * Submit test answers and get evaluation.
      */
     TestResultResponse submitTest(User user, Long journeyId, SubmitTestRequest request);
+
+    /**
+     * Save temporary test progress.
+     */
+    void saveTestProgress(User user, Long journeyId, Long testId, SaveTestProgressRequest request);
 
     /**
      * Get test result for a journey.

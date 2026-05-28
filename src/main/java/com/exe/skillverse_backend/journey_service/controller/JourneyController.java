@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.auth_service.entity.User;
 import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.journey_service.dto.request.StartJourneyRequest;
 import com.exe.skillverse_backend.journey_service.dto.request.SubmitTestRequest;
+import com.exe.skillverse_backend.journey_service.dto.request.SaveTestProgressRequest;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
 import com.exe.skillverse_backend.journey_service.service.JourneyService;
 import com.exe.skillverse_backend.shared.util.JwtUtils;
@@ -172,6 +173,23 @@ public class JourneyController {
         User user = getUserFromAuth(userDetails);
         log.info("Submitting test for journey: {}", journeyId);
         return ResponseEntity.ok(journeyService.submitTest(user, journeyId, request));
+    }
+
+    /**
+     * Save temporary test progress.
+     * POST /api/v1/journey/{journeyId}/test/{testId}/progress
+     */
+    @PostMapping("/{journeyId}/test/{testId}/progress")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> saveTestProgress(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable Long journeyId,
+            @PathVariable Long testId,
+            @Valid @RequestBody SaveTestProgressRequest request) {
+        User user = getUserFromAuth(userDetails);
+        log.info("Saving progress for test {} in journey: {}", testId, journeyId);
+        journeyService.saveTestProgress(user, journeyId, testId, request);
+        return ResponseEntity.ok().build();
     }
 
     /**

@@ -29,4 +29,5 @@ public class GenerateTestResponse {
     private String questionSource;
     private String questionsJson;
     private String message;
+    private String userAnswersJson;
 }

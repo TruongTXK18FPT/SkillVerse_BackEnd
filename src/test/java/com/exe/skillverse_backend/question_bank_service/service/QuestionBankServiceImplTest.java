@@ -180,26 +180,26 @@ class QuestionBankServiceImplTest {
     }
 
     @Test
-    @DisplayName("isBankReadyForAllLevels should accept banks with at least 25 questions per difficulty")
-    void isBankReadyForAllLevels_ShouldAcceptTwentyFiveQuestionsPerDifficulty() {
+    @DisplayName("isBankReadyForAllLevels should accept banks with at least 10 questions per difficulty")
+    void isBankReadyForAllLevels_ShouldAcceptTenQuestionsPerDifficulty() {
         when(questionBankQuestionRepository.countByDifficulty(10L)).thenReturn(List.of(
-                new Object[]{"BEGINNER", 25L},
-                new Object[]{"INTERMEDIATE", 25L},
-                new Object[]{"ADVANCED", 25L},
-                new Object[]{"EXPERT", 25L}
+                new Object[]{"BEGINNER", 10L},
+                new Object[]{"INTERMEDIATE", 10L},
+                new Object[]{"ADVANCED", 10L},
+                new Object[]{"EXPERT", 10L}
         ));
 
         assertTrue(service.isBankReadyForAllLevels(10L));
     }
 
     @Test
-    @DisplayName("isBankReadyForAllLevels should reject banks with any difficulty below 25 questions")
-    void isBankReadyForAllLevels_ShouldRejectDifficultyBelowTwentyFive() {
+    @DisplayName("isBankReadyForAllLevels should reject banks with any difficulty below 10 questions")
+    void isBankReadyForAllLevels_ShouldRejectDifficultyBelowTen() {
         when(questionBankQuestionRepository.countByDifficulty(11L)).thenReturn(List.of(
-                new Object[]{"BEGINNER", 25L},
-                new Object[]{"INTERMEDIATE", 25L},
-                new Object[]{"ADVANCED", 25L},
-                new Object[]{"EXPERT", 24L}
+                new Object[]{"BEGINNER", 10L},
+                new Object[]{"INTERMEDIATE", 10L},
+                new Object[]{"ADVANCED", 10L},
+                new Object[]{"EXPERT", 9L}
         ));
 
         assertFalse(service.isBankReadyForAllLevels(11L));

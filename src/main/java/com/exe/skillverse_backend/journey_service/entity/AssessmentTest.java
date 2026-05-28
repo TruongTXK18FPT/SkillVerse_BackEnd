@@ -142,6 +142,13 @@ public class AssessmentTest {
     private String questionsJson;
 
     /**
+     * Temporary store of user's selected answers during progress.
+     */
+    @Column(name = "user_answers_json", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
+    private String userAnswersJson;
+
+    /**
      * AI prompt used to generate this test
      */
     @Column(name = "generation_prompt", columnDefinition = "TEXT")

@@ -50,8 +50,10 @@ import com.exe.skillverse_backend.study_service.service.AiStudySupportService;
 import com.exe.skillverse_backend.question_bank_service.dto.request.CreateQuestionBankRequest;
 import com.exe.skillverse_backend.question_bank_service.dto.response.QuestionBankResponse;
 import com.exe.skillverse_backend.question_bank_service.entity.QuestionBank;
+import com.exe.skillverse_backend.question_bank_service.repository.QuestionBankRepository;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankQuestionService;
+import com.exe.skillverse_backend.journey_service.dto.request.SaveTestProgressRequest;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
@@ -101,8 +103,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class JourneyServiceImpl implements JourneyService {
 
     private static final int MAX_ASSESSMENT_ATTEMPTS = 2;
-    private static final int DEFAULT_ASSESSMENT_QUESTION_COUNT = 50;
-    private static final int DEFAULT_ASSESSMENT_TIME_LIMIT_MINUTES = 50;
+    private static final int DEFAULT_ASSESSMENT_QUESTION_COUNT = 40;
+    private static final int DEFAULT_ASSESSMENT_TIME_LIMIT_MINUTES = 40;
     private static final int DEFAULT_RECOVERED_QUESTION_COUNT = DEFAULT_ASSESSMENT_QUESTION_COUNT;
     private static final int MIN_SKILL_JOURNEY_BANK_SEED_QUESTIONS = 5;
     private static final int MAX_CONCURRENT_LEARNING_JOURNEYS = 5;
@@ -143,6 +145,8 @@ public class JourneyServiceImpl implements JourneyService {
     private final AiStudySupportService aiStudySupportService;
     private final QuestionBankService questionBankService;
     private final QuestionBankQuestionService questionBankQuestionService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private QuestionBankRepository questionBankRepository;
     private final StudySessionRepository studySessionRepository;
     private final BookingRepository bookingRepository;
     private final PortfolioExtendedProfileRepository portfolioExtendedProfileRepository;
@@ -619,20 +623,24 @@ public class JourneyServiceImpl implements JourneyService {
                     requestedQuestionCount,
                     userLevel,
                     assessmentData);
-            if (jobPositionQuestions.size() >= requestedQuestionCount) {
-                questionBankService.incrementUsedCount(jobPositionQuestions);
+            int minThreshold = 40;
+            if (jobPositionQuestions.size() >= minThreshold) {
+                int finalCount = Math.min(jobPositionQuestions.size(), requestedQuestionCount);
+                List<QuestionInfo> finalQuestions = jobPositionQuestions.stream().limit(finalCount).toList();
+                
+                questionBankService.incrementUsedCount(finalQuestions);
                 return saveQuestionBankAssessmentTest(
                         journey,
                         user,
                         domain,
                         null,
-                        jobPositionQuestions.stream().limit(requestedQuestionCount).toList(),
+                        finalQuestions,
                         requestedTimeLimitMinutes,
                         generationContext,
-                        buildJobPositionQuestionBankPrompt(jobContext, requestedQuestionCount, assessmentData, userLevel));
+                        buildJobPositionQuestionBankPrompt(jobContext, finalCount, assessmentData, userLevel));
             }
-            log.info("Job-position bank selection returned only {} / {} questions for track {}.",
-                    jobPositionQuestions.size(), requestedQuestionCount, jobContext.track().getId());
+            log.info("Job-position bank selection returned only {} / {} questions for track {}. (Minimum required: {}).",
+                    jobPositionQuestions.size(), requestedQuestionCount, jobContext.track().getId(), minThreshold);
             log.info("Falling back to AI generation for job-position track {}. AI-generated questions will be saved to the matching question bank after submission.",
                     jobContext.track().getId());
             return null;
@@ -1764,6 +1772,7 @@ public class JourneyServiceImpl implements JourneyService {
                 .questionSource(test.getQuestionSource())
                 .questionsJson(test.getQuestionsJson())
                 .message(message)
+                .userAnswersJson(test.getUserAnswersJson())
                 .build();
     }
 
@@ -1959,6 +1968,7 @@ public class JourneyServiceImpl implements JourneyService {
                 .questionsJson(test.getQuestionsJson())
                 .createdAt(test.getCreatedAt())
                 .showResults(test.getStatus() == AssessmentTest.TestStatus.COMPLETED)
+                .userAnswersJson(test.getUserAnswersJson())
                 .build();
     }
 
@@ -5741,6 +5751,40 @@ public class JourneyServiceImpl implements JourneyService {
         }
 
         return roadmapResponse.getSessionId();
+    }
+
+    @Override
+    @Transactional
+    public void saveTestProgress(User user, Long journeyId, Long testId, SaveTestProgressRequest request) {
+        log.info("Saving test progress for journey {} and test {}", journeyId, testId);
+        
+        Journey journey = journeyRepository.findByIdAndUser(journeyId, user)
+                .orElseThrow(() -> new RuntimeException("Journey not found"));
+
+        AssessmentTest test = assessmentTestRepository.findByIdAndJourney(testId, journey)
+                .orElseThrow(() -> new RuntimeException("Test not found"));
+
+        if (test.getStatus() == AssessmentTest.TestStatus.COMPLETED) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "Cannot save progress for a completed test.");
+        }
+
+        try {
+            Map<Long, String> normalized = normalizeUserAnswers(request.getAnswers());
+            String userAnswersJson = objectMapper.writeValueAsString(normalized);
+            test.setUserAnswersJson(userAnswersJson);
+            
+            if (test.getStatus() == AssessmentTest.TestStatus.PENDING) {
+                test.setStatus(AssessmentTest.TestStatus.IN_PROGRESS);
+                journey.setStatus(Journey.JourneyStatus.TEST_IN_PROGRESS);
+                journeyRepository.save(journey);
+            }
+            
+            assessmentTestRepository.save(test);
+            log.info("Saved userAnswersJson successfully for test {}", testId);
+        } catch (Exception e) {
+            log.error("Failed to save test progress", e);
+            throw new RuntimeException("Failed to save test progress", e);
+        }
     }
 
 }
