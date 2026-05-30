@@ -229,6 +229,38 @@ class RoadmapCompletionSyncServiceTest {
     }
 
     @Test
+    void overlayDerivedProgress_doesNotOverrideToZeroWhenTasksAreDone() {
+        RoadmapSession session = buildSession(15L, 77L);
+        RoadmapResponse.RoadmapNode node = RoadmapResponse.RoadmapNode.builder()
+                .id("node-fallback")
+                .suggestedCourseIds(List.of())
+                .build();
+
+        Task doneTask = Task.builder()
+                .status("Done")
+                .user(session.getUser())
+                .userNotes("[ROADMAP_NODE_LINK] roadmap=15 node=node-fallback")
+                .build();
+
+        RoadmapResponse.QuestProgress stored = RoadmapResponse.QuestProgress.builder()
+                .questId("node-fallback")
+                .status(UserRoadmapProgress.ProgressStatus.NOT_STARTED.name())
+                .progress(0)
+                .build();
+
+        when(taskRepository.findByUserIdAndUserNotesContaining(eq(77L), anyString())).thenReturn(List.of(doneTask));
+
+        Map<String, RoadmapResponse.QuestProgress> result = service.overlayDerivedProgress(
+                session, 
+                List.of(node), 
+                Map.of("node-fallback", stored));
+
+        assertEquals("IN_PROGRESS", result.get("node-fallback").getStatus());
+        assertEquals(99, result.get("node-fallback").getProgress());
+        verify(progressRepository, never()).saveAll(any());
+    }
+
+    @Test
     void difficultyToRank_handlesEdgeCaseVariations() {
         // Test edge-case difficulty strings don't throw
         // The overlayDerivedProgress exercises difficultyToRank via selectPrimaryCourse

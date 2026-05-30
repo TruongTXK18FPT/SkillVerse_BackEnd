@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapNodeAiEnrichmentService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -11,6 +12,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -74,6 +76,98 @@ class RoadmapNodeAiEnrichmentServiceTest {
         assertThat(result.getSuccessCriteria()).hasSize(2).contains("Ứng dụng chạy không lỗi");
         assertThat(result.getExpectedOutput()).contains("Mã nguồn chương trình Calculator");
         assertThat(result.getRubric()).contains("Đúng yêu cầu: 5đ");
+    }
+
+    @Test
+    void enrichNodeRendersStructuredRubricItemsToMarkdown() {
+        String jsonText = "{\n"
+                + "  \"description\": \"Học database persistence qua thiết kế schema, repository và transaction.\",\n"
+                + "  \"learningObjectives\": [\"Thiết kế schema\", \"Viết repository\", \"Quản lý transaction\"],\n"
+                + "  \"practicalExercises\": [\"Tạo database cho ứng dụng học tập\"],\n"
+                + "  \"successCriteria\": [\"Schema chạy được\", \"Có quan hệ rõ ràng\"],\n"
+                + "  \"expectedOutput\": \"Nộp source code và sơ đồ database.\",\n"
+                + "  \"rubricItems\": [\n"
+                + "    {\n"
+                + "      \"criterion\": \"Thiết kế database schema\",\n"
+                + "      \"weight\": \"30%\",\n"
+                + "      \"passDescription\": \"Có bảng, quan hệ, khóa chính/phụ rõ ràng\",\n"
+                + "      \"failDescription\": \"Thiếu quan hệ hoặc schema không chạy được\"\n"
+                + "    },\n"
+                + "    {\n"
+                + "      \"criterion\": \"Repository implementation\",\n"
+                + "      \"weight\": \"40%\",\n"
+                + "      \"passDescription\": \"CRUD hoạt động và có truy vấn cần thiết\",\n"
+                + "      \"failDescription\": \"Repository lỗi hoặc thiếu thao tác chính\"\n"
+                + "    }\n"
+                + "  ]\n"
+                + "}";
+
+        ChatResponse chatResponse = mock(ChatResponse.class);
+        Generation generation = mock(Generation.class);
+        AssistantMessage assistantMessage = mock(AssistantMessage.class);
+
+        when(mistralChatModel.call(any(Prompt.class))).thenReturn(chatResponse);
+        when(chatResponse.getResult()).thenReturn(generation);
+        when(generation.getOutput()).thenReturn(assistantMessage);
+        when(assistantMessage.getContent()).thenReturn(jsonText);
+
+        RoadmapNodeAiEnrichmentService.EnrichedNode result = service.enrichNode(
+                "Database & Persistence",
+                "Làm việc với database trong backend",
+                "Baseline Output",
+                "Baseline Rubric configured by Admin with enough detail",
+                "Database",
+                "BEGINNER",
+                "BUILD_FROM_SCRATCH",
+                true,
+                false
+        );
+
+        assertThat(result.getRubric()).contains("| Tiêu chí | Trọng số/Điểm | Đạt | Chưa đạt |");
+        assertThat(result.getRubric()).contains("| Thiết kế database schema | 30% | Có bảng, quan hệ, khóa chính/phụ rõ ràng | Thiếu quan hệ hoặc schema không chạy được |");
+        assertThat(result.getRubric()).contains("| Repository implementation | 40% | CRUD hoạt động và có truy vấn cần thiết | Repository lỗi hoặc thiếu thao tác chính |");
+    }
+
+    @Test
+    void enrichNodePromptRequestsStructuredRubricItemsInsteadOfMarkdownRubricString() {
+        String jsonText = "{\n"
+                + "  \"description\": \"Học REST API theo từng bước thực hành.\",\n"
+                + "  \"learningObjectives\": [\"Hiểu REST\", \"Thiết kế endpoint\", \"Kiểm thử API\"],\n"
+                + "  \"practicalExercises\": [\"Tạo API CRUD\"],\n"
+                + "  \"successCriteria\": [\"API chạy đúng\"],\n"
+                + "  \"expectedOutput\": \"Nộp source code API.\",\n"
+                + "  \"rubricItems\": [\n"
+                + "    {\"criterion\": \"REST design\", \"weight\": \"50%\", \"passDescription\": \"Endpoint rõ ràng\", \"failDescription\": \"Endpoint sai chuẩn\"}\n"
+                + "  ]\n"
+                + "}";
+
+        ChatResponse chatResponse = mock(ChatResponse.class);
+        Generation generation = mock(Generation.class);
+        AssistantMessage assistantMessage = mock(AssistantMessage.class);
+
+        when(mistralChatModel.call(any(Prompt.class))).thenReturn(chatResponse);
+        when(chatResponse.getResult()).thenReturn(generation);
+        when(generation.getOutput()).thenReturn(assistantMessage);
+        when(assistantMessage.getContent()).thenReturn(jsonText);
+
+        service.enrichNode(
+                "REST API",
+                "Thiết kế API chuẩn RESTful",
+                "Original Out",
+                "Original Rubric",
+                "RESTful API",
+                "INTERMEDIATE",
+                "BUILD_PORTFOLIO",
+                false,
+                true
+        );
+
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+        verify(mistralChatModel).call(promptCaptor.capture());
+        String promptText = promptCaptor.getValue().getContents();
+
+        assertThat(promptText).contains("\"rubricItems\"");
+        assertThat(promptText).doesNotContain("\"rubric\": \"(Bảng rubric Markdown bắt buộc)\"");
     }
 
     @Test

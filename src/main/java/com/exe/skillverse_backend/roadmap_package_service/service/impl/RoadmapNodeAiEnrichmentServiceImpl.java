@@ -50,6 +50,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
 
     private static final int MAX_RETRIES = 2;
     private static final long RETRY_BACKOFF_MS = 5000;
+    private static final long MIN_MISTRAL_REQUEST_GAP_MS = 1200;
 
     public RoadmapNodeAiEnrichmentServiceImpl(
             @Qualifier("mistralAiChatModel") ChatModel mistralChatModel,
@@ -215,13 +216,13 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         Exception lastException = null;
         for (int attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
             try {
-                // Thread-safe progressive Ticket-based Rate Limiter (1.0s minimum gap between ANY Mistral requests)
+                // Thread-safe progressive Ticket-based Rate Limiter between Mistral requests.
                 long now = System.currentTimeMillis();
                 long scheduledTime;
                 while (true) {
                     long currentNext = nextAllowedRequestTime.get();
                     scheduledTime = Math.max(now, currentNext);
-                    long next = scheduledTime + 1000L;
+                    long next = scheduledTime + MIN_MISTRAL_REQUEST_GAP_MS;
                     if (nextAllowedRequestTime.compareAndSet(currentNext, next)) {
                         break;
                     }
@@ -362,7 +363,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 "3. Bài tập thực hành thực tế (practicalExercises): Thiết kế bài tập thực hành chi tiết, mô tả cụ thể từng bước thực hiện với độ khó tương thích với trình độ " + studentLevel + " của học viên, bám sát theo Khung bài tập mẫu có sẵn của Admin nhưng được làm chi tiết và bổ dung hướng dẫn thực hành thực tế.\n" +
                 "4. Tiêu chí thành công (successCriteria): Danh sách các chỉ số kỹ thuật cụ thể để đánh giá mức độ hoàn thành bài tập của học viên ở cấp độ " + studentLevel + ".\n" +
                 "5. Mô tả sản phẩm phải nộp (expectedOutput): Hãy dựa trên Khung bài tập mẫu của Admin và thiết kế một checklist sản phẩm bàn giao chi tiết (định dạng Markdown). Hãy ghi rõ sản phẩm gồm những file gì, cấu trúc ra sao, yêu cầu chức năng tối thiểu là gì để phù hợp với trình độ " + studentLevel + " của học viên. Không được trả về chuỗi rỗng.\n" +
-                "6. Rubric chấm điểm chi tiết (rubric): Thiết kế một bảng tiêu chí đánh giá chi tiết (rubric) định dạng bảng Markdown (gồm cột: Tiêu chí, Trọng số/Điểm, Mô tả chi tiết cho mức Đạt/Không Đạt). Hãy tùy biến tiêu chí và thang điểm để đánh giá đúng năng lực của học viên ở trình độ " + studentLevel + " (đặc biệt chú ý nếu học viên bị hổng kiến thức thì tập trung vào tính đúng đắn cơ bản, nếu là thế mạnh thì nâng cao tiêu chí tối ưu/performance). Không được trả về chuỗi rỗng.\n" +
+                "6. Rubric chấm điểm chi tiết (rubricItems): Thiết kế danh sách tiêu chí đánh giá có cấu trúc. KHÔNG trả về bảng Markdown trong JSON. Mỗi phần tử phải có criterion, weight, passDescription, failDescription. Hãy tùy biến tiêu chí và thang điểm để đánh giá đúng năng lực của học viên ở trình độ " + studentLevel + " (đặc biệt chú ý nếu học viên bị hổng kiến thức thì tập trung vào tính đúng đắn cơ bản, nếu là thế mạnh thì nâng cao tiêu chí tối ưu/performance). Không được trả về mảng rỗng.\n" +
                 lessonsInstruction +
                 "Chỉ phản hồi bằng một chuỗi JSON duy nhất, hợp lệ, không chứa ký tự thừa hay giải thích ngoài lề, có định dạng chính xác sau:\n" +
                 "{\n" +
@@ -371,7 +372,14 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 "  \"practicalExercises\": [\"Bài tập thực hành chi tiết\"],\n" +
                 "  \"successCriteria\": [\"Tiêu chí 1\", \"Tiêu chí 2\"],\n" +
                 "  \"expectedOutput\": \"(Checklist sản phẩm dạng Markdown bắt buộc)\",\n" +
-                "  \"rubric\": \"(Bảng rubric Markdown bắt buộc)\",\n" +
+                "  \"rubricItems\": [\n" +
+                "    {\n" +
+                "      \"criterion\": \"(Tên tiêu chí đánh giá)\",\n" +
+                "      \"weight\": \"(Trọng số hoặc điểm)\",\n" +
+                "      \"passDescription\": \"(Mô tả mức đạt)\",\n" +
+                "      \"failDescription\": \"(Mô tả mức chưa đạt)\"\n" +
+                "    }\n" +
+                "  ],\n" +
                 "  \"lessons\": [\n" +
                 "    {\n" +
                 "      \"title\": \"(Tiêu đề bài học đã được chi tiết hóa)\",\n" +
@@ -389,7 +397,10 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
 
         String description = rootNode.path("description").asText("");
         String expectedOutput = rootNode.path("expectedOutput").asText("");
-        String rubric = rootNode.path("rubric").asText("");
+        String rubric = renderRubricItems(rootNode.path("rubricItems"));
+        if (rubric.isBlank()) {
+            rubric = rootNode.path("rubric").asText("");
+        }
 
         List<String> objectives = new ArrayList<>();
         JsonNode objNode = rootNode.path("learningObjectives");
@@ -449,6 +460,52 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         }
 
         return new EnrichedNode(description, objectives, exercises, criteria, expectedOutput, rubric, lessons);
+    }
+
+    private String renderRubricItems(JsonNode rubricItemsNode) {
+        if (!rubricItemsNode.isArray() || rubricItemsNode.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("| Tiêu chí | Trọng số/Điểm | Đạt | Chưa đạt |\n");
+        sb.append("| --- | --- | --- | --- |\n");
+
+        for (JsonNode item : rubricItemsNode) {
+            String criterion = item.path("criterion").asText("").trim();
+            String weight = item.path("weight").asText("").trim();
+            String passDescription = item.path("passDescription").asText("").trim();
+            String failDescription = item.path("failDescription").asText("").trim();
+
+            if (criterion.isBlank() && weight.isBlank() && passDescription.isBlank() && failDescription.isBlank()) {
+                continue;
+            }
+
+            sb.append("| ")
+                    .append(escapeMarkdownTableCell(criterion))
+                    .append(" | ")
+                    .append(escapeMarkdownTableCell(weight))
+                    .append(" | ")
+                    .append(escapeMarkdownTableCell(passDescription))
+                    .append(" | ")
+                    .append(escapeMarkdownTableCell(failDescription))
+                    .append(" |\n");
+        }
+
+        String rendered = sb.toString().trim();
+        return rendered.lines().count() > 2 ? rendered : "";
+    }
+
+    private String escapeMarkdownTableCell(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return value
+                .replace("|", "\\|")
+                .replace("\r\n", " ")
+                .replace("\n", " ")
+                .replace("\r", " ")
+                .trim();
     }
 
     private String extractJson(String text) {

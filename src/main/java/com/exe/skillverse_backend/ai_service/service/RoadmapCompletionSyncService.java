@@ -330,22 +330,6 @@ public class RoadmapCompletionSyncService {
             return null;
         }
 
-        // Respect an explicit NOT_STARTED override. This is used when a mentor
-        // reopens a node after reviewing evidence as failed/rework-required.
-        // Tasks may still be marked done, but the learner must explicitly mark
-        // the node complete again before it can return to COMPLETED.
-        if (existingProgress != null
-                && UserRoadmapProgress.ProgressStatus.NOT_STARTED.name().equals(existingProgress.getStatus())
-                && clampProgress(existingProgress.getProgress()) == 0
-                && taskProgress >= 100) {
-            return RoadmapResponse.QuestProgress.builder()
-                    .questId(node.getId())
-                    .status(UserRoadmapProgress.ProgressStatus.NOT_STARTED.name())
-                    .progress(0)
-                    .completedAt(null)
-                    .build();
-        }
-
         return buildQuestProgress(node.getId(), taskProgress, existingProgress);
     }
 
