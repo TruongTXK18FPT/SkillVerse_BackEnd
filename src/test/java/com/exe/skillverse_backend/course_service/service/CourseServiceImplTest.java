@@ -10,6 +10,7 @@ import com.exe.skillverse_backend.course_service.entity.enums.CourseStatus;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseUpgradePolicy;
 import com.exe.skillverse_backend.course_service.entity.enums.EnrollmentStatus;
 import com.exe.skillverse_backend.course_service.mapper.CourseMapper;
+import com.exe.skillverse_backend.course_service.dto.coursedto.CourseSummaryDTO;
 import com.exe.skillverse_backend.course_service.policy.CourseDeletionPolicy;
 import com.exe.skillverse_backend.course_service.policy.CourseRevisionFeatureProperties;
 import com.exe.skillverse_backend.course_service.repository.CourseEnrollmentRepository;
@@ -20,8 +21,11 @@ import com.exe.skillverse_backend.course_service.repository.ModuleRepository;
 import com.exe.skillverse_backend.course_service.service.impl.CourseServiceImpl;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
+import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.service.CloudinaryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -184,6 +188,11 @@ class CourseServiceImplTest {
         Course course = buildCourse(courseId, authorId, CourseStatus.PUBLIC);
         course.setRevisioningEnabled(true);
         course.setActiveRevisionId(activeRevisionId);
+        Media revisionThumbnail = Media.builder()
+                .id(501L)
+                .url("https://cdn.example.com/active-revision.png")
+                .type("image/png")
+                .build();
 
         CourseRevision revision = CourseRevision.builder()
                 .id(activeRevisionId)
@@ -200,6 +209,7 @@ class CourseServiceImplTest {
                 .learningObjectivesJson(new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Collections.singletonList("Obj 1")))
                 .requirementsJson(new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Collections.singletonList("Req 1")))
                 .courseSkillTagsJson(new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(Arrays.asList("JAVA", "PYTHON")))
+                .thumbnail(revisionThumbnail)
                 .build();
 
         CourseDetailDTO mappedDto = new CourseDetailDTO();
@@ -224,6 +234,49 @@ class CourseServiceImplTest {
         assertEquals("Req 1", result.getRequirements().get(0));
         assertEquals("JAVA", result.getCourseSkills().get(0));
         assertEquals("PYTHON", result.getCourseSkills().get(1));
+        assertEquals("https://cdn.example.com/active-revision.png", result.getThumbnailUrl());
+    }
+
+    @Test
+    void listCourses_overlaysActiveRevisionThumbnail_whenReadPathEnabled() {
+        Long courseId = 250L;
+        Long authorId = 11L;
+        Long activeRevisionId = 950L;
+
+        Course course = buildCourse(courseId, authorId, CourseStatus.PUBLIC);
+        course.setRevisioningEnabled(true);
+        course.setActiveRevisionId(activeRevisionId);
+
+        Media revisionThumbnail = Media.builder()
+                .id(601L)
+                .url("https://cdn.example.com/summary-revision.png")
+                .type("image/png")
+                .build();
+        CourseRevision revision = CourseRevision.builder()
+                .id(activeRevisionId)
+                .course(course)
+                .title("Summary revision title")
+                .thumbnail(revisionThumbnail)
+                .build();
+
+        CourseSummaryDTO mappedSummary = new CourseSummaryDTO();
+        mappedSummary.setId(courseId);
+        mappedSummary.setTitle("Base summary title");
+
+        when(courseRepository.findByStatusWithAuthor(CourseStatus.PUBLIC, PageRequest.of(0, 10)))
+                .thenReturn(new PageImpl<>(Collections.singletonList(course), PageRequest.of(0, 10), 1));
+        when(courseMapper.toSummaryDto(course)).thenReturn(mappedSummary);
+        when(courseRevisionFeatureProperties.isReadEnabled()).thenReturn(true);
+        when(courseRevisionRepository.findAllById(any()))
+                .thenReturn(Collections.singletonList(revision));
+
+        CourseSummaryDTO result = courseService.listCourses(null, CourseStatus.PUBLIC, PageRequest.of(0, 10))
+                .getItems()
+                .get(0);
+
+        assertEquals("Summary revision title", result.getTitle());
+        assertEquals(601L, result.getThumbnailMediaId());
+        assertEquals("https://cdn.example.com/summary-revision.png", result.getThumbnailUrl());
     }
 
     @Test
@@ -274,20 +327,23 @@ class CourseServiceImplTest {
 
         Course course = buildCourse(courseId, authorId, CourseStatus.PENDING);
         course.setSubmittedAt(Instant.parse("2026-03-20T09:30:00Z"));
-        CourseDetailDTO mapped = new CourseDetailDTO();
-
-        CourseRevision savedRevision = CourseRevision.builder()
-                .id(7001L)
-                .course(course)
-                .revisionNumber(1)
-                .status(CourseRevisionStatus.APPROVED)
+        Media thumbnail = Media.builder()
+                .id(801L)
+                .url("https://cdn.example.com/initial-approval.png")
+                .type("image/png")
                 .build();
+        course.setThumbnail(thumbnail);
+        CourseDetailDTO mapped = new CourseDetailDTO();
 
         when(courseRepository.findById(courseId)).thenReturn(Optional.of(course));
         when(courseRepository.save(any(Course.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(courseRevisionRepository.findTopByCourseIdOrderByRevisionNumberDesc(courseId))
                 .thenReturn(Optional.empty());
-        when(courseRevisionRepository.save(any(CourseRevision.class))).thenReturn(savedRevision);
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> {
+            CourseRevision revision = invocation.getArgument(0);
+            revision.setId(7001L);
+            return revision;
+        });
         when(enrollmentRepository.countByCourseId(courseId)).thenReturn(0L);
         when(courseMapper.toDetailDto(course)).thenReturn(mapped);
         when(clock.instant()).thenReturn(now);
@@ -300,7 +356,9 @@ class CourseServiceImplTest {
         assertEquals(7001L, course.getLatestRevisionId());
         assertEquals(Boolean.TRUE, course.getRevisioningEnabled());
         assertEquals(mapped, result);
-        verify(courseRevisionRepository).save(any(CourseRevision.class));
+        ArgumentCaptor<CourseRevision> revisionCaptor = ArgumentCaptor.forClass(CourseRevision.class);
+        verify(courseRevisionRepository).save(revisionCaptor.capture());
+        assertEquals(thumbnail, revisionCaptor.getValue().getThumbnail());
     }
 
     private Course buildCourse(Long courseId, Long authorId, CourseStatus status) {

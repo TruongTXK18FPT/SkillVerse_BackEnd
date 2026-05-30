@@ -33,6 +33,7 @@ import com.exe.skillverse_backend.shared.exception.BadRequestException;
 import com.exe.skillverse_backend.shared.exception.ConflictException;
 import com.exe.skillverse_backend.shared.repository.MediaRepository;
 import com.exe.skillverse_backend.shared.repository.SkillRepository;
+import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.course_service.entity.CourseSkill;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -210,6 +211,11 @@ class CourseRevisionServiceImplTest {
                 .author(User.builder().id(authorId).build())
                 .status(CourseStatus.PUBLIC)
                 .title("Course A")
+                .thumbnail(Media.builder()
+                        .id(610L)
+                        .url("https://cdn.example.com/course-a.png")
+                        .type("image/png")
+                        .build())
                 .modules(List.of(module))
                 .courseSkillTags(List.of("JAVA", "PYTHON"))
                 .build();
@@ -242,6 +248,8 @@ class CourseRevisionServiceImplTest {
         CourseRevisionDTO created = courseRevisionService.createRevision(courseId, authorId);
 
         assertEquals(2, created.getRevisionNumber());
+        assertEquals(610L, created.getThumbnailMediaId());
+        assertEquals("https://cdn.example.com/course-a.png", created.getThumbnailUrl());
         JsonNode snapshot = objectMapper.readTree(created.getContentSnapshotJson());
         assertEquals(1, snapshot.path("snapshotVersion").asInt());
         assertEquals("Module A", snapshot.path("modules").get(0).path("title").asText());
@@ -2697,6 +2705,52 @@ class CourseRevisionServiceImplTest {
     }
 
     @Test
+    void approveRevision_preservesCourseThumbnailWhenRevisionDoesNotCarryThumbnail() {
+        Long revisionId = 401L;
+        Long adminId = 3L;
+        Instant now = Instant.parse("2026-03-16T04:30:00Z");
+        Media existingCourseThumbnail = Media.builder()
+                .id(702L)
+                .url("https://cdn.example.com/existing-course-thumb.png")
+                .type("image/png")
+                .build();
+
+        Course course = Course.builder()
+                .id(91L)
+                .status(CourseStatus.PUBLIC)
+                .activeRevisionId(111L)
+                .latestRevisionId(111L)
+                .author(User.builder().id(9L).build())
+                .title("Course B")
+                .thumbnail(existingCourseThumbnail)
+                .build();
+
+        CourseRevision pendingRevision = CourseRevision.builder()
+                .id(revisionId)
+                .course(course)
+                .revisionNumber(2)
+                .status(CourseRevisionStatus.PENDING)
+                .title("Rev 2 without thumbnail change")
+                .thumbnail(null)
+                .build();
+
+        when(courseRevisionFeatureProperties.isApprovalEnabled()).thenReturn(true);
+        when(courseRevisionRepository.findByIdForApproval(revisionId)).thenReturn(Optional.of(pendingRevision));
+        when(courseRepository.findByIdForRevisionApproval(course.getId())).thenReturn(Optional.of(course));
+        when(clock.instant()).thenReturn(now);
+        when(courseRevisionRepository.save(any(CourseRevision.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(courseRepository.save(course)).thenReturn(course);
+        lenient().when(courseSkillRepository.deleteByCourseId(course.getId())).thenReturn(0);
+
+        CourseRevisionDTO result = courseRevisionService.approveRevision(revisionId, adminId);
+
+        assertEquals(existingCourseThumbnail, course.getThumbnail());
+        assertEquals(existingCourseThumbnail, pendingRevision.getThumbnail());
+        assertEquals(702L, result.getThumbnailMediaId());
+        assertEquals("https://cdn.example.com/existing-course-thumb.png", result.getThumbnailUrl());
+    }
+
+    @Test
         void approveRevision_returnsManualOnlyAutoUpgradeMetadata() {
         Long revisionId = 400L;
         Long adminId = 3L;
@@ -2710,6 +2764,11 @@ class CourseRevisionServiceImplTest {
                 .author(User.builder().id(9L).build())
                 .title("Course A")
                 .build();
+        Media revisionThumbnail = Media.builder()
+                .id(701L)
+                .url("https://cdn.example.com/revision-thumb.png")
+                .type("image/png")
+                .build();
 
         CourseRevision pendingRevision = CourseRevision.builder()
                 .id(revisionId)
@@ -2717,6 +2776,7 @@ class CourseRevisionServiceImplTest {
                 .revisionNumber(2)
                 .status(CourseRevisionStatus.PENDING)
                 .title("Rev 2")
+                .thumbnail(revisionThumbnail)
                 .build();
 
         when(courseRevisionFeatureProperties.isApprovalEnabled()).thenReturn(true);
@@ -2734,6 +2794,9 @@ class CourseRevisionServiceImplTest {
         assertEquals(CourseRevisionStatus.APPROVED, result.getStatus());
         assertEquals(revisionId, course.getActiveRevisionId());
         assertEquals(revisionId, course.getLatestRevisionId());
+        assertEquals(revisionThumbnail, course.getThumbnail());
+        assertEquals(701L, result.getThumbnailMediaId());
+        assertEquals("https://cdn.example.com/revision-thumb.png", result.getThumbnailUrl());
         assertEquals("SKIPPED", result.getAutoUpgradeOutcome());
         assertEquals(0, result.getAutoUpgradeAffectedEnrollments());
         assertEquals("POLICY_MANUAL_ONLY", result.getAutoUpgradeReasonCode());

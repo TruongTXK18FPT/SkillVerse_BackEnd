@@ -4,6 +4,7 @@ import com.exe.skillverse_backend.course_service.entity.CourseRevision;
 import com.exe.skillverse_backend.course_service.entity.enums.CourseRevisionStatus;
 import jakarta.persistence.LockModeType;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -43,6 +44,9 @@ public interface CourseRevisionRepository extends JpaRepository<CourseRevision, 
 
     @Transactional(readOnly = true)
     Page<CourseRevision> findByStatus(CourseRevisionStatus status, Pageable pageable);
+
+    @Transactional(readOnly = true)
+    List<CourseRevision> findByThumbnailId(Long thumbnailId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT cr FROM CourseRevision cr WHERE cr.id = :id")

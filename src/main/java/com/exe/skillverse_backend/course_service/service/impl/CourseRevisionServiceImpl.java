@@ -202,6 +202,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                 .learningObjectivesJson(writeJsonSafely(course.getLearningObjectives(), "[]"))
                 .requirementsJson(writeJsonSafely(course.getRequirements(), "[]"))
                 .courseSkillTagsJson(writeJsonSafely(course.getCourseSkillTags(), "[]"))
+                .thumbnail(course.getThumbnail())
                 .contentSnapshotJson(CourseRevisionSnapshotAssembler.buildCourseContentSnapshot(
                         objectMapper,
                         course,
@@ -381,7 +382,8 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
             Media uploaded = uploadRevisionThumbnail(thumbnailFile, actorId);
             revision.setThumbnail(uploaded);
         } else if (dto.getThumbnailMediaId() != null) {
-            Media existing = mediaRepository.findById(dto.getThumbnailMediaId()).orElse(null);
+            Media existing = mediaRepository.findById(dto.getThumbnailMediaId())
+                    .orElseThrow(() -> new NotFoundException("COURSE_REVISION_THUMBNAIL_MEDIA_NOT_FOUND"));
             revision.setThumbnail(existing);
         }
 
@@ -461,6 +463,12 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         Long courseId = revision.getCourse().getId();
         Course course = courseRepository.findByIdForRevisionApproval(courseId)
                 .orElseThrow(() -> new NotFoundException("COURSE_NOT_FOUND"));
+        Media effectiveThumbnail = revision.getThumbnail() != null
+                ? revision.getThumbnail()
+                : course.getThumbnail();
+        if (revision.getThumbnail() == null && effectiveThumbnail != null) {
+            revision.setThumbnail(effectiveThumbnail);
+        }
 
         revision.setStatus(CourseRevisionStatus.APPROVED);
         revision.setApprovedAt(now());
@@ -479,7 +487,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
         // so keeping them in sync prevents 400 errors and incorrect wallet charges.
         course.setPrice(saved.getPrice());
         course.setCurrency(saved.getCurrency());
-        course.setThumbnail(saved.getThumbnail());
+        course.setThumbnail(effectiveThumbnail);
         courseRepository.save(course);
 
         // Sync AI grading fields from approved revision snapshot → live assignments table
@@ -852,6 +860,7 @@ public class CourseRevisionServiceImpl implements CourseRevisionService {
                                 CONTENT_SNAPSHOT_VERSION_V1
                         )
                 ))
+                .thumbnail(course.getThumbnail())
                 .sourceRevisionId(null)
                 .sourceCourseStatus(course.getStatus().name())
                 .createdBy(actorId)
