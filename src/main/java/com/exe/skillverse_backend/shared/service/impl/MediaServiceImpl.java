@@ -1,8 +1,10 @@
 package com.exe.skillverse_backend.shared.service.impl;
 
 import com.exe.skillverse_backend.course_service.entity.Course;
+import com.exe.skillverse_backend.course_service.entity.CourseRevision;
 import com.exe.skillverse_backend.course_service.entity.Lesson;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
+import com.exe.skillverse_backend.course_service.repository.CourseRevisionRepository;
 import com.exe.skillverse_backend.course_service.repository.LessonRepository;
 import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
@@ -37,6 +39,7 @@ public class MediaServiceImpl implements MediaService {
 
     private final MediaRepository mediaRepository;
     private final CourseRepository courseRepository;
+    private final CourseRevisionRepository courseRevisionRepository;
     private final LessonRepository lessonRepository;
     private final MediaMapper mediaMapper;
     private final CloudinaryService cloudinaryService;
@@ -184,6 +187,7 @@ public class MediaServiceImpl implements MediaService {
         ensureOwnerOrAdmin(actorId, media.getUploadedBy(), null);
 
         int coursesUpdated = 0;
+        int revisionsUpdated = 0;
         int lessonsUpdated = 0;
 
         // Find and remove from courses using this as thumbnail
@@ -195,6 +199,14 @@ public class MediaServiceImpl implements MediaService {
             courseRepository.save(course);
             coursesUpdated++;
             log.info("Removed media {} from course {} thumbnail", mediaId, course.getId());
+        }
+
+        List<CourseRevision> revisionsWithThumbnail = courseRevisionRepository.findByThumbnailId(mediaId);
+        for (CourseRevision revision : revisionsWithThumbnail) {
+            revision.setThumbnail(null);
+            courseRevisionRepository.save(revision);
+            revisionsUpdated++;
+            log.info("Removed media {} from course revision {} thumbnail", mediaId, revision.getId());
         }
 
         // Find and remove from lessons using this as video
@@ -209,12 +221,16 @@ public class MediaServiceImpl implements MediaService {
         }
 
         // Clear the bidirectional collections in Media entity
-        media.getCoursesAsThumbnail().clear();
-        media.getLessonsAsVideo().clear();
+        if (media.getCoursesAsThumbnail() != null) {
+            media.getCoursesAsThumbnail().clear();
+        }
+        if (media.getLessonsAsVideo() != null) {
+            media.getLessonsAsVideo().clear();
+        }
         mediaRepository.save(media);
 
-        log.info("Media {} detached successfully from {} courses and {} lessons",
-                mediaId, coursesUpdated, lessonsUpdated);
+        log.info("Media {} detached successfully from {} courses, {} revisions and {} lessons",
+                mediaId, coursesUpdated, revisionsUpdated, lessonsUpdated);
     }
 
     @Override

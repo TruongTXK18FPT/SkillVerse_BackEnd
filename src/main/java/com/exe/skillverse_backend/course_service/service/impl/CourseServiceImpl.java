@@ -29,6 +29,7 @@ import com.exe.skillverse_backend.course_service.service.CourseService;
 import com.exe.skillverse_backend.course_service.util.CourseRevisionSnapshotAssembler;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.NotificationService;
+import com.exe.skillverse_backend.shared.dto.MediaDTO;
 import com.exe.skillverse_backend.shared.dto.PageResponse;
 import com.exe.skillverse_backend.shared.entity.Media;
 import com.exe.skillverse_backend.shared.enums.SkillStatus;
@@ -746,6 +747,7 @@ public class CourseServiceImpl implements CourseService {
                 .courseSkillTagsJson(objectMapper.valueToTree(
                     course.getCourseSkillTags() != null ? course.getCourseSkillTags() : Collections.emptyList()
                 ))
+                .thumbnail(course.getThumbnail())
                 .contentSnapshotJson(CourseRevisionSnapshotAssembler.buildCourseContentSnapshot(
                         objectMapper,
                         course,
@@ -793,6 +795,8 @@ public class CourseServiceImpl implements CourseService {
         detail.setLearningObjectives(toStringList(revision.getLearningObjectivesJson()));
         detail.setRequirements(toStringList(revision.getRequirementsJson()));
         detail.setCourseSkills(toStringList(revision.getCourseSkillTagsJson()));
+        detail.setThumbnail(toMediaDto(revision.getThumbnail()));
+        detail.setThumbnailUrl(revision.getThumbnail() != null ? revision.getThumbnail().getUrl() : null);
     }
 
     private void applyRevisionToSummary(CourseSummaryDTO summary, CourseRevision revision) {
@@ -809,6 +813,24 @@ public class CourseServiceImpl implements CourseService {
         summary.setPrice(revision.getPrice());
         summary.setCurrency(revision.getCurrency());
         summary.setLessonCount(countLessonLikeItemsFromRevisionSnapshot(revision.getContentSnapshotJson()));
+        summary.setThumbnailMediaId(revision.getThumbnail() != null ? revision.getThumbnail().getId() : null);
+        summary.setThumbnailUrl(revision.getThumbnail() != null ? revision.getThumbnail().getUrl() : null);
+    }
+
+    private MediaDTO toMediaDto(Media media) {
+        if (media == null) {
+            return null;
+        }
+        return MediaDTO.builder()
+                .id(media.getId())
+                .url(media.getUrl())
+                .type(media.getType())
+                .fileName(media.getFileName())
+                .fileSize(media.getFileSize())
+                .uploadedBy(media.getUploadedBy())
+                .uploadedAt(media.getUploadedAt())
+                .cloudinaryPublicId(media.getCloudinaryPublicId())
+                .build();
     }
 
     private int countLessonLikeItemsFromRevisionSnapshot(JsonNode contentSnapshotJson) {
