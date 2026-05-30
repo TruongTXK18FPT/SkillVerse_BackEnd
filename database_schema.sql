@@ -2745,6 +2745,51 @@ CREATE INDEX idx_question_bank_questions_bank_id ON question_bank_questions(ques
 CREATE INDEX idx_question_bank_questions_difficulty ON question_bank_questions(difficulty);
 CREATE INDEX idx_question_bank_questions_is_active ON question_bank_questions(is_active);
 
+-- Question bank submissions
+CREATE TABLE question_bank_submissions (
+    id                         BIGSERIAL PRIMARY KEY,
+    mentor_id                  BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    domain                     VARCHAR(50) NOT NULL,
+    domain_id                  BIGINT,
+    job_position_id            BIGINT,
+    skill_name                 VARCHAR(100) NOT NULL,
+    skill_id                   BIGINT,
+    title                      VARCHAR(255) NOT NULL,
+    description                TEXT,
+    difficulty_distribution    TEXT,
+    status                     VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    source                     VARCHAR(30) NOT NULL DEFAULT 'MANUAL',
+    question_count             INTEGER NOT NULL DEFAULT 0,
+    saved_question_count       INTEGER,
+    duplicate_question_count   INTEGER,
+    review_note                TEXT,
+    reviewed_by                BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at                TIMESTAMP,
+    resolved_question_bank_id  BIGINT REFERENCES question_banks(id) ON DELETE SET NULL,
+    created_at                 TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                 TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_qbs_mentor_status ON question_bank_submissions(mentor_id, status);
+CREATE INDEX idx_qbs_status_created_at ON question_bank_submissions(status, created_at);
+
+-- Question bank submission questions
+CREATE TABLE question_bank_submission_questions (
+    id             BIGSERIAL PRIMARY KEY,
+    submission_id  BIGINT NOT NULL REFERENCES question_bank_submissions(id) ON DELETE CASCADE,
+    display_order  INTEGER NOT NULL,
+    question_text  TEXT NOT NULL,
+    options        TEXT NOT NULL,
+    correct_answer VARCHAR(1) NOT NULL,
+    explanation    TEXT,
+    difficulty     VARCHAR(20) NOT NULL,
+    skill_area     VARCHAR(150),
+    category       VARCHAR(100),
+    created_at     TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_qbsq_submission_order ON question_bank_submission_questions(submission_id, display_order);
+
 -- ============================================================
 -- SECTION 23: STUDENT LEARNING REPORT SERVICE
 -- ============================================================
@@ -2779,7 +2824,691 @@ CREATE INDEX idx_student_learning_reports_student_id ON student_learning_reports
 CREATE INDEX idx_student_learning_reports_type ON student_learning_reports(report_type);
 
 -- ============================================================
--- SECTION 24: MISCELLANEOUS CONSTRAINTS & SEQUENCES
+-- SECTION 24: CAREER TAXONOMY SERVICE
+-- ============================================================
+
+-- Domains
+CREATE TABLE domains (
+    id          BIGSERIAL PRIMARY KEY,
+    code        VARCHAR(255) NOT NULL UNIQUE,
+    name        VARCHAR(255) NOT NULL,
+    description TEXT,
+    status      VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Job positions
+CREATE TABLE job_positions (
+    id          BIGSERIAL PRIMARY KEY,
+    code        VARCHAR(255) NOT NULL UNIQUE,
+    name        VARCHAR(255) NOT NULL,
+    description TEXT,
+    domain_id   BIGINT NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+    status      VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_job_positions_domain_id ON job_positions(domain_id);
+
+-- Job position tracks
+CREATE TABLE job_position_tracks (
+    id              BIGSERIAL PRIMARY KEY,
+    code            VARCHAR(255) NOT NULL UNIQUE,
+    name            VARCHAR(255) NOT NULL,
+    description     TEXT,
+    job_position_id BIGINT NOT NULL REFERENCES job_positions(id) ON DELETE CASCADE,
+    status          VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_job_position_tracks_job_position_id ON job_position_tracks(job_position_id);
+
+-- Job position track skills
+CREATE TABLE job_position_track_skills (
+    id               BIGSERIAL PRIMARY KEY,
+    track_id         BIGINT NOT NULL REFERENCES job_position_tracks(id) ON DELETE CASCADE,
+    skill_id         BIGINT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+    requirement_type VARCHAR(30) NOT NULL DEFAULT 'REQUIRED',
+    sort_order       INTEGER DEFAULT 0,
+    weight           INTEGER NOT NULL DEFAULT 1,
+    CONSTRAINT uk_track_skill UNIQUE (track_id, skill_id)
+);
+
+CREATE INDEX idx_jpts_track_id ON job_position_track_skills(track_id);
+CREATE INDEX idx_jpts_skill_id ON job_position_track_skills(skill_id);
+
+-- ============================================================
+-- SECTION 25: ROADMAP PACKAGE SERVICE
+-- ============================================================
+
+-- Roadmap templates
+CREATE TABLE roadmap_templates (
+    id                                 BIGSERIAL PRIMARY KEY,
+    created_by_admin_id                BIGINT,
+    updated_by_admin_id                BIGINT,
+    domain_id                          BIGINT NOT NULL,
+    job_position_id                    BIGINT NOT NULL,
+    job_position_track_id              BIGINT NOT NULL,
+    title                              VARCHAR(255) NOT NULL,
+    description                        TEXT,
+    target_role                        VARCHAR(255),
+    target_level                       VARCHAR(50),
+    target_role_snapshot               VARCHAR(255),
+    target_level_snapshot              VARCHAR(50),
+    total_node_count                   INTEGER,
+    generation_mode                    VARCHAR(30) NOT NULL DEFAULT 'LEGACY_STATIC',
+    knowledge_policy                   VARCHAR(40) NOT NULL DEFAULT 'TEMPLATE_ONLY',
+    global_learning_goal               TEXT,
+    audience_level                     VARCHAR(80),
+    output_standard                    TEXT,
+    assessment_policy                  TEXT,
+    template_instructions              TEXT,
+    constraints_json                   TEXT,
+    status                             VARCHAR(30) NOT NULL DEFAULT 'DRAFT',
+    ai_evidence_review_enabled         BOOLEAN NOT NULL DEFAULT FALSE,
+    ai_auto_pass_enabled               BOOLEAN NOT NULL DEFAULT FALSE,
+    ai_auto_pass_min_score_percent     INTEGER DEFAULT 60,
+    ai_auto_pass_min_confidence         DOUBLE PRECISION DEFAULT 0.70,
+    ai_manual_review_below_confidence  DOUBLE PRECISION DEFAULT 0.60,
+    ai_evidence_prompt                 TEXT,
+    final_assignment_instructions      TEXT,
+    final_assignment_rubric            TEXT,
+    created_at                         TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                         TIMESTAMP
+);
+
+CREATE INDEX idx_roadmap_templates_status ON roadmap_templates(status);
+CREATE INDEX idx_roadmap_templates_track ON roadmap_templates(job_position_track_id);
+CREATE INDEX idx_roadmap_templates_admin ON roadmap_templates(created_by_admin_id);
+
+-- Roadmap template nodes
+CREATE TABLE roadmap_template_nodes (
+    id                            BIGSERIAL PRIMARY KEY,
+    template_id                   BIGINT NOT NULL REFERENCES roadmap_templates(id) ON DELETE CASCADE,
+    parent_node_id                BIGINT,
+    node_key                      VARCHAR(100),
+    title                         VARCHAR(255) NOT NULL,
+    description                   TEXT,
+    order_index                   INTEGER NOT NULL,
+    skill_id                      BIGINT,
+    skill_name_snapshot           VARCHAR(255),
+    skill_canonical_key_snapshot  VARCHAR(255),
+    requirement_type              VARCHAR(30),
+    importance_level              VARCHAR(30),
+    difficulty                    VARCHAR(30),
+    estimated_hours               DOUBLE PRECISION,
+    expected_output               TEXT,
+    rubric                        TEXT,
+    pinned_document_ids           TEXT,
+    created_at                    TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                    TIMESTAMP
+);
+
+CREATE INDEX idx_rtn_template_id ON roadmap_template_nodes(template_id);
+CREATE INDEX idx_rtn_skill_id ON roadmap_template_nodes(skill_id);
+
+-- Roadmap template node groups
+CREATE TABLE roadmap_template_node_groups (
+    id                  BIGSERIAL PRIMARY KEY,
+    template_id         BIGINT NOT NULL REFERENCES roadmap_templates(id) ON DELETE CASCADE,
+    node_key            VARCHAR(120),
+    title               VARCHAR(255) NOT NULL,
+    description         TEXT,
+    learning_objectives TEXT,
+    lessons_json        TEXT,
+    exercises_json      TEXT,
+    completion_criteria TEXT,
+    expected_output     TEXT,
+    rubric              TEXT,
+    difficulty          VARCHAR(30),
+    estimated_hours     DOUBLE PRECISION,
+    ai_prompt_hint      TEXT,
+    order_index         INTEGER NOT NULL,
+    pinned_document_ids TEXT,
+    node_type           VARCHAR(30),
+    parent_node_key     VARCHAR(120),
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMP
+);
+
+CREATE INDEX idx_rtng_template_id ON roadmap_template_node_groups(template_id);
+CREATE INDEX idx_rtng_template_order ON roadmap_template_node_groups(template_id, order_index);
+
+-- Roadmap template node group skills
+CREATE TABLE roadmap_template_node_group_skills (
+    id                            BIGSERIAL PRIMARY KEY,
+    node_group_id                 BIGINT NOT NULL REFERENCES roadmap_template_node_groups(id) ON DELETE CASCADE,
+    skill_id                      BIGINT NOT NULL,
+    skill_name_snapshot           VARCHAR(255),
+    skill_canonical_key_snapshot  VARCHAR(255),
+    requirement_type              VARCHAR(30) NOT NULL,
+    weight_in_node                DOUBLE PRECISION,
+    order_index                   INTEGER NOT NULL,
+    created_at                    TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                    TIMESTAMP
+);
+
+CREATE INDEX idx_rtngs_node_group ON roadmap_template_node_group_skills(node_group_id);
+CREATE INDEX idx_rtngs_skill ON roadmap_template_node_group_skills(skill_id);
+
+-- Roadmap template skill blocks
+CREATE TABLE roadmap_template_skill_blocks (
+    id                            BIGSERIAL PRIMARY KEY,
+    template_id                   BIGINT NOT NULL REFERENCES roadmap_templates(id) ON DELETE CASCADE,
+    skill_id                      BIGINT NOT NULL,
+    skill_name_snapshot           VARCHAR(255),
+    skill_canonical_key_snapshot  VARCHAR(255),
+    weight_percent                DOUBLE PRECISION NOT NULL,
+    min_nodes                     INTEGER,
+    max_nodes                     INTEGER,
+    node_count_override           INTEGER,
+    learning_goals                TEXT,
+    required_topics               TEXT,
+    activity_instructions         TEXT,
+    exercise_types                TEXT,
+    success_criteria              TEXT,
+    rag_query_hint                TEXT,
+    course_link_policy            VARCHAR(30) NOT NULL DEFAULT 'AUTO_HYBRID',
+    auto_course_limit             INTEGER NOT NULL DEFAULT 2,
+    rag_enabled                   BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at                    TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                    TIMESTAMP
+);
+
+CREATE INDEX idx_rtsb_template ON roadmap_template_skill_blocks(template_id);
+CREATE INDEX idx_rtsb_skill ON roadmap_template_skill_blocks(skill_id);
+
+-- Roadmap template activities
+CREATE TABLE roadmap_template_activities (
+    id                      BIGSERIAL PRIMARY KEY,
+    template_id             BIGINT NOT NULL REFERENCES roadmap_templates(id) ON DELETE CASCADE,
+    skill_block_id          BIGINT NOT NULL REFERENCES roadmap_template_skill_blocks(id) ON DELETE CASCADE,
+    title                   VARCHAR(255) NOT NULL,
+    description             TEXT,
+    exercise_type           VARCHAR(80),
+    expected_output         TEXT,
+    rubric                  TEXT,
+    difficulty              VARCHAR(30),
+    min_level               VARCHAR(20),
+    max_level               VARCHAR(20),
+    estimated_hours         DOUBLE PRECISION,
+    prerequisite_hint       TEXT,
+    ai_prompt_hint          TEXT,
+    skill_requirements_json TEXT,
+    order_index             INTEGER NOT NULL,
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMP
+);
+
+CREATE INDEX idx_rta_skill_block ON roadmap_template_activities(skill_block_id);
+CREATE INDEX idx_rta_template ON roadmap_template_activities(template_id);
+
+-- Roadmap template courses
+CREATE TABLE roadmap_template_courses (
+    id               BIGSERIAL PRIMARY KEY,
+    template_id      BIGINT NOT NULL REFERENCES roadmap_templates(id) ON DELETE CASCADE,
+    template_node_id BIGINT REFERENCES roadmap_template_nodes(id) ON DELETE SET NULL,
+    course_id        BIGINT NOT NULL,
+    skill_id         BIGINT,
+    display_order    INTEGER,
+    required         BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at       TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_rtc_template ON roadmap_template_courses(template_id);
+CREATE INDEX idx_rtc_node ON roadmap_template_courses(template_node_id);
+CREATE INDEX idx_rtc_course ON roadmap_template_courses(course_id);
+
+-- ============================================================
+-- SECTION 26: JOURNEY NODE MENTORING SERVICE
+-- ============================================================
+
+-- Journey completion reports
+CREATE TABLE journey_completion_reports (
+    id              BIGSERIAL PRIMARY KEY,
+    journey_id      BIGINT NOT NULL,
+    mentor_id       BIGINT NOT NULL,
+    booking_id      BIGINT,
+    gate_decision   VARCHAR(30) NOT NULL,
+    completion_note TEXT,
+    confirmed_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_jcr_journey_id ON journey_completion_reports(journey_id);
+
+-- Journey output assessments
+CREATE TABLE journey_output_assessments (
+    id                       BIGSERIAL PRIMARY KEY,
+    journey_id               BIGINT NOT NULL,
+    learner_id               BIGINT NOT NULL,
+    mentor_id                BIGINT,
+    submission_text          TEXT,
+    evidence_url             VARCHAR(1000),
+    evidence_public_id       VARCHAR(255),
+    evidence_resource_type   VARCHAR(50),
+    attachment_url           VARCHAR(1000),
+    attachment_public_id     VARCHAR(255),
+    attachment_resource_type VARCHAR(50),
+    score                    INTEGER,
+    feedback                 TEXT,
+    assessment_status        VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    latest_ai_review_id      BIGINT,
+    latest_ai_review_status  VARCHAR(50),
+    submitted_at             TIMESTAMP NOT NULL DEFAULT NOW(),
+    assessed_at              TIMESTAMP
+);
+
+CREATE INDEX idx_joa_journey_id ON journey_output_assessments(journey_id);
+
+-- Roadmap evidence ai reviews
+CREATE TABLE roadmap_evidence_ai_reviews (
+    id                           BIGSERIAL PRIMARY KEY,
+    node_submission_id           BIGINT,
+    journey_output_assessment_id BIGINT,
+    journey_id                   BIGINT NOT NULL,
+    roadmap_session_id           BIGINT NOT NULL,
+    node_id                      VARCHAR(100),
+    learner_id                   BIGINT NOT NULL,
+    attempt_number               INTEGER NOT NULL,
+    status                       VARCHAR(50) NOT NULL,
+    ai_score_percent             INTEGER,
+    ai_confidence                DOUBLE PRECISION,
+    ai_feedback                  TEXT,
+    ai_rubric_breakdown_json     TEXT,
+    ai_model_name                VARCHAR(100),
+    ai_provider                  VARCHAR(50),
+    error_message                TEXT,
+    admin_decision               VARCHAR(50),
+    admin_review_reason          TEXT,
+    admin_reviewed_by            BIGINT,
+    admin_reviewed_at            TIMESTAMP,
+    created_at                   TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at                   TIMESTAMP
+);
+
+-- Roadmap node assignments
+CREATE TABLE roadmap_node_assignments (
+    id                       BIGSERIAL PRIMARY KEY,
+    journey_id               BIGINT NOT NULL,
+    roadmap_session_id       BIGINT,
+    node_id                  VARCHAR(100) NOT NULL,
+    node_skill_id            BIGINT,
+    roadmap_template_node_id BIGINT,
+    assignment_source        VARCHAR(30) NOT NULL DEFAULT 'SYSTEM_GENERATED',
+    title                    VARCHAR(255),
+    description              TEXT,
+    expected_output          TEXT,
+    rubric                   TEXT,
+    criteria_json            TEXT,
+    verification_status      VARCHAR(30) DEFAULT 'PENDING_REVIEW',
+    created_by               BIGINT,
+    created_at               TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at               TIMESTAMP
+);
+
+CREATE INDEX idx_rna_journey_node ON roadmap_node_assignments(journey_id, node_id);
+
+-- Roadmap node reviews
+CREATE TABLE roadmap_node_reviews (
+    id                   BIGSERIAL PRIMARY KEY,
+    submission_id        BIGINT NOT NULL,
+    mentor_id            BIGINT NOT NULL,
+    booking_id           BIGINT,
+    score                INTEGER,
+    feedback             TEXT,
+    criteria_scores_json TEXT,
+    review_result        VARCHAR(30) NOT NULL,
+    reviewed_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_rnr_submission ON roadmap_node_reviews(submission_id);
+CREATE INDEX idx_rnr_mentor ON roadmap_node_reviews(mentor_id);
+
+-- Roadmap node submissions
+CREATE TABLE roadmap_node_submissions (
+    id                       BIGSERIAL PRIMARY KEY,
+    journey_id               BIGINT NOT NULL,
+    roadmap_session_id       BIGINT,
+    node_id                  VARCHAR(100) NOT NULL,
+    assignment_id            BIGINT,
+    learner_id               BIGINT NOT NULL,
+    submission_text          TEXT NOT NULL,
+    evidence_url             VARCHAR(1000),
+    evidence_public_id       VARCHAR(255),
+    evidence_resource_type   VARCHAR(50),
+    attachment_url           VARCHAR(1000),
+    attachment_public_id     VARCHAR(255),
+    attachment_resource_type VARCHAR(50),
+    submission_status        VARCHAR(30) NOT NULL DEFAULT 'SUBMITTED',
+    verification_status      VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    mentor_feedback          TEXT,
+    learner_marked_complete  BOOLEAN NOT NULL DEFAULT FALSE,
+    latest_ai_review_id      BIGINT,
+    latest_ai_review_status  VARCHAR(50),
+    submitted_at             TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at               TIMESTAMP,
+    CONSTRAINT uq_rns_current UNIQUE (journey_id, node_id)
+);
+
+CREATE INDEX idx_rns_learner_verification ON roadmap_node_submissions(learner_id, verification_status);
+
+-- Roadmap node verifications
+CREATE TABLE roadmap_node_verifications (
+    id                       BIGSERIAL PRIMARY KEY,
+    submission_id            BIGINT NOT NULL,
+    mentor_id                BIGINT NOT NULL,
+    booking_id               BIGINT,
+    node_verification_status VARCHAR(30) NOT NULL,
+    verification_note        TEXT,
+    verified_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_rnv_submission ON roadmap_node_verifications(submission_id);
+
+-- Verification evidence reports
+CREATE TABLE verification_evidence_reports (
+    id                       BIGSERIAL PRIMARY KEY,
+    journey_id               BIGINT NOT NULL,
+    booking_id               BIGINT NOT NULL,
+    mentor_id                BIGINT NOT NULL,
+    meeting_jitsi_link       VARCHAR(500),
+    meeting_duration_minutes INTEGER,
+    summary_report           TEXT NOT NULL,
+    assignments_given        TEXT,
+    weak_node_ids            TEXT,
+    fail_reason              TEXT,
+    gate_decision            VARCHAR(10) NOT NULL,
+    attempt_number           INTEGER NOT NULL,
+    submitted_at             TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_ver_journey_id ON verification_evidence_reports(journey_id);
+CREATE INDEX idx_ver_booking_id ON verification_evidence_reports(booking_id);
+
+-- ============================================================
+-- SECTION 27: GAMIFICATION SERVICE
+-- ============================================================
+
+-- Daily check-ins
+CREATE TABLE daily_check_ins (
+    check_in_id   BIGSERIAL PRIMARY KEY,
+    user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    check_in_date DATE NOT NULL,
+    check_in_time TIMESTAMP NOT NULL DEFAULT NOW(),
+    coins_awarded INTEGER DEFAULT 0,
+    xp_awarded    INTEGER DEFAULT 0,
+    streak_day    INTEGER DEFAULT 1,
+    is_bonus_day  BOOLEAN DEFAULT FALSE,
+    CONSTRAINT uk_user_checkin_date UNIQUE (user_id, check_in_date)
+);
+
+CREATE INDEX idx_checkin_user ON daily_check_ins(user_id);
+CREATE INDEX idx_checkin_date ON daily_check_ins(check_in_date);
+CREATE INDEX idx_checkin_user_date ON daily_check_ins(user_id, check_in_date);
+
+-- Gamification activity logs
+CREATE TABLE gamification_activity_logs (
+    activity_log_id    BIGSERIAL PRIMARY KEY,
+    user_id            BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    activity_type      VARCHAR(50) NOT NULL,
+    activity_action    VARCHAR(50) NOT NULL,
+    target_type        VARCHAR(50),
+    target_id          BIGINT,
+    activity_data      TEXT,
+    coins_awarded      INTEGER DEFAULT 0,
+    xp_awarded         INTEGER DEFAULT 0,
+    is_verified        BOOLEAN NOT NULL DEFAULT FALSE,
+    verification_notes TEXT,
+    activity_timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+    duration_minutes   INTEGER
+);
+
+CREATE INDEX idx_user_activity ON gamification_activity_logs(user_id, activity_timestamp);
+CREATE INDEX idx_activity_type ON gamification_activity_logs(activity_type);
+CREATE INDEX idx_verification_status ON gamification_activity_logs(is_verified);
+
+-- Gamification badge definitions
+CREATE TABLE gamification_badge_definitions (
+    badge_def_id         BIGSERIAL PRIMARY KEY,
+    badge_key            VARCHAR(100) NOT NULL UNIQUE,
+    badge_title          VARCHAR(200) NOT NULL,
+    badge_description    TEXT,
+    badge_icon           VARCHAR(20),
+    badge_category       VARCHAR(50) NOT NULL,
+    badge_rarity         VARCHAR(30) NOT NULL,
+    criteria_description TEXT,
+    criteria_config      TEXT,
+    coin_reward          INTEGER NOT NULL DEFAULT 0,
+    xp_reward            INTEGER NOT NULL DEFAULT 0,
+    is_active            BOOLEAN NOT NULL DEFAULT TRUE,
+    display_order        INTEGER,
+    created_at           TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by_admin_id  BIGINT
+);
+
+-- Gamification coin transactions
+CREATE TABLE gamification_coin_transactions (
+    transaction_id   BIGSERIAL PRIMARY KEY,
+    user_id          BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    coin_amount      INTEGER NOT NULL,
+    xp_amount        INTEGER,
+    transaction_type VARCHAR(50) NOT NULL,
+    source_type      VARCHAR(50) NOT NULL,
+    source_id        BIGINT,
+    description      TEXT,
+    is_verified      BOOLEAN NOT NULL DEFAULT TRUE,
+    balance_after    INTEGER NOT NULL,
+    transaction_date TIMESTAMP NOT NULL DEFAULT NOW(),
+    admin_id         BIGINT,
+    metadata         TEXT
+);
+
+CREATE INDEX idx_user_transaction ON gamification_coin_transactions(user_id, transaction_date);
+CREATE INDEX idx_gami_transaction_type ON gamification_coin_transactions(transaction_type);
+CREATE INDEX idx_source_type ON gamification_coin_transactions(source_type, source_id);
+
+-- Gamification minigame definitions
+CREATE TABLE gamification_minigame_definitions (
+    game_def_id             BIGSERIAL PRIMARY KEY,
+    game_key                VARCHAR(100) NOT NULL UNIQUE,
+    game_title              VARCHAR(200) NOT NULL,
+    game_description        TEXT,
+    game_icon               VARCHAR(20),
+    game_type               VARCHAR(50) NOT NULL,
+    difficulty_level        VARCHAR(30) NOT NULL,
+    base_coin_reward        INTEGER NOT NULL DEFAULT 0,
+    max_coin_reward         INTEGER NOT NULL DEFAULT 0,
+    xp_reward               INTEGER NOT NULL DEFAULT 0,
+    cooldown_minutes        INTEGER NOT NULL DEFAULT 60,
+    max_plays_per_day       INTEGER,
+    max_coins_per_day       INTEGER,
+    is_active               BOOLEAN NOT NULL DEFAULT TRUE,
+    is_premium_only         BOOLEAN NOT NULL DEFAULT FALSE,
+    required_premium_plan   VARCHAR(30),
+    premium_coin_multiplier DOUBLE PRECISION DEFAULT 1.0,
+    game_config             TEXT,
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_by_admin_id     BIGINT
+);
+
+-- Gamification game sessions
+CREATE TABLE gamification_game_sessions (
+    session_id         BIGSERIAL PRIMARY KEY,
+    user_id            BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    game_def_id        BIGINT NOT NULL REFERENCES gamification_minigame_definitions(game_def_id) ON DELETE CASCADE,
+    session_status     VARCHAR(30) NOT NULL DEFAULT 'IN_PROGRESS',
+    score_achieved     INTEGER,
+    coins_earned       INTEGER NOT NULL DEFAULT 0,
+    xp_earned          INTEGER NOT NULL DEFAULT 0,
+    is_verified        BOOLEAN NOT NULL DEFAULT FALSE,
+    verification_data  TEXT,
+    played_at          TIMESTAMP NOT NULL DEFAULT NOW(),
+    completed_at       TIMESTAMP,
+    duration_seconds   INTEGER,
+    session_data       TEXT
+);
+
+CREATE INDEX idx_user_game_session ON gamification_game_sessions(user_id, played_at);
+CREATE INDEX idx_game_def_session ON gamification_game_sessions(game_def_id);
+CREATE INDEX idx_session_status ON gamification_game_sessions(session_status);
+
+-- Gamification user badges
+CREATE TABLE gamification_user_badges (
+    user_badge_id BIGSERIAL PRIMARY KEY,
+    user_id       BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    badge_def_id  BIGINT NOT NULL REFERENCES gamification_badge_definitions(badge_def_id) ON DELETE CASCADE,
+    earned_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+    coins_awarded INTEGER NOT NULL,
+    xp_awarded    INTEGER NOT NULL,
+    progress_data TEXT,
+    CONSTRAINT uk_user_badge UNIQUE (user_id, badge_def_id)
+);
+
+CREATE INDEX idx_user_badge_earned ON gamification_user_badges(user_id, earned_at);
+CREATE INDEX idx_badge_def ON gamification_user_badges(badge_def_id);
+
+-- Gamification user wallets
+CREATE TABLE gamification_user_wallets (
+    wallet_id          BIGSERIAL PRIMARY KEY,
+    user_id            BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    total_coins        INTEGER NOT NULL DEFAULT 0,
+    earned_coins       INTEGER NOT NULL DEFAULT 0,
+    spent_coins        INTEGER NOT NULL DEFAULT 0,
+    total_xp           INTEGER NOT NULL DEFAULT 0,
+    streak_days        INTEGER NOT NULL DEFAULT 0,
+    last_activity_date TIMESTAMP,
+    created_at         TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at         TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Gamification leaderboard snapshots
+CREATE TABLE gamification_leaderboard_snapshots (
+    snapshot_id         BIGSERIAL PRIMARY KEY,
+    user_id             BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    leaderboard_period  VARCHAR(30) NOT NULL,
+    leaderboard_type    VARCHAR(30) NOT NULL,
+    rank_position       INTEGER NOT NULL,
+    score_value         INTEGER NOT NULL,
+    total_coins         INTEGER,
+    total_xp            INTEGER,
+    badges_count        INTEGER,
+    streak_days         INTEGER,
+    contributions_count INTEGER,
+    skins_count         INTEGER,
+    snapshot_date       TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT uk_user_period_date UNIQUE (user_id, leaderboard_period, snapshot_date)
+);
+
+CREATE INDEX idx_leaderboard_period ON gamification_leaderboard_snapshots(leaderboard_period, snapshot_date);
+CREATE INDEX idx_leaderboard_rank ON gamification_leaderboard_snapshots(leaderboard_period, rank_position);
+
+-- ============================================================
+-- SECTION 28: AUXILIARY SERVICES
+-- ============================================================
+
+-- AI token usage logs
+CREATE TABLE ai_token_usage_logs (
+    id                  BIGSERIAL PRIMARY KEY,
+    flow_type           VARCHAR(30) NOT NULL,
+    provider_type       VARCHAR(20) NOT NULL,
+    model_name          VARCHAR(50),
+    user_id             BIGINT,
+    related_entity_type VARCHAR(30),
+    related_entity_id   BIGINT,
+    prompt_tokens       BIGINT,
+    completion_tokens   BIGINT,
+    total_tokens        BIGINT,
+    estimated           BOOLEAN NOT NULL,
+    status              VARCHAR(10) NOT NULL,
+    latency_ms          BIGINT,
+    error_code          VARCHAR(50),
+    created_at          TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_created_at ON ai_token_usage_logs(created_at);
+CREATE INDEX idx_flow_type_created ON ai_token_usage_logs(flow_type, created_at);
+CREATE INDEX idx_provider_type_created ON ai_token_usage_logs(provider_type, created_at);
+CREATE INDEX idx_user_id_created ON ai_token_usage_logs(user_id, created_at);
+CREATE INDEX idx_status_created ON ai_token_usage_logs(status, created_at);
+
+-- Assignment prompt audit logs
+CREATE TABLE assignment_prompt_audit_log (
+    id            BIGSERIAL PRIMARY KEY,
+    assignment_id BIGINT NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+    admin_id      BIGINT NOT NULL,
+    admin_name    VARCHAR(200) NOT NULL,
+    action        VARCHAR(50) NOT NULL,
+    before_value  TEXT,
+    after_value   TEXT,
+    created_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_apal_assignment ON assignment_prompt_audit_log(assignment_id);
+
+-- Skill suggestions
+CREATE TABLE skill_suggestions (
+    id                      BIGSERIAL PRIMARY KEY,
+    suggested_name          VARCHAR(255) NOT NULL,
+    suggested_canonical_key VARCHAR(255) NOT NULL,
+    description             TEXT,
+    source_user_id          BIGINT,
+    status                  VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+    matched_skill_id        BIGINT REFERENCES skills(id) ON DELETE SET NULL,
+    reviewed_by             BIGINT,
+    reviewed_at             TIMESTAMP,
+    review_note             TEXT,
+    created_at              TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- Student verification requests
+CREATE TABLE student_verification_requests (
+    id                    BIGSERIAL PRIMARY KEY,
+    user_id               BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    school_email          VARCHAR(255) NOT NULL,
+    school_domain         VARCHAR(255) NOT NULL,
+    email_domain_valid    BOOLEAN NOT NULL DEFAULT FALSE,
+    status                VARCHAR(40) NOT NULL DEFAULT 'EMAIL_OTP_PENDING',
+    otp_hash              VARCHAR(128),
+    otp_expires_at        TIMESTAMP,
+    otp_attempts          INTEGER NOT NULL DEFAULT 0,
+    otp_verified_at        TIMESTAMP,
+    last_otp_sent_at      TIMESTAMP,
+    temp_image_path       TEXT,
+    image_url             TEXT,
+    image_storage_path    TEXT,
+    image_public_id       VARCHAR(255),
+    image_provider        VARCHAR(20),
+    uploaded_file_name    VARCHAR(255),
+    uploaded_content_type VARCHAR(100),
+    uploaded_file_size    BIGINT,
+    review_note           TEXT,
+    reviewed_by           BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at           TIMESTAMP,
+    rejection_reason      TEXT,
+    created_at            TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_svr_user_id ON student_verification_requests(user_id);
+CREATE INDEX idx_svr_status ON student_verification_requests(status);
+CREATE INDEX idx_svr_created_at ON student_verification_requests(created_at);
+
+-- App runtime settings
+CREATE TABLE app_runtime_settings (
+    setting_key   VARCHAR(100) PRIMARY KEY,
+    setting_value TEXT NOT NULL,
+    updated_at    TIMESTAMP WITH TIME ZONE,
+    updated_by    BIGINT
+);
+
+-- ============================================================
+-- SECTION 29: MISCELLANEOUS CONSTRAINTS & SEQUENCES
 -- ============================================================
 
 -- Ensure BIGSERIAL sequences start at a reasonable value

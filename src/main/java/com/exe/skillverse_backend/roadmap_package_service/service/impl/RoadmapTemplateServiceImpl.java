@@ -2566,7 +2566,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         }
         return profileItems.stream()
                 .filter(Objects::nonNull)
-                .flatMap(item -> item.values().stream())
+                .map(item -> item.get("skill"))
                 .filter(Objects::nonNull)
                 .map(String::valueOf)
                 .map(value -> value.toLowerCase().trim())
