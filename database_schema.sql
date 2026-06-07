@@ -1701,6 +1701,7 @@ CREATE TABLE portfolio_extended_profiles (
     location                  VARCHAR(100),
     availability_status      VARCHAR(50),
     hourly_rate              DOUBLE PRECISION,
+    roadmap_mentoring_price  DOUBLE PRECISION,
     preferred_currency       VARCHAR(10),
     top_skills               TEXT,
     languages_spoken          TEXT,

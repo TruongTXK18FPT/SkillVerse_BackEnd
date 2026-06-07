@@ -244,6 +244,13 @@ public class DatabaseSchemaFixer {
                 this::verifyAddRoadmapNodeGroupsTypeAndParent
             );
 
+            applyPatch(
+                "20260607_add_roadmap_mentoring_price_to_portfolio_extended",
+                "Add roadmap_mentoring_price column to portfolio_extended_profiles table",
+                this::patchAddRoadmapMentoringPriceToPortfolioExtended,
+                this::verifyAddRoadmapMentoringPriceToPortfolioExtended
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -1514,5 +1521,16 @@ public class DatabaseSchemaFixer {
         boolean hasNodeType = !hasTable("roadmap_template_node_groups") || hasColumn("roadmap_template_node_groups", "node_type");
         boolean hasParentNodeKey = !hasTable("roadmap_template_node_groups") || hasColumn("roadmap_template_node_groups", "parent_node_key");
         return hasNodeType && hasParentNodeKey;
+    }
+
+    private void patchAddRoadmapMentoringPriceToPortfolioExtended() {
+        log.info("Adding roadmap_mentoring_price column to portfolio_extended_profiles...");
+        if (hasTable("portfolio_extended_profiles")) {
+            executeSql("ALTER TABLE portfolio_extended_profiles ADD COLUMN IF NOT EXISTS roadmap_mentoring_price DOUBLE PRECISION");
+        }
+    }
+
+    private boolean verifyAddRoadmapMentoringPriceToPortfolioExtended() {
+        return !hasTable("portfolio_extended_profiles") || hasColumn("portfolio_extended_profiles", "roadmap_mentoring_price");
     }
 }
