@@ -228,7 +228,7 @@ public class RecommendationEngine {
                     .tier(TIER_STRENGTH)
                     .category(CAT_ROADMAP)
                     .title("Tiến độ roadmap xuất sắc")
-                    .analysis("Tổng tiến độ " + progress + "% — bạn đang giữ momentum tốt.")
+                    .analysis("Tiến độ roadmap " + progress + "% — bạn đang giữ momentum tốt.")
                     .action("Sẵn sàng đặt mục tiêu nâng cao hoặc apply Short-term Job để áp dụng kỹ năng.")
                     .metricLabel("Tiến độ roadmap")
                     .metricValue(progress)
@@ -359,16 +359,27 @@ public class RecommendationEngine {
                     .linkPath("/jobs")
                     .linkLabel("Khám phá job")
                     .build());
-        } else if (completed == 0 && totalApplied >= 1) {
+        } else if (completed == 0 && nz(stats.getInProgressJobs()) >= 1) {
             out.add(Recommendation.builder()
                     .id("job-finish-first")
                     .tier(TIER_IMPROVE)
                     .category(CAT_JOB)
                     .title("Hoàn thành job đầu tiên")
-                    .analysis("Đã apply " + totalApplied + " job nhưng chưa job nào hoàn thành.")
-                    .action("Tập trung delivery 1 job hiện tại để xây trust score & lấy review.")
+                    .analysis("Đã được nhận vào " + stats.getInProgressJobs() + " job nhưng chưa hoàn thành job nào.")
+                    .action("Tập trung hoàn thành công việc hiện tại để xây trust score & lấy review.")
                     .linkPath("/jobs")
                     .linkLabel("Mở danh sách job")
+                    .build());
+        } else if (completed == 0 && totalApplied >= 1 && nz(stats.getInProgressJobs()) == 0) {
+            out.add(Recommendation.builder()
+                    .id("job-applying-active")
+                    .tier(TIER_NEXT_STEP)
+                    .category(CAT_JOB)
+                    .title("Theo dõi đơn ứng tuyển")
+                    .analysis("Bạn đã ứng tuyển " + totalApplied + " job nhưng chưa được nhận hoặc đang làm job nào.")
+                    .action("Tiếp tục ứng tuyển các Short-term Job khác hoặc cải thiện CV để tăng tỷ lệ duyệt.")
+                    .linkPath("/jobs")
+                    .linkLabel("Khám phá job")
                     .build());
         }
 

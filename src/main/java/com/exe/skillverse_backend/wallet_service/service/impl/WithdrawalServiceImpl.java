@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.wallet_service.dto.response.WithdrawalRequestResponse;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
@@ -44,6 +45,7 @@ public class WithdrawalServiceImpl implements WithdrawalService {
     private final UserProfileService userProfileService;
     private final WalletEmailService walletEmailService;
     private final NotificationServiceImpl notificationService;
+    private final MentorProfileRepository mentorProfileRepository;
 
     // Configuration
     private static final BigDecimal MIN_WITHDRAWAL = new BigDecimal("100000"); // 100K VNĐ
@@ -157,7 +159,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
 
         // TODO: Send email notification to user and admin
 
-        return WithdrawalRequestResponse.fromEntity(savedRequest);
+        String fullName = getUserFullName(savedRequest.getUser());
+        String avatarUrl = getUserAvatarUrl(savedRequest.getUser());
+        return WithdrawalRequestResponse.fromEntity(savedRequest, fullName, avatarUrl);
     }
 
     /**
@@ -247,8 +251,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
                     approvedRequest.getRequestCode(), e.getMessage());
         }
 
+        String fullName = getUserFullName(approvedRequest.getUser());
         String avatarUrl = getUserAvatarUrl(approvedRequest.getUser());
-        return WithdrawalRequestResponse.fromEntityForAdmin(approvedRequest, avatarUrl);
+        return WithdrawalRequestResponse.fromEntityForAdmin(approvedRequest, fullName, avatarUrl);
     }
 
     /**
@@ -299,8 +304,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
             log.error("Failed to send rejection notification", e);
         }
 
+        String fullName = getUserFullName(rejectedRequest.getUser());
         String avatarUrl = getUserAvatarUrl(rejectedRequest.getUser());
-        return WithdrawalRequestResponse.fromEntityForAdmin(rejectedRequest, avatarUrl);
+        return WithdrawalRequestResponse.fromEntityForAdmin(rejectedRequest, fullName, avatarUrl);
     }
 
     /**
@@ -337,8 +343,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         log.info("✅ Admin {} đã cập nhật mã giao dịch ngân hàng cho withdrawal {}: {}",
                 adminId, request.getRequestCode(), bankTransactionId);
 
+        String fullName = getUserFullName(updatedRequest.getUser());
         String avatarUrl = getUserAvatarUrl(updatedRequest.getUser());
-        return WithdrawalRequestResponse.fromEntityForAdmin(updatedRequest, avatarUrl);
+        return WithdrawalRequestResponse.fromEntityForAdmin(updatedRequest, fullName, avatarUrl);
     }
 
     /**
@@ -374,7 +381,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
 
         log.info("🚫 User {} đã hủy yêu cầu rút tiền: {}", userId, request.getRequestCode());
 
-        return WithdrawalRequestResponse.fromEntity(cancelledRequest);
+        String fullName = getUserFullName(cancelledRequest.getUser());
+        String avatarUrl = getUserAvatarUrl(cancelledRequest.getUser());
+        return WithdrawalRequestResponse.fromEntity(cancelledRequest, fullName, avatarUrl);
     }
 
     /**
@@ -385,7 +394,11 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         Page<WithdrawalRequest> requests = withdrawalRequestRepository
                 .findByUser_IdOrderByCreatedAtDesc(userId, pageable);
 
-        return requests.map(WithdrawalRequestResponse::fromEntity);
+        return requests.map(request -> {
+            String fullName = getUserFullName(request.getUser());
+            String avatarUrl = getUserAvatarUrl(request.getUser());
+            return WithdrawalRequestResponse.fromEntity(request, fullName, avatarUrl);
+        });
     }
 
     /**
@@ -401,7 +414,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
             throw new IllegalArgumentException("Bạn không có quyền xem yêu cầu này");
         }
 
-        return WithdrawalRequestResponse.fromEntity(request);
+        String fullName = getUserFullName(request.getUser());
+        String avatarUrl = getUserAvatarUrl(request.getUser());
+        return WithdrawalRequestResponse.fromEntity(request, fullName, avatarUrl);
     }
 
     /**
@@ -423,8 +438,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         log.info("📊 Found {} withdrawal requests (status: {})", requests.getTotalElements(), status);
         return requests.map(request -> {
             try {
+                String fullName = getUserFullName(request.getUser());
                 String avatarUrl = getUserAvatarUrl(request.getUser());
-                return WithdrawalRequestResponse.fromEntityForAdmin(request, avatarUrl);
+                return WithdrawalRequestResponse.fromEntityForAdmin(request, fullName, avatarUrl);
             } catch (Exception e) {
                 log.error("❌ Error mapping withdrawal request {}: {}", request.getRequestId(), e.getMessage());
                 throw e;
@@ -441,8 +457,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
                 .findAllPendingRequests(pageable);
 
         return requests.map(request -> {
+            String fullName = getUserFullName(request.getUser());
             String avatarUrl = getUserAvatarUrl(request.getUser());
-            return WithdrawalRequestResponse.fromEntityForAdmin(request, avatarUrl);
+            return WithdrawalRequestResponse.fromEntityForAdmin(request, fullName, avatarUrl);
         });
     }
 
@@ -454,8 +471,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         WithdrawalRequest request = withdrawalRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Yêu cầu không tồn tại"));
 
+        String fullName = getUserFullName(request.getUser());
         String avatarUrl = getUserAvatarUrl(request.getUser());
-        return WithdrawalRequestResponse.fromEntityForAdmin(request, avatarUrl);
+        return WithdrawalRequestResponse.fromEntityForAdmin(request, fullName, avatarUrl);
     }
 
     /**
@@ -504,7 +522,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
             throw new IllegalArgumentException("Không có quyền truy cập yêu cầu này");
         }
 
-        return WithdrawalRequestResponse.fromEntity(request);
+        String fullName = getUserFullName(request.getUser());
+        String avatarUrl = getUserAvatarUrl(request.getUser());
+        return WithdrawalRequestResponse.fromEntity(request, fullName, avatarUrl);
     }
 
     /**
@@ -515,7 +535,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
         WithdrawalRequest request = withdrawalRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalArgumentException("Yêu cầu không tồn tại"));
 
-        return WithdrawalRequestResponse.fromEntityForAdmin(request);
+        String fullName = getUserFullName(request.getUser());
+        String avatarUrl = getUserAvatarUrl(request.getUser());
+        return WithdrawalRequestResponse.fromEntityForAdmin(request, fullName, avatarUrl);
     }
 
     /**
@@ -557,7 +579,9 @@ public class WithdrawalServiceImpl implements WithdrawalService {
 
         log.info("User {} đã hủy withdrawal request {} - Lý do: {}", userId, requestId, reason);
 
-        return WithdrawalRequestResponse.fromEntity(savedRequest);
+        String fullName = getUserFullName(savedRequest.getUser());
+        String avatarUrl = getUserAvatarUrl(savedRequest.getUser());
+        return WithdrawalRequestResponse.fromEntity(savedRequest, fullName, avatarUrl);
     }
 
     // ==================== HELPER METHODS ====================
@@ -632,6 +656,54 @@ public class WithdrawalServiceImpl implements WithdrawalService {
             log.warn("Failed to get avatar URL for user {}: {}", user.getId(), e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Get user's full name from their profile based on availability
+     */
+    private String getUserFullName(User user) {
+        if (user == null) {
+            return "Unknown User";
+        }
+        try {
+            // 1. Try to construct from User entity (firstName + lastName) if present
+            String firstName = user.getFirstName();
+            String lastName = user.getLastName();
+            if ((firstName != null && !firstName.trim().isEmpty()) || 
+                (lastName != null && !lastName.trim().isEmpty())) {
+                String first = firstName != null ? firstName.trim() : "";
+                String last = lastName != null ? lastName.trim() : "";
+                String name = (first + " " + last).trim();
+                if (!name.isEmpty()) {
+                    return name;
+                }
+            }
+
+            // 2. Try UserProfile
+            if (userProfileService.hasProfile(user.getId())) {
+                var profile = userProfileService.getProfile(user.getId());
+                if (profile.getFullName() != null && !profile.getFullName().trim().isEmpty()) {
+                    return profile.getFullName().trim();
+                }
+            }
+
+            // 3. Try MentorProfile
+            var mentorProfile = mentorProfileRepository.findByUserId(user.getId());
+            if (mentorProfile.isPresent()) {
+                var profile = mentorProfile.get();
+                if (profile.getFullName() != null && !profile.getFullName().trim().isEmpty()) {
+                    return profile.getFullName().trim();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get full name for user {}: {}", user.getId(), e.getMessage());
+        }
+
+        // Fallback to email prefix or "Unknown User"
+        if (user.getEmail() != null && !user.getEmail().trim().isEmpty()) {
+            return user.getEmail().trim();
+        }
+        return "Unknown User";
     }
 
     // ========== Ban Cascade Methods ==========

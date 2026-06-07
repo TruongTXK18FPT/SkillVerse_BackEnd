@@ -17,6 +17,7 @@ import com.exe.skillverse_backend.student_learning_report_service.entity.Student
 import com.exe.skillverse_backend.student_learning_report_service.repository.StudentLearningReportRepository;
 import com.exe.skillverse_backend.student_learning_report_service.service.impl.StudentLearningReportServiceImpl;
 import com.exe.skillverse_backend.study_service.entity.StudySession;
+import com.exe.skillverse_backend.study_service.entity.StudySessionStatus;
 import com.exe.skillverse_backend.study_service.entity.Task;
 import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
@@ -161,6 +162,7 @@ class StudentLearningReportServiceImplTest {
                 .title("Yesterday session")
                 .startTime(now.minusDays(1).withHour(20).withMinute(0))
                 .endTime(now.minusDays(1).withHour(21).withMinute(0))
+                .status(StudySessionStatus.COMPLETED)
                 .build());
 
         List<CourseEnrollment> enrollments = List.of(
@@ -216,11 +218,11 @@ class StudentLearningReportServiceImplTest {
         assertEquals(2, summary.getTaskStats().getTotalTasks());
         assertEquals(1, summary.getTaskStats().getCompletedTasks());
         assertEquals(1, summary.getTaskStats().getOverdueTasks());
-        assertEquals(0, summary.getStudyStats().getCurrentStreak());
+        assertEquals(1, summary.getStudyStats().getCurrentStreak());
         assertEquals(1, summary.getCourseStats().getActiveCourses());
         assertEquals(1, summary.getCourseStats().getCompletedCourses());
         assertEquals(30, summary.getCourseStats().getAverageActiveCourseProgress());
-        assertEquals(35, summary.getOverallProgress());
+        assertEquals(33, summary.getOverallProgress());
         assertEquals("improving", summary.getLearningTrend());
         java.util.List<StudentLearningReportResponse.Recommendation> recs = summary.getOverview().getRecommendations();
         assertTrue(recs.size() >= 3, "engine should emit multiple recommendations");
@@ -237,8 +239,8 @@ class StudentLearningReportServiceImplTest {
     }
 
     @Test
-    @DisplayName("getSummary should return streak zero when there is no study today")
-    void getSummary_ShouldReturnZeroStreakWithoutStudyToday() {
+    @DisplayName("getSummary should return streak zero when there is no study today and yesterday")
+    void getSummary_ShouldReturnZeroStreakWithoutStudyTodayAndYesterday() {
         LocalDateTime now = LocalDateTime.now(VN_ZONE);
 
         when(userRepository.findById(1L)).thenReturn(Optional.of(student));
@@ -247,14 +249,16 @@ class StudentLearningReportServiceImplTest {
                 StudySession.builder()
                         .id(UUID.randomUUID())
                         .user(student)
-                        .startTime(now.minusDays(1).withHour(8))
-                        .endTime(now.minusDays(1).withHour(9))
+                        .startTime(now.minusDays(2).withHour(8))
+                        .endTime(now.minusDays(2).withHour(9))
+                        .status(StudySessionStatus.COMPLETED)
                         .build(),
                 StudySession.builder()
                         .id(UUID.randomUUID())
                         .user(student)
-                        .startTime(now.minusDays(2).withHour(8))
-                        .endTime(now.minusDays(2).withHour(9))
+                        .startTime(now.minusDays(3).withHour(8))
+                        .endTime(now.minusDays(3).withHour(9))
+                        .status(StudySessionStatus.COMPLETED)
                         .build()));
         when(taskRepository.findByUserId(1L)).thenReturn(List.of());
         when(courseEnrollmentRepository.findByUserId(eq(1L), any(Pageable.class)))
@@ -266,6 +270,39 @@ class StudentLearningReportServiceImplTest {
 
         assertEquals(0, summary.getStudyStats().getCurrentStreak());
         assertEquals(7, summary.getTimeline().size());
+    }
+
+    @Test
+    @DisplayName("getSummary should keep streak active when studied yesterday but not today")
+    void getSummary_ShouldKeepStreakActiveWhenStudiedYesterday() {
+        LocalDateTime now = LocalDateTime.now(VN_ZONE);
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(student));
+        when(roadmapSessionRepository.findByUserIdAndStatusNotDeleted(1L)).thenReturn(List.of());
+        when(studySessionRepository.findByUserId(1L)).thenReturn(List.of(
+                StudySession.builder()
+                        .id(UUID.randomUUID())
+                        .user(student)
+                        .startTime(now.minusDays(1).withHour(8))
+                        .endTime(now.minusDays(1).withHour(9))
+                        .status(StudySessionStatus.COMPLETED)
+                        .build(),
+                StudySession.builder()
+                        .id(UUID.randomUUID())
+                        .user(student)
+                        .startTime(now.minusDays(2).withHour(8))
+                        .endTime(now.minusDays(2).withHour(9))
+                        .status(StudySessionStatus.COMPLETED)
+                        .build()));
+        when(taskRepository.findByUserId(1L)).thenReturn(List.of());
+        when(courseEnrollmentRepository.findByUserId(eq(1L), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(reportRepository.findFirstByStudentIdOrderByGeneratedAtDescIdDesc(1L))
+                .thenReturn(Optional.empty());
+
+        StudentLearningReportResponse summary = service.getSummary(1L, "7d");
+
+        assertEquals(2, summary.getStudyStats().getCurrentStreak());
     }
 
     @Test
@@ -304,18 +341,21 @@ class StudentLearningReportServiceImplTest {
                         .user(student)
                         .startTime(now.minusDays(1).withHour(19))
                         .endTime(now.minusDays(1).withHour(20))
+                        .status(StudySessionStatus.COMPLETED)
                         .build(),
                 StudySession.builder()
                         .id(UUID.randomUUID())
                         .user(student)
                         .startTime(now.minusDays(6).withHour(19))
                         .endTime(now.minusDays(6).withHour(19).plusMinutes(45))
+                        .status(StudySessionStatus.COMPLETED)
                         .build(),
                 StudySession.builder()
                         .id(UUID.randomUUID())
                         .user(student)
                         .startTime(now.minusDays(40).withHour(19))
                         .endTime(now.minusDays(40).withHour(19).plusMinutes(50))
+                        .status(StudySessionStatus.COMPLETED)
                         .build()));
         when(taskRepository.findByUserId(1L)).thenReturn(List.of());
         when(courseEnrollmentRepository.findByUserId(eq(1L), any(Pageable.class)))
@@ -366,6 +406,7 @@ class StudentLearningReportServiceImplTest {
                 .user(student)
                 .startTime(now.withHour(8))
                 .endTime(now.withHour(9))
+                .status(StudySessionStatus.COMPLETED)
                 .build()));
         when(taskRepository.findByUserId(1L)).thenReturn(List.of(Task.builder()
                 .id(UUID.randomUUID())

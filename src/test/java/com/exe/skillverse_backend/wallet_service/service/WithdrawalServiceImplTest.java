@@ -5,6 +5,7 @@ import com.exe.skillverse_backend.auth_service.repository.UserRepository;
 import com.exe.skillverse_backend.notification_service.entity.NotificationType;
 import com.exe.skillverse_backend.notification_service.service.impl.NotificationServiceImpl;
 import com.exe.skillverse_backend.user_service.service.UserProfileService;
+import com.exe.skillverse_backend.mentor_service.repository.MentorProfileRepository;
 import com.exe.skillverse_backend.wallet_service.dto.response.WithdrawalRequestResponse;
 import com.exe.skillverse_backend.wallet_service.entity.Wallet;
 import com.exe.skillverse_backend.wallet_service.entity.WalletTransaction;
@@ -66,6 +67,9 @@ class WithdrawalServiceImplTest {
     @Mock
     private NotificationServiceImpl notificationService;
 
+    @Mock
+    private MentorProfileRepository mentorProfileRepository;
+
     private WithdrawalServiceImpl service;
 
     @BeforeEach
@@ -78,7 +82,8 @@ class WithdrawalServiceImplTest {
                 walletService,
                 userProfileService,
                 walletEmailService,
-                notificationService);
+                notificationService,
+                mentorProfileRepository);
         lenient().when(withdrawalRequestRepository.save(any(WithdrawalRequest.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(transactionRepository.save(any(WalletTransaction.class)))

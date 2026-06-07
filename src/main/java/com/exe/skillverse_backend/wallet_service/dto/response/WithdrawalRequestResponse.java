@@ -68,14 +68,24 @@ public class WithdrawalRequestResponse {
      * Convert from entity to DTO
      */
     public static WithdrawalRequestResponse fromEntity(WithdrawalRequest request) {
-        return fromEntity(request, null);
+        return fromEntity(request, null, null);
     }
     
     /**
      * Convert from entity to DTO with avatar URL
      */
     public static WithdrawalRequestResponse fromEntity(WithdrawalRequest request, String userAvatarUrl) {
-        String userFullName = buildFullName(request.getUser().getFirstName(), request.getUser().getLastName());
+        return fromEntity(request, null, userAvatarUrl);
+    }
+
+    /**
+     * Convert from entity to DTO with full name and avatar URL
+     */
+    public static WithdrawalRequestResponse fromEntity(WithdrawalRequest request, String userFullName, String userAvatarUrl) {
+        String fullName = (userFullName != null && !userFullName.trim().isEmpty())
+            ? userFullName
+            : buildFullName(request.getUser().getFirstName(), request.getUser().getLastName());
+            
         String approvedByName = request.getApprovedBy() != null
             ? buildFullName(request.getApprovedBy().getFirstName(), request.getApprovedBy().getLastName())
             : null;
@@ -84,7 +94,7 @@ public class WithdrawalRequestResponse {
                 .requestId(request.getRequestId())
                 .requestCode(request.getRequestCode())
                 .userId(request.getUser().getId())
-                .userFullName(userFullName)
+                .userFullName(fullName)
                 .userEmail(request.getUser().getEmail())
                 .userAvatarUrl(userAvatarUrl)
                 .amount(request.getAmount())
@@ -123,14 +133,21 @@ public class WithdrawalRequestResponse {
      * Convert for admin (full account number)
      */
     public static WithdrawalRequestResponse fromEntityForAdmin(WithdrawalRequest request) {
-        return fromEntityForAdmin(request, null);
+        return fromEntityForAdmin(request, null, null);
     }
     
     /**
      * Convert for admin (full account number) with avatar URL
      */
     public static WithdrawalRequestResponse fromEntityForAdmin(WithdrawalRequest request, String userAvatarUrl) {
-        WithdrawalRequestResponse response = fromEntity(request, userAvatarUrl);
+        return fromEntityForAdmin(request, null, userAvatarUrl);
+    }
+    
+    /**
+     * Convert for admin (full account number) with full name and avatar URL
+     */
+    public static WithdrawalRequestResponse fromEntityForAdmin(WithdrawalRequest request, String userFullName, String userAvatarUrl) {
+        WithdrawalRequestResponse response = fromEntity(request, userFullName, userAvatarUrl);
         response.setBankAccountNumber(request.getBankAccountNumber()); // Full number for admin
         return response;
     }

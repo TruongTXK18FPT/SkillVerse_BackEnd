@@ -27,6 +27,7 @@ import com.exe.skillverse_backend.student_learning_report_service.repository.Stu
 import com.exe.skillverse_backend.student_learning_report_service.service.StudentLearningReportService;
 import com.exe.skillverse_backend.student_learning_report_service.service.recommendation.RecommendationEngine;
 import com.exe.skillverse_backend.study_service.entity.StudySession;
+import com.exe.skillverse_backend.study_service.entity.StudySessionStatus;
 import com.exe.skillverse_backend.study_service.entity.Task;
 import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
 import com.exe.skillverse_backend.study_service.repository.TaskRepository;
@@ -237,7 +238,9 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         String studentName = resolveStudentName(student);
 
         List<RoadmapSession> roadmaps = defaultList(roadmapSessionRepository.findByUserIdAndStatusNotDeleted(studentId));
-        List<StudySession> studySessions = safeList(() -> studySessionRepository.findByUserId(studentId));
+        List<StudySession> studySessions = safeList(() -> studySessionRepository.findByUserId(studentId)).stream()
+                .filter(session -> session.getStatus() == StudySessionStatus.COMPLETED)
+                .collect(Collectors.toList());
         List<Task> tasks = safeList(() -> taskRepository.findByUserId(studentId)).stream()
                 .filter(task -> task.getArchived() == null || !task.getArchived())
                 .collect(Collectors.toList());
@@ -248,7 +251,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         StudyComputation studyComputation = computeStudyData(studySessions, generatedAt);
         TaskComputation taskComputation = computeTaskData(tasks, generatedAt);
         CourseComputation courseComputation = computeCourseData(enrollments);
-        JobComputation jobComputation = computeJobData(jobApplications);
+        JobComputation jobComputation = computeJobData(studentId, jobApplications);
 
         Integer overallProgress = computeOverallProgressV2(
                 roadmapComputation.stats.getRoadmapProgress(),
@@ -666,12 +669,21 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
                 .map(LocalDateTime::toLocalDate)
                 .collect(Collectors.toSet());
 
-        if (!studyDates.contains(today)) {
+        if (studyDates.isEmpty()) {
             return 0;
         }
 
+        LocalDate startCursor = today;
+        if (!studyDates.contains(today)) {
+            if (studyDates.contains(today.minusDays(1))) {
+                startCursor = today.minusDays(1);
+            } else {
+                return 0;
+            }
+        }
+
         int streak = 0;
-        LocalDate cursor = today;
+        LocalDate cursor = startCursor;
         while (studyDates.contains(cursor)) {
             streak++;
             cursor = cursor.minusDays(1);
@@ -1084,7 +1096,7 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
     private record JobEarningPoint(LocalDateTime timestamp, BigDecimal amount) {
     }
 
-    private JobComputation computeJobData(List<ShortTermJobApplication> applications) {
+    private JobComputation computeJobData(Long studentId, List<ShortTermJobApplication> applications) {
         List<StudentLearningReportResponse.JobBreakdownItem> breakdown = new ArrayList<>();
         List<Instant> completedJobInstants = new ArrayList<>();
         List<JobEarningPoint> earningPoints = new ArrayList<>();
@@ -1098,6 +1110,15 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
         int onTimeDeliveries = 0;
         BigDecimal totalEarnings = BigDecimal.ZERO;
         List<Double> ratings = new ArrayList<>();
+
+        List<JobReview> reviews = safeList(() -> jobReviewRepository.findByRevieweeIdOrderByCreatedAtDesc(studentId));
+        Map<Long, JobReview> reviewMap = reviews.stream()
+                .filter(r -> r.getApplication() != null && r.getReviewType() == JobReview.ReviewType.RECRUITER_TO_CANDIDATE)
+                .collect(Collectors.toMap(
+                        r -> r.getApplication().getId(),
+                        r -> r,
+                        (existing, replacement) -> existing
+                ));
 
         for (ShortTermJobApplication app : applications) {
             ShortTermJob job = app.getShortTermJob();
@@ -1146,6 +1167,12 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
             }
 
             Double rating = null;
+            JobReview review = reviewMap.get(app.getId());
+            if (review != null) {
+                rating = review.getRating().doubleValue();
+                ratings.add(rating);
+            }
+
             String recruiterName = job != null && job.getRecruiterProfile() != null ?
                 job.getRecruiterProfile().getCompanyName() : "Unknown";
 
@@ -1200,33 +1227,37 @@ public class StudentLearningReportServiceImpl implements StudentLearningReportSe
             Integer activeCourses,
             Integer completedJobs,
             Integer totalJobsApplied) {
-        List<Integer> components = new ArrayList<>();
-        int weight = 0;
+        double totalWeightedValue = 0.0;
+        double totalWeight = 0.0;
 
         if (nullSafeInt(totalMissions) > 0) {
-            components.add(nullSafeInt(roadmapProgress));
-            weight++;
+            // Roadmap: weight 3
+            totalWeightedValue += nullSafeInt(roadmapProgress) * 3.0;
+            totalWeight += 3.0;
         }
         if (nullSafeInt(totalTasks) > 0) {
-            components.add(nullSafeInt(taskProgress));
-            weight++;
+            // Tasks: weight 2
+            totalWeightedValue += nullSafeInt(taskProgress) * 2.0;
+            totalWeight += 2.0;
         }
         if (nullSafeInt(activeCourses) > 0) {
-            components.add(nullSafeInt(courseProgress));
-            weight++;
+            // Courses: weight 3
+            totalWeightedValue += nullSafeInt(courseProgress) * 3.0;
+            totalWeight += 3.0;
         }
         if (nullSafeInt(totalJobsApplied) > 0) {
+            // Jobs: weight 1.5
             int jobSuccessRate = percent(nullSafeInt(completedJobs), nullSafeInt(totalJobsApplied));
-            components.add(jobSuccessRate);
-            weight++;
+            totalWeightedValue += jobSuccessRate * 1.5;
+            totalWeight += 1.5;
         }
 
-        if (components.isEmpty()) {
+        if (totalWeight == 0.0) {
             return 0;
         }
 
         // Weighted average: learning activities have higher weight than job applications
-        return (int) Math.round(components.stream().mapToInt(Integer::intValue).average().orElse(0));
+        return (int) Math.round(totalWeightedValue / totalWeight);
     }
 
     private String computeLearningTrendV2(Long studentId, Integer currentOverallProgress,
