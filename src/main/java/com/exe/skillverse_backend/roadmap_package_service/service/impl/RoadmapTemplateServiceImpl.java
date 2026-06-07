@@ -143,7 +143,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             RoadmapTemplateNode node,
             RoadmapNodeAiEnrichmentService.EnrichedNode enriched,
             String difficulty,
-            int estimatedMinutes
+            int estimatedMinutes,
+            List<Long> suggestedCourseIds
     ) {
     }
 
@@ -424,11 +425,40 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         Set<String> gapNames = extractProfileSkillNames(skillGaps);
         Set<String> strengthNames = extractProfileSkillNames(strengths);
         
+        List<RoadmapTemplateCourse> templateCourses = courseRepository.findByTemplateIdOrderByDisplayOrderAscIdAsc(template.getId());
+        
+        Map<Long, List<Long>> manualCoursesByNode = templateCourses.stream()
+                .filter(c -> c.getTemplateNodeId() != null)
+                .collect(Collectors.groupingBy(
+                        RoadmapTemplateCourse::getTemplateNodeId,
+                        LinkedHashMap::new,
+                        Collectors.mapping(RoadmapTemplateCourse::getCourseId, Collectors.toList())));
+
+        Map<Long, List<Long>> manualCoursesBySkill = templateCourses.stream()
+                .filter(c -> c.getSkillId() != null)
+                .collect(Collectors.groupingBy(
+                        RoadmapTemplateCourse::getSkillId,
+                        LinkedHashMap::new,
+                        Collectors.mapping(RoadmapTemplateCourse::getCourseId, Collectors.toList())));
+
         List<CompletableFuture<EnrichedRuntimeNodeV1>> futures = new ArrayList<>();
         for (int i = 0; i < nodes.size(); i++) {
             RoadmapTemplateNode node = nodes.get(i);
             boolean gapMatched = profileMatchesNode(gapNames, node);
             boolean strengthMatched = profileMatchesNode(strengthNames, node);
+
+            List<Long> manualIds = new ArrayList<>();
+            if (manualCoursesByNode.containsKey(node.getId())) {
+                manualIds.addAll(manualCoursesByNode.get(node.getId()));
+            }
+            if (node.getSkillId() != null && manualCoursesBySkill.containsKey(node.getSkillId())) {
+                for (Long cid : manualCoursesBySkill.get(node.getSkillId())) {
+                    if (!manualIds.contains(cid)) {
+                        manualIds.add(cid);
+                    }
+                }
+            }
+            final List<Long> finalManualIds = manualIds;
 
             CompletableFuture<EnrichedRuntimeNodeV1> future = CompletableFuture.supplyAsync(() -> {
                 RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
@@ -445,7 +475,13 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 );
                 int personalizedMinutes = personalizeMinutes(node, studentLevel, gapMatched);
                 String difficulty = personalizeDifficulty(node, studentLevel, gapMatched, strengthMatched);
-                return new EnrichedRuntimeNodeV1(node, enriched, difficulty, personalizedMinutes);
+                List<Long> suggestedCourseIds = resolveSuggestedCourseIds(
+                        node.getSkillId(),
+                        RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID,
+                        2,
+                        finalManualIds
+                );
+                return new EnrichedRuntimeNodeV1(node, enriched, difficulty, personalizedMinutes, suggestedCourseIds);
             }, roadmapEnrichmentTaskExecutor);
 
             futures.add(future);
@@ -1829,6 +1865,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             }
 
             putArray(n, "suggested_resources", List.of());
+            putLongArray(n, "suggested_course_ids", ern.suggestedCourseIds());
             putArray(n, "key_concepts", personalizedKeyConcepts(node, studentLevel));
             putArray(n, "prerequisites", parentId != null ? List.of(parentId) : List.of());
             putArray(n, "children", childrenOf(node, nodes, nodeIdsByTemplateId));
@@ -1950,12 +1987,19 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             List<RoadmapTemplateNodeGroupSkill> skills =
                     nodeGroupSkillRepository.findByNodeGroupIdOrderByOrderIndexAscIdAsc(group.getId());
             RoadmapTemplateNodeGroupSkill primarySkill = skills.isEmpty() ? null : skills.get(0);
-            List<Long> suggestedCourseIds = skills.stream()
+            List<Long> manualIds = skills.stream()
                     .map(RoadmapTemplateNodeGroupSkill::getSkillId)
                     .filter(Objects::nonNull)
                     .flatMap(skillId -> defaultList(manualCoursesBySkill.get(skillId)).stream())
                     .distinct()
                     .toList();
+            Long primarySkillId = primarySkill != null ? primarySkill.getSkillId() : null;
+            List<Long> suggestedCourseIds = resolveSuggestedCourseIds(
+                    primarySkillId,
+                    RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID,
+                    2,
+                    manualIds
+            );
 
             String exInstruction = group.getDescription();
             String exExpectedOutput = group.getExpectedOutput();
@@ -2767,23 +2811,49 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     }
 
     private List<Long> resolveSuggestedCourseIds(RoadmapTemplateSkillBlock block, List<Long> manualCourseIds) {
-        RoadmapTemplateCourseLinkPolicy policy = block.getCourseLinkPolicy() != null
-                ? block.getCourseLinkPolicy()
-                : RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID;
-        int limit = normalizeAutoCourseLimit(block.getAutoCourseLimit());
-        LinkedHashSet<Long> ids = new LinkedHashSet<>(defaultList(manualCourseIds));
-        if (policy == RoadmapTemplateCourseLinkPolicy.MANUAL_ONLY) {
-            return ids.stream().limit(limit).toList();
+        return resolveSuggestedCourseIds(
+                block.getSkillId(),
+                block.getCourseLinkPolicy(),
+                block.getAutoCourseLimit(),
+                manualCourseIds
+        );
+    }
+
+    List<Long> resolveSuggestedCourseIds(
+            Long skillId,
+            RoadmapTemplateCourseLinkPolicy policy,
+            Integer autoCourseLimit,
+            List<Long> manualCourseIds) {
+        List<Long> manualIds = defaultList(manualCourseIds);
+        LinkedHashSet<Long> finalIds = new LinkedHashSet<>(manualIds);
+
+        RoadmapTemplateCourseLinkPolicy safePolicy = policy != null ? policy : RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID;
+        if (safePolicy == RoadmapTemplateCourseLinkPolicy.MANUAL_ONLY || skillId == null) {
+            return new ArrayList<>(finalIds);
         }
-        if (policy == RoadmapTemplateCourseLinkPolicy.AUTO_NEWEST || policy == RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID) {
-            systemCourseRepository.findNewestPublicCourseCandidatesBySkill(block.getSkillId(), limit)
-                    .forEach(row -> ids.add(asLong(row[0])));
+
+        // Find AI suggested courses
+        LinkedHashSet<Long> aiCandidates = new LinkedHashSet<>();
+        int limit = normalizeAutoCourseLimit(autoCourseLimit);
+
+        if (safePolicy == RoadmapTemplateCourseLinkPolicy.AUTO_NEWEST || safePolicy == RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID) {
+            systemCourseRepository.findNewestPublicCourseCandidatesBySkill(skillId, limit)
+                    .forEach(row -> aiCandidates.add(asLong(row[0])));
         }
-        if (policy == RoadmapTemplateCourseLinkPolicy.AUTO_POPULAR || policy == RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID) {
-            systemCourseRepository.findPopularPublicCourseCandidatesBySkill(block.getSkillId(), limit)
-                    .forEach(row -> ids.add(asLong(row[0])));
+        if (safePolicy == RoadmapTemplateCourseLinkPolicy.AUTO_POPULAR || safePolicy == RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID) {
+            systemCourseRepository.findPopularPublicCourseCandidatesBySkill(skillId, limit)
+                    .forEach(row -> aiCandidates.add(asLong(row[0])));
         }
-        return ids.stream().filter(Objects::nonNull).limit(limit).toList();
+
+        // Filter out manualIds and limit AI suggestions to 1 or 2 optional AI courses
+        List<Long> optionalAiSuggestions = aiCandidates.stream()
+                .filter(Objects::nonNull)
+                .filter(id -> !finalIds.contains(id))
+                .limit(2) // Only suggest 1 to 2 courses if appropriate
+                .toList();
+
+        finalIds.addAll(optionalAiSuggestions);
+        return new ArrayList<>(finalIds);
     }
 
     private int toMinutes(Double hours) {

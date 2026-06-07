@@ -81,8 +81,8 @@ public class MultiLevelCourseMatcher {
      *
      * <p>Selected dynamically in {@link #matchNodesToCoursesAndModules} via {@code roadmapMode}.
      */
-    private static final int MAX_COURSES_PER_SKILL_NODE = 3;
-    private static final int MAX_COURSES_PER_CAREER_NODE = 3;
+    private static final int MAX_COURSES_PER_SKILL_NODE = 2;
+    private static final int MAX_COURSES_PER_CAREER_NODE = 2;
 
     /** Penalize courses that miss core intent anchors from topic (e.g., java, spring). */
     private static final int ANCHOR_MISS_PENALTY = 4;

@@ -371,4 +371,42 @@ class RoadmapTemplateServiceImplTest {
     private Object[] courseRow(Long id, String title, Instant createdAt, Long enrollmentCount) {
         return new Object[] {id, title, "JUNIOR", "Backend", Timestamp.from(createdAt), enrollmentCount};
     }
+
+    @Test
+    void resolveSuggestedCourseIdsPreservesManualAndCapsAiSuggestions() {
+        userRepository.findById(ADMIN_ID);
+
+        Long skillId = 101L;
+        List<Long> manualCourseIds = List.of(201L, 202L);
+
+        // Scenario 1: MANUAL_ONLY policy
+        List<Long> resultManualOnly = service.resolveSuggestedCourseIds(
+                skillId, RoadmapTemplateCourseLinkPolicy.MANUAL_ONLY, 3, manualCourseIds);
+        assertThat(resultManualOnly).containsExactly(201L, 202L);
+
+        // Scenario 2: AUTO_HYBRID policy
+        Instant createdAt = Instant.parse("2026-01-01T00:00:00Z");
+        when(systemCourseRepository.findNewestPublicCourseCandidatesBySkill(skillId, 3))
+                .thenReturn(List.of(
+                        courseRow(201L, "Duplicate Manual Course", createdAt, 5L),
+                        courseRow(301L, "New Course 1", createdAt, 8L),
+                        courseRow(302L, "New Course 2", createdAt, 12L)
+                ));
+        when(systemCourseRepository.findPopularPublicCourseCandidatesBySkill(skillId, 3))
+                .thenReturn(List.of(
+                        courseRow(302L, "New Course 2", createdAt, 12L),
+                        courseRow(303L, "New Course 3", createdAt, 15L)
+                ));
+
+        // We ask for hybrid with autoCourseLimit = 3
+        List<Long> resultHybrid = service.resolveSuggestedCourseIds(
+                skillId, RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID, 3, manualCourseIds);
+
+        // manual courses must be preserved first: 201, 202
+        // Then AI suggestions (301, 302, 303) are filtered (201 is manual, so ignored).
+        // The remaining AI candidates are 301, 302, 303.
+        // We must limit to exactly 2 optional AI suggestions, e.g., 301 and 302.
+        // So the final list should be [201, 202, 301, 302].
+        assertThat(resultHybrid).containsExactly(201L, 202L, 301L, 302L);
+    }
 }
