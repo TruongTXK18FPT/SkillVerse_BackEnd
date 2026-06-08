@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.journey_service.service;
 
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
+import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
 import com.exe.skillverse_backend.ai_service.service.AiRoadmapService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService;
 import com.exe.skillverse_backend.ai_service.service.AssessmentPromptService.QuestionInfo;
@@ -348,13 +349,44 @@ class JourneyServiceImplTest {
                 .status(Journey.JourneyStatus.ACTIVE)
                 .progressPercentage(40)
                 .build();
+        RoadmapSession roadmapSession = RoadmapSession.builder()
+                .id(55L)
+                .status(RoadmapSession.RoadmapStatus.PAUSED)
+                .build();
 
         when(journeyRepository.findByIdAndUser(11L, user)).thenReturn(Optional.of(pausedJourney));
+        when(roadmapSessionRepository.countActiveByUserId(user.getId())).thenReturn(0L);
+        when(roadmapSessionRepository.findById(55L)).thenReturn(Optional.of(roadmapSession));
+        when(roadmapSessionRepository.save(any(RoadmapSession.class))).thenReturn(roadmapSession);
+
         JourneySummaryResponse response = service.resumeJourney(user, 11L);
 
         assertEquals(Journey.JourneyStatus.ROADMAP_GENERATED, response.getStatus());
         assertEquals(Journey.JourneyStatus.ACTIVE, otherJourney.getStatus());
+        assertEquals(RoadmapSession.RoadmapStatus.ACTIVE, roadmapSession.getStatus());
         verify(journeyRepository, never()).saveAll(any());
+        verify(roadmapSessionRepository).save(roadmapSession);
+    }
+
+    @Test
+    @DisplayName("resumeJourney should throw conflict exception if user has max concurrent active roadmaps")
+    void resumeJourney_ShouldThrowConflictIfUserHasMaxConcurrentActiveRoadmaps() {
+        User user = user();
+        Journey pausedJourney = Journey.builder()
+                .id(11L)
+                .user(user)
+                .domain("IT")
+                .goal("Backend")
+                .status(Journey.JourneyStatus.PAUSED)
+                .roadmapSessionId(55L)
+                .progressPercentage(20)
+                .build();
+
+        when(journeyRepository.findByIdAndUser(11L, user)).thenReturn(Optional.of(pausedJourney));
+        when(roadmapSessionRepository.countActiveByUserId(user.getId())).thenReturn(5L);
+
+        ApiException exception = assertThrows(ApiException.class, () -> service.resumeJourney(user, 11L));
+        assertTrue(exception.getMessage().contains("tối đa 5 lộ trình"));
     }
 
     @Test

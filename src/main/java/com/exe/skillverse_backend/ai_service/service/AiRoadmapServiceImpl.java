@@ -5011,6 +5011,10 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
             return;
         }
 
+        // Set status to DELETED and save to database
+        session.setStatus(RoadmapStatus.DELETED);
+        roadmapSessionRepository.saveAndFlush(session);
+
         // Archive tasks on soft-delete so board stays clean.
         int archived = taskBoardService.archiveTasksByRoadmapSession(userId, sessionId);
         log.info("🗑️ Soft-deleted roadmap {} for user {} (archived {} tasks)", sessionId, userId, archived);

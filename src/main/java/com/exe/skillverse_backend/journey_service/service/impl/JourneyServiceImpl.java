@@ -394,6 +394,16 @@ public class JourneyServiceImpl implements JourneyService {
             int archived = taskBoardService.archiveTasksByRoadmapSession(user.getId(), previousRoadmapSessionId);
             log.info("Archived {} tasks for roadmap session {} when journey {} set to {}",
                     archived, previousRoadmapSessionId, journeyId, newStatus);
+            
+            // Synchronize roadmap session status
+            roadmapSessionRepository.findById(previousRoadmapSessionId).ifPresent(session -> {
+                if (newStatus == Journey.JourneyStatus.PAUSED) {
+                    session.setStatus(RoadmapSession.RoadmapStatus.PAUSED);
+                } else if (newStatus == Journey.JourneyStatus.CANCELLED) {
+                    session.setStatus(RoadmapSession.RoadmapStatus.DELETED);
+                }
+                roadmapSessionRepository.save(session);
+            });
         }
 
         return mapToJourneySummary(journey);
@@ -416,13 +426,26 @@ public class JourneyServiceImpl implements JourneyService {
             throw new RuntimeException("Can only resume a paused journey");
         }
 
+        // Before resuming and activating the roadmap, we must verify if the user has active slots
+        Long roadmapSessionId = journey.getRoadmapSessionId();
+        if (roadmapSessionId != null) {
+            long activeRoadmapCount = roadmapSessionRepository.countActiveByUserId(user.getId());
+            if (activeRoadmapCount >= 5) { // MAX_CONCURRENT_ACTIVE_ROADMAPS = 5
+                throw new ApiException(ErrorCode.CONFLICT,
+                        "Bạn đang học tối đa 5 lộ trình cùng lúc. Hãy hoàn thành, tạm dừng hoặc xóa một lộ trình trước khi kích hoạt lại.");
+            }
+            roadmapSessionRepository.findById(roadmapSessionId).ifPresent(session -> {
+                session.setStatus(RoadmapSession.RoadmapStatus.ACTIVE);
+                roadmapSessionRepository.save(session);
+            });
+        }
+
         Journey.JourneyStatus resumedStatus = determineResumeStatus(journey);
         journey.setStatus(resumedStatus);
         journey.setLastActivityAt(Instant.now());
         journey = journeyRepository.save(journey);
 
         // BUG-6 FIX: When resuming a journey, restore archived tasks so they reappear on the board
-        Long roadmapSessionId = journey.getRoadmapSessionId();
         if (roadmapSessionId != null) {
             int unarchived = taskBoardService.unarchiveTasksByRoadmapSession(user.getId(), roadmapSessionId);
             log.info("Restored {} tasks for roadmap session {} when journey {} resumed",
@@ -492,6 +515,15 @@ public class JourneyServiceImpl implements JourneyService {
         journey.setLastActivityAt(Instant.now());
         journey = journeyRepository.save(journey);
         syncCompletedJourneySkillToPortfolio(journey);
+
+        // Pause/Complete the roadmap session when journey is completed
+        Long roadmapSessionId = journey.getRoadmapSessionId();
+        if (roadmapSessionId != null) {
+            roadmapSessionRepository.findById(roadmapSessionId).ifPresent(session -> {
+                session.setStatus(RoadmapSession.RoadmapStatus.PAUSED);
+                roadmapSessionRepository.save(session);
+            });
+        }
 
         // Create completion milestone
         JourneyProgress progress = JourneyProgress.builder()
