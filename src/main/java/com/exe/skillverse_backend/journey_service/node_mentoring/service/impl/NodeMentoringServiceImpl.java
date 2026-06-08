@@ -649,8 +649,10 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         }
 
         // Fallbacks for empty fields
-        if (description.isBlank()) {
-            if (nodeContent != null && nodeContent.getPracticalExercises() != null && !nodeContent.getPracticalExercises().isEmpty()) {
+        if (description.isBlank() || description.trim().matches("^[-_\\s\\u2013\\u2014]+$")) {
+            if (matchedGroup != null && matchedGroup.getDescription() != null && !matchedGroup.getDescription().isBlank()) {
+                description = matchedGroup.getDescription();
+            } else if (nodeContent != null && nodeContent.getPracticalExercises() != null && !nodeContent.getPracticalExercises().isEmpty()) {
                 description = nodeContent.getPracticalExercises().stream()
                         .map(ex -> "- " + ex.trim())
                         .collect(Collectors.joining("\n"));
