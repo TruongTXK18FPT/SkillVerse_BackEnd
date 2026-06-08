@@ -42,7 +42,8 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
                   com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED,
                   com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.CANCELLED,
                   com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_UNVERIFIED,
-                  com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_VERIFIED
+                  com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_VERIFIED,
+                  com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.AWAITING_VERIFICATION
               )
             ORDER BY j.lastActivityAt DESC
             """)
@@ -91,7 +92,8 @@ public interface JourneyRepository extends JpaRepository<Journey, Long> {
                   com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.PAUSED,
                   com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.CANCELLED,
                   com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_UNVERIFIED,
-                  com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_VERIFIED
+                  com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.COMPLETED_VERIFIED,
+                  com.exe.skillverse_backend.journey_service.entity.Journey.JourneyStatus.AWAITING_VERIFICATION
               )
             """)
     long countConcurrentLearningJourneys(@Param("user") User user);
