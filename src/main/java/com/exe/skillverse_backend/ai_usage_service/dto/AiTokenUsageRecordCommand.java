@@ -22,4 +22,5 @@ public class AiTokenUsageRecordCommand {
     private Long latencyMs;
     private String errorCode;
     private AiUsageStatus status;
+    private String metadata;
 }

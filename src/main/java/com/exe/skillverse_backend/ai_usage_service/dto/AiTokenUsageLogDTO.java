@@ -24,4 +24,5 @@ public class AiTokenUsageLogDTO {
     private Long latencyMs;
     private String relatedEntityType;
     private Long relatedEntityId;
+    private String metadata;
 }

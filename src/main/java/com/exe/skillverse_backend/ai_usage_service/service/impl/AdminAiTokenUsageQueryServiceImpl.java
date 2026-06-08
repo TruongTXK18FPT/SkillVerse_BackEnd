@@ -203,6 +203,7 @@ public class AdminAiTokenUsageQueryServiceImpl implements AdminAiTokenUsageQuery
                 .latencyMs(log.getLatencyMs())
                 .relatedEntityType(log.getRelatedEntityType())
                 .relatedEntityId(log.getRelatedEntityId())
+                .metadata(log.getMetadata())
                 .build();
     }
 }

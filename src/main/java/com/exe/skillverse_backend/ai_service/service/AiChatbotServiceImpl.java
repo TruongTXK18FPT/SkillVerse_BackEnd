@@ -449,8 +449,15 @@ public class AiChatbotServiceImpl implements AiChatbotService {
         detectedContext != null ? detectedContext.domain() : "none",
         sessionDomain != null ? sessionDomain : "none");
 
+    String usageMetadata = "Tư vấn chung";
+    if (chatSession.getJobRole() != null && !chatSession.getJobRole().isBlank()) {
+      usageMetadata = "Vai trò: " + chatSession.getJobRole().trim();
+    } else if (effectiveDomain != null && !effectiveDomain.isBlank()) {
+      usageMetadata = "Lĩnh vực: " + effectiveDomain.trim().toUpperCase();
+    }
+
     // Call AI with automatic provider selection and fallback (passing session domain for persistence)
-    String aiResponse = callAIWithFallback(messageWithHints, previousMessages, request, sessionDomain);
+    String aiResponse = callAIWithFallback(messageWithHints, previousMessages, request, sessionDomain, usageMetadata);
     // Sanitize: remove '####' headings from AI response as requested
     aiResponse = sanitizeAIResponse(aiResponse);
 
@@ -572,7 +579,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
    * Using Mistral AI for latest 2026 career trends and insights
    */
   private String callAIWithFallback(String userMessage, List<ChatMessage> previousMessages, ChatRequest request,
-      String sessionDomain) {
+      String sessionDomain, String usageMetadata) {
     try {
       String agentSuffix = (request.getAiAgentMode() != null
           && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode()))
@@ -582,21 +589,21 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           && "deep-research-pro-preview-12-2025".equalsIgnoreCase(request.getAiAgentMode())) {
         try {
           return callGeminiForChat(userMessage, previousMessages, request, agentSuffix, geminiModel,
-              "Gemini Primary", sessionDomain);
+              "Gemini Primary", sessionDomain, usageMetadata);
         } catch (Exception ge) {
           String msg = ge.getMessage() != null ? ge.getMessage().toLowerCase() : "";
           if (msg.contains("429") || msg.contains("quota") || msg.contains("resource_exhausted")
               || msg.contains("rate limit")) {
             try {
               return callGeminiForChat(userMessage, previousMessages, request, agentSuffix, geminiFallbackModel,
-                  "Gemini Fallback", sessionDomain);
+                  "Gemini Fallback", sessionDomain, usageMetadata);
             } catch (Exception ge2) {
               String normalSuffix = "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions>.";
-              return callMistralForChat(userMessage, previousMessages, request, normalSuffix, sessionDomain);
+              return callMistralForChat(userMessage, previousMessages, request, normalSuffix, sessionDomain, usageMetadata);
             }
           } else {
             String normalSuffix = "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.\nQUAN TRỌNG: \n1. Hãy bắt đầu câu trả lời bằng một khối suy nghĩ được bao quanh bởi thẻ <thinking>...</thinking>.\n2. Kết thúc câu trả lời bằng danh sách 3 câu hỏi gợi ý tiếp theo được bao quanh bởi thẻ <suggestions>...</suggestions>.";
-            return callMistralForChat(userMessage, previousMessages, request, normalSuffix, sessionDomain);
+            return callMistralForChat(userMessage, previousMessages, request, normalSuffix, sessionDomain, usageMetadata);
           }
         }
       }
@@ -616,7 +623,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           long latencyMs = System.currentTimeMillis() - startTime;
           String fullPrompt = localSystemPrompt + "\n\n" + conversationText;
           recordChatbotSuccess(AiProviderType.LOCAL_AI, "local-ai", null,
-                  fullPrompt, response, request.getSessionId(), latencyMs);
+                  fullPrompt, response, request.getSessionId(), latencyMs, usageMetadata);
 
           return response;
         } catch (LocalAiGateway.LocalAiQueueFullException qfe) {
@@ -627,19 +634,19 @@ public class AiChatbotServiceImpl implements AiChatbotService {
           String fullPrompt = resolveSystemPromptForLocal(request, previousMessages, agentSuffix, "", sessionDomain)
                   + "\n\n" + conversationText;
           recordChatbotFailure(AiProviderType.LOCAL_AI, "local-ai", null,
-                  fullPrompt, localEx.getMessage(), latencyMs);
+                  fullPrompt, localEx.getMessage(), latencyMs, usageMetadata);
           log.warn("Local AI failed, falling back to Mistral: {}", localEx.getMessage());
         }
       }
       // Local AI not available or failed, use Mistral
       log.info("Local AI unavailable, using Mistral for normal chat mode");
-      return callMistralForChat(userMessage, previousMessages, request, agentSuffix, sessionDomain);
+      return callMistralForChat(userMessage, previousMessages, request, agentSuffix, sessionDomain, usageMetadata);
     } catch (Exception e) {
       log.error("Mistral AI failed: {}", e.getMessage());
 
       try {
         String normalAgentSuffix = "\nMODE: Normal Agent — Hành vi theo tác tử: nhận diện ý định, kiểm chứng thông tin cơ bản, tư duy có cấu trúc, trả lời rõ ràng.";
-        return callMistralForChat(userMessage, previousMessages, request, normalAgentSuffix, sessionDomain);
+        return callMistralForChat(userMessage, previousMessages, request, normalAgentSuffix, sessionDomain, usageMetadata);
       } catch (Exception e2) {
         // FALLBACK: Return a helpful response instead of throwing error
         return generateFallbackResponse(userMessage);
@@ -652,7 +659,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
    * Mistral provides more recent training data for 2026 career trends
    */
   private String callMistralForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request,
-      String agentSuffix, String sessionDomain) {
+      String agentSuffix, String sessionDomain, String usageMetadata) {
     long startTime = System.currentTimeMillis();
     String modelName = "mistral-large-latest";
     try {
@@ -700,7 +707,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       long latencyMs = System.currentTimeMillis() - startTime;
       String fullPrompt = finalSystemPrompt + "\n\n" + conversationHistory;
       recordChatbotSuccess(AiProviderType.MISTRAL, modelName, null,
-              fullPrompt, response, request.getSessionId(), latencyMs);
+              fullPrompt, response, request.getSessionId(), latencyMs, usageMetadata);
 
       return response;
 
@@ -708,7 +715,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
       long latencyMs = System.currentTimeMillis() - startTime;
       String fullPrompt = agentSuffix != null ? agentSuffix : "";
       recordChatbotFailure(AiProviderType.MISTRAL, modelName, null,
-              fullPrompt, e.getMessage(), latencyMs);
+              fullPrompt, e.getMessage(), latencyMs, usageMetadata);
       log.error("Mistral chat error: {}", e.getMessage());
       throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE,
           "Mistral AI service unavailable: " + e.getMessage());
@@ -783,7 +790,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   private record DetectedResult(String domain, String matchedKeyword) {}
 
   private String callGeminiForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request,
-      String agentSuffix, String modelName, String label, String sessionDomain) {
+      String agentSuffix, String modelName, String label, String sessionDomain, String usageMetadata) {
     StringBuilder contextBuilder = new StringBuilder();
     contextBuilder.append("Conversation history:\n");
     for (ChatMessage prev : previousMessages) {
@@ -804,13 +811,13 @@ public class AiChatbotServiceImpl implements AiChatbotService {
     // Combine system prompt and conversation history
     String fullPrompt = finalSystemPrompt + "\n\n" + conversationHistory;
     
-    return callGeminiDirectly(fullPrompt, modelName, null, request.getSessionId());
+    return callGeminiDirectly(fullPrompt, modelName, null, request.getSessionId(), usageMetadata);
   }
 
   /**
    * Call Gemini API directly via HTTP REST and return raw text response
    */
-  private String callGeminiDirectly(String prompt, String modelName, Long userId, Long sessionId) {
+  private String callGeminiDirectly(String prompt, String modelName, Long userId, Long sessionId, String usageMetadata) {
       long startTime = System.currentTimeMillis();
       log.info("Calling Gemini API directly (model: {})", modelName);
 
@@ -865,7 +872,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
                   log.debug("Raw Gemini response length: {}", rawText.length());
 
                   long latencyMs = System.currentTimeMillis() - startTime;
-                  recordChatbotSuccess(AiProviderType.GEMINI, modelName, userId, prompt, rawText, sessionId, latencyMs);
+                  recordChatbotSuccess(AiProviderType.GEMINI, modelName, userId, prompt, rawText, sessionId, latencyMs, usageMetadata);
 
                   return rawText;
               }
@@ -875,7 +882,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
 
       } catch (Exception e) {
           long latencyMs = System.currentTimeMillis() - startTime;
-          recordChatbotFailure(AiProviderType.GEMINI, modelName, userId, prompt, e.getMessage(), latencyMs);
+          recordChatbotFailure(AiProviderType.GEMINI, modelName, userId, prompt, e.getMessage(), latencyMs, usageMetadata);
           log.error("Failed to call Gemini API directly: {}", e.getMessage());
           throw new ApiException(ErrorCode.SERVICE_UNAVAILABLE, "AI generation failed: " + e.getMessage());
       }
@@ -1677,7 +1684,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   // ========== Token Usage Recording Methods ==========
 
   private void recordChatbotSuccess(AiProviderType provider, String modelName, Long userId,
-                                    String promptText, String responseText, Long sessionId, long latencyMs) {
+                                    String promptText, String responseText, Long sessionId, long latencyMs, String usageMetadata) {
     if (tokenUsageRecorder == null) {
       return;
     }
@@ -1695,12 +1702,13 @@ public class AiChatbotServiceImpl implements AiChatbotService {
             .estimated(counts.estimated())
             .latencyMs(latencyMs)
             .status(AiUsageStatus.SUCCESS)
+            .metadata(usageMetadata)
             .build();
     tokenUsageRecorder.recordSuccess(command);
   }
 
   private void recordChatbotFailure(AiProviderType provider, String modelName, Long userId,
-                                    String promptText, String errorCode, long latencyMs) {
+                                    String promptText, String errorCode, long latencyMs, String usageMetadata) {
     if (tokenUsageRecorder == null) {
       return;
     }
@@ -1718,6 +1726,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
             .latencyMs(latencyMs)
             .errorCode(errorCode != null ? errorCode.substring(0, Math.min(errorCode.length(), 50)) : null)
             .status(AiUsageStatus.FAILED)
+            .metadata(usageMetadata)
             .build();
     tokenUsageRecorder.recordFailure(command);
   }

@@ -14,6 +14,7 @@ import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -106,6 +107,83 @@ public class LocalAiGateway {
             }
             inFlightAndQueued.decrementAndGet();
         }
+    }
+
+    public String callWithoutSemaphore(String systemPrompt, String userPrompt) {
+        if (!enabled || !runtimeSettings.isLocalAiGenerationRuntimeEnabled()) {
+            throw new IllegalStateException("Local AI generation disabled");
+        }
+        if (localAiChatModel == null) {
+            throw new IllegalStateException("Local AI not configured");
+        }
+
+        var builder = ChatClient.builder(localAiChatModel).build().prompt();
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            builder = builder.system(systemPrompt);
+        }
+        return builder
+            .user(userPrompt)
+            .call()
+            .content();
+    }
+
+    public ChatResponse callForResponse(String systemPrompt, String userPrompt) {
+        if (!enabled || !runtimeSettings.isLocalAiGenerationRuntimeEnabled()) {
+            throw new IllegalStateException("Local AI generation disabled");
+        }
+        if (localAiChatModel == null) {
+            throw new IllegalStateException("Local AI not configured");
+        }
+
+        int current = inFlightAndQueued.incrementAndGet();
+        if (current > 1 + maxPending) {
+            inFlightAndQueued.decrementAndGet();
+            throw new LocalAiQueueFullException("Local AI queue full (" + current + " requests)");
+        }
+
+        boolean acquired = false;
+        try {
+            acquired = semaphore.tryAcquire(queueWaitMs, TimeUnit.MILLISECONDS);
+            if (!acquired) {
+                throw new LocalAiQueueFullException("Local AI queue wait timeout after " + queueWaitMs + "ms");
+            }
+
+            var builder = ChatClient.builder(localAiChatModel).build().prompt();
+            if (systemPrompt != null && !systemPrompt.isBlank()) {
+                builder = builder.system(systemPrompt);
+            }
+            return builder
+                .user(userPrompt)
+                .call()
+                .chatResponse();
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while waiting for Local AI slot", e);
+        } finally {
+            if (acquired) {
+                semaphore.release();
+            }
+            inFlightAndQueued.decrementAndGet();
+        }
+    }
+
+    public ChatResponse callWithoutSemaphoreForResponse(String systemPrompt, String userPrompt) {
+        if (!enabled || !runtimeSettings.isLocalAiGenerationRuntimeEnabled()) {
+            throw new IllegalStateException("Local AI generation disabled");
+        }
+        if (localAiChatModel == null) {
+            throw new IllegalStateException("Local AI not configured");
+        }
+
+        var builder = ChatClient.builder(localAiChatModel).build().prompt();
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            builder = builder.system(systemPrompt);
+        }
+        return builder
+            .user(userPrompt)
+            .call()
+            .chatResponse();
     }
 
     public String fetchRagContext(String query, Map<String, String> filters, int topK) {

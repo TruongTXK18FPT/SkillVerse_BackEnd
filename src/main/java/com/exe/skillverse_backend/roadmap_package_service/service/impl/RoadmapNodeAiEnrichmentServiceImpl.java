@@ -12,6 +12,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.metadata.Usage;
+import com.exe.skillverse_backend.ai_usage_service.dto.AiTokenUsageRecordCommand;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiFlowType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiProviderType;
+import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiUsageStatus;
+import com.exe.skillverse_backend.ai_usage_service.service.AiTokenUsageRecorder;
+import com.exe.skillverse_backend.ai_usage_service.util.TokenCounterUtil;
+import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
@@ -40,6 +49,9 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
     private final AtomicLong nextAllowedRequestTime = new AtomicLong(0);
 
     @Autowired(required = false)
+    private LocalAiGateway localAiGateway;
+
+    @Autowired(required = false)
     private AiRagGateway aiRagGateway;
 
     @Autowired(required = false)
@@ -47,6 +59,9 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
 
     @Autowired(required = false)
     private AiKnowledgeDocumentRepository aiKnowledgeDocumentRepository;
+
+    @Autowired(required = false)
+    private AiTokenUsageRecorder tokenUsageRecorder;
 
     private static final int MAX_RETRIES = 2;
     private static final long RETRY_BACKOFF_MS = 5000;
@@ -233,15 +248,56 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                     Thread.sleep(delay);
                 }
 
-                String responseText = ChatClient.builder(mistralChatModel)
-                        .build()
-                        .prompt()
-                        .user(prompt)
-                        .call()
-                        .content();
+                String responseText = null;
+                ChatResponse chatResponse = null;
+                AiProviderType usedProvider = AiProviderType.MISTRAL;
+                String usedModelName = "mistral-large-latest";
+
+                if (localAiGateway != null && localAiGateway.isAvailable()) {
+                    log.info("Using Local AI for Roadmap Node Enrichment - Node: '{}'", nodeTitle);
+                    usedProvider = AiProviderType.LOCAL_AI;
+                    usedModelName = "local-ai";
+                    try {
+                        chatResponse = localAiGateway.callWithoutSemaphoreForResponse(null, prompt);
+                        if (chatResponse != null && chatResponse.getResult() != null && chatResponse.getResult().getOutput() != null) {
+                            responseText = chatResponse.getResult().getOutput().getContent();
+                        }
+                    } catch (Exception localEx) {
+                        log.warn("Local AI failed for Roadmap Node Enrichment, falling back to Mistral - Node: '{}' - Reason: {}", 
+                                nodeTitle, localEx.getMessage());
+                        long localDuration = System.currentTimeMillis() - start;
+                        recordEnrichmentFailure(nodeTitle, prompt, localEx.getMessage(), localDuration, AiProviderType.LOCAL_AI, "local-ai");
+                        
+                        // Switch to Mistral
+                        usedProvider = AiProviderType.MISTRAL;
+                        usedModelName = "mistral-large-latest";
+                        chatResponse = ChatClient.builder(mistralChatModel)
+                                .build()
+                                .prompt()
+                                .user(prompt)
+                                .call()
+                                .chatResponse();
+                        if (chatResponse != null && chatResponse.getResult() != null && chatResponse.getResult().getOutput() != null) {
+                            responseText = chatResponse.getResult().getOutput().getContent();
+                        }
+                    }
+                } else {
+                    log.info("Local AI unavailable. Using Mistral for Roadmap Node Enrichment - Node: '{}'", nodeTitle);
+                    usedProvider = AiProviderType.MISTRAL;
+                    usedModelName = "mistral-large-latest";
+                    chatResponse = ChatClient.builder(mistralChatModel)
+                            .build()
+                            .prompt()
+                            .user(prompt)
+                            .call()
+                            .chatResponse();
+                    if (chatResponse != null && chatResponse.getResult() != null && chatResponse.getResult().getOutput() != null) {
+                        responseText = chatResponse.getResult().getOutput().getContent();
+                    }
+                }
 
                 if (responseText == null || responseText.isBlank()) {
-                    throw new RuntimeException("Mistral AI returned an empty response");
+                    throw new RuntimeException("AI provider returned an empty response");
                 }
 
                 EnrichedNode enriched = parseAndValidateResponse(responseText, lessonsJson);
@@ -273,6 +329,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 long duration = System.currentTimeMillis() - start;
                 log.info("✅ Sequential AI Enrichment Success - Node: '{}' | Attempt: {}/{} | Latency: {}ms", 
                         nodeTitle, attempt, MAX_RETRIES + 1, duration);
+                recordEnrichmentSuccess(nodeTitle, prompt, chatResponse, responseText, duration, usedProvider, usedModelName);
                 return enriched;
 
             } catch (Exception e) {
@@ -293,6 +350,8 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         long duration = System.currentTimeMillis() - start;
         log.error("❌ Sequential AI Enrichment Failed after {} attempts for Node '{}' in {}ms. Reverting to static template fallback.", 
                 MAX_RETRIES + 1, nodeTitle, duration, lastException);
+        
+        recordEnrichmentFailure(nodeTitle, prompt, lastException != null ? lastException.getMessage() : "Enrichment failed", duration, AiProviderType.MISTRAL, "mistral-large-latest");
         
         return buildStaticFallback(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric, 
                 skillName, studentLevel, isGap, isStrength, lessonsJson);
@@ -618,5 +677,71 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
             return 0;
         }
         return text.trim().split("\\s+").length;
+    }
+
+    private void recordEnrichmentSuccess(String nodeTitle, String promptText, ChatResponse chatResponse, String responseText, long latencyMs, AiProviderType provider, String modelName) {
+        if (tokenUsageRecorder == null) return;
+        try {
+            Long promptTokens = null;
+            Long completionTokens = null;
+            Long totalTokens = null;
+            boolean estimated = true;
+            
+            if (chatResponse != null && chatResponse.getMetadata() != null && chatResponse.getMetadata().getUsage() != null) {
+                Usage usage = chatResponse.getMetadata().getUsage();
+                if (usage.getPromptTokens() != null && usage.getPromptTokens() > 0) {
+                    promptTokens = (long) usage.getPromptTokens();
+                    completionTokens = (long) usage.getGenerationTokens();
+                    totalTokens = (long) usage.getTotalTokens();
+                    estimated = false;
+                }
+            }
+            
+            if (estimated) {
+                TokenCounterUtil.TokenCounts counts = TokenCounterUtil.estimateFromText(promptText, responseText != null ? responseText : "");
+                promptTokens = counts.promptTokens();
+                completionTokens = counts.completionTokens();
+                totalTokens = counts.totalTokens();
+            }
+            
+            AiTokenUsageRecordCommand command = AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.ROADMAP_GENERATION)
+                    .providerType(provider)
+                    .modelName(modelName)
+                    .promptTokens(promptTokens)
+                    .completionTokens(completionTokens)
+                    .totalTokens(totalTokens)
+                    .estimated(estimated)
+                    .latencyMs(latencyMs)
+                    .status(AiUsageStatus.SUCCESS)
+                    .metadata(nodeTitle)
+                    .build();
+            tokenUsageRecorder.recordSuccess(command);
+        } catch (Exception e) {
+            log.warn("Failed to record roadmap enrichment token success: {}", e.getMessage());
+        }
+    }
+
+    private void recordEnrichmentFailure(String nodeTitle, String promptText, String errorCode, long latencyMs, AiProviderType provider, String modelName) {
+        if (tokenUsageRecorder == null) return;
+        try {
+            long promptTokens = TokenCounterUtil.estimateTokens(promptText);
+            AiTokenUsageRecordCommand command = AiTokenUsageRecordCommand.builder()
+                    .flowType(AiFlowType.ROADMAP_GENERATION)
+                    .providerType(provider)
+                    .modelName(modelName)
+                    .promptTokens(promptTokens)
+                    .completionTokens(0L)
+                    .totalTokens(promptTokens)
+                    .estimated(true)
+                    .latencyMs(latencyMs)
+                    .errorCode(errorCode != null ? errorCode.substring(0, Math.min(errorCode.length(), 50)) : null)
+                    .status(AiUsageStatus.FAILED)
+                    .metadata(nodeTitle)
+                    .build();
+            tokenUsageRecorder.recordFailure(command);
+        } catch (Exception e) {
+            log.warn("Failed to record roadmap enrichment token failure: {}", e.getMessage());
+        }
     }
 }

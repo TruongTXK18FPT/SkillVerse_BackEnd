@@ -251,6 +251,13 @@ public class DatabaseSchemaFixer {
                 this::verifyAddRoadmapMentoringPriceToPortfolioExtended
             );
 
+            applyPatch(
+                "20260608_add_metadata_to_ai_token_usage_logs",
+                "Add metadata column to ai_token_usage_logs table",
+                this::patchAddMetadataToAiTokenUsageLogs,
+                this::verifyAddMetadataToAiTokenUsageLogs
+            );
+
             log.info("No active schema patches to run. Infrastructure ready.");
         } finally {
             releaseAdvisoryLock();
@@ -1532,5 +1539,16 @@ public class DatabaseSchemaFixer {
 
     private boolean verifyAddRoadmapMentoringPriceToPortfolioExtended() {
         return !hasTable("portfolio_extended_profiles") || hasColumn("portfolio_extended_profiles", "roadmap_mentoring_price");
+    }
+
+    private void patchAddMetadataToAiTokenUsageLogs() {
+        log.info("Adding metadata column to ai_token_usage_logs...");
+        if (hasTable("ai_token_usage_logs")) {
+            executeSql("ALTER TABLE ai_token_usage_logs ADD COLUMN IF NOT EXISTS metadata VARCHAR(255)");
+        }
+    }
+
+    private boolean verifyAddMetadataToAiTokenUsageLogs() {
+        return !hasTable("ai_token_usage_logs") || hasColumn("ai_token_usage_logs", "metadata");
     }
 }

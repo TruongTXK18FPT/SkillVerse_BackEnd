@@ -35,6 +35,7 @@ public class AiTokenUsageRecorderImpl implements AiTokenUsageRecorder {
                     .estimated(command.isEstimated())
                     .status(AiUsageStatus.SUCCESS)
                     .latencyMs(command.getLatencyMs())
+                    .metadata(command.getMetadata())
                     .build();
 
             repository.save(logEntry);
@@ -64,6 +65,7 @@ public class AiTokenUsageRecorderImpl implements AiTokenUsageRecorder {
                     .status(AiUsageStatus.FAILED)
                     .latencyMs(command.getLatencyMs())
                     .errorCode(command.getErrorCode())
+                    .metadata(command.getMetadata())
                     .build();
 
             repository.save(logEntry);

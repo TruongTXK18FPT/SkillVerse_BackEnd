@@ -75,6 +75,9 @@ public class AiTokenUsageLog {
     @Column(length = 50)
     private String errorCode;
 
+    @Column(length = 255)
+    private String metadata;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 

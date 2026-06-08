@@ -2,11 +2,13 @@ package com.exe.skillverse_backend.roadmap_package_service.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
 import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapNodeAiEnrichmentService;
+import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -312,5 +314,94 @@ class RoadmapNodeAiEnrichmentServiceTest {
         assertThat(result.getLearningObjectives()).anyMatch(obj -> obj.contains("Spring Security"));
         assertThat(result.getExpectedOutput()).isEqualTo("Auth Check");
         assertThat(result.getRubric()).isEqualTo("Auth Rubric");
+    }
+
+    @Test
+    void enrichNodeSuccessfulWithLocalAi() throws Exception {
+        LocalAiGateway localAiGateway = mock(LocalAiGateway.class);
+        when(localAiGateway.isAvailable()).thenReturn(true);
+        
+        String jsonText = "{\n"
+                + "  \"description\": \"Học Java căn bản với Local AI.\",\n"
+                + "  \"learningObjectives\": [\"Hiểu JVM\", \"Viết được chương trình HelloWorld\"],\n"
+                + "  \"practicalExercises\": [\"Viết Calculator\"],\n"
+                + "  \"successCriteria\": [\"Ứng dụng chạy ok\"],\n"
+                + "  \"expectedOutput\": \"Mã nguồn chương trình Calculator\",\n"
+                + "  \"rubric\": \"Đúng yêu cầu: 10đ\"\n"
+                + "}";
+        ChatResponse localChatResponse = mock(ChatResponse.class);
+        Generation generation = mock(Generation.class);
+        AssistantMessage assistantMessage = mock(AssistantMessage.class);
+        when(localChatResponse.getResult()).thenReturn(generation);
+        when(generation.getOutput()).thenReturn(assistantMessage);
+        when(assistantMessage.getContent()).thenReturn(jsonText);
+        when(localAiGateway.callWithoutSemaphoreForResponse(any(), anyString())).thenReturn(localChatResponse);
+
+        java.lang.reflect.Field field = RoadmapNodeAiEnrichmentServiceImpl.class.getDeclaredField("localAiGateway");
+        field.setAccessible(true);
+        field.set(service, localAiGateway);
+
+        RoadmapNodeAiEnrichmentService.EnrichedNode result = service.enrichNode(
+                "Java Basics",
+                "Học Java cơ bản",
+                "Baseline Output",
+                "Baseline Rubric",
+                "Java Core",
+                "BEGINNER",
+                "LEARN_BASIC",
+                true,
+                false
+        );
+
+        assertThat(result).isNotNull();
+        assertThat(result.getDescription()).contains("Học Java căn bản với Local AI");
+        assertThat(result.getExpectedOutput()).isEqualTo("Mã nguồn chương trình Calculator");
+        verify(localAiGateway).callWithoutSemaphoreForResponse(any(), anyString());
+    }
+
+    @Test
+    void enrichNodeFallsBackToMistralWhenLocalAiFails() throws Exception {
+        LocalAiGateway localAiGateway = mock(LocalAiGateway.class);
+        when(localAiGateway.isAvailable()).thenReturn(true);
+        when(localAiGateway.callWithoutSemaphoreForResponse(any(), anyString())).thenThrow(new RuntimeException("Local AI Timeout"));
+
+        String jsonText = "{\n"
+                + "  \"description\": \"Học Java căn bản với Mistral Fallback.\",\n"
+                + "  \"learningObjectives\": [\"Hiểu JVM\"],\n"
+                + "  \"practicalExercises\": [\"Viết Calculator\"],\n"
+                + "  \"successCriteria\": [\"Ứng dụng chạy ok\"],\n"
+                + "  \"expectedOutput\": \"Mã nguồn Calculator\",\n"
+                + "  \"rubric\": \"Đúng yêu cầu: 10đ\"\n"
+                + "}";
+
+        ChatResponse chatResponse = mock(ChatResponse.class);
+        Generation generation = mock(Generation.class);
+        AssistantMessage assistantMessage = mock(AssistantMessage.class);
+
+        when(mistralChatModel.call(any(Prompt.class))).thenReturn(chatResponse);
+        when(chatResponse.getResult()).thenReturn(generation);
+        when(generation.getOutput()).thenReturn(assistantMessage);
+        when(assistantMessage.getContent()).thenReturn(jsonText);
+
+        java.lang.reflect.Field field = RoadmapNodeAiEnrichmentServiceImpl.class.getDeclaredField("localAiGateway");
+        field.setAccessible(true);
+        field.set(service, localAiGateway);
+
+        RoadmapNodeAiEnrichmentService.EnrichedNode result = service.enrichNode(
+                "Java Basics",
+                "Học Java cơ bản",
+                "Baseline Output",
+                "Baseline Rubric",
+                "Java Core",
+                "BEGINNER",
+                "LEARN_BASIC",
+                true,
+                false
+        );
+
+        assertThat(result).isNotNull();
+        assertThat(result.getDescription()).contains("Học Java căn bản với Mistral Fallback");
+        verify(localAiGateway).callWithoutSemaphoreForResponse(any(), anyString());
+        verify(mistralChatModel).call(any(Prompt.class));
     }
 }
