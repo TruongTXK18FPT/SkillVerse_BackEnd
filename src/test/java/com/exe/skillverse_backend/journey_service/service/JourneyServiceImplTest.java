@@ -33,6 +33,7 @@ import com.exe.skillverse_backend.question_bank_service.entity.QuestionBank;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankQuestionService;
 import com.exe.skillverse_backend.question_bank_service.service.QuestionBankService;
 import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapTemplateService;
+import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
 import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.study_service.repository.StudySessionRepository;
@@ -73,6 +74,9 @@ class JourneyServiceImplTest {
 
     @Mock
     private JourneyRepository journeyRepository;
+
+    @Mock
+    private RoadmapTemplateRepository templateRepository;
 
     @Mock
     private RoadmapSessionRepository roadmapSessionRepository;
@@ -140,6 +144,7 @@ class JourneyServiceImplTest {
         objectMapper = new ObjectMapper();
         service = new JourneyServiceImpl(
                 journeyRepository,
+                templateRepository,
                 roadmapSessionRepository,
                 assessmentTestRepository,
                 testResultRepository,

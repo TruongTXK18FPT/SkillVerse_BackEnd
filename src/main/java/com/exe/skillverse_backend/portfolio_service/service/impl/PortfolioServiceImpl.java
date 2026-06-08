@@ -38,6 +38,11 @@ import com.exe.skillverse_backend.business_service.entity.JobDeliverable;
 import com.exe.skillverse_backend.business_service.entity.JobReview;
 import com.exe.skillverse_backend.business_service.repository.ShortTermJobApplicationRepository;
 import com.exe.skillverse_backend.business_service.repository.JobReviewRepository;
+import com.exe.skillverse_backend.journey_service.entity.Journey;
+import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplate;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateSkillBlock;
+import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.JourneyOutputAssessment;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.RoadmapNodeSubmission;
 import com.exe.skillverse_backend.journey_service.node_mentoring.entity.VerificationEvidenceReport;
@@ -113,6 +118,8 @@ public class PortfolioServiceImpl implements PortfolioService {
     private final VerificationEvidenceReportRepository verificationEvidenceReportRepository;
     private final JourneyOutputAssessmentRepository journeyOutputAssessmentRepository;
     private final RoadmapNodeSubmissionRepository roadmapNodeSubmissionRepository;
+    private final JourneyRepository journeyRepository;
+    private final RoadmapTemplateRepository templateRepository;
 
     // ==================== USER PROFILE (EXTENDED) ====================
 
@@ -1339,21 +1346,42 @@ public class PortfolioServiceImpl implements PortfolioService {
     @Override
     @Transactional
     public List<UserVerifiedSkillDTO> getVerifiedSkills(Long userId) {
-        getUserOrThrow(userId);
+        User user = getUserOrThrow(userId);
         syncApprovedVerificationRequestsToPortfolio(userId);
         syncVerifiedSkillsToTopSkills(userId);
-        return enrichVerifiedSkills(
-                verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId));
+        List<UserVerifiedSkillDTO> verified = new ArrayList<>(enrichVerifiedSkills(
+                verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId)));
+        List<UserVerifiedSkillDTO> unverified = getUnverifiedRoadmapSkills(user);
+        for (UserVerifiedSkillDTO uv : unverified) {
+            boolean alreadyVerified = verified.stream().anyMatch(v ->
+                    SkillNameUtils.normalize(v.getSkillName()).equals(SkillNameUtils.normalize(uv.getSkillName()))
+            );
+            if (!alreadyVerified) {
+                verified.add(uv);
+            }
+        }
+        return verified;
     }
 
     @Override
     @Transactional
     public List<UserVerifiedSkillDTO> getPublicVerifiedSkills(Long userId) {
         getPublicExtendedProfileOrThrow(userId);
+        User user = getUserOrThrow(userId);
         syncApprovedVerificationRequestsToPortfolio(userId);
         syncVerifiedSkillsToTopSkills(userId);
-        return enrichVerifiedSkills(
-                verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId));
+        List<UserVerifiedSkillDTO> verified = new ArrayList<>(enrichVerifiedSkills(
+                verifiedSkillRepository.findByUserIdOrderByFeaturedThenVerifiedAtDesc(userId)));
+        List<UserVerifiedSkillDTO> unverified = getUnverifiedRoadmapSkills(user);
+        for (UserVerifiedSkillDTO uv : unverified) {
+            boolean alreadyVerified = verified.stream().anyMatch(v ->
+                    SkillNameUtils.normalize(v.getSkillName()).equals(SkillNameUtils.normalize(uv.getSkillName()))
+            );
+            if (!alreadyVerified) {
+                verified.add(uv);
+            }
+        }
+        return verified;
     }
 
     @Override
@@ -1490,10 +1518,149 @@ public class PortfolioServiceImpl implements PortfolioService {
                     .toList();
         }
 
-        return verifiedSkillRepository.findByUserIdOrderByVerifiedAtDesc(user.getId())
-                .stream()
-                .map(this::mapRoadmapVerifiedSkillDetail)
-                .toList();
+        List<PortfolioVerifiedSkillDetailDTO> details = new ArrayList<>();
+
+        // 1. Get verified skills
+        List<UserVerifiedSkill> verifiedSkills = verifiedSkillRepository.findByUserIdOrderByVerifiedAtDesc(user.getId());
+        for (UserVerifiedSkill skill : verifiedSkills) {
+            details.add(mapRoadmapVerifiedSkillDetail(skill));
+        }
+
+        // 2. Get unverified roadmap skills from journeys
+        try {
+            List<Journey> unverifiedJourneys = journeyRepository.findByUserAndStatus(user, Journey.JourneyStatus.COMPLETED_UNVERIFIED);
+            for (Journey journey : unverifiedJourneys) {
+                List<String> journeySkills = new ArrayList<>();
+                if (journey.getRoadmapTemplateId() != null) {
+                    Optional<RoadmapTemplate> templateOpt = templateRepository.findById(journey.getRoadmapTemplateId());
+                    if (templateOpt.isPresent()) {
+                        RoadmapTemplate template = templateOpt.get();
+                        if (template.getSkillBlocks() != null) {
+                            for (RoadmapTemplateSkillBlock sb : template.getSkillBlocks()) {
+                                if (sb.getSkillNameSnapshot() != null && !sb.getSkillNameSnapshot().isBlank()) {
+                                    journeySkills.add(sb.getSkillNameSnapshot());
+                                }
+                            }
+                        }
+                    }
+                }
+                if (journey.getSkillName() != null && !journey.getSkillName().isBlank()) {
+                    if (!journeySkills.contains(journey.getSkillName())) {
+                        journeySkills.add(journey.getSkillName());
+                    }
+                }
+
+                for (String rawSkill : journeySkills) {
+                    String skillName = SkillNameUtils.normalize(rawSkill);
+                    if (skillName == null || skillName.isBlank()) continue;
+
+                    // Check if this skill is already in verified skills (verified overrides unverified)
+                    boolean alreadyVerified = verifiedSkills.stream().anyMatch(vs ->
+                            SkillNameUtils.normalize(vs.getSkillName()).equals(skillName)
+                    );
+                    if (alreadyVerified) {
+                        continue;
+                    }
+
+                    // Check if we already added this skill from another journey
+                    boolean alreadyAdded = details.stream().anyMatch(d ->
+                            SkillNameUtils.normalize(d.getSkillName()).equals(skillName)
+                    );
+                    if (alreadyAdded) {
+                        continue;
+                    }
+
+                    details.add(mapUnverifiedRoadmapSkillDetail(journey, skillName));
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to resolve unverified roadmap skill details for user {}", user.getId(), e);
+        }
+
+        return details;
+    }
+
+    private List<UserVerifiedSkillDTO> getUnverifiedRoadmapSkills(User user) {
+        List<UserVerifiedSkillDTO> unverifiedList = new ArrayList<>();
+        try {
+            List<Journey> unverifiedJourneys = journeyRepository.findByUserAndStatus(user, Journey.JourneyStatus.COMPLETED_UNVERIFIED);
+            for (Journey journey : unverifiedJourneys) {
+                List<String> journeySkills = new ArrayList<>();
+                if (journey.getRoadmapTemplateId() != null) {
+                    Optional<RoadmapTemplate> templateOpt = templateRepository.findById(journey.getRoadmapTemplateId());
+                    if (templateOpt.isPresent()) {
+                        RoadmapTemplate template = templateOpt.get();
+                        if (template.getSkillBlocks() != null) {
+                            for (RoadmapTemplateSkillBlock sb : template.getSkillBlocks()) {
+                                if (sb.getSkillNameSnapshot() != null && !sb.getSkillNameSnapshot().isBlank()) {
+                                    journeySkills.add(sb.getSkillNameSnapshot());
+                                }
+                            }
+                        }
+                    }
+                }
+                if (journey.getSkillName() != null && !journey.getSkillName().isBlank()) {
+                    if (!journeySkills.contains(journey.getSkillName())) {
+                        journeySkills.add(journey.getSkillName());
+                    }
+                }
+
+                for (String rawSkill : journeySkills) {
+                    String skillName = SkillNameUtils.normalize(rawSkill);
+                    if (skillName == null || skillName.isBlank()) continue;
+
+                    boolean alreadyExists = unverifiedList.stream().anyMatch(d ->
+                            SkillNameUtils.normalize(d.getSkillName()).equals(skillName)
+                    );
+                    if (alreadyExists) continue;
+
+                    unverifiedList.add(UserVerifiedSkillDTO.builder()
+                            .id(null)
+                            .skillName(skillName)
+                            .skillLevel(journey.getCurrentLevel() != null ? journey.getCurrentLevel().name() : null)
+                            .verifiedByMentorId(null)
+                            .verifiedByMentorName(null)
+                            .journeyId(journey.getId())
+                            .bookingId(null)
+                            .verificationNote("Kỹ năng hoàn thành từ roadmap tự học")
+                            .featuredOrder(null)
+                            .verifiedAt(journey.getCompletedAt())
+                            .build());
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to fetch unverified roadmap skills for user {}", user.getId(), e);
+        }
+        return unverifiedList;
+    }
+
+    private PortfolioVerifiedSkillDetailDTO mapUnverifiedRoadmapSkillDetail(Journey journey, String skillName) {
+        List<RoadmapNodeSubmission> submissions = roadmapNodeSubmissionRepository.findByJourneyId(journey.getId());
+        List<PortfolioVerifiedSkillEvidenceDTO> evidences = new ArrayList<>();
+
+        JourneyOutputAssessment outputAssessment = journeyOutputAssessmentRepository.findFirstByJourneyIdOrderBySubmittedAtDesc(journey.getId())
+                .orElse(null);
+        if (outputAssessment != null) {
+            appendOutputAssessmentEvidence(evidences, outputAssessment);
+        }
+
+        submissions.forEach(submission -> appendNodeSubmissionEvidence(evidences, submission));
+
+        return PortfolioVerifiedSkillDetailDTO.builder()
+                .id(null)
+                .skillName(skillName)
+                .displaySkillName(formatDisplaySkillName(skillName))
+                .verificationSource("ROADMAP_UNVERIFIED")
+                .verifiedAt(journey.getCompletedAt())
+                .reviewerId(null)
+                .reviewerName(null)
+                .reviewerRole(null)
+                .reviewerSlug(null)
+                .reviewNote("Kỹ năng hoàn thành từ roadmap tự học")
+                .journeyId(journey.getId())
+                .bookingId(null)
+                .evidences(evidences)
+                .build();
     }
 
     private PortfolioVerifiedSkillDetailDTO mapMentorVerifiedSkillDetail(MentorSkillVerificationRequest request) {

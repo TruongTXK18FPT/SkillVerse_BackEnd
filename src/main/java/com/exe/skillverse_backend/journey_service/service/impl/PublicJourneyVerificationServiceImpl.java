@@ -47,9 +47,12 @@ public class PublicJourneyVerificationServiceImpl implements PublicJourneyVerifi
         Journey journey = journeyRepository.findById(journeyId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "Journey not found: " + journeyId));
 
-        if (journey.getStatus() != Journey.JourneyStatus.COMPLETED_VERIFIED) {
-            throw new ApiException(ErrorCode.FORBIDDEN, "Only COMPLETED_VERIFIED journeys can be viewed publicly");
+        if (journey.getStatus() != Journey.JourneyStatus.COMPLETED_VERIFIED 
+                && journey.getStatus() != Journey.JourneyStatus.COMPLETED_UNVERIFIED) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "Only completed journeys can be viewed publicly");
         }
+
+        boolean isCompletedUnverified = journey.getStatus() == Journey.JourneyStatus.COMPLETED_UNVERIFIED;
 
         JourneyCompletionReport report = completionReportRepository.findFirstByJourneyIdOrderByConfirmedAtDesc(journeyId)
                 .filter(r -> r.getGateDecision() == JourneyCompletionReport.GateDecision.PASS)
@@ -62,7 +65,9 @@ public class PublicJourneyVerificationServiceImpl implements PublicJourneyVerifi
 
         List<RoadmapNodeSubmission> submissions = submissionRepository.findByJourneyId(journeyId)
                 .stream()
-                .filter(s -> s.getVerificationStatus() == RoadmapNodeSubmission.VerificationStatus.VERIFIED || s.getVerificationStatus() == RoadmapNodeSubmission.VerificationStatus.APPROVED)
+                .filter(s -> isCompletedUnverified 
+                        || s.getVerificationStatus() == RoadmapNodeSubmission.VerificationStatus.VERIFIED 
+                        || s.getVerificationStatus() == RoadmapNodeSubmission.VerificationStatus.APPROVED)
                 .collect(Collectors.toList());
 
         List<NodeSubmissionDetail> nodeDetails = submissions.stream().map(sub -> {
@@ -88,7 +93,8 @@ public class PublicJourneyVerificationServiceImpl implements PublicJourneyVerifi
                 .orElse(null);
 
         OutputAssessmentDetail assessmentDetail = null;
-        if (assessment != null && assessment.getAssessmentStatus() == JourneyOutputAssessment.AssessmentStatus.APPROVED) {
+        if (assessment != null && (isCompletedUnverified 
+                || assessment.getAssessmentStatus() == JourneyOutputAssessment.AssessmentStatus.APPROVED)) {
             assessmentDetail = OutputAssessmentDetail.builder()
                     .submissionText(assessment.getSubmissionText())
                     .evidenceUrl(assessment.getEvidenceUrl())

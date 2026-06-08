@@ -47,6 +47,7 @@ class JourneyServiceImplRoadmapNodeSchedulePolicyTest {
                 null,
                 null,
                 null,
+                null,
                 new ObjectMapper());
         service.studyClock = Clock.fixed(Instant.parse("2026-05-06T05:00:00Z"), ZoneOffset.UTC);
     }

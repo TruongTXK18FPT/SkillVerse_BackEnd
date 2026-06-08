@@ -46,6 +46,7 @@ import com.exe.skillverse_backend.study_service.service.TaskBoardService;
 import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepository;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapTemplateService;
+import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import java.time.Clock;
@@ -72,6 +73,8 @@ class JourneyServiceImplStudyPlanTest {
 
     @Mock
     private JourneyRepository journeyRepository;
+    @Mock
+    private RoadmapTemplateRepository templateRepository;
     @Mock
     private RoadmapSessionRepository roadmapSessionRepository;
     @Mock
@@ -124,6 +127,7 @@ class JourneyServiceImplStudyPlanTest {
     void setUp() {
         service = new JourneyServiceImpl(
                 journeyRepository,
+                templateRepository,
                 roadmapSessionRepository,
                 assessmentTestRepository,
                 testResultRepository,

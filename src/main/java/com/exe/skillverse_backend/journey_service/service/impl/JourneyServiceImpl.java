@@ -58,6 +58,9 @@ import com.exe.skillverse_backend.mentor_booking_service.repository.BookingRepos
 import com.exe.skillverse_backend.portfolio_service.entity.PortfolioExtendedProfile;
 import com.exe.skillverse_backend.portfolio_service.repository.PortfolioExtendedProfileRepository;
 import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapTemplateService;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplate;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateSkillBlock;
+import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
 import com.exe.skillverse_backend.shared.enums.SkillStatus;
 import com.exe.skillverse_backend.shared.exception.ApiException;
 import com.exe.skillverse_backend.shared.exception.ErrorCode;
@@ -128,6 +131,7 @@ public class JourneyServiceImpl implements JourneyService {
     private static final String DEFAULT_STUDY_TIMEZONE = "Asia/Ho_Chi_Minh";
     private static final Pattern OPTION_PREFIX_PATTERN = Pattern.compile("^\\s*([A-D])(?:\\s*[\\.:\\)\\-]|\\s+|$)", Pattern.CASE_INSENSITIVE);
     private final JourneyRepository journeyRepository;
+    private final RoadmapTemplateRepository templateRepository;
     private final RoadmapSessionRepository roadmapSessionRepository;
     private final AssessmentTestRepository assessmentTestRepository;
     private final TestResultRepository testResultRepository;
@@ -3720,13 +3724,37 @@ public class JourneyServiceImpl implements JourneyService {
     // ==================== Helper Methods ====================
 
     private void syncCompletedJourneySkillToPortfolio(Journey journey) {
-        if (journey == null || journey.getUser() == null || journey.getSkillName() == null
-                || journey.getSkillName().isBlank()) {
+        if (journey == null || journey.getUser() == null) {
             return;
         }
 
-        String skillName = SkillNameUtils.normalize(journey.getSkillName());
-        if (skillName == null || skillName.isBlank()) {
+        List<String> skillNames = new ArrayList<>();
+        if (journey.getRoadmapTemplateId() != null) {
+            try {
+                Optional<RoadmapTemplate> templateOpt = templateRepository.findById(journey.getRoadmapTemplateId());
+                if (templateOpt.isPresent()) {
+                    RoadmapTemplate template = templateOpt.get();
+                    if (template.getSkillBlocks() != null) {
+                        for (RoadmapTemplateSkillBlock sb : template.getSkillBlocks()) {
+                            if (sb.getSkillNameSnapshot() != null && !sb.getSkillNameSnapshot().isBlank()) {
+                                skillNames.add(sb.getSkillNameSnapshot());
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to retrieve roadmap template skills for journey {}", journey.getId(), e);
+            }
+        }
+
+        // Always ensure the primary skill name is included
+        if (journey.getSkillName() != null && !journey.getSkillName().isBlank()) {
+            if (!skillNames.contains(journey.getSkillName())) {
+                skillNames.add(journey.getSkillName());
+            }
+        }
+
+        if (skillNames.isEmpty()) {
             return;
         }
 
@@ -3739,18 +3767,28 @@ public class JourneyServiceImpl implements JourneyService {
                             .build());
 
             List<String> skills = readStringList(profile.getTopSkills());
-            boolean exists = skills.stream().anyMatch(existing -> {
-                String normalizedExisting = SkillNameUtils.normalize(existing);
-                return skillName.equals(normalizedExisting);
-            });
-            if (!exists) {
-                skills.add(skillName);
+            boolean modified = false;
+            for (String rawSkill : skillNames) {
+                String skillName = SkillNameUtils.normalize(rawSkill);
+                if (skillName == null || skillName.isBlank()) {
+                    continue;
+                }
+                boolean exists = skills.stream().anyMatch(existing -> {
+                    String normalizedExisting = SkillNameUtils.normalize(existing);
+                    return skillName.equals(normalizedExisting);
+                });
+                if (!exists) {
+                    skills.add(skillName);
+                    modified = true;
+                }
+            }
+            if (modified) {
                 profile.setTopSkills(objectMapper.writeValueAsString(skills));
                 portfolioExtendedProfileRepository.save(profile);
             }
         } catch (Exception e) {
-            log.warn("Failed to sync completed journey skill {} to portfolio for user {}",
-                    skillName, journey.getUser().getId(), e);
+            log.warn("Failed to sync completed journey skills to portfolio for user {}",
+                    journey.getUser().getId(), e);
         }
     }
 
