@@ -173,6 +173,54 @@ class RoadmapNodeAiEnrichmentServiceTest {
     }
 
     @Test
+    void enrichNodePromptRequiresLessonsToUseRagContextWhenPresent() {
+        String jsonText = "{\n"
+                + "  \"description\": \"Học Java Core bằng tài liệu chuyên môn đã ghim.\",\n"
+                + "  \"learningObjectives\": [\"Hiểu cú pháp Java\", \"Áp dụng OOP\", \"Dùng collection\"],\n"
+                + "  \"practicalExercises\": [\"Viết chương trình quản lý danh sách sinh viên\"],\n"
+                + "  \"successCriteria\": [\"Có class rõ ràng\", \"Dùng collection đúng\"],\n"
+                + "  \"expectedOutput\": \"Nộp source code Java.\",\n"
+                + "  \"rubricItems\": [\n"
+                + "    {\"criterion\": \"Java basics\", \"weight\": \"100%\", \"passDescription\": \"Đúng tài liệu\", \"failDescription\": \"Sai nền tảng\"}\n"
+                + "  ],\n"
+                + "  \"lessons\": [\n"
+                + "    {\"title\": \"Java syntax\", \"description\": \"Thực hành cú pháp Java.\", \"learningObjective\": \"Viết code Java cơ bản\", \"estimatedMinutes\": 60}\n"
+                + "  ]\n"
+                + "}";
+
+        ChatResponse chatResponse = mock(ChatResponse.class);
+        Generation generation = mock(Generation.class);
+        AssistantMessage assistantMessage = mock(AssistantMessage.class);
+
+        when(mistralChatModel.call(any(Prompt.class))).thenReturn(chatResponse);
+        when(chatResponse.getResult()).thenReturn(generation);
+        when(generation.getOutput()).thenReturn(assistantMessage);
+        when(assistantMessage.getContent()).thenReturn(jsonText);
+
+        service.enrichNode(
+                "Java Core Foundation",
+                "Làm quen Java Core",
+                "Original Out",
+                "Original Rubric",
+                "Java Core",
+                "BEGINNER",
+                "BUILD_FROM_SCRATCH",
+                true,
+                false,
+                null,
+                "[{\"title\":\"Java syntax\",\"description\":\"\",\"learningObjective\":\"\",\"estimatedMinutes\":60}]"
+        );
+
+        ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
+        verify(mistralChatModel).call(promptCaptor.capture());
+        String promptText = promptCaptor.getValue().getContents();
+
+        assertThat(promptText).contains("mọi nội dung trong mảng JSON 'lessons' BẮT BUỘC phải được suy ra từ tài liệu đó");
+        assertThat(promptText).contains("Dựa trên KHUNG BÀI HỌC BAN ĐẦU");
+        assertThat(promptText).contains("TÀI LIỆU THAM KHẢO CHUYÊN MÔN");
+    }
+
+    @Test
     void enrichNodeCleansMarkdownTicksAndLeadingTrailingJunk() {
         String wrappedJsonText = "```json\n"
                 + "{\n"

@@ -25,6 +25,7 @@ public class RoadmapTemplateNodeGroupRequest {
     private String difficulty;
     private Double estimatedHours;
     private String aiPromptHint;
+    private String pinnedDocumentIds;
     private String nodeType;
     private String parentNodeKey;
 

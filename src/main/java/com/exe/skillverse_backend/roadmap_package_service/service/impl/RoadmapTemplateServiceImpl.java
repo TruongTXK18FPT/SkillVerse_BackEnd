@@ -101,6 +101,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
 
     private static final String GENERATION_MODE_TEMPLATE_GUIDED = "TEMPLATE_GUIDED";
 
+    private static final ObjectMapper PINNED_DOCUMENT_IDS_MAPPER = new ObjectMapper();
+
     private record AllocationResult(
             boolean valid,
             List<String> errors,
@@ -881,10 +883,39 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .difficulty(firstNonBlank(request.getDifficulty(), "medium"))
                 .estimatedHours(request.getEstimatedHours())
                 .aiPromptHint(request.getAiPromptHint())
+                .pinnedDocumentIds(normalizePinnedDocumentIds(request.getPinnedDocumentIds()))
                 .nodeType(request.getNodeType())
                 .parentNodeKey(request.getParentNodeKey())
                 .orderIndex(request.getOrderIndex() != null ? request.getOrderIndex() : 1)
                 .build();
+    }
+
+    private String normalizePinnedDocumentIds(String pinnedDocumentIds) {
+        if (pinnedDocumentIds == null || pinnedDocumentIds.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = PINNED_DOCUMENT_IDS_MAPPER.readTree(pinnedDocumentIds);
+            if (!root.isArray()) {
+                throw new ApiException(ErrorCode.BAD_REQUEST, "pinnedDocumentIds must be a JSON array of document IDs");
+            }
+            ArrayNode normalized = PINNED_DOCUMENT_IDS_MAPPER.createArrayNode();
+            for (JsonNode item : root) {
+                if (!item.canConvertToLong()) {
+                    throw new ApiException(ErrorCode.BAD_REQUEST, "pinnedDocumentIds must contain only numeric document IDs");
+                }
+                long docId = item.asLong();
+                if (docId <= 0) {
+                    throw new ApiException(ErrorCode.BAD_REQUEST, "pinnedDocumentIds must contain positive document IDs");
+                }
+                normalized.add(docId);
+            }
+            return normalized.isEmpty() ? null : PINNED_DOCUMENT_IDS_MAPPER.writeValueAsString(normalized);
+        } catch (ApiException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ApiException(ErrorCode.BAD_REQUEST, "pinnedDocumentIds must be valid JSON");
+        }
     }
 
     private RoadmapTemplateNodeGroupSkill buildNodeGroupSkill(
@@ -3193,6 +3224,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .expectedOutput(group.getExpectedOutput())
                 .rubric(group.getRubric())
                 .aiPromptHint(group.getAiPromptHint())
+                .pinnedDocumentIds(group.getPinnedDocumentIds())
                 .nodeType(group.getNodeType())
                 .parentNodeKey(group.getParentNodeKey())
                 .orderIndex(group.getOrderIndex())

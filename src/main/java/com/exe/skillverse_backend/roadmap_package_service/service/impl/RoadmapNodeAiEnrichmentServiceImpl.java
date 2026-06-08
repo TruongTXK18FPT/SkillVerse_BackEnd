@@ -121,6 +121,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
 
         // ─── TẦNG 1: XỬ LÝ TÀI LIỆU GHIM (PINNED DOCUMENTS) ─────────────────────
         String ragContext = "";
+        boolean hasPinnedDocuments = false;
         if (aiKnowledgeDocumentRepository != null && pinnedDocumentIdsJson != null && !pinnedDocumentIdsJson.isBlank()) {
             try {
                 List<Long> docIds = new ArrayList<>();
@@ -132,6 +133,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 }
 
                 if (!docIds.isEmpty()) {
+                    hasPinnedDocuments = true;
                     List<AiKnowledgeDocument> pinnedDocs =
                             aiKnowledgeDocumentRepository.findAllById(docIds);
 
@@ -184,7 +186,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         }
 
         // ─── TẦNG 2: FALLBACK VỀ RAG ĐỘNG THEO SKILL NẾU RỖNG ──────────────────
-        if (ragContext.isBlank()) {
+        if (ragContext.isBlank() && !hasPinnedDocuments) {
             String skillSlug = null;
             if (skillRepository != null && skillName != null && !skillName.isBlank()) {
                 try {
@@ -219,6 +221,13 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                     log.warn("Failed to fetch RAG context for skillSlug '{}': {}", skillSlug, e.getMessage());
                 }
             }
+        }
+
+        if (hasPinnedDocuments && (ragContext == null || ragContext.isBlank())) {
+            log.warn("Pinned documents were provided for node '{}' but no pinned RAG context was resolved; dynamic skill RAG fallback skipped.", nodeTitle);
+        }
+        if (ragContext == null) {
+            ragContext = "";
         }
 
         String prompt = buildPrompt(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric,
@@ -385,19 +394,22 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         String ragSection = "";
         if (ragContext != null && !ragContext.isBlank()) {
             ragSection = "=== TÀI LIỆU THAM KHẢO CHUYÊN MÔN (RAG CONTEXT) ===\n" +
-                    "Sử dụng các tài liệu chuyên môn chính thức sau đây từ chuyên gia để thiết kế chi tiết hướng dẫn học tập, mục tiêu, bài tập và tiêu chí đánh giá:\n" +
+                    "Sử dụng các tài liệu chuyên môn chính thức sau đây từ chuyên gia để thiết kế chi tiết hướng dẫn học tập, mục tiêu, bài tập, tiêu chí đánh giá và danh sách bài học con (lessons):\n" +
                     ragContext + "\n\n";
         }
 
+        String ragUsageRules = "=== QUY TẮC BẮT BUỘC VỀ TÀI LIỆU THAM KHẢO ===\n" +
+                "Nếu phần \"TÀI LIỆU THAM KHẢO CHUYÊN MÔN\" tồn tại, mọi nội dung trong mảng JSON 'lessons' BẮT BUỘC phải được suy ra từ tài liệu đó. Không được tự thêm chủ đề, thuật ngữ, công nghệ, ví dụ hoặc thứ tự bài học không có căn cứ trong tài liệu. Nếu tài liệu không đủ thông tin, hãy giữ bài học ở mức tổng quát dựa trên phần có trong tài liệu, không bịa thêm.\n\n";
+
         String lessonsSection = "";
-        String lessonsInstruction = "";
+        String lessonsInstruction;
         if (lessonsJson != null && !lessonsJson.isBlank()) {
             lessonsSection = "=== KHUNG BÀI HỌC BAN ĐẦU CỦA ADMIN TEMPLATE (SKELETAL LESSONS) ===\n" +
                     "Đây là danh sách bài học khung do Quản trị viên thiết kế làm sườn cốt lõi. Tuyệt đối không xóa bỏ hay thay đổi các chủ đề cốt lõi này:\n" +
                     lessonsJson + "\n\n";
-            lessonsInstruction = "7. Chi tiết hóa khung bài học (lessons): Dựa trên KHUNG BÀI HỌC BAN ĐẦU (Skeletal Lessons) của Admin ở trên, hãy GIỮ NGUYÊN các chủ đề cốt lõi nhưng làm phong phú nội dung từng bài học. Hãy biến mỗi bài học khung của Admin thành một bài học con chi tiết trong mảng JSON 'lessons' (bao gồm: tiêu đề rõ ràng, mô tả cụ thể người học cần thực hành hành động làm gì, mục tiêu bài học cụ thể, và ước tính thời lượng phút học phù hợp với trình độ " + studentLevel + ").\n\n";
+            lessonsInstruction = "7. Chi tiết hóa khung bài học (lessons): Dựa trên KHUNG BÀI HỌC BAN ĐẦU (Skeletal Lessons) của Admin ở trên, hãy GIỮ NGUYÊN các chủ đề cốt lõi nhưng làm phong phú nội dung từng bài học bằng TÀI LIỆU THAM KHẢO CHUYÊN MÔN nếu có ở trên. Hãy biến mỗi bài học khung của Admin thành một bài học con chi tiết trong mảng JSON 'lessons' (bao gồm: tiêu đề rõ ràng, mô tả cụ thể người học cần thực hành hành động làm gì, mục tiêu bài học cụ thể, và ước tính thời lượng phút học phù hợp với trình độ " + studentLevel + "). Khi đã có tài liệu tham khảo, không được dùng kiến thức ngoài tài liệu để thêm nội dung mới.\n\n";
         } else {
-            lessonsInstruction = "7. Tự thiết kế danh sách bài học chi tiết (lessons): Vì Admin chưa thiết kế khung bài học ban đầu cho Node này, bạn hãy tự thiết kế từ 3 đến 5 bài học con (lessons) tuần tự, logic để bao phủ toàn bộ mục tiêu học tập của Node này. Mỗi bài học con phải được trả về trong mảng JSON 'lessons' (bao gồm: tiêu đề rõ ràng, mô tả cụ thể người học cần hành động thực hành làm gì từ 30-50 từ, mục tiêu bài học cụ thể, và ước tính thời lượng phút học phù hợp với trình độ " + studentLevel + ").\n\n";
+            lessonsInstruction = "7. Tự thiết kế danh sách bài học chi tiết (lessons): Vì Admin chưa thiết kế khung bài học ban đầu cho Node này, bạn hãy tự thiết kế từ 3 đến 5 bài học con (lessons) tuần tự, logic để bao phủ toàn bộ mục tiêu học tập của Node này. Nếu có TÀI LIỆU THAM KHẢO CHUYÊN MÔN ở trên, các bài học con phải được thiết kế CHỈ dựa trên tài liệu đó và blueprint của Node; không được dùng kiến thức nền ngoài tài liệu. Nếu tài liệu không đủ để tạo 3-5 lessons, hãy tạo số lượng ít hơn phù hợp với nội dung tài liệu. Mỗi bài học con phải được trả về trong mảng JSON 'lessons' (bao gồm: tiêu đề rõ ràng, mô tả cụ thể người học cần hành động thực hành làm gì từ 30-50 từ, mục tiêu bài học cụ thể, và ước tính thời lượng phút học phù hợp với trình độ " + studentLevel + ").\n\n";
         }
 
         return "Bạn là một chuyên gia đào tạo lập trình thực tế cho SkillVerse.\n" +
@@ -410,6 +422,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 "- Tiêu chí đánh giá có sẵn (Rubric): " + safeRubric + "\n\n" +
                 lessonsSection +
                 ragSection +
+                ragUsageRules +
                 "=== HỒ SƠ NĂNG LỰC HỌC VIÊN ===\n" +
                 "- Trình độ hiện tại: " + studentLevel + "\n" +
                 "- Mục tiêu học tập: " + (studentGoal != null ? studentGoal : "Phát triển năng lực cốt lõi") + "\n" +

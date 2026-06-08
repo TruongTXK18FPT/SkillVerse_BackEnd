@@ -2,6 +2,7 @@ package com.exe.skillverse_backend.roadmap_package_service.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
@@ -29,6 +30,7 @@ import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTem
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateSkillBlockRequest;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateAllocationPreviewResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateCourseCandidateResponse;
+import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateNodeGroupResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateResponse;
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateValidationResponse;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplate;
@@ -84,7 +86,7 @@ class RoadmapTemplateServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        when(userRepository.findById(ADMIN_ID))
+        lenient().when(userRepository.findById(ADMIN_ID))
                 .thenReturn(Optional.of(User.builder().id(ADMIN_ID).primaryRole(PrimaryRole.ADMIN).build()));
     }
 
@@ -298,6 +300,32 @@ class RoadmapTemplateServiceImplTest {
                 .containsExactly(1L, 2L, 3L);
         assertThat(candidates).extracting(RoadmapTemplateCourseCandidateResponse::getEnrollmentCount)
                 .containsExactly(5L, 8L, 30L);
+    }
+
+    @Test
+    void nodeGroupDtosPreservePinnedDocumentIdsForAdminTemplateContract() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        String pinnedDocumentIds = "[12,18,21]";
+
+        RoadmapTemplateNodeGroupRequest request = mapper.readValue("""
+                {
+                  "title": "Java Core Foundation",
+                  "orderIndex": 1,
+                  "skills": [],
+                  "pinnedDocumentIds": "[12,18,21]"
+                }
+                """, RoadmapTemplateNodeGroupRequest.class);
+
+        assertThat(request.getPinnedDocumentIds()).isEqualTo(pinnedDocumentIds);
+
+        RoadmapTemplateNodeGroupResponse response = RoadmapTemplateNodeGroupResponse.builder()
+                .title("Java Core Foundation")
+                .orderIndex(1)
+                .skills(List.of())
+                .pinnedDocumentIds(pinnedDocumentIds)
+                .build();
+
+        assertThat(mapper.writeValueAsString(response)).contains("\"pinnedDocumentIds\":\"[12,18,21]\"");
     }
 
     private RoadmapTemplateRequest baseRequest(Integer totalNodeCount) {
