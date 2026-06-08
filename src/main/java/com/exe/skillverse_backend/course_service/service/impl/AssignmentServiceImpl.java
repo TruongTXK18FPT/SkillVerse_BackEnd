@@ -380,8 +380,17 @@ public class AssignmentServiceImpl implements AssignmentService {
         ensureAuthorOrAdmin(graderId, assignment.getModule().getCourse().getAuthor().getId());
 
         BigDecimal totalScore = payload.getScore();
+        List<CriteriaScoreDTO> gradedCriteriaScores;
         if (payload.getCriteriaScores() != null && !payload.getCriteriaScores().isEmpty()) {
-            totalScore = applyCriteriaScores(submission, assignment, payload.getCriteriaScores());
+            gradedCriteriaScores = applyCriteriaScores(submission, assignment, payload.getCriteriaScores());
+            totalScore = gradedCriteriaScores.stream()
+                    .map(CriteriaScoreDTO::getScore)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        } else {
+            // Delete old criteria scores to prevent stale criteria scoring from dictating pass status
+            criteriaScoreRepository.deleteBySubmissionId(submission.getId());
+            criteriaScoreRepository.flush(); // Ensure deletion is immediately executed
+            gradedCriteriaScores = List.of();
         }
 
         validateGradingRequest(totalScore, assignment.getMaxScore());
@@ -402,7 +411,6 @@ public class AssignmentServiceImpl implements AssignmentService {
         }
 
         // Persist isPassed once at grading time (immune to later criteria edits)
-        List<CriteriaScoreDTO> gradedCriteriaScores = loadCriteriaScores(submission.getId());
         boolean passed = computeIsPassed(assignment, gradedCriteriaScores, totalScore);
         submission.setIsPassed(passed);
         
@@ -435,7 +443,7 @@ public class AssignmentServiceImpl implements AssignmentService {
         );
         
         // Build result DTO (reads isPassed from entity, no recomputation)
-        AssignmentSubmissionDetailDTO detail = toDetailWithCriteria(saved);
+        AssignmentSubmissionDetailDTO detail = toDetailWithCriteria(saved, gradedCriteriaScores);
         
         // Send grading notification to student using persisted pass/fail
         String passStatus = passed ? "PASSED ✓" : "Cần cải thiện";
@@ -692,9 +700,12 @@ public class AssignmentServiceImpl implements AssignmentService {
     }
 
     private AssignmentSubmissionDetailDTO toDetailWithCriteria(AssignmentSubmission submission) {
+        return toDetailWithCriteria(submission, loadCriteriaScores(submission.getId()));
+    }
+
+    private AssignmentSubmissionDetailDTO toDetailWithCriteria(AssignmentSubmission submission, List<CriteriaScoreDTO> criteriaScores) {
         AssignmentSubmissionDetailDTO detail = submissionMapper.toDetailDto(submission);
         detail.setUserName(resolveSubmissionUserName(submission.getUser(), detail.getUserName()));
-        List<CriteriaScoreDTO> criteriaScores = loadCriteriaScores(submission.getId());
         detail.setCriteriaScores(criteriaScores);
 
         // Read isPassed from entity (persisted at grading time) — no recomputation
@@ -841,7 +852,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .toList();
     }
 
-    private BigDecimal applyCriteriaScores(
+    private List<CriteriaScoreDTO> applyCriteriaScores(
             AssignmentSubmission submission,
             Assignment assignment,
             List<CriteriaScoreDTO> criteriaScores
@@ -857,6 +868,7 @@ public class AssignmentServiceImpl implements AssignmentService {
                 .collect(Collectors.toMap(AssignmentCriteria::getId, c -> c));
 
         criteriaScoreRepository.deleteBySubmissionId(submission.getId());
+        criteriaScoreRepository.flush(); // Ensure deletion is immediately executed
 
         // Validate that ALL criteria are scored — mentor must grade every criterion
         if (criteriaScores.size() != criteriaList.size()) {
@@ -865,7 +877,7 @@ public class AssignmentServiceImpl implements AssignmentService {
             );
         }
 
-        BigDecimal total = BigDecimal.ZERO;
+        List<CriteriaScoreDTO> enrichedScores = new ArrayList<>();
         for (CriteriaScoreDTO scoreDto : criteriaScores) {
             if (scoreDto.getCriteriaId() == null) {
                 throw new BadRequestException("Criteria id is required");
@@ -881,7 +893,6 @@ public class AssignmentServiceImpl implements AssignmentService {
             if (criteria.getMaxPoints() != null && score.compareTo(criteria.getMaxPoints()) > 0) {
                 throw new BadRequestException("Criteria score cannot exceed max points");
             }
-            total = total.add(score);
 
             SubmissionCriteriaScore entity = SubmissionCriteriaScore.builder()
                     .submission(submission)
@@ -889,10 +900,26 @@ public class AssignmentServiceImpl implements AssignmentService {
                     .score(score)
                     .feedback(scoreDto.getFeedback())
                     .build();
-            criteriaScoreRepository.save(entity);
+            SubmissionCriteriaScore savedEntity = criteriaScoreRepository.save(entity);
+
+            BigDecimal passingPts = resolveCriteriaPassingPoints(criteria);
+            BigDecimal maxPts = criteria.getMaxPoints();
+            Boolean passed = isCriterionPassed(score, passingPts);
+
+            enrichedScores.add(CriteriaScoreDTO.builder()
+                    .id(savedEntity.getId())
+                    .criteriaId(criteria.getId())
+                    .criteriaName(criteria.getName())
+                    .maxPoints(maxPts)
+                    .passingPoints(passingPts)
+                    .score(score)
+                    .passed(passed)
+                    .feedback(scoreDto.getFeedback())
+                    .build());
         }
 
-        return total;
+        criteriaScoreRepository.flush(); // Flush newly saved entities to DB
+        return enrichedScores;
     }
 
     @Override

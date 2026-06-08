@@ -335,7 +335,6 @@ class AssignmentServiceImplAiGradeTest {
 
         when(submissionRepository.findById(100L)).thenReturn(Optional.of(submission));
         when(userRepository.findById(7L)).thenReturn(Optional.of(mentor));
-        when(criteriaScoreRepository.findBySubmissionId(100L)).thenReturn(List.of());
         when(submissionRepository.save(any(AssignmentSubmission.class)))
                 .thenAnswer(inv -> inv.getArgument(0));
         when(submissionMapper.toDetailDto(any())).thenReturn(
@@ -355,6 +354,35 @@ class AssignmentServiceImplAiGradeTest {
         // But score and pass should be set
         assertEquals(new BigDecimal("60"), saved.getScore());
         assertFalse(saved.getIsPassed()); // 60 < 70
+    }
+
+    @Test
+    @DisplayName("grade with manual override deletes existing criteria scores and passes based on total score")
+    void grade_manualOverride_deletesCriteriaScoresAndPasses() {
+        AssignmentGradeDTO grading = new AssignmentGradeDTO(
+                new BigDecimal("85"),
+                "Manual override pass",
+                null,
+                false
+        );
+
+        when(submissionRepository.findById(100L)).thenReturn(Optional.of(submission));
+        when(userRepository.findById(7L)).thenReturn(Optional.of(mentor));
+        when(submissionRepository.save(any(AssignmentSubmission.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+        when(submissionMapper.toDetailDto(any())).thenReturn(
+                AssignmentSubmissionDetailDTO.builder().id(100L).build()
+        );
+
+        service.grade(100L, 7L, grading, null, null);
+
+        ArgumentCaptor<AssignmentSubmission> captor = ArgumentCaptor.forClass(AssignmentSubmission.class);
+        verify(submissionRepository).save(captor.capture());
+        AssignmentSubmission saved = captor.getValue();
+
+        assertEquals(new BigDecimal("85"), saved.getScore());
+        assertTrue(saved.getIsPassed()); // 85 >= 70 passing score
+        verify(criteriaScoreRepository).deleteBySubmissionId(100L);
     }
 
     // ========================================================================

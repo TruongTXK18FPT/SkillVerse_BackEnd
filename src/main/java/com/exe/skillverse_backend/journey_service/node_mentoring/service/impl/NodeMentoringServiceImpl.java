@@ -512,14 +512,15 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         boolean hasMentorCoverage = bookingRepository.existsActiveBookingCoveringNode(
                 journeyId, nodeId, ASSIGNED_MENTOR_STATUSES);
 
-        // Check if template has AI review enabled
+        // Check if template has AI review enabled and auto-pass is enabled
         boolean aiReviewEnabled = false;
         if (journey.getRoadmapSessionId() != null) {
             aiReviewEnabled = roadmapSessionRepository.findById(journey.getRoadmapSessionId())
                     .flatMap(session -> session.getRoadmapTemplateId() != null 
                             ? templateRepository.findById(session.getRoadmapTemplateId()) 
                             : java.util.Optional.empty())
-                    .map(RoadmapTemplate::getAiEvidenceReviewEnabled)
+                    .map(template -> Boolean.TRUE.equals(template.getAiEvidenceReviewEnabled()) 
+                            && Boolean.TRUE.equals(template.getAiAutoPassEnabled()))
                     .orElse(false);
         }
 
