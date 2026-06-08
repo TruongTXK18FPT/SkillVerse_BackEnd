@@ -31,4 +31,8 @@ public class UpsertNodeAssignmentRequest {
     private AssignmentSource assignmentSource;
 
     private List<GradingCriterionDto> criteria;
+
+    private String expectedOutput;
+
+    private String rubric;
 }

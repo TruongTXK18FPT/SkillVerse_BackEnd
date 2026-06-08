@@ -116,6 +116,8 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         a.setTitle(request.getTitle());
         a.setDescription(request.getDescription());
         a.setNodeSkillId(request.getNodeSkillId());
+        a.setExpectedOutput(request.getExpectedOutput());
+        a.setRubric(request.getRubric());
         a.setAssignmentSource(request.getAssignmentSource() != null
                 ? request.getAssignmentSource()
                 : AssignmentSource.MENTOR_REFINED);
