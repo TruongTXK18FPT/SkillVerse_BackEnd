@@ -56,3 +56,7 @@ mcp-server/
 
 ### Local Documentation ###
 docs/
+# Agent Workflow Kit IDE rules
+.cursorrules
+.copilot-instructions.md
+.clinerules

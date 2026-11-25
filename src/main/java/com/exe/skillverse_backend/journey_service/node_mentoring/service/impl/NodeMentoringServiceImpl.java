@@ -586,7 +586,7 @@ public class NodeMentoringServiceImpl implements NodeMentoringService {
         }
 
         for (RoadmapTemplateSkillBlock block : template.getSkillBlocks()) {
-            // Match within the correct skill block that meets the node's skill requirements
+            // Match within the correct sSkill block that meets the node's skill requirements
             if (nodeSkillIds.isEmpty() || nodeSkillIds.contains(block.getSkillId())) {
                 if (block.getActivities() != null) {
                     for (RoadmapTemplateActivity act : block.getActivities()) {

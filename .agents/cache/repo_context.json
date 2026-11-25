@@ -1,0 +1,24 @@
+{
+  "stack": "spring-boot",
+  "architecture": "clean-architecture",
+  "modules": [
+    {
+      "name": "root",
+      "path": "C:\\WorkSpace\\EXE201\\SkillVerse_BackEnd",
+      "dependencies": []
+    }
+  ],
+  "testing": {
+    "frameworks": [
+      "junit",
+      "mockito"
+    ],
+    "coverageGoal": 80
+  },
+  "validation": {
+    "libraries": [
+      "jakarta.validation"
+    ]
+  },
+  "hash": "2307ee19cfcfa6b23d6b09f98450af782100fba1ec99a3f60fa530ad450c4eb2"
+}
