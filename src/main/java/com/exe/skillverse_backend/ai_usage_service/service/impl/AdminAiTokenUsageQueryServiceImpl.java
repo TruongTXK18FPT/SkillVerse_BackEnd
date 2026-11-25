@@ -201,6 +201,7 @@ public class AdminAiTokenUsageQueryServiceImpl implements AdminAiTokenUsageQuery
                 .estimated(log.isEstimated())
                 .status(log.getStatus())
                 .latencyMs(log.getLatencyMs())
+                .errorCode(log.getErrorCode())
                 .relatedEntityType(log.getRelatedEntityType())
                 .relatedEntityId(log.getRelatedEntityId())
                 .metadata(log.getMetadata())

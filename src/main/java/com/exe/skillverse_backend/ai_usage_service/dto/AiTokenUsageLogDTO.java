@@ -22,6 +22,7 @@ public class AiTokenUsageLogDTO {
     private boolean estimated;
     private AiUsageStatus status;
     private Long latencyMs;
+    private String errorCode;
     private String relatedEntityType;
     private Long relatedEntityId;
     private String metadata;

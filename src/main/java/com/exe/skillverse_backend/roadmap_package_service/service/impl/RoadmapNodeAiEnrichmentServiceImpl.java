@@ -7,13 +7,19 @@ import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.ai_knowledge_service.util.AiKnowledgeSlugUtils;
 import com.exe.skillverse_backend.ai_knowledge_service.entity.AiKnowledgeDocument;
 import com.exe.skillverse_backend.ai_knowledge_service.repository.AiKnowledgeDocumentRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.metadata.Usage;
+import org.springframework.ai.mistralai.MistralAiChatModel;
+import org.springframework.ai.mistralai.MistralAiChatOptions;
+import org.springframework.ai.mistralai.api.MistralAiApi;
 import com.exe.skillverse_backend.ai_usage_service.dto.AiTokenUsageRecordCommand;
 import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiFlowType;
 import com.exe.skillverse_backend.ai_usage_service.entity.enums.AiProviderType;
@@ -75,8 +81,19 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
     @Value("${app.roadmap.enrichment.fail-fast-on-rate-limit:true}")
     private boolean failFastOnRateLimit = true;
 
-    private static final int MAX_RETRIES = 2;
-    private static final long RETRY_BACKOFF_MS = 5000;
+    @Value("${app.roadmap.enrichment.max-retries:0}")
+    private int maxRetries = 0;
+
+    @Value("${app.roadmap.enrichment.retry-backoff-ms:3000}")
+    private long retryBackoffMs = 3000;
+
+    private static final ObjectMapper LENIENT_OBJECT_MAPPER = JsonMapper.builder()
+            .enable(JsonReadFeature.ALLOW_UNESCAPED_CONTROL_CHARS)
+            .enable(JsonReadFeature.ALLOW_BACKSLASH_ESCAPING_ANY_CHARACTER)
+            .enable(JsonReadFeature.ALLOW_TRAILING_COMMA)
+            .enable(JsonReadFeature.ALLOW_SINGLE_QUOTES)
+            .enable(JsonReadFeature.ALLOW_JAVA_COMMENTS)
+            .build();
 
     public RoadmapNodeAiEnrichmentServiceImpl(
             @Qualifier("mistralAiChatModel") ChatModel mistralChatModel,
@@ -248,8 +265,10 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         log.info("📤 Sequential AI Enrichment - Node: '{}' (Level: {}, Gap: {}, Strength: {})", 
                 nodeTitle, studentLevel, isGap, isStrength);
 
+        int configuredRetries = Math.max(0, maxRetries);
+        int totalAttempts = configuredRetries + 1;
         Exception lastException = null;
-        for (int attempt = 1; attempt <= MAX_RETRIES + 1; attempt++) {
+        for (int attempt = 1; attempt <= totalAttempts; attempt++) {
             try {
                 // Thread-safe progressive Ticket-based Rate Limiter between Mistral requests.
                 long now = System.currentTimeMillis();
@@ -291,12 +310,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                         // Switch to Mistral
                         usedProvider = AiProviderType.MISTRAL;
                         usedModelName = resolveMistralModelName();
-                        chatResponse = ChatClient.builder(mistralChatModel)
-                                .build()
-                                .prompt()
-                                .user(prompt)
-                                .call()
-                                .chatResponse();
+                        chatResponse = callMistral(prompt);
                         if (chatResponse != null && chatResponse.getResult() != null && chatResponse.getResult().getOutput() != null) {
                             responseText = chatResponse.getResult().getOutput().getContent();
                         }
@@ -305,12 +319,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                     log.info("Local AI unavailable. Using Mistral for Roadmap Node Enrichment - Node: '{}'", nodeTitle);
                     usedProvider = AiProviderType.MISTRAL;
                     usedModelName = resolveMistralModelName();
-                    chatResponse = ChatClient.builder(mistralChatModel)
-                            .build()
-                            .prompt()
-                            .user(prompt)
-                            .call()
-                            .chatResponse();
+                    chatResponse = callMistral(prompt);
                     if (chatResponse != null && chatResponse.getResult() != null && chatResponse.getResult().getOutput() != null) {
                         responseText = chatResponse.getResult().getOutput().getContent();
                     }
@@ -348,22 +357,26 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
 
                 long duration = System.currentTimeMillis() - start;
                 log.info("✅ Sequential AI Enrichment Success - Node: '{}' | Attempt: {}/{} | Latency: {}ms", 
-                        nodeTitle, attempt, MAX_RETRIES + 1, duration);
+                        nodeTitle, attempt, totalAttempts, duration);
                 recordEnrichmentSuccess(nodeTitle, prompt, chatResponse, responseText, duration, usedProvider, usedModelName);
                 return enriched;
 
             } catch (Exception e) {
                 lastException = e;
-                log.warn("⚠️ AI Enrichment Attempt {}/{} failed for Node '{}': {}", 
-                        attempt, MAX_RETRIES + 1, nodeTitle, e.getMessage());
+                log.warn("⚠️ AI Enrichment Attempt {}/{} failed for Node '{}': [{}] {}",
+                        attempt, totalAttempts, nodeTitle, e.getClass().getSimpleName(), e.getMessage());
                 if (failFastOnRateLimit && isRateLimitException(e)) {
                     log.warn("🛑 Rate limit (429) detected for Node '{}'. Fail-fast enabled, skipping remaining retries.",
                             nodeTitle);
                     break;
                 }
-                if (attempt <= MAX_RETRIES) {
+                if (e instanceof JsonProcessingException || e instanceof IllegalArgumentException) {
+                    log.warn("🛑 Non-retryable parse/validation error for Node '{}', skipping remaining retries.", nodeTitle);
+                    break;
+                }
+                if (attempt <= configuredRetries && retryBackoffMs > 0) {
                     try {
-                        Thread.sleep(RETRY_BACKOFF_MS * attempt);
+                        Thread.sleep(retryBackoffMs * attempt);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         break;
@@ -374,7 +387,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
 
         long duration = System.currentTimeMillis() - start;
         log.error("❌ Sequential AI Enrichment Failed after {} attempts for Node '{}' in {}ms. Reverting to static template fallback.", 
-                MAX_RETRIES + 1, nodeTitle, duration, lastException);
+                totalAttempts, nodeTitle, duration, lastException);
         
         recordEnrichmentFailure(nodeTitle, prompt, lastException != null ? lastException.getMessage() : "Enrichment failed", duration, AiProviderType.MISTRAL, resolveMistralModelName());
         
@@ -404,6 +417,19 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
 
     private String resolveMistralModelName() {
         return (mistralModelName != null && !mistralModelName.isBlank()) ? mistralModelName : "mistral";
+    }
+
+    private ChatResponse callMistral(String prompt) {
+        var promptSpec = ChatClient.builder(mistralChatModel)
+                .build()
+                .prompt()
+                .user(prompt);
+        if (mistralChatModel instanceof MistralAiChatModel) {
+            promptSpec = promptSpec.options(MistralAiChatOptions.builder()
+                    .withResponseFormat(new MistralAiApi.ChatCompletionRequest.ResponseFormat("json_object"))
+                    .build());
+        }
+        return promptSpec.call().chatResponse();
     }
 
     private String buildPrompt(
@@ -505,38 +531,19 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
 
     private EnrichedNode parseAndValidateResponse(String responseText, String lessonsJsonFallback) throws Exception {
         String cleanJson = extractJson(responseText);
-        JsonNode rootNode = objectMapper.readTree(cleanJson);
+        JsonNode rootNode = parseJsonTreeWithFallback(cleanJson);
 
-        String description = rootNode.path("description").asText("");
-        String expectedOutput = rootNode.path("expectedOutput").asText("");
-        String rubric = renderRubricItems(rootNode.path("rubricItems"));
+        String description = readFirstText(rootNode, "description");
+        String expectedOutput = readFirstText(rootNode, "expectedOutput", "expected_output");
+        JsonNode rubricItemsNode = rootNode.has("rubricItems") ? rootNode.path("rubricItems") : rootNode.path("rubric_items");
+        String rubric = renderRubricItems(rubricItemsNode);
         if (rubric.isBlank()) {
-            rubric = rootNode.path("rubric").asText("");
+            rubric = readFirstText(rootNode, "rubric");
         }
 
-        List<String> objectives = new ArrayList<>();
-        JsonNode objNode = rootNode.path("learningObjectives");
-        if (objNode.isArray()) {
-            for (JsonNode item : objNode) {
-                objectives.add(item.asText());
-            }
-        }
-
-        List<String> exercises = new ArrayList<>();
-        JsonNode exNode = rootNode.path("practicalExercises");
-        if (exNode.isArray()) {
-            for (JsonNode item : exNode) {
-                exercises.add(item.asText());
-            }
-        }
-
-        List<String> criteria = new ArrayList<>();
-        JsonNode crNode = rootNode.path("successCriteria");
-        if (crNode.isArray()) {
-            for (JsonNode item : crNode) {
-                criteria.add(item.asText());
-            }
-        }
+        List<String> objectives = readStringList(rootNode, "learningObjectives", "learning_objectives");
+        List<String> exercises = readStringList(rootNode, "practicalExercises", "practical_exercises");
+        List<String> criteria = readStringList(rootNode, "successCriteria", "success_criteria");
 
         List<EnrichedLesson> lessons = new ArrayList<>();
         JsonNode lesNode = rootNode.path("lessons");
@@ -544,8 +551,10 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
             for (JsonNode item : lesNode) {
                 String title = item.path("title").asText("");
                 String desc = item.path("description").asText("");
-                String obj = item.path("learningObjective").asText("");
-                Integer mins = item.has("estimatedMinutes") ? item.path("estimatedMinutes").asInt() : null;
+                String obj = readFirstText(item, "learningObjective", "learning_objective");
+                Integer mins = item.has("estimatedMinutes")
+                        ? item.path("estimatedMinutes").asInt()
+                        : (item.has("estimated_minutes") ? item.path("estimated_minutes").asInt() : null);
                 lessons.add(new EnrichedLesson(title, desc, obj, mins));
             }
         }
@@ -572,6 +581,56 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         }
 
         return new EnrichedNode(description, objectives, exercises, criteria, expectedOutput, rubric, lessons);
+    }
+
+    private JsonNode parseJsonTreeWithFallback(String cleanJson) throws JsonProcessingException {
+        try {
+            return objectMapper.readTree(cleanJson);
+        } catch (JsonProcessingException primaryEx) {
+            String sanitized = sanitizeJsonControlCharacters(cleanJson);
+            try {
+                return objectMapper.readTree(sanitized);
+            } catch (JsonProcessingException sanitizedEx) {
+                try {
+                    return LENIENT_OBJECT_MAPPER.readTree(sanitized);
+                } catch (JsonProcessingException lenientEx) {
+                    throw primaryEx;
+                }
+            }
+        }
+    }
+
+    private String readFirstText(JsonNode root, String... keys) {
+        if (root == null || keys == null) {
+            return "";
+        }
+        for (String key : keys) {
+            JsonNode node = root.path(key);
+            if (!node.isMissingNode() && !node.isNull()) {
+                String value = node.asText("");
+                if (!value.isEmpty()) {
+                    return value;
+                }
+            }
+        }
+        return "";
+    }
+
+    private List<String> readStringList(JsonNode root, String... keys) {
+        List<String> result = new ArrayList<>();
+        if (root == null || keys == null) {
+            return result;
+        }
+        for (String key : keys) {
+            JsonNode arr = root.path(key);
+            if (arr.isArray()) {
+                for (JsonNode item : arr) {
+                    result.add(item.asText());
+                }
+                return result;
+            }
+        }
+        return result;
     }
 
     private String renderRubricItems(JsonNode rubricItemsNode) {
@@ -621,14 +680,78 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
     }
 
     private String extractJson(String text) {
-        if (text == null) return "";
-        // Match from first '{' to last '}'
+        if (text == null) {
+            return "";
+        }
+        String trimmed = text.trim();
+        if (trimmed.startsWith("```")) {
+            trimmed = trimmed.replaceFirst("^```(?:json)?\\s*", "").replaceFirst("\\s*```\\s*$", "").trim();
+        }
+        int startIdx = trimmed.indexOf('{');
+        if (startIdx < 0) {
+            return trimmed;
+        }
+        int depth = 0;
+        boolean inString = false;
+        for (int i = startIdx; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if (c == '"' && (i == 0 || trimmed.charAt(i - 1) != '\\')) {
+                inString = !inString;
+            } else if (!inString) {
+                if (c == '{') {
+                    depth++;
+                } else if (c == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        return trimmed.substring(startIdx, i + 1);
+                    }
+                }
+            }
+        }
         Pattern pattern = Pattern.compile("(?s)\\{.*\\}");
-        Matcher matcher = pattern.matcher(text);
+        Matcher matcher = pattern.matcher(trimmed);
         if (matcher.find()) {
             return matcher.group();
         }
-        return text;
+        return trimmed;
+    }
+
+    private String sanitizeJsonControlCharacters(String json) {
+        StringBuilder result = new StringBuilder(json.length());
+        boolean inString = false;
+        char[] chars = json.toCharArray();
+
+        for (int i = 0; i < chars.length; i++) {
+            char c = chars[i];
+            if (c == '"') {
+                int backslashCount = 0;
+                for (int j = i - 1; j >= 0 && chars[j] == '\\'; j--) {
+                    backslashCount++;
+                }
+                if (backslashCount % 2 == 0) {
+                    inString = !inString;
+                }
+                result.append(c);
+            } else if (inString) {
+                switch (c) {
+                    case '\n' -> result.append("\\n");
+                    case '\r' -> result.append("\\r");
+                    case '\t' -> result.append("\\t");
+                    case '\f' -> result.append("\\f");
+                    case '\b' -> result.append("\\b");
+                    default -> {
+                        if (c < 32) {
+                            result.append(String.format("\\u%04x", (int) c));
+                        } else {
+                            result.append(c);
+                        }
+                    }
+                }
+            } else {
+                result.append(c);
+            }
+        }
+        return result.toString();
     }
 
     private String translateStudentGoal(String rawGoal) {
@@ -721,7 +844,8 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 exercises,
                 criteria,
                 baselineExpectedOutput != null ? baselineExpectedOutput : "Checklist sản phẩm hoàn thiện theo yêu cầu bài học.",
-                baselineRubric != null ? baselineRubric : "Đánh giá đạt khi hoàn thành đầy đủ các yêu cầu bài tập thực hành."
+                baselineRubric != null ? baselineRubric : "Đánh giá đạt khi hoàn thành đầy đủ các yêu cầu bài tập thực hành.",
+                lessons
         );
     }
 

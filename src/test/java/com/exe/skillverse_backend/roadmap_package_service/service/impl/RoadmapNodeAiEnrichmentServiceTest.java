@@ -475,4 +475,43 @@ class RoadmapNodeAiEnrichmentServiceTest {
         assertThat(result.getDescription()).contains("Mô tả blueprint gốc");
         verify(mistralChatModel, times(1)).call(any(Prompt.class));
     }
+
+    @Test
+    void enrichNodeParsesJsonWithRawNewlinesInsideMarkdownStrings() {
+        String rawNewlineJson = "{\n"
+                + "  \"description\": \"Đoạn 1 hướng dẫn học.\n\nĐoạn 2 thực hành SQL.\",\n"
+                + "  \"learningObjectives\": [\"Hiểu SQL\", \"Viết JOIN\"],\n"
+                + "  \"practicalExercises\": [\"Tạo bảng sinh viên\"],\n"
+                + "  \"successCriteria\": [\"Query chạy đúng\"],\n"
+                + "  \"expectedOutput\": \"- File SQL\n- Ảnh ERD\",\n"
+                + "  \"rubric\": \"Đạt 10đ\"\n"
+                + "}\n"
+                + "Lưu ý: {không phải JSON}";
+
+        ChatResponse chatResponse = mock(ChatResponse.class);
+        Generation generation = mock(Generation.class);
+        AssistantMessage assistantMessage = mock(AssistantMessage.class);
+
+        when(mistralChatModel.call(any(Prompt.class))).thenReturn(chatResponse);
+        when(chatResponse.getResult()).thenReturn(generation);
+        when(generation.getOutput()).thenReturn(assistantMessage);
+        when(assistantMessage.getContent()).thenReturn(rawNewlineJson);
+
+        RoadmapNodeAiEnrichmentService.EnrichedNode result = service.enrichNode(
+                "SQL & Database Foundation",
+                "Mô tả gốc",
+                "Out gốc",
+                "Rubric gốc",
+                "SQL",
+                "BEGINNER",
+                "PREPARE_JOB",
+                false,
+                false
+        );
+
+        assertThat(result).isNotNull();
+        assertThat(result.getDescription()).contains("Đoạn 1 hướng dẫn học.");
+        assertThat(result.getDescription()).contains("Đoạn 2 thực hành SQL.");
+        assertThat(result.getExpectedOutput()).contains("- File SQL\n- Ảnh ERD");
+    }
 }
