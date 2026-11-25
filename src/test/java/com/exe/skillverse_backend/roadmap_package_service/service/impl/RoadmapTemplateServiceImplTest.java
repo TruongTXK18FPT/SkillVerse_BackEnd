@@ -2,9 +2,16 @@ package com.exe.skillverse_backend.roadmap_package_service.service.impl;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
 import com.exe.skillverse_backend.ai_service.repository.RoadmapSessionRepository;
 import com.exe.skillverse_backend.ai_service.repository.UserRoadmapProgressRepository;
 import com.exe.skillverse_backend.auth_service.entity.PrimaryRole;
@@ -21,6 +28,7 @@ import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPosition
 import com.exe.skillverse_backend.career_taxonomy_service.repository.JobPositionTrackSkillRepository;
 import com.exe.skillverse_backend.course_service.repository.CourseRepository;
 import com.exe.skillverse_backend.journey_service.entity.Journey;
+import com.exe.skillverse_backend.journey_service.entity.TestResult;
 import com.exe.skillverse_backend.journey_service.node_mentoring.repository.RoadmapNodeAssignmentRepository;
 import com.exe.skillverse_backend.journey_service.repository.JourneyRepository;
 import com.exe.skillverse_backend.roadmap_package_service.dto.request.RoadmapTemplateActivityRequest;
@@ -35,6 +43,9 @@ import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTe
 import com.exe.skillverse_backend.roadmap_package_service.dto.response.RoadmapTemplateValidationResponse;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplate;
 import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateCourseLinkPolicy;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateNodeGroup;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateNodeGroupSkill;
+import com.exe.skillverse_backend.roadmap_package_service.entity.RoadmapTemplateStatus;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateActivityRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateCourseRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeGroupRepository;
@@ -42,19 +53,25 @@ import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemp
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateNodeRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateRepository;
 import com.exe.skillverse_backend.roadmap_package_service.repository.RoadmapTemplateSkillBlockRepository;
+import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapNodeAiEnrichmentService;
 import com.exe.skillverse_backend.shared.entity.Skill;
 import com.exe.skillverse_backend.shared.repository.SkillRepository;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class RoadmapTemplateServiceImplTest {
@@ -80,6 +97,7 @@ class RoadmapTemplateServiceImplTest {
     @Mock private RoadmapNodeAssignmentRepository assignmentRepository;
     @Mock private UserRoadmapProgressRepository progressRepository;
     @Mock private ObjectMapper objectMapper;
+    @Mock private RoadmapNodeAiEnrichmentService nodeAiEnrichmentService;
 
     @InjectMocks
     private RoadmapTemplateServiceImpl service;
@@ -436,5 +454,97 @@ class RoadmapTemplateServiceImplTest {
         // We must limit to exactly 2 optional AI suggestions, e.g., 301 and 302.
         // So the final list should be [201, 202, 301, 302].
         assertThat(resultHybrid).containsExactly(201L, 202L, 301L, 302L);
+    }
+
+    @Test
+    void createRoadmapSessionFromNodeGroupsEnrichesFirstTwoSyncAndQueuesRemainingAsync() throws Exception {
+        ObjectMapper realMapper = new ObjectMapper();
+        ReflectionTestUtils.setField(service, "objectMapper", realMapper);
+        ReflectionTestUtils.setField(service, "self", service);
+        ReflectionTestUtils.setField(service, "roadmapEnrichmentTaskExecutor", (Executor) Runnable::run);
+        ReflectionTestUtils.setField(service, "syncFirstNodes", 2);
+
+        RoadmapBackgroundEnrichmentService backgroundEnrichmentService = mock(RoadmapBackgroundEnrichmentService.class);
+        ReflectionTestUtils.setField(service, "backgroundEnrichmentService", backgroundEnrichmentService);
+
+        User student = User.builder().id(99L).primaryRole(PrimaryRole.USER).build();
+        Journey journey = Journey.builder()
+                .id(10L)
+                .user(student)
+                .jobPositionTrackId(30L)
+                .goal("PREPARE_JOB")
+                .currentLevel(Journey.SkillLevel.INTERMEDIATE)
+                .build();
+        TestResult testResult = TestResult.builder()
+                .evaluatedLevel(Journey.SkillLevel.INTERMEDIATE)
+                .scorePercentage(75)
+                .build();
+
+        RoadmapTemplate template = RoadmapTemplate.builder()
+                .id(50L)
+                .jobPositionTrackId(30L)
+                .title("Backend Java Track")
+                .status(RoadmapTemplateStatus.PUBLISHED)
+                .build();
+
+        RoadmapTemplateNodeGroup g1 = RoadmapTemplateNodeGroup.builder()
+                .id(1L).nodeKey("mod-1").title("Node 1").description("Blue 1").expectedOutput("Out 1").rubric("Rub 1").orderIndex(1).build();
+        RoadmapTemplateNodeGroup g2 = RoadmapTemplateNodeGroup.builder()
+                .id(2L).nodeKey("mod-2").title("Node 2").description("Blue 2").expectedOutput("Out 2").rubric("Rub 2").orderIndex(2).build();
+        RoadmapTemplateNodeGroup g3 = RoadmapTemplateNodeGroup.builder()
+                .id(3L).nodeKey("mod-3").title("Node 3").description("Blue 3").expectedOutput("Out 3").rubric("Rub 3")
+                .lessonsJson("[{\"title\":\"L3\",\"description\":\"LD3\",\"learningObjective\":\"LO3\",\"estimatedMinutes\":30}]")
+                .orderIndex(3).build();
+
+        when(templateRepository.findFirstByJobPositionTrackIdAndStatusOrderByUpdatedAtDescCreatedAtDesc(
+                30L, RoadmapTemplateStatus.PUBLISHED)).thenReturn(Optional.of(template));
+        when(nodeGroupRepository.findByTemplateIdOrderByOrderIndexAscIdAsc(50L)).thenReturn(List.of(g1, g2, g3));
+        when(nodeGroupSkillRepository.findByNodeGroupIdOrderByOrderIndexAscIdAsc(any()))
+                .thenReturn(List.of(RoadmapTemplateNodeGroupSkill.builder().skillId(101L).skillNameSnapshot("Java").build()));
+        when(roadmapSessionRepository.countActiveByUserId(99L)).thenReturn(0L);
+        when(roadmapSessionRepository.save(any(RoadmapSession.class))).thenAnswer(inv -> {
+            RoadmapSession s = inv.getArgument(0);
+            s.setId(555L);
+            return s;
+        });
+
+        when(nodeAiEnrichmentService.enrichNode(
+                anyString(), any(), any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any(), any()))
+                .thenAnswer(inv -> new RoadmapNodeAiEnrichmentService.EnrichedNode(
+                        "AI Enriched: " + inv.getArgument(0),
+                        List.of("Obj"),
+                        List.of("Ex"),
+                        List.of("Crit"),
+                        "AI Out",
+                        "AI Rubric",
+                        List.of(new RoadmapNodeAiEnrichmentService.EnrichedLesson("AI L", "AI D", "AI O", 40))
+                ));
+
+        Long sessionId = service.createRoadmapSessionFromPublishedTemplate(journey, testResult, List.of(), List.of());
+        assertThat(sessionId).isEqualTo(555L);
+
+        verify(nodeAiEnrichmentService, times(2)).enrichNode(
+                anyString(), any(), any(), any(), any(), any(), any(), anyBoolean(), anyBoolean(), any(), any());
+
+        ArgumentCaptor<RoadmapSession> sessionCaptor = ArgumentCaptor.forClass(RoadmapSession.class);
+        verify(roadmapSessionRepository).save(sessionCaptor.capture());
+        JsonNode root = realMapper.readTree(sessionCaptor.getValue().getRoadmapJson());
+        JsonNode roadmapArr = root.path("roadmap");
+        assertThat(roadmapArr).hasSize(3);
+        assertThat(roadmapArr.get(0).path("enrichment_status").asText()).isEqualTo("COMPLETED");
+        assertThat(roadmapArr.get(0).path("description").asText()).isEqualTo("AI Enriched: Node 1");
+        assertThat(roadmapArr.get(1).path("enrichment_status").asText()).isEqualTo("COMPLETED");
+        assertThat(roadmapArr.get(1).path("description").asText()).isEqualTo("AI Enriched: Node 2");
+        assertThat(roadmapArr.get(2).path("enrichment_status").asText()).isEqualTo("PENDING");
+        assertThat(roadmapArr.get(2).path("description").asText()).isEqualTo("Blue 3");
+        assertThat(roadmapArr.get(2).path("lessons").get(0).path("title").asText()).isEqualTo("L3");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<RoadmapBackgroundEnrichmentService.PendingNodeEnrichmentTask>> tasksCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(backgroundEnrichmentService).enrichRemainingNodesAsync(eq(555L), tasksCaptor.capture());
+        assertThat(tasksCaptor.getValue()).hasSize(1);
+        assertThat(tasksCaptor.getValue().get(0).nodeId()).isEqualTo("mod-3");
+        assertThat(tasksCaptor.getValue().get(0).lessonsJson()).contains("L3");
     }
 }

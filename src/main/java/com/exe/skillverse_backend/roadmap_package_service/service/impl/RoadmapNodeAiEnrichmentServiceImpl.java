@@ -25,9 +25,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
@@ -69,6 +71,9 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
 
     @Value("${app.roadmap.enrichment.request-gap-ms:3500}")
     private long minMistralRequestGapMs = 3500;
+
+    @Value("${app.roadmap.enrichment.fail-fast-on-rate-limit:true}")
+    private boolean failFastOnRateLimit = true;
 
     private static final int MAX_RETRIES = 2;
     private static final long RETRY_BACKOFF_MS = 5000;
@@ -351,6 +356,11 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 lastException = e;
                 log.warn("⚠️ AI Enrichment Attempt {}/{} failed for Node '{}': {}", 
                         attempt, MAX_RETRIES + 1, nodeTitle, e.getMessage());
+                if (failFastOnRateLimit && isRateLimitException(e)) {
+                    log.warn("🛑 Rate limit (429) detected for Node '{}'. Fail-fast enabled, skipping remaining retries.",
+                            nodeTitle);
+                    break;
+                }
                 if (attempt <= MAX_RETRIES) {
                     try {
                         Thread.sleep(RETRY_BACKOFF_MS * attempt);
@@ -370,6 +380,26 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         
         return buildStaticFallback(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric, 
                 skillName, studentLevel, isGap, isStrength, lessonsJson);
+    }
+
+    private boolean isRateLimitException(Throwable throwable) {
+        Throwable current = throwable;
+        int depth = 0;
+        while (current != null && depth < 10) {
+            if (current instanceof HttpStatusCodeException statusEx && statusEx.getStatusCode().value() == 429) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase(Locale.ROOT);
+                if (lower.contains("429") || lower.contains("rate limit exceeded") || lower.contains("too many requests")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+            depth++;
+        }
+        return false;
     }
 
     private String resolveMistralModelName() {

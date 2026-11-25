@@ -327,6 +327,9 @@ app:
     enrichment:
       concurrency: ${APP_ROADMAP_ENRICHMENT_CONCURRENCY:1}
       request-gap-ms: ${APP_ROADMAP_ENRICHMENT_REQUEST_GAP_MS:3500}
+      sync-first-nodes: ${APP_ROADMAP_ENRICHMENT_SYNC_FIRST_NODES:2}
+      background-gap-ms: ${APP_ROADMAP_ENRICHMENT_BACKGROUND_GAP_MS:32000}
+      fail-fast-on-rate-limit: ${APP_ROADMAP_ENRICHMENT_FAIL_FAST_ON_429:true}
   course:
     revision:
       read-enabled: ${APP_COURSE_REVISION_READ_ENABLED:true}

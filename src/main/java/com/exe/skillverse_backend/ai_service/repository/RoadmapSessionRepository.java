@@ -1,10 +1,12 @@
 package com.exe.skillverse_backend.ai_service.repository;
 
 import com.exe.skillverse_backend.ai_service.entity.RoadmapSession;
+import jakarta.persistence.LockModeType;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -122,4 +124,12 @@ public interface RoadmapSessionRepository extends JpaRepository<RoadmapSession, 
     @Modifying
     @Query("UPDATE RoadmapSession rs SET rs.status = 'PAUSED' WHERE rs.user.id = :userId AND rs.status = 'ACTIVE'")
     int pauseAllActiveByUserId(@Param("userId") Long userId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT r FROM RoadmapSession r WHERE r.id = :id")
+    Optional<RoadmapSession> findByIdForUpdate(@Param("id") Long id);
+
+    @Modifying
+    @Query("UPDATE RoadmapSession r SET r.roadmapJson = :roadmapJson WHERE r.id = :id")
+    int updateRoadmapJson(@Param("id") Long id, @Param("roadmapJson") String roadmapJson);
 }

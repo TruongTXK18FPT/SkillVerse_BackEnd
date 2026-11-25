@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
@@ -451,5 +452,27 @@ class RoadmapNodeAiEnrichmentServiceTest {
         assertThat(result.getDescription()).contains("Học Java căn bản với Mistral Fallback");
         verify(localAiGateway).callWithoutSemaphoreForResponse(any(), anyString());
         verify(mistralChatModel).call(any(Prompt.class));
+    }
+
+    @Test
+    void enrichNodeFailsFastOnRateLimit429WithoutRetrying() {
+        when(mistralChatModel.call(any(Prompt.class)))
+                .thenThrow(new RuntimeException("429 Too Many Requests - Rate limit exceeded"));
+
+        RoadmapNodeAiEnrichmentService.EnrichedNode result = service.enrichNode(
+                "Spring Security",
+                "Mô tả blueprint gốc",
+                "Expected Output",
+                "Rubric",
+                "Security",
+                "INTERMEDIATE",
+                "PREPARE_JOB",
+                false,
+                false
+        );
+
+        assertThat(result).isNotNull();
+        assertThat(result.getDescription()).contains("Mô tả blueprint gốc");
+        verify(mistralChatModel, times(1)).call(any(Prompt.class));
     }
 }

@@ -3123,6 +3123,7 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                     .reason(readText(nodeJson, "reason"))
                     .evidence(parseStringArray(nodeJson.path("evidence")))
                     .importanceValidationStatus(readText(nodeJson, "importance_validation_status", "importanceValidationStatus"))
+                    .enrichmentStatus(readText(nodeJson, "enrichment_status", "enrichmentStatus"))
                     .build();
 
             nodes.add(node);

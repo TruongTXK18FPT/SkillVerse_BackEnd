@@ -1,6 +1,7 @@
 package com.exe.skillverse_backend.ai_service.dto.response;
 
 import com.exe.skillverse_backend.career_taxonomy_service.enums.RequirementType;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -142,6 +143,9 @@ public class RoadmapResponse {
         private String reason;            // 1-sentence explanation why this node matters
         private List<String> evidence;    // signals: skill gap, job market, prereq chain
         private String importanceValidationStatus; // see ImportanceValidationStatus enum
+
+        @JsonProperty("enrichment_status")
+        private String enrichmentStatus; // PENDING, COMPLETED (null for legacy roadmaps)
 
         public enum NodeType {
             MAIN, // Main path quest - required for core learning

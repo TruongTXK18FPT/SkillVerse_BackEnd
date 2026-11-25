@@ -87,8 +87,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.exe.skillverse_backend.roadmap_package_service.service.RoadmapNodeAiEnrichmentService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -110,7 +113,10 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     ) {
     }
 
-    private record RuntimeRoadmap(String roadmapJson, List<RuntimeRoadmapNode> nodes) {
+    private record RuntimeRoadmap(
+            String roadmapJson,
+            List<RuntimeRoadmapNode> nodes,
+            List<RoadmapBackgroundEnrichmentService.PendingNodeEnrichmentTask> pendingTasks) {
     }
 
     private record RuntimeRoadmapNode(
@@ -137,7 +143,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             String pinnedDocumentIds,
             String nodeType,
             String parentNodeKey,
-            List<RoadmapNodeAiEnrichmentService.EnrichedLesson> lessons
+            List<RoadmapNodeAiEnrichmentService.EnrichedLesson> lessons,
+            String enrichmentStatus
     ) {
     }
 
@@ -146,7 +153,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             RoadmapNodeAiEnrichmentService.EnrichedNode enriched,
             String difficulty,
             int estimatedMinutes,
-            List<Long> suggestedCourseIds
+            List<Long> suggestedCourseIds,
+            String enrichmentStatus
     ) {
     }
 
@@ -178,6 +186,12 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
     @Autowired
     @Qualifier("roadmapEnrichmentTaskExecutor")
     private Executor roadmapEnrichmentTaskExecutor;
+
+    @Autowired(required = false)
+    private RoadmapBackgroundEnrichmentService backgroundEnrichmentService;
+
+    @Value("${app.roadmap.enrichment.sync-first-nodes:2}")
+    private int syncFirstNodes = 2;
 
 
     @Override
@@ -443,7 +457,9 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         LinkedHashMap::new,
                         Collectors.mapping(RoadmapTemplateCourse::getCourseId, Collectors.toList())));
 
+        int syncLimit = Math.max(0, syncFirstNodes);
         List<CompletableFuture<EnrichedRuntimeNodeV1>> futures = new ArrayList<>();
+        List<RoadmapBackgroundEnrichmentService.PendingNodeEnrichmentTask> pendingTasks = new ArrayList<>();
         for (int i = 0; i < nodes.size(); i++) {
             RoadmapTemplateNode node = nodes.get(i);
             boolean gapMatched = profileMatchesNode(gapNames, node);
@@ -461,9 +477,45 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 }
             }
             final List<Long> finalManualIds = manualIds;
+            int personalizedMinutes = personalizeMinutes(node, studentLevel, gapMatched);
+            String difficulty = personalizeDifficulty(node, studentLevel, gapMatched, strengthMatched);
+            List<Long> suggestedCourseIds = resolveSuggestedCourseIds(
+                    node.getSkillId(),
+                    RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID,
+                    2,
+                    finalManualIds
+            );
 
-            CompletableFuture<EnrichedRuntimeNodeV1> future = CompletableFuture.supplyAsync(() -> {
-                RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
+            if (i < syncLimit) {
+                CompletableFuture<EnrichedRuntimeNodeV1> future = CompletableFuture.supplyAsync(() -> {
+                    RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
+                            node.getTitle(),
+                            node.getDescription(),
+                            node.getExpectedOutput(),
+                            node.getRubric(),
+                            node.getSkillNameSnapshot(),
+                            studentLevel,
+                            journey.getGoal(),
+                            gapMatched,
+                            strengthMatched,
+                            node.getPinnedDocumentIds()
+                    );
+                    return new EnrichedRuntimeNodeV1(node, enriched, difficulty, personalizedMinutes, suggestedCourseIds, "COMPLETED");
+                }, roadmapEnrichmentTaskExecutor);
+                futures.add(future);
+            } else {
+                RoadmapNodeAiEnrichmentService.EnrichedNode blueprintNode = new RoadmapNodeAiEnrichmentService.EnrichedNode(
+                        firstNonBlank(node.getDescription(), personalizeDescription(node, studentLevel, gapMatched, strengthMatched)),
+                        personalizedObjectives(node, studentLevel, gapMatched),
+                        personalizedExercises(node, studentLevel, gapMatched),
+                        personalizedSuccessCriteria(node),
+                        firstNonBlank(node.getExpectedOutput(), "Hoàn thành bài tập và nộp sản phẩm theo yêu cầu của " + node.getTitle()),
+                        firstNonBlank(node.getRubric(), "Hoàn thành đầy đủ các yêu cầu và tiêu chí đánh giá của bài học.")
+                );
+                futures.add(CompletableFuture.completedFuture(
+                        new EnrichedRuntimeNodeV1(node, blueprintNode, difficulty, personalizedMinutes, suggestedCourseIds, "PENDING")));
+                pendingTasks.add(new RoadmapBackgroundEnrichmentService.PendingNodeEnrichmentTask(
+                        resolveNodeId(node),
                         node.getTitle(),
                         node.getDescription(),
                         node.getExpectedOutput(),
@@ -473,24 +525,15 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         journey.getGoal(),
                         gapMatched,
                         strengthMatched,
-                        node.getPinnedDocumentIds()
-                );
-                int personalizedMinutes = personalizeMinutes(node, studentLevel, gapMatched);
-                String difficulty = personalizeDifficulty(node, studentLevel, gapMatched, strengthMatched);
-                List<Long> suggestedCourseIds = resolveSuggestedCourseIds(
-                        node.getSkillId(),
-                        RoadmapTemplateCourseLinkPolicy.AUTO_HYBRID,
-                        2,
-                        finalManualIds
-                );
-                return new EnrichedRuntimeNodeV1(node, enriched, difficulty, personalizedMinutes, suggestedCourseIds);
-            }, roadmapEnrichmentTaskExecutor);
-
-            futures.add(future);
+                        node.getPinnedDocumentIds(),
+                        null
+                ));
+            }
         }
 
-        // Chờ tất cả hoàn thành song song (ThreadPoolTaskExecutor khống chế 3 luồng đồng thời)
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        if (!futures.isEmpty()) {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        }
 
         List<EnrichedRuntimeNodeV1> enrichedNodes = futures.stream()
                 .map(CompletableFuture::join)
@@ -527,7 +570,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         List<RoadmapNodeAssignment> assignments = buildRuntimeAssignmentsV1(journey, session, enrichedNodes);
         List<UserRoadmapProgress> progresses = buildInitialProgress(session, nodes);
 
-        return self.saveRoadmapSessionAndData(
+        Long sessionId = self.saveRoadmapSessionAndData(
                 session,
                 journey,
                 assignments,
@@ -536,6 +579,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 template.getJobPositionTrackId(),
                 writeJson(extractSkillIds(nodes))
         );
+        scheduleBackgroundEnrichment(sessionId, pendingTasks);
+        return sessionId;
     }
 
     private List<RoadmapNodeAssignment> buildRuntimeAssignmentsV1(
@@ -607,7 +652,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         List<RoadmapNodeAssignment> assignments = buildRuntimeAssignmentsFromRuntime(journey, session, runtime.nodes());
         List<UserRoadmapProgress> progresses = buildInitialProgressFromRuntime(session, runtime.nodes());
 
-        return self.saveRoadmapSessionAndData(
+        Long sessionId = self.saveRoadmapSessionAndData(
                 session,
                 journey,
                 assignments,
@@ -616,6 +661,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 template.getJobPositionTrackId(),
                 writeJson(extractSkillIdsFromBlocks(blocks))
         );
+        scheduleBackgroundEnrichment(sessionId, runtime.pendingTasks());
+        return sessionId;
     }
 
     private Long createRoadmapSessionFromNodeGroups(
@@ -666,7 +713,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         List<RoadmapNodeAssignment> assignments = buildRuntimeAssignmentsFromRuntime(journey, session, runtime.nodes());
         List<UserRoadmapProgress> progresses = buildInitialProgressFromRuntime(session, runtime.nodes());
 
-        return self.saveRoadmapSessionAndData(
+        Long sessionId = self.saveRoadmapSessionAndData(
                 session,
                 journey,
                 assignments,
@@ -675,6 +722,27 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 template.getJobPositionTrackId(),
                 writeJson(extractSkillIdsFromRuntime(runtime.nodes()))
         );
+        scheduleBackgroundEnrichment(sessionId, runtime.pendingTasks());
+        return sessionId;
+    }
+
+    private void scheduleBackgroundEnrichment(
+            Long sessionId,
+            List<RoadmapBackgroundEnrichmentService.PendingNodeEnrichmentTask> pendingTasks) {
+        if (backgroundEnrichmentService == null || sessionId == null || pendingTasks == null || pendingTasks.isEmpty()) {
+            return;
+        }
+        List<RoadmapBackgroundEnrichmentService.PendingNodeEnrichmentTask> tasksCopy = List.copyOf(pendingTasks);
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    backgroundEnrichmentService.enrichRemainingNodesAsync(sessionId, tasksCopy);
+                }
+            });
+        } else {
+            backgroundEnrichmentService.enrichRemainingNodesAsync(sessionId, tasksCopy);
+        }
     }
 
 
@@ -1798,6 +1866,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             n.put("reason", personalizationReason(node, studentLevel, gapMatched, strengthMatched));
             putArray(n, "evidence", List.of("admin_template", "assessment_profile", "job_position_track"));
             n.put("importance_validation_status", "ACCEPTED");
+            n.put("enrichment_status", "COMPLETED");
         }
 
         ObjectNode stats = root.putObject("roadmap_statistics");
@@ -1905,6 +1974,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             n.put("reason", personalizationReason(node, studentLevel, gapMatched, strengthMatched));
             putArray(n, "evidence", List.of("admin_template", "assessment_profile", "job_position_track"));
             n.put("importance_validation_status", "ACCEPTED");
+            n.put("enrichment_status", firstNonBlank(ern.enrichmentStatus(), "COMPLETED"));
         }
 
         ObjectNode stats = root.putObject("roadmap_statistics");
@@ -1971,7 +2041,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         suggestedCourseIds,
                         activity != null ? activity.getSkillRequirementsJson() : null,
                         null, null, null, null,
-                        "MAIN", null, null
+                        "MAIN", null, null,
+                        null
                 ));
             }
         }
@@ -2131,7 +2202,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                     group.getPinnedDocumentIds(),
                     group.getNodeType() != null ? group.getNodeType() : "MAIN",
                     group.getParentNodeKey(),
-                    initialLessons
+                    initialLessons,
+                    null
             ));
         }
         return runtimeNodes;
@@ -2150,7 +2222,9 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         Set<String> gapNames = extractProfileSkillNames(skillGaps);
         Set<String> strengthNames = extractProfileSkillNames(strengths);
         
+        int syncLimit = Math.max(0, syncFirstNodes);
         List<CompletableFuture<RuntimeRoadmapNode>> futures = new ArrayList<>();
+        List<RoadmapBackgroundEnrichmentService.PendingNodeEnrichmentTask> pendingTasks = new ArrayList<>();
         for (int i = 0; i < initialNodes.size(); i++) {
             RuntimeRoadmapNode node = initialNodes.get(i);
             boolean gapMatched = false;
@@ -2166,49 +2240,81 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             final boolean isGap = gapMatched;
             final boolean isStrength = strengthMatched;
 
-            CompletableFuture<RuntimeRoadmapNode> future = CompletableFuture.supplyAsync(() -> {
-                RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
-                        node.title(),
-                        node.description(),
-                        node.expectedOutput(),
-                        node.rubric(),
-                        node.skillName(),
-                        studentLevel,
-                        journey.getGoal(),
-                        isGap,
-                        isStrength,
-                        node.pinnedDocumentIds()
-                );
+            if (i < syncLimit) {
+                CompletableFuture<RuntimeRoadmapNode> future = CompletableFuture.supplyAsync(() -> {
+                    RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
+                            node.title(),
+                            node.description(),
+                            node.expectedOutput(),
+                            node.rubric(),
+                            node.skillName(),
+                            studentLevel,
+                            journey.getGoal(),
+                            isGap,
+                            isStrength,
+                            node.pinnedDocumentIds()
+                    );
 
-                String expectedOutputVal = (enriched.getExpectedOutput() != null && !enriched.getExpectedOutput().isBlank())
-                        ? enriched.getExpectedOutput()
-                        : node.expectedOutput();
+                    String expectedOutputVal = (enriched.getExpectedOutput() != null && !enriched.getExpectedOutput().isBlank())
+                            ? enriched.getExpectedOutput()
+                            : node.expectedOutput();
 
-                String rubricVal = (enriched.getRubric() != null && !enriched.getRubric().isBlank())
-                        ? enriched.getRubric()
-                        : node.rubric();
+                    String rubricVal = (enriched.getRubric() != null && !enriched.getRubric().isBlank())
+                            ? enriched.getRubric()
+                            : node.rubric();
 
-                List<String> practicalExercisesVal = (enriched.getPracticalExercises() != null && !enriched.getPracticalExercises().isEmpty())
-                        ? enriched.getPracticalExercises()
-                        : node.practicalExercises();
+                    List<String> practicalExercisesVal = (enriched.getPracticalExercises() != null && !enriched.getPracticalExercises().isEmpty())
+                            ? enriched.getPracticalExercises()
+                            : node.practicalExercises();
 
-                List<String> successCriteriaVal = (enriched.getSuccessCriteria() != null && !enriched.getSuccessCriteria().isEmpty())
-                        ? enriched.getSuccessCriteria()
-                        : node.successCriteria();
+                    List<String> successCriteriaVal = (enriched.getSuccessCriteria() != null && !enriched.getSuccessCriteria().isEmpty())
+                            ? enriched.getSuccessCriteria()
+                            : node.successCriteria();
 
-                List<RoadmapNodeAiEnrichmentService.EnrichedLesson> lessonsVal = (enriched.getLessons() != null && !enriched.getLessons().isEmpty())
-                        ? enriched.getLessons()
-                        : node.lessons();
+                    List<RoadmapNodeAiEnrichmentService.EnrichedLesson> lessonsVal = (enriched.getLessons() != null && !enriched.getLessons().isEmpty())
+                            ? enriched.getLessons()
+                            : node.lessons();
 
-                return new RuntimeRoadmapNode(
+                    return new RuntimeRoadmapNode(
+                            node.id(),
+                            node.templateSkillBlockId(),
+                            node.skillId(),
+                            node.skillName(),
+                            node.title(),
+                            enriched.getDescription(),
+                            expectedOutputVal,
+                            rubricVal,
+                            node.difficulty(),
+                            node.minLevel(),
+                            node.maxLevel(),
+                            node.targetLevelMatch(),
+                            node.activitySource(),
+                            node.reason(),
+                            node.estimatedHours(),
+                            node.suggestedCourseIds(),
+                            node.skillRequirementsJson(),
+                            enriched.getLearningObjectives(),
+                            practicalExercisesVal,
+                            successCriteriaVal,
+                            node.pinnedDocumentIds(),
+                            node.nodeType(),
+                            node.parentNodeKey(),
+                            lessonsVal,
+                            "COMPLETED"
+                    );
+                }, roadmapEnrichmentTaskExecutor);
+
+                futures.add(future);
+            } else {
+                RuntimeRoadmapNode pendingNode = new RuntimeRoadmapNode(
                         node.id(),
                         node.templateSkillBlockId(),
                         node.skillId(),
                         node.skillName(),
                         node.title(),
-                        enriched.getDescription(),
-                        expectedOutputVal,
-                        rubricVal,
+                        node.description(),
+                        node.expectedOutput(),
+                        node.rubric(),
                         node.difficulty(),
                         node.minLevel(),
                         node.maxLevel(),
@@ -2218,28 +2324,43 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         node.estimatedHours(),
                         node.suggestedCourseIds(),
                         node.skillRequirementsJson(),
-                        enriched.getLearningObjectives(),
-                        practicalExercisesVal,
-                        successCriteriaVal,
+                        node.learningObjectives(),
+                        node.practicalExercises(),
+                        node.successCriteria(),
                         node.pinnedDocumentIds(),
                         node.nodeType(),
                         node.parentNodeKey(),
-                        lessonsVal
+                        node.lessons(),
+                        "PENDING"
                 );
-            }, roadmapEnrichmentTaskExecutor);
-
-            futures.add(future);
+                futures.add(CompletableFuture.completedFuture(pendingNode));
+                pendingTasks.add(new RoadmapBackgroundEnrichmentService.PendingNodeEnrichmentTask(
+                        node.id(),
+                        node.title(),
+                        node.description(),
+                        node.expectedOutput(),
+                        node.rubric(),
+                        node.skillName(),
+                        studentLevel,
+                        journey.getGoal(),
+                        isGap,
+                        isStrength,
+                        node.pinnedDocumentIds(),
+                        serializeLessonsJson(node.lessons())
+                ));
+            }
         }
 
-        // Chờ tất cả hoàn thành song song (ThreadPoolTaskExecutor khống chế 3 luồng đồng thời)
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        if (!futures.isEmpty()) {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        }
 
         List<RuntimeRoadmapNode> enrichedNodes = futures.stream()
                 .map(CompletableFuture::join)
                 .collect(Collectors.toList());
 
         return buildRuntimeRoadmapJson(template, enrichedNodes, studentLevel, "Admin V3 template guided",
-                "Assessment-aware admin template allocation");
+                "Assessment-aware admin template allocation", pendingTasks);
     }
 
     private RuntimeRoadmap buildRuntimeRoadmapFromNodeGroups(
@@ -2255,7 +2376,9 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
         Set<String> gapNames = extractProfileSkillNames(skillGaps);
         Set<String> strengthNames = extractProfileSkillNames(strengths);
         
+        int syncLimit = Math.max(0, syncFirstNodes);
         List<CompletableFuture<RuntimeRoadmapNode>> futures = new ArrayList<>();
+        List<RoadmapBackgroundEnrichmentService.PendingNodeEnrichmentTask> pendingTasks = new ArrayList<>();
         for (int i = 0; i < initialNodes.size(); i++) {
             RuntimeRoadmapNode node = initialNodes.get(i);
             boolean gapMatched = false;
@@ -2270,16 +2393,105 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
 
             final boolean isGap = gapMatched;
             final boolean isStrength = strengthMatched;
+            final String lessonsJson = serializeLessonsJson(node.lessons());
 
-            CompletableFuture<RuntimeRoadmapNode> future = CompletableFuture.supplyAsync(() -> {
-                String lessonsJson = null;
-                if (node.lessons() != null && !node.lessons().isEmpty()) {
-                    try {
-                        lessonsJson = objectMapper.writeValueAsString(node.lessons());
-                    } catch (Exception ignored) {}
-                }
+            if (i < syncLimit) {
+                CompletableFuture<RuntimeRoadmapNode> future = CompletableFuture.supplyAsync(() -> {
+                    RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
+                            node.title(),
+                            node.description(),
+                            node.expectedOutput(),
+                            node.rubric(),
+                            node.skillName(),
+                            studentLevel,
+                            journey.getGoal(),
+                            isGap,
+                            isStrength,
+                            node.pinnedDocumentIds(),
+                            lessonsJson
+                    );
 
-                RoadmapNodeAiEnrichmentService.EnrichedNode enriched = nodeAiEnrichmentService.enrichNode(
+                    String expectedOutputVal = (enriched.getExpectedOutput() != null && !enriched.getExpectedOutput().isBlank())
+                            ? enriched.getExpectedOutput()
+                            : node.expectedOutput();
+
+                    String rubricVal = (enriched.getRubric() != null && !enriched.getRubric().isBlank())
+                            ? enriched.getRubric()
+                            : node.rubric();
+
+                    List<String> practicalExercisesVal = (enriched.getPracticalExercises() != null && !enriched.getPracticalExercises().isEmpty())
+                            ? enriched.getPracticalExercises()
+                            : node.practicalExercises();
+
+                    List<String> successCriteriaVal = (enriched.getSuccessCriteria() != null && !enriched.getSuccessCriteria().isEmpty())
+                            ? enriched.getSuccessCriteria()
+                            : node.successCriteria();
+
+                    List<RoadmapNodeAiEnrichmentService.EnrichedLesson> lessonsVal = (enriched.getLessons() != null && !enriched.getLessons().isEmpty())
+                            ? enriched.getLessons()
+                            : node.lessons();
+
+                    return new RuntimeRoadmapNode(
+                            node.id(),
+                            node.templateSkillBlockId(),
+                            node.skillId(),
+                            node.skillName(),
+                            node.title(),
+                            enriched.getDescription(),
+                            expectedOutputVal,
+                            rubricVal,
+                            node.difficulty(),
+                            node.minLevel(),
+                            node.maxLevel(),
+                            node.targetLevelMatch(),
+                            node.activitySource(),
+                            node.reason(),
+                            node.estimatedHours(),
+                            node.suggestedCourseIds(),
+                            node.skillRequirementsJson(),
+                            enriched.getLearningObjectives(),
+                            practicalExercisesVal,
+                            successCriteriaVal,
+                            node.pinnedDocumentIds(),
+                            node.nodeType(),
+                            node.parentNodeKey(),
+                            lessonsVal,
+                            "COMPLETED"
+                    );
+                }, roadmapEnrichmentTaskExecutor);
+
+                futures.add(future);
+            } else {
+                RuntimeRoadmapNode pendingNode = new RuntimeRoadmapNode(
+                        node.id(),
+                        node.templateSkillBlockId(),
+                        node.skillId(),
+                        node.skillName(),
+                        node.title(),
+                        node.description(),
+                        node.expectedOutput(),
+                        node.rubric(),
+                        node.difficulty(),
+                        node.minLevel(),
+                        node.maxLevel(),
+                        node.targetLevelMatch(),
+                        node.activitySource(),
+                        node.reason(),
+                        node.estimatedHours(),
+                        node.suggestedCourseIds(),
+                        node.skillRequirementsJson(),
+                        node.learningObjectives(),
+                        node.practicalExercises(),
+                        node.successCriteria(),
+                        node.pinnedDocumentIds(),
+                        node.nodeType(),
+                        node.parentNodeKey(),
+                        node.lessons(),
+                        "PENDING"
+                );
+                futures.add(CompletableFuture.completedFuture(pendingNode));
+                pendingTasks.add(new RoadmapBackgroundEnrichmentService.PendingNodeEnrichmentTask(
+                        node.id(),
                         node.title(),
                         node.description(),
                         node.expectedOutput(),
@@ -2291,68 +2503,31 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                         isStrength,
                         node.pinnedDocumentIds(),
                         lessonsJson
-                );
-
-                String expectedOutputVal = (enriched.getExpectedOutput() != null && !enriched.getExpectedOutput().isBlank())
-                        ? enriched.getExpectedOutput()
-                        : node.expectedOutput();
-
-                String rubricVal = (enriched.getRubric() != null && !enriched.getRubric().isBlank())
-                        ? enriched.getRubric()
-                        : node.rubric();
-
-                List<String> practicalExercisesVal = (enriched.getPracticalExercises() != null && !enriched.getPracticalExercises().isEmpty())
-                        ? enriched.getPracticalExercises()
-                        : node.practicalExercises();
-
-                List<String> successCriteriaVal = (enriched.getSuccessCriteria() != null && !enriched.getSuccessCriteria().isEmpty())
-                        ? enriched.getSuccessCriteria()
-                        : node.successCriteria();
-
-                List<RoadmapNodeAiEnrichmentService.EnrichedLesson> lessonsVal = (enriched.getLessons() != null && !enriched.getLessons().isEmpty())
-                        ? enriched.getLessons()
-                        : node.lessons();
-
-                return new RuntimeRoadmapNode(
-                        node.id(),
-                        node.templateSkillBlockId(),
-                        node.skillId(),
-                        node.skillName(),
-                        node.title(),
-                        enriched.getDescription(),
-                        expectedOutputVal,
-                        rubricVal,
-                        node.difficulty(),
-                        node.minLevel(),
-                        node.maxLevel(),
-                        node.targetLevelMatch(),
-                        node.activitySource(),
-                        node.reason(),
-                        node.estimatedHours(),
-                        node.suggestedCourseIds(),
-                        node.skillRequirementsJson(),
-                        enriched.getLearningObjectives(),
-                        practicalExercisesVal,
-                        successCriteriaVal,
-                        node.pinnedDocumentIds(),
-                        node.nodeType(),
-                        node.parentNodeKey(),
-                        lessonsVal
-                );
-            }, roadmapEnrichmentTaskExecutor);
-
-            futures.add(future);
+                ));
+            }
         }
 
-        // Chờ tất cả hoàn thành song song (ThreadPoolTaskExecutor khống chế 3 luồng đồng thời)
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        if (!futures.isEmpty()) {
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        }
 
         List<RuntimeRoadmapNode> enrichedNodes = futures.stream()
                 .map(CompletableFuture::join)
                 .collect(Collectors.toList());
 
         return buildRuntimeRoadmapJson(template, enrichedNodes, studentLevel, "Admin module template guided",
-                "Assessment-aware admin module template");
+                "Assessment-aware admin module template", pendingTasks);
+    }
+
+    private String serializeLessonsJson(List<RoadmapNodeAiEnrichmentService.EnrichedLesson> lessons) {
+        if (lessons == null || lessons.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(lessons);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private String estimateFriendlyDuration(List<RuntimeRoadmapNode> nodes) {
@@ -2379,7 +2554,8 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             List<RuntimeRoadmapNode> runtimeNodes,
             String studentLevel,
             String duration,
-            String learningStyle) {
+            String learningStyle,
+            List<RoadmapBackgroundEnrichmentService.PendingNodeEnrichmentTask> pendingTasks) {
         ObjectNode root = objectMapper.createObjectNode();
         ObjectNode metadata = root.putObject("roadmap_metadata");
         metadata.put("title", template.getTitle());
@@ -2521,6 +2697,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
             n.put("reason", node.reason());
             putArray(n, "evidence", List.of("admin_template_v3", "skill_weight", node.activitySource(), "assessment_level"));
             n.put("importance_validation_status", "ACCEPTED");
+            n.put("enrichment_status", firstNonBlank(node.enrichmentStatus(), "COMPLETED"));
         }
 
         ObjectNode stats = root.putObject("roadmap_statistics");
@@ -2538,7 +2715,7 @@ public class RoadmapTemplateServiceImpl implements RoadmapTemplateService {
                 .put("purpose", "Admin V3 template with skill weights, level-banded activities, courses, and skill document permissions")
                 .put("audience", "Runtime learner profile from journey assessment")
                 .put("post_roadmap_state", firstNonBlank(template.getOutputStandard(), "Ready for job-position competency verification"));
-        return new RuntimeRoadmap(root.toString(), runtimeNodes);
+        return new RuntimeRoadmap(root.toString(), runtimeNodes, pendingTasks != null ? pendingTasks : List.of());
     }
 
     private String resolveRuntimeTarget(RoadmapTemplate template, Journey journey) {
