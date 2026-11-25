@@ -334,6 +334,63 @@ class AiRoadmapServiceImplTest {
     }
 
     @Test
+    @DisplayName("validateAndParseRoadmapV2 should preserve all template-guided MAIN nodes beyond 8 and enrichment_status")
+    void validateAndParseRoadmapV2_ShouldPreserveTemplateGuidedNodesAndEnrichmentStatus() throws Exception {
+        StringBuilder nodesJson = new StringBuilder();
+        for (int i = 1; i <= 15; i++) {
+            if (i > 1) {
+                nodesJson.append(',');
+            }
+            String parentJson = i == 1 ? "null" : "\"node-" + (i - 1) + "\"";
+            String enrichmentStatus = i <= 2 ? "COMPLETED" : "PENDING";
+            nodesJson.append("""
+                    {
+                      "id": "node-%d",
+                      "title": "Step %d",
+                      "description": "Step description %d",
+                      "estimated_time_minutes": 60,
+                      "type": "MAIN",
+                      "difficulty": "medium",
+                      "order_index": %d,
+                      "main_path_index": %d,
+                      "is_core": true,
+                      "parent_id": %s,
+                      "learning_objectives": ["Objective %d"],
+                      "key_concepts": ["Concept %d"],
+                      "practical_exercises": ["Exercise %d"],
+                      "suggested_resources": [],
+                      "prerequisites": [],
+                      "children": [],
+                      "enrichment_status": "%s"
+                    }
+                    """.formatted(i, i, i, i, i, parentJson, i, i, i, enrichmentStatus));
+        }
+        String roadmapJson = """
+                {
+                  "roadmap_metadata": {
+                    "title": "Java Fullstack Template",
+                    "original_goal": "Java Fullstack",
+                    "duration": "12 tuần",
+                    "experience_level": "beginner",
+                    "learning_style": "project-based",
+                    "roadmap_mode": "TEMPLATE_GUIDED"
+                  },
+                  "roadmap": [%s]
+                }
+                """.formatted(nodesJson);
+
+        Object parsedRoadmap = invokeValidateAndParseRoadmapV2(roadmapJson);
+        List<RoadmapResponse.RoadmapNode> nodes = extractNodes(parsedRoadmap);
+
+        assertEquals(15, nodes.size());
+        assertTrue(nodes.stream().allMatch(n -> n.getType() == RoadmapResponse.RoadmapNode.NodeType.MAIN));
+        assertEquals("COMPLETED", nodes.get(0).getEnrichmentStatus());
+        assertEquals("COMPLETED", nodes.get(1).getEnrichmentStatus());
+        assertEquals("PENDING", nodes.get(2).getEnrichmentStatus());
+        assertEquals("PENDING", nodes.get(14).getEnrichmentStatus());
+    }
+
+    @Test
     @DisplayName("getAllRoadmaps should fall back to totalNodes when JSON parsing fails")
     void getAllRoadmaps_ShouldFallBackToTotalNodesWhenJsonParsingFails() {
         RoadmapSession session = RoadmapSession.builder()

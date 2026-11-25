@@ -2498,10 +2498,16 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 }
             }
 
-            RoadmapBranchingNormalizer.Result branchingGraph = RoadmapBranchingNormalizer.normalize(nodes);
-            nodes = branchingGraph.nodes();
-            if (branchingGraph.warnings() != null) {
-                graphWarnings.addAll(branchingGraph.warnings());
+            boolean isTemplateGuided = metadata != null
+                    && "TEMPLATE_GUIDED".equalsIgnoreCase(metadata.getRoadmapMode());
+
+            RoadmapBranchingNormalizer.Result branchingGraph = null;
+            if (!isTemplateGuided) {
+                branchingGraph = RoadmapBranchingNormalizer.normalize(nodes);
+                nodes = branchingGraph.nodes();
+                if (branchingGraph.warnings() != null) {
+                    graphWarnings.addAll(branchingGraph.warnings());
+                }
             }
 
             // INFO log: summary of canonicalized graph
@@ -2518,10 +2524,15 @@ public class AiRoadmapServiceImpl implements AiRoadmapService {
                 log.warn("[RoadmapGen] ALL {} nodes are roots — BUG-8 linear chain applied", nodes.size());
             }
 
-            log.info("[RoadmapGen] Branching normalized {} nodes into {} MAIN spine nodes and {} optional SIDE nodes",
-                    nodes.size(),
-                    branchingGraph.mainNodes(),
-                    branchingGraph.sideNodes());
+            if (branchingGraph != null) {
+                log.info("[RoadmapGen] Branching normalized {} nodes into {} MAIN spine nodes and {} optional SIDE nodes",
+                        nodes.size(),
+                        branchingGraph.mainNodes(),
+                        branchingGraph.sideNodes());
+            } else {
+                log.info("[RoadmapGen] Preserving template-guided graph ({} nodes) without branching trim",
+                        nodes.size());
+            }
             if (!graphWarnings.isEmpty()) {
                 log.warn("[RoadmapGen] Graph normalization warnings: {}", graphWarnings);
             }

@@ -75,4 +75,26 @@ class RoadmapGraphCanonicalizerTest {
         assertEquals(1, result.branchCount());
         assertEquals(List.of("main-2"), result.nodes().get(0).getChildren());
     }
+
+    @Test
+    void canonicalize_preservesEnrichmentStatusAcrossCopiedNodes() {
+        RoadmapResponse.RoadmapNode completedNode = RoadmapResponse.RoadmapNode.builder()
+                .id("node-1")
+                .title("Node 1")
+                .type(RoadmapResponse.RoadmapNode.NodeType.MAIN)
+                .enrichmentStatus("COMPLETED")
+                .build();
+        RoadmapResponse.RoadmapNode pendingNode = RoadmapResponse.RoadmapNode.builder()
+                .id("node-2")
+                .title("Node 2")
+                .type(RoadmapResponse.RoadmapNode.NodeType.MAIN)
+                .parentId("node-1")
+                .enrichmentStatus("PENDING")
+                .build();
+
+        RoadmapGraphCanonicalizer.Result result = RoadmapGraphCanonicalizer.canonicalize(List.of(completedNode, pendingNode));
+
+        assertEquals("COMPLETED", result.nodes().get(0).getEnrichmentStatus());
+        assertEquals("PENDING", result.nodes().get(1).getEnrichmentStatus());
+    }
 }

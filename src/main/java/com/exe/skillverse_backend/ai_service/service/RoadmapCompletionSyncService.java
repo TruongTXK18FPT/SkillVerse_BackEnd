@@ -298,6 +298,16 @@ public class RoadmapCompletionSyncService {
                         .build());
             }
             RoadmapGraphCanonicalizer.Result canonical = RoadmapGraphCanonicalizer.canonicalize(nodes);
+            String metadataMode = root.path("roadmap_metadata").path("roadmap_mode").asText(null);
+            if (metadataMode == null || metadataMode.isBlank()) {
+                metadataMode = root.path("roadmapMetadata").path("roadmapMode").asText(null);
+            }
+            boolean isTemplateGuided = session.getRoadmapTemplateId() != null
+                    || "TEMPLATE_GUIDED".equalsIgnoreCase(session.getRoadmapMode())
+                    || "TEMPLATE_GUIDED".equalsIgnoreCase(metadataMode);
+            if (isTemplateGuided) {
+                return canonical.nodes();
+            }
             return RoadmapBranchingNormalizer.normalize(canonical.nodes()).nodes();
         } catch (Exception ex) {
             log.warn("Unable to parse roadmap nodes for session {}: {}", session.getId(), ex.getMessage());

@@ -333,6 +333,40 @@ class RoadmapCompletionSyncServiceTest {
         assertNull(n3.getImportanceScore());
     }
 
+    @Test
+    void extractNodes_preservesAllMainNodesForTemplateGuidedSessionsBeyondEight() {
+        StringBuilder roadmapArray = new StringBuilder();
+        for (int i = 1; i <= 15; i++) {
+            if (i > 1) {
+                roadmapArray.append(',');
+            }
+            roadmapArray.append("""
+                    {"id":"node-%d","title":"Node %d","type":"MAIN","is_core":true,"parent_id":%s,"order_index":%d,"main_path_index":%d}
+                    """.formatted(i, i, i == 1 ? "null" : "\"node-" + (i - 1) + "\"", i, i));
+        }
+        String json = """
+                {
+                  "roadmap_metadata": {
+                    "title": "Java Fullstack",
+                    "roadmap_mode": "TEMPLATE_GUIDED"
+                  },
+                  "roadmap": [%s]
+                }
+                """.formatted(roadmapArray);
+        RoadmapSession session = RoadmapSession.builder()
+                .id(2L)
+                .user(User.builder().id(1L).build())
+                .roadmapMode("TEMPLATE_GUIDED")
+                .roadmapTemplateId(99L)
+                .roadmapJson(json)
+                .build();
+
+        List<RoadmapResponse.RoadmapNode> nodes = service.extractNodes(session);
+
+        assertEquals(15, nodes.size());
+        assertTrue(nodes.stream().allMatch(n -> n.getType() == RoadmapResponse.RoadmapNode.NodeType.MAIN));
+    }
+
     private RoadmapSession buildSession(Long sessionId, Long userId) {
         User user = User.builder().id(userId).build();
         return RoadmapSession.builder()

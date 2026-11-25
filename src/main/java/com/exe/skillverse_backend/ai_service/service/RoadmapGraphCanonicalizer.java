@@ -164,6 +164,7 @@ final class RoadmapGraphCanonicalizer {
                     .reason(node.getReason())
                     .evidence(node.getEvidence() != null ? new ArrayList<>(node.getEvidence()) : null)
                     .importanceValidationStatus(node.getImportanceValidationStatus())
+                    .enrichmentStatus(node.getEnrichmentStatus())
                     .build());
         }
         return copies;
