@@ -50,6 +50,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -69,6 +70,9 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
     private final FileTextExtractorService fileExtractor;
     private final NotificationService notificationService;
     private final CourseLearningProgressService courseLearningProgressService;
+    @Autowired(required = false)
+    private Environment environment;
+
     private final ChatModel chatModel;
     private final ObjectMapper objectMapper;
     private final LocalAiGateway localAiGateway;
@@ -641,8 +645,11 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
                 "AI grading is not available — ASSIGNMENT_AI_API_KEY is not configured. "
                 + "Please configure assignment_ai.api-key in your environment.");
         }
+        String activeModelName = (environment != null)
+                ? environment.getProperty("assignment_ai.model", "mistral")
+                : "mistral";
         providerTracker.set(AiProviderType.MISTRAL);
-        modelTracker.set("mistral-large-latest");
+        modelTracker.set(activeModelName);
         String cloudResponse = ChatClient.create(chatModel).prompt()
                 .user(userPrompt)
                 .call()
@@ -651,7 +658,7 @@ public class AssignmentAiGradingServiceImpl implements AssignmentAiGradingServic
         return GradingAttemptResult.builder()
                 .result(result)
                 .providerType(AiProviderType.MISTRAL)
-                .modelName("mistral-large-latest")
+                .modelName(activeModelName)
                 .build();
     }
 

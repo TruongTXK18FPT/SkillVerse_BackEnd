@@ -325,7 +325,8 @@ server:
 app:
   roadmap:
     enrichment:
-      concurrency: ${APP_ROADMAP_ENRICHMENT_CONCURRENCY:2}
+      concurrency: ${APP_ROADMAP_ENRICHMENT_CONCURRENCY:1}
+      request-gap-ms: ${APP_ROADMAP_ENRICHMENT_REQUEST_GAP_MS:3500}
   course:
     revision:
       read-enabled: ${APP_COURSE_REVISION_READ_ENABLED:true}

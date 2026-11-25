@@ -71,8 +71,11 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   @Value("${spring.ai.openai.chat.options.model}")
   private String geminiModel;
 
-  @Value("${spring.ai.openai.fallback-models:gemini-2.0-flash}")
+  @Value("${spring.ai.openai.fallback-models:}")
   private String geminiFallbackModel;
+
+  @Value("${spring.ai.mistralai.chat.options.model:}")
+  private String mistralModelName;
 
   // Use Gemini native endpoint instead of OpenAI-compatible one
   private static final String GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
@@ -661,7 +664,7 @@ public class AiChatbotServiceImpl implements AiChatbotService {
   private String callMistralForChat(String userMessage, List<ChatMessage> previousMessages, ChatRequest request,
       String agentSuffix, String sessionDomain, String usageMetadata) {
     long startTime = System.currentTimeMillis();
-    String modelName = "mistral-large-latest";
+    String modelName = (mistralModelName != null && !mistralModelName.isBlank()) ? mistralModelName : "mistral";
     try {
       // Build conversation history
       StringBuilder contextBuilder = new StringBuilder();

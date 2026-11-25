@@ -23,6 +23,7 @@ import com.exe.skillverse_backend.ai_usage_service.util.TokenCounterUtil;
 import com.exe.skillverse_backend.ai_service.service.LocalAiGateway;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -63,9 +64,14 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
     @Autowired(required = false)
     private AiTokenUsageRecorder tokenUsageRecorder;
 
+    @Value("${spring.ai.mistralai.chat.options.model:}")
+    private String mistralModelName;
+
+    @Value("${app.roadmap.enrichment.request-gap-ms:3500}")
+    private long minMistralRequestGapMs = 3500;
+
     private static final int MAX_RETRIES = 2;
     private static final long RETRY_BACKOFF_MS = 5000;
-    private static final long MIN_MISTRAL_REQUEST_GAP_MS = 1200;
 
     public RoadmapNodeAiEnrichmentServiceImpl(
             @Qualifier("mistralAiChatModel") ChatModel mistralChatModel,
@@ -246,7 +252,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 while (true) {
                     long currentNext = nextAllowedRequestTime.get();
                     scheduledTime = Math.max(now, currentNext);
-                    long next = scheduledTime + MIN_MISTRAL_REQUEST_GAP_MS;
+                    long next = scheduledTime + minMistralRequestGapMs;
                     if (nextAllowedRequestTime.compareAndSet(currentNext, next)) {
                         break;
                     }
@@ -260,7 +266,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 String responseText = null;
                 ChatResponse chatResponse = null;
                 AiProviderType usedProvider = AiProviderType.MISTRAL;
-                String usedModelName = "mistral-large-latest";
+                String usedModelName = resolveMistralModelName();
 
                 if (localAiGateway != null && localAiGateway.isAvailable()) {
                     log.info("Using Local AI for Roadmap Node Enrichment - Node: '{}'", nodeTitle);
@@ -279,7 +285,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                         
                         // Switch to Mistral
                         usedProvider = AiProviderType.MISTRAL;
-                        usedModelName = "mistral-large-latest";
+                        usedModelName = resolveMistralModelName();
                         chatResponse = ChatClient.builder(mistralChatModel)
                                 .build()
                                 .prompt()
@@ -293,7 +299,7 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
                 } else {
                     log.info("Local AI unavailable. Using Mistral for Roadmap Node Enrichment - Node: '{}'", nodeTitle);
                     usedProvider = AiProviderType.MISTRAL;
-                    usedModelName = "mistral-large-latest";
+                    usedModelName = resolveMistralModelName();
                     chatResponse = ChatClient.builder(mistralChatModel)
                             .build()
                             .prompt()
@@ -360,10 +366,14 @@ public class RoadmapNodeAiEnrichmentServiceImpl implements RoadmapNodeAiEnrichme
         log.error("❌ Sequential AI Enrichment Failed after {} attempts for Node '{}' in {}ms. Reverting to static template fallback.", 
                 MAX_RETRIES + 1, nodeTitle, duration, lastException);
         
-        recordEnrichmentFailure(nodeTitle, prompt, lastException != null ? lastException.getMessage() : "Enrichment failed", duration, AiProviderType.MISTRAL, "mistral-large-latest");
+        recordEnrichmentFailure(nodeTitle, prompt, lastException != null ? lastException.getMessage() : "Enrichment failed", duration, AiProviderType.MISTRAL, resolveMistralModelName());
         
         return buildStaticFallback(nodeTitle, nodeDescription, baselineExpectedOutput, baselineRubric, 
                 skillName, studentLevel, isGap, isStrength, lessonsJson);
+    }
+
+    private String resolveMistralModelName() {
+        return (mistralModelName != null && !mistralModelName.isBlank()) ? mistralModelName : "mistral";
     }
 
     private String buildPrompt(
