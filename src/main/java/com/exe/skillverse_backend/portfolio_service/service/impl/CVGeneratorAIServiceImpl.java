@@ -95,7 +95,7 @@ public class CVGeneratorAIServiceImpl implements CVGeneratorAIService {
             requestBody.put("response_format", Map.of("type", "json_object")); // Force JSON output
 
             // Try with primary model, retry on 429, then fallback once
-            String[] modelsToTry = new String[] { model, "mistral-small-latest" };
+            String[] modelsToTry = new String[] { model, "ministral-8b-latest" };
             for (int m = 0; m < modelsToTry.length; m++) {
                 String currentModel = modelsToTry[m];
                 actualModelUsed = currentModel; // Track current attempt model

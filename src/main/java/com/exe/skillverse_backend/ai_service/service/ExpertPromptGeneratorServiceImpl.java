@@ -24,13 +24,13 @@ import org.springframework.web.client.RestTemplate;
 @Service
 public class ExpertPromptGeneratorServiceImpl implements ExpertPromptGeneratorService {
 
-    @Value("${ai.mistral.api-key:}")
+    @Value("${spring.ai.mistralai.api-key:}")
     private String mistralApiKey;
 
     @Value("${ai.mistral.api-url:https://api.mistral.ai/v1/chat/completions}")
     private String mistralApiUrl;
 
-    @Value("${ai.mistral.model:mistral-large-latest}")
+    @Value("${spring.ai.mistralai.chat.options.model:ministral-14b-latest}")
     private String model;
 
     private final RestTemplate restTemplate = new RestTemplate();

@@ -33,7 +33,7 @@ env:
   # Mistral AI Configuration
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   MISTRAL_PLANNER_API_KEY: ${{ secrets.MISTRAL_PLANNER_API_KEY }}
-  MISTRAL_PLANNER_MODEL: mistral-small-latest
+  MISTRAL_PLANNER_MODEL: ministral-8b-latest
   MISTRAL_EMBEDDING_API_KEY: ${{ secrets.MISTRAL_EMBEDDING_API_KEY }}
   AI_RAG_JAVA_ENABLED: ${{ secrets.AI_RAG_JAVA_ENABLED || 'true' }}
   MISTRAL_EMBEDDING_MODEL: ${{ secrets.MISTRAL_EMBEDDING_MODEL || 'mistral-embed' }}

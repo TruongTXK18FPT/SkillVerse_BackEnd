@@ -87,21 +87,21 @@ spring:
       chat:
         enabled: ${MISTRAL_ENABLED:true}
         options:
-          model: ${MISTRAL_API_MODEL:mistral-large-latest}
+          model: ${MISTRAL_API_MODEL:ministral-14b-latest}
           temperature: ${MISTRAL_API_TEMPERATURE:0.7}
           max-tokens: ${MISTRAL_API_MAX_TOKENS:50000}
 
-    # Custom configuration for AI Study Planner (Mistral Small)
+    # Custom configuration for AI Study Planner (Ministral 8B)
     planner:
       mistral:
         api-key: ${MISTRAL_PLANNER_API_KEY:}
-        model: ${MISTRAL_PLANNER_MODEL:mistral-small-latest}
+        model: ${MISTRAL_PLANNER_MODEL:ministral-8b-latest}
 
     # OpenAI configuration - using Gemini's OpenAI-compatible endpoint
     openai:
       api-key: ${GEMINI_API_KEY:}
       base-url: ${GEMINI_OPENAI_BASE_URL:https://generativelanguage.googleapis.com/v1beta/openai/}
-      fallback-models: ${GEMINI_FALLBACK_MODELS:gemini-2.0-flash}
+      fallback-models: ${GEMINI_FALLBACK_MODELS:gemini-3-flash-preview}
       chat:
         enabled: ${GEMINI_ENABLED:true}
         options:
@@ -150,8 +150,8 @@ cors:
 meowl:
   gemini:
     api-key: ${MEOWL_GEMINI_API_KEY}
-    api-url: ${MEOWL_GEMINI_API_URL:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent}
-    model: ${MEOWL_GEMINI_MODEL:gemini-2.0-flash}
+    api-url: ${MEOWL_GEMINI_API_URL:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent}
+    model: ${MEOWL_GEMINI_MODEL:gemini-2.5-flash}
   reminder:
     enabled: ${MEOWL_REMINDER_ENABLED:true}
   notification:
@@ -230,7 +230,7 @@ portfolio:
     mistral:
       api-key: ${PORTFOLIO_MISTRAL_API_KEY}
       api-url: ${PORTFOLIO_MISTRAL_API_BASE_URL:https://api.mistral.ai/v1/chat/completions}
-      model: ${PORTFOLIO_MISTRAL_API_MODEL:mistral-large-latest}
+      model: ${PORTFOLIO_MISTRAL_API_MODEL:ministral-14b-latest}
       enabled: ${PORTFOLIO_MISTRAL_ENABLED:true}
       timeout: ${PORTFOLIO_MISTRAL_API_TIMEOUT:30000}
       max-tokens: ${PORTFOLIO_MISTRAL_API_MAX_TOKENS:30000}
@@ -241,7 +241,7 @@ skillverse:
   ai:
     learning-report:
       api-key: ${LEARNING_REPORT_KEY:}
-      model: ${LEARNING_REPORT_MODEL:mistral-large-latest}
+      model: ${LEARNING_REPORT_MODEL:ministral-14b-latest}
       enabled: ${LEARNING_REPORT_ENABLED:true}
       max-tokens: ${LEARNING_REPORT_MAX_TOKENS:30000}
       temperature: ${LEARNING_REPORT_TEMPERATURE:0.7}
@@ -249,7 +249,7 @@ skillverse:
     # AI Generate Test Configuration (separate Mistral API key for guided journey)
     generate-test:
       api-key: ${AI_GENERATE_TEST_KEY:}
-      model: ${AI_GENERATE_TEST_MODEL:mistral-small-latest}
+      model: ${AI_GENERATE_TEST_MODEL:ministral-14b-latest}
       enabled: ${AI_GENERATE_TEST_ENABLED:true}
       max-tokens: ${AI_GENERATE_TEST_MAX_TOKENS:8000}
       temperature: ${AI_GENERATE_TEST_TEMPERATURE:0.7}
@@ -258,7 +258,7 @@ skillverse:
     # AI Candidate Search Configuration (separate Mistral API key for recruiter search)
     search:
       api-key: ${AI_SEARCH_KEY:}
-      model: ${AI_SEARCH_MODEL:mistral-large-latest}
+      model: ${AI_SEARCH_MODEL:ministral-14b-latest}
       enabled: ${AI_SEARCH_ENABLED:true}
       max-tokens: ${AI_SEARCH_MAX_TOKENS:30000}
       temperature: ${AI_SEARCH_TEMPERATURE:0.7}
@@ -310,7 +310,7 @@ springdoc:
 # Assignment AI Grading Configuration (separate Mistral API key for auto-grading)
 assignment_ai:
   api-key: ${ASSIGNMENT_AI_API_KEY:}
-  model: ${ASSIGNMENT_AI_MODEL:mistral-large-latest}
+  model: ${ASSIGNMENT_AI_MODEL:ministral-14b-latest}
   temperature: ${ASSIGNMENT_AI_TEMPERATURE:0.7}
   max-tokens: ${ASSIGNMENT_AI_MAX_TOKENS:30000}
   enabled: ${ASSIGNMENT_AI_ENABLED:true}

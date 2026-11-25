@@ -340,10 +340,9 @@ public class AiStudySupportServiceImpl implements AiStudySupportService {
         return fullPrompt.toString();
     }
 
-    // AI Study Planner uses mistral-small-latest for all users (free feature)
+    // AI Study Planner uses configured planner model (default: ministral-8b-latest)
     private String getMistralModelForUser(Long userId) {
-        // User plan check no longer needed — feature is free for everyone
-        return "mistral-small-latest";
+        return mistralModel;
     }
 
     @Override
